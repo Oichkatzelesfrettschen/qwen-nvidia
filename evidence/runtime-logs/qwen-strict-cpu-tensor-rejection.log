@@ -1,0 +1,122 @@
+0.00.045.022 I cmn  common_param: common_params_print_info: build 1 (f280b26) with GNU 13.3.0 for Linux x86_64
+0.00.045.088 I cmn  common_param: common_params_print_info: verbosity = 10 (adjust with the `-lv N` CLI arg)
+0.00.045.100 I cmn  common_param: device_info:
+0.00.047.338 I cmn  common_param:   - Vulkan0 : AMD Radeon Graphics (RADV RAVEN2) (17043 MiB, 15815 MiB free)
+0.00.047.389 I cmn  common_param:   - CPU     : AMD Athlon Silver 3050U with Radeon Graphics (29990 MiB, 29990 MiB free)
+0.00.047.443 I cmn  common_param: system_info: n_threads = 1 (n_threads_batch = 1) / 2 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | REPACK = 1 | 
+0.00.047.514 I srv          init: using 5 threads for HTTP server
+0.00.047.527 I srv          init: The UI is disabled
+0.00.047.538 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.047.614 W srv  llama_server: -----------------
+0.00.047.626 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.047.637 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.047.647 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.047.657 W srv  llama_server: -----------------
+0.00.047.681 I srv         start: binding port with default address family
+0.00.048.929 I srv    load_model: loading model '$HOME/models/test-fixtures/stories15M-q4_0.gguf'
+0.00.048.949 I srv    load_model: local path '$HOME/models/test-fixtures/stories15M-q4_0.gguf'
+0.00.054.641 I llama_model_loader: loaded meta data with 20 key-value pairs and 57 tensors from $HOME/models/test-fixtures/stories15M-q4_0.gguf (version GGUF V3 (latest))
+0.00.054.689 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+0.00.059.736 I llama_model_loader: - kv   0:                      tokenizer.ggml.tokens arr[str,32000]   = ["<unk>", "<s>", "</s>", "<0x00>", "<...
+0.00.073.340 I llama_model_loader: - kv   1:                      tokenizer.ggml.scores arr[f32,32000]   = [0.000000, 0.000000, 0.000000, 0.0000...
+0.00.074.775 I llama_model_loader: - kv   2:                  tokenizer.ggml.token_type arr[i32,32000]   = [2, 3, 3, 6, 6, 6, 6, 6, 6, 6, 6, 6, ...
+0.00.074.796 I llama_model_loader: - kv   3:                       tokenizer.ggml.model str              = llama
+0.00.074.808 I llama_model_loader: - kv   4:                       general.architecture str              = llama
+0.00.074.819 I llama_model_loader: - kv   5:                               general.name str              = llama
+0.00.074.831 I llama_model_loader: - kv   6:            tokenizer.ggml.unknown_token_id u32              = 0
+0.00.074.842 I llama_model_loader: - kv   7:                tokenizer.ggml.bos_token_id u32              = 1
+0.00.074.853 I llama_model_loader: - kv   8:                tokenizer.ggml.eos_token_id u32              = 2
+0.00.074.864 I llama_model_loader: - kv   9:          tokenizer.ggml.seperator_token_id u32              = 4294967295
+0.00.074.875 I llama_model_loader: - kv  10:            tokenizer.ggml.padding_token_id u32              = 4294967295
+0.00.074.886 I llama_model_loader: - kv  11:                       llama.context_length u32              = 128
+0.00.074.897 I llama_model_loader: - kv  12:                     llama.embedding_length u32              = 288
+0.00.074.908 I llama_model_loader: - kv  13:                  llama.feed_forward_length u32              = 768
+0.00.074.919 I llama_model_loader: - kv  14:                 llama.attention.head_count u32              = 6
+0.00.074.930 I llama_model_loader: - kv  15:                          llama.block_count u32              = 6
+0.00.074.942 I llama_model_loader: - kv  16:                 llama.rope.dimension_count u32              = 48
+0.00.074.955 I llama_model_loader: - kv  17:     llama.attention.layer_norm_rms_epsilon f32              = 0.000010
+0.00.074.966 I llama_model_loader: - kv  18:               general.quantization_version u32              = 2
+0.00.074.977 I llama_model_loader: - kv  19:                          general.file_type u32              = 2
+0.00.075.004 I llama_model_loader: - type  f32:   13 tensors
+0.00.075.016 I llama_model_loader: - type q4_0:   43 tensors
+0.00.075.027 I llama_model_loader: - type q8_0:    1 tensors
+0.00.075.039 I print_info: file format = GGUF V3 (latest)
+0.00.075.050 I print_info: file type   = Q4_0
+0.00.075.061 I print_info: file size   = 17.50 MiB (6.01 BPW) 
+0.00.080.849 W load: empty token at index 30143
+0.00.081.221 D init_tokenizer: initializing tokenizer for type 1
+0.00.081.245 W load: bad special token: 'tokenizer.ggml.seperator_token_id' = 4294967295, using default id -1
+0.00.081.257 W load: bad special token: 'tokenizer.ggml.padding_token_id' = 4294967295, using default id -1
+0.00.090.083 I load: 0 unused tokens
+0.00.094.685 D load: control token:      1 '<s>' is not marked as EOG
+0.00.095.638 I load: printing all EOG tokens:
+0.00.095.654 I load:   - 2 ('</s>')
+0.00.095.731 I load: special tokens cache size = 3
+0.00.100.270 I load: token to piece cache size = 0.1684 MB
+0.00.100.306 I print_info: arch                  = llama
+0.00.100.317 I print_info: vocab_only            = 0
+0.00.100.328 I print_info: no_alloc              = 0
+0.00.100.338 I print_info: n_ctx_train           = 128
+0.00.100.349 I print_info: n_embd_inp            = 288
+0.00.100.359 I print_info: n_embd                = 288
+0.00.100.370 I print_info: n_embd_out            = 288
+0.00.100.380 I print_info: n_layer               = 6
+0.00.100.391 I print_info: n_layer_all           = 6
+0.00.100.408 I print_info: n_head                = 6
+0.00.100.419 I print_info: n_head_kv             = 6
+0.00.100.430 I print_info: n_rot                 = 48
+0.00.100.441 I print_info: n_swa                 = 0
+0.00.100.451 I print_info: is_swa_any            = 0
+0.00.100.462 I print_info: n_embd_head_k         = 48
+0.00.100.472 I print_info: n_embd_head_v         = 48
+0.00.100.483 I print_info: n_gqa                 = 1
+0.00.100.494 I print_info: n_embd_k_gqa          = 288
+0.00.100.506 I print_info: n_embd_v_gqa          = 288
+0.00.100.517 I print_info: f_norm_eps            = 0.0e+00
+0.00.100.528 I print_info: f_norm_rms_eps        = 1.0e-05
+0.00.100.539 I print_info: f_clamp_kqv           = 0.0e+00
+0.00.100.550 I print_info: f_max_alibi_bias      = 0.0e+00
+0.00.100.560 I print_info: f_logit_scale         = 0.0e+00
+0.00.100.571 I print_info: f_attn_scale          = 0.0e+00
+0.00.100.581 I print_info: f_attn_value_scale    = 0.0000
+0.00.100.593 I print_info: n_ff                  = 768
+0.00.100.603 I print_info: n_expert              = 0
+0.00.100.614 I print_info: n_expert_used         = 0
+0.00.100.624 I print_info: n_expert_groups       = 0
+0.00.100.634 I print_info: n_group_used          = 0
+0.00.100.645 I print_info: causal attn           = 1
+0.00.100.655 I print_info: pooling type          = -1
+0.00.100.666 I print_info: rope type             = 0
+0.00.100.676 I print_info: rope scaling          = linear
+0.00.100.688 I print_info: freq_base_train       = 10000.0
+0.00.100.705 I print_info: freq_scale_train      = 1
+0.00.100.716 I print_info: n_ctx_orig_yarn       = 128
+0.00.100.883 I print_info: rope_yarn_log_mul     = 0.0000
+0.00.100.894 I print_info: rope_finetuned        = unknown
+0.00.100.906 I print_info: model type            = ?B
+0.00.100.917 I print_info: model params          = 24.41 M
+0.00.100.928 I print_info: general.name          = llama
+0.00.100.939 I print_info: vocab type            = SPM
+0.00.100.950 I print_info: n_vocab               = 32000
+0.00.100.960 I print_info: n_merges              = 0
+0.00.100.971 I print_info: BOS token             = 1 '<s>'
+0.00.100.981 I print_info: EOS token             = 2 '</s>'
+0.00.100.992 I print_info: UNK token             = 0 '<unk>'
+0.00.101.002 I print_info: LF token              = 13 '<0x0A>'
+0.00.101.013 I print_info: EOG token             = 2 '</s>'
+0.00.101.023 I print_info: max token length      = 48
+0.00.101.035 I load_tensors: loading model tensors, this can take a while... (load_mode = mmap)
+0.00.101.071 D load_tensors: layer   0 assigned to device CPU, is_swa = 0
+0.00.101.093 D load_tensors: layer   1 assigned to device CPU, is_swa = 0
+0.00.101.104 D load_tensors: layer   2 assigned to device CPU, is_swa = 0
+0.00.101.114 D load_tensors: layer   3 assigned to device CPU, is_swa = 0
+0.00.101.125 D load_tensors: layer   4 assigned to device CPU, is_swa = 0
+0.00.101.135 D load_tensors: layer   5 assigned to device CPU, is_swa = 0
+0.00.101.146 D load_tensors: layer   6 assigned to device CPU, is_swa = 0
+0.00.101.171 D create_tensor: loading tensor token_embd.weight
+0.00.103.494 E llama_model_load: error loading model: tensor token_embd.weight selected CPU buffer CPU while LLAMA_NO_CPU_FALLBACK is enabled
+0.00.103.545 E llama_model_load_from_file_impl: failed to load model
+0.00.103.560 E cmn  common_init_: failed to load model '$HOME/models/test-fixtures/stories15M-q4_0.gguf'
+0.00.103.572 E srv    load_model: failed to load model, '$HOME/models/test-fixtures/stories15M-q4_0.gguf'
+0.00.103.585 I srv    operator(): operator(): cleaning up before exit...
+0.00.103.876 E srv  llama_server: exiting due to model loading error

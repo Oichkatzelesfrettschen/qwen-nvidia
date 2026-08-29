@@ -1,0 +1,57 @@
+# One row per file the image lane fetches. An artifact is a byte sequence a
+# publisher offers; what it is used for is a component of a bundle in
+# remote/image-models.tsv, and how it is served is a row in
+# remote/image-profiles.tsv. Splitting those three claims keeps one file
+# reachable from several bundles: the SD 1.5 diffusion checkpoint carries both
+# the sd15-base and the sd15-lcm-v1 bundle, and the sd15-lcm-v1 bundle replaces
+# the packaged decoder with a separate VAE artifact while reusing the same
+# diffusion bytes.
+#
+# remote/download-sdxs-512.sh fetches three files under one destination
+# directory rather than one flat file, because init_from_diffusers_file
+# resolves the diffusers layout against three fixed relative paths. Each file
+# is its own row here -- sdxs-512-diffusion, sdxs-512-vae,
+# sdxs-512-text-encoder -- rather than one row naming the diffusion file,
+# because a component is what a placement arm moves and remote/image-models.tsv
+# resolves vae_artifact and text_encoder_artifact to their own bytes rather
+# than to `packaged`.
+#
+# repository and filename are the publisher coordinates. revision, sha256, and
+# bytes are the pin, and they move together: all three read `-` while the file
+# is unfetched, and the pin lane sets all three from one verified download.
+# remote/image-registry.sh refuses a partial pin, because a digest without the
+# revision it was read at names no source and a revision without a digest
+# verifies nothing.
+#
+# fetch_script names the downloader the pin lane writes. This file validates
+# the name shape rather than testing the path, which is where it diverges from
+# remote/models.tsv: that registry's rows serve, so their fetch scripts exist
+# and are executable, while an image row states an admitted source before any
+# byte has crossed the network. The pin lane turns the name into an executable
+# script that pins revision, byte count, and SHA-256 the way every
+# remote/download-*.sh does.
+#
+# component_type states what the runtime does with the bytes: `diffusion` is
+# the denoising trunk, `vae` the latent decoder, `tae` a Tiny AutoEncoder
+# decoder that reaches sd-cli through --taesd rather than through the VAE
+# slot, `text_encoder` the prompt encoder, `lora` a weight delta applied over a
+# trunk, and `runtime` an executable or library the appliance builds against.
+# A bundle resolves each of its components against this column, so a VAE named
+# in the diffusion slot is refused rather than loaded, and the first standalone
+# campaign proved a `tae` component refused under the full-VAE metadata check
+# (evidence/image-appliance/sdxs-512-standalone/README.md): sdxs-512 ships a
+# Tiny AutoEncoder in its packaged vae/ slot, and sd-cli reads it correctly
+# only through --taesd.
+#
+# license is the publisher's own term, recorded because SD-Turbo ships under a
+# non-commercial research community licence where SD 1.5 ships OpenRAIL-M, and
+# a bundle inherits the most restrictive licence among its components.
+#
+# artifact_id	repository	revision	filename	sha256	bytes	license	component_type	fetch_script
+sdxs-512-diffusion	IDKiro/sdxs-512-0.9	c332f05f60eb4b453de513be52c2a18c48d8cfe6	unet/diffusion_pytorch_model.safetensors	c2afb7dbea11b64d0bfbc4d1a45854aa65408b8a74a732438225d3f2ec85c71c	1312752864	openrail++	diffusion	download-sdxs-512.sh
+sdxs-512-vae	IDKiro/sdxs-512-0.9	c332f05f60eb4b453de513be52c2a18c48d8cfe6	vae/diffusion_pytorch_model.safetensors	d7956d561b1efbd861ad9b03fd8f01510f9e87eddc07bdfd20837009433f6ee5	9793292	openrail++	tae	download-sdxs-512.sh
+sdxs-512-text-encoder	IDKiro/sdxs-512-0.9	c332f05f60eb4b453de513be52c2a18c48d8cfe6	text_encoder/model.safetensors	cce6febb0b6d876ee5eb24af35e27e764eb4f9b1d0b7c026c8c3333d4cfc916c	1361597018	openrail++	text_encoder	download-sdxs-512.sh
+sd15-diffusion	stable-diffusion-v1-5/stable-diffusion-v1-5	451f4fe16113bff5a5d2269ed5ad43b0592e9a14	v1-5-pruned-emaonly.safetensors	6ce0161689b3853acaa03779ec93eafe75a02f4ced659bee03f50797806fa2fa	4265146304	creativeml-openrail-m	diffusion	download-sd15-base.sh
+sd15-vae-ft-mse	stabilityai/sd-vae-ft-mse-original	629b3ad3030ce36e15e70c5db7d91df0d60c627f	vae-ft-mse-840000-ema-pruned.safetensors	735e4c3a447a3255760d7f86845f09f937809baa529c17370d83e4c3758f3c75	334641190	mit	vae	download-sd15-vae.sh
+sd15-lcm-lora	latent-consistency/lcm-lora-sdv1-5	cf2fced511dbe7e26c8d1d397e728fbab875db4b	pytorch_lora_weights.safetensors	8f90d840e075ff588a58e22c6586e2ae9a6f7922996ee6649a7f01072333afe4	134621556	openrail++	lora	download-lcm-lora-sd15.sh
+sd-turbo-diffusion	stabilityai/sd-turbo	b261bac6fd2cf515557d5d0707481eafa0485ec2	sd_turbo.safetensors	3f067a1b943cf162f2b8f8588f6cf5824bd5b4c7d1d88d87164b9ca123616549	5214561328	stability-ai-nc-research-community	diffusion	download-sd-turbo.sh

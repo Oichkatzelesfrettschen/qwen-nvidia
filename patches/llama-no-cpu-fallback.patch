@@ -1,0 +1,83 @@
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -32,6 +32,40 @@
+     throw std::runtime_error("Unsupported ctx type");
+ }
+ 
++static bool graph_node_has_backend_work(const ggml_tensor * node) {
++    switch (node->op) {
++        case GGML_OP_NONE:
++        case GGML_OP_RESHAPE:
++        case GGML_OP_VIEW:
++        case GGML_OP_PERMUTE:
++        case GGML_OP_TRANSPOSE:
++            return false;
++        default:
++            return true;
++    }
++}
++
++static bool graph_uses_cpu_backend(ggml_backend_sched_t sched, ggml_cgraph * graph) {
++    if (!getenv("LLAMA_NO_CPU_FALLBACK")) {
++        return false;
++    }
++
++    for (int node_index = 0; node_index < ggml_graph_n_nodes(graph); ++node_index) {
++        ggml_tensor * node = ggml_graph_node(graph, node_index);
++        if (!graph_node_has_backend_work(node)) {
++            continue;
++        }
++        ggml_backend_t backend = ggml_backend_sched_get_tensor_backend(sched, node);
++        ggml_backend_dev_t device = backend ? ggml_backend_get_device(backend) : nullptr;
++        if (device && ggml_backend_dev_type(device) == GGML_BACKEND_DEVICE_TYPE_CPU) {
++            LLAMA_LOG_ERROR("CPU fallback rejected for graph node %s (%s)\n", node->name, ggml_op_name(node->op));
++            return true;
++        }
++    }
++
++    return false;
++}
++
+ struct llm_fused_op_probe {
+     llm_fused_op op;
+     const char * name;
+@@ -1370,6 +1404,10 @@
+             ret = GGML_STATUS_ALLOC_FAILED;
+             return nullptr;
+         }
++        if (graph_uses_cpu_backend(sched.get(), gf)) {
++            ret = GGML_STATUS_FAILED;
++            return nullptr;
++        }
+     }
+ 
+     // set the input data for the input tensors
+@@ -2445,6 +2483,10 @@
+         return nullptr;
+     }
+ 
++    if (graph_uses_cpu_backend(sched.get(), gf)) {
++        return nullptr;
++    }
++
+     return gf;
+ }
+ 
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1219,6 +1219,15 @@
+             buft = ggml_backend_dev_buffer_type(cpu_dev);
+         }
+ 
++        if (getenv("LLAMA_NO_CPU_FALLBACK")) {
++            auto * selected_device = ggml_backend_buft_get_device(buft);
++            if (!selected_device || ggml_backend_dev_type(selected_device) == GGML_BACKEND_DEVICE_TYPE_CPU) {
++                throw std::runtime_error(format(
++                    "tensor %s selected CPU buffer %s while LLAMA_NO_CPU_FALLBACK is enabled",
++                    tn.str().c_str(), ggml_backend_buft_name(buft)));
++            }
++        }
++
+         if (buft != buft_list->front().second) {
+             if (n_tensors_moved == 0) {
+                 first_tensor_moved_name = t_meta->name;

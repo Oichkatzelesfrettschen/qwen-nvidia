@@ -1,0 +1,56 @@
+{
+ "origin": "http://127.0.0.1:8080",
+ "model": "lfm25-vl-16b",
+ "history": [
+  {
+   "role": "user",
+   "content": "Call the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool."
+  },
+  {
+   "role": "assistant",
+   "content": "image_generate_image(red_apple_on_white_table, product_photography)"
+  }
+ ],
+ "requests": [
+  {
+   "url": "http://127.0.0.1:8080/tools?model=lfm25-vl-16b&autoload=true",
+   "method": "GET",
+   "body": null,
+   "bodyKeys": null,
+   "bodyModel": null
+  },
+  {
+   "url": "http://127.0.0.1:8080/tools?model=lfm25-vl-16b&autoload=true",
+   "method": "GET",
+   "body": null,
+   "bodyKeys": null,
+   "bodyModel": null
+  },
+  {
+   "url": "http://127.0.0.1:8080/v1/chat/completions",
+   "method": "POST",
+   "body": "{\"model\":\"lfm25-vl-16b\",\"stream\":true,\"temperature\":0.7,\"stream_options\":{\"include_usage\":true},\"max_tokens\":512,\"messages\":[{\"role\":\"user\",\"content\":\"Call the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool.\"}],\"chat_template_kwargs\":{\"enable_thinking\":false},\"reasoning_budget\":0}",
+   "bodyKeys": [
+    "model",
+    "stream",
+    "temperature",
+    "stream_options",
+    "max_tokens",
+    "messages",
+    "chat_template_kwargs",
+    "reasoning_budget"
+   ],
+   "bodyModel": "lfm25-vl-16b"
+  }
+ ],
+ "imageStates": [],
+ "imageCards": [],
+ "log": "you\nCall the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool.\nqwen\nimage_generate_image(red_apple_on_white_table, product_photography)\n47.9 tok/s prefill | 16.7 tok/s decode | 19 generated tokens in 2.3s",
+ "selected_model_at_load": "lfm25-vl-16b",
+ "dialog": null,
+ "review": null,
+ "error": {
+  "type": "TimeoutError",
+  "message": "waited 600s for the approval dialog"
+ }
+}

@@ -1,0 +1,416 @@
+{
+  "summary": {
+    "rows": 10,
+    "requested_model": "lfm25-vl-16b",
+    "tool_stages": {
+      "rows": 10,
+      "called_a_tool": 8,
+      "arguments_parsed": 10,
+      "names_match": 9,
+      "arguments_match": 8
+    },
+    "images_omitted": false,
+    "images_sent": 0,
+    "served_models": [
+      "lfm25-vl-16b"
+    ],
+    "passed": 8,
+    "completion_rate": 1.0,
+    "empty_answer_rate": 0.0,
+    "truncated_rate": 0.0,
+    "correct_on_completed": 0.8,
+    "reasoning_words_total": 0,
+    "generated_tokens_total": 169,
+    "wall_seconds_total": 40.54382443299983,
+    "by_category": {
+      "tool": {
+        "attempted": 10,
+        "passed": 8,
+        "truncated": 0,
+        "empty": 0
+      }
+    }
+  },
+  "records": [
+    {
+      "id": "tool-01",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Oslo",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Oslo",
+            "unit": "celsius"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 38,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 19,
+      "prompt_tokens": 115,
+      "decode_tok_per_second": 11.420464711398512,
+      "wall_seconds": 6.698917638044804
+    },
+    {
+      "id": "tool-02",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_local_time:city=Tokyo",
+      "attachment": "tools:weather_and_time",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_local_time",
+          "arguments": {
+            "city": "Tokyo"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_local_time"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 35,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 15,
+      "prompt_tokens": 150,
+      "decode_tok_per_second": 10.69441919373246,
+      "wall_seconds": 3.8843887710245326
+    },
+    {
+      "id": "tool-03",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Lisbon",
+      "attachment": "tools:weather_and_time",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Lisbon"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 39,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 15,
+      "prompt_tokens": 152,
+      "decode_tok_per_second": 12.819679306565233,
+      "wall_seconds": 3.652527430909686
+    },
+    {
+      "id": "tool-04",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "multiply:left=47|right=89",
+      "attachment": "tools:arithmetic",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "multiply",
+          "arguments": {
+            "left": 47,
+            "right": 89
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "multiply"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 59,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 16,
+      "prompt_tokens": 108,
+      "decode_tok_per_second": 11.559312760325357,
+      "wall_seconds": 3.33134697296191
+    },
+    {
+      "id": "tool-05",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "no_tool_call",
+      "expectation": "paris",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [],
+      "tool_detail": {
+        "emitted": [],
+        "called_a_tool": false,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 54,
+      "passed": true,
+      "reason": "answered without a tool call, matched paris",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "The capital of France is Paris.",
+      "reasoning_words": 0,
+      "generated_tokens": 8,
+      "prompt_tokens": 118,
+      "decode_tok_per_second": 10.765388353695297,
+      "wall_seconds": 2.8624357170192525
+    },
+    {
+      "id": "tool-06",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "read_record:record_id=P-4471",
+      "attachment": "tools:database",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "read_record",
+          "arguments": {
+            "record_id": "P-4471"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "read_record"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 58,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 17,
+      "prompt_tokens": 146,
+      "decode_tok_per_second": 12.090080164787794,
+      "wall_seconds": 3.877107082051225
+    },
+    {
+      "id": "tool-07",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "list_records",
+      "attachment": "tools:database",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "list_records",
+          "arguments": {},
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "list_records"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 51,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 10,
+      "prompt_tokens": 140,
+      "decode_tok_per_second": 11.263812249771282,
+      "wall_seconds": 3.5066374029265717
+    },
+    {
+      "id": "tool-08",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Oslo",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Reykjavik"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": false
+      },
+      "prompt_characters": 165,
+      "passed": false,
+      "reason": "arguments disagree with get_weather:city=Oslo",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 16,
+      "prompt_tokens": 155,
+      "decode_tok_per_second": 13.336723824901265,
+      "wall_seconds": 3.8668182760011405
+    },
+    {
+      "id": "tool-09",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "no_tool_call",
+      "expectation": "book|novel|sail",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [],
+      "tool_detail": {
+        "emitted": [],
+        "called_a_tool": false,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 61,
+      "passed": true,
+      "reason": "answered without a tool call, matched book",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "I don't have access to a tool that recommends books, but I can suggest \"The Art of Sailing\" by John P. McConnell as a classic guide for sailing enthusiasts.",
+      "reasoning_words": 0,
+      "generated_tokens": 39,
+      "prompt_tokens": 119,
+      "decode_tok_per_second": 13.136470645173556,
+      "wall_seconds": 4.884062219993211
+    },
+    {
+      "id": "tool-10",
+      "requested_model": "lfm25-vl-16b",
+      "served_model": "lfm25-vl-16b",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Oslo;get_local_time:city=Oslo",
+      "attachment": "tools:weather_and_time",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Oslo"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": false,
+        "arguments_match": false
+      },
+      "prompt_characters": 69,
+      "passed": false,
+      "reason": "called get_weather, want get_weather:city=Oslo;get_local_time:city=Oslo",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 14,
+      "prompt_tokens": 155,
+      "decode_tok_per_second": 11.928454962283144,
+      "wall_seconds": 3.979582922067493
+    }
+  ]
+}

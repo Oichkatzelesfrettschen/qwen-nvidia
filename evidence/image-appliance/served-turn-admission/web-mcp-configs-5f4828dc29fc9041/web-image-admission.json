@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "image": {
+      "command": "python3",
+      "timeout_ms": 360000,
+      "args": [
+        "$HOME/qwen-laptop-setup/remote/image-mcp/server.py"
+      ],
+      "env": {
+        "QWEN_IMAGE_LANGUAGE_PROFILE": "web-image-admission",
+        "QWEN_IMAGE_PROFILE": "image-sdxs-512-a",
+        "QWEN_IMAGE_TOKEN_KEY_FILE": "$HOME/image-admission-20260829T103938Z-4b-final/keys/token.key",
+        "QWEN_IMAGE_STATE_DIR": "$HOME/qwen-webui-state/images",
+        "QWEN_IMAGE_SERVICE_SOCKET": "$HOME/qwen-webui-state/images/image-service.sock",
+        "QWEN_IMAGE_PROFILES_JSON": "$HOME/image-admission-20260829T103938Z-4b-final/image-parameters.json",
+        "QWEN_IMAGE_MCP_TIMEOUT_S": "360"
+      }
+    }
+  }
+}

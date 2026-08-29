@@ -1,0 +1,65 @@
+# A serving tuple ledger, one row per measured (context, batch, ubatch, cache,
+# Flash Attention) arm against one model. models.tsv carries a single
+# validated_filled_depth per row, which cannot express that one depth passes
+# under one submission geometry and fails under another for the same model and
+# cache triple: the 4B distill fills and decodes 16384 tokens at batch 128 and
+# ubatch 32 while the harness-default 2048 and 512 wedges the compute ring at
+# the same depth and cache triple. This ledger carries every measured arm
+# rather than collapsing them into one field, and
+# remote/check-validated-tuples.sh requires the arm models.tsv already claims
+# through validated_filled_depth/batch/ubatch to appear here as a validated row.
+#
+# tuple_id is a unique key naming model, depth, and geometry. model_id is a row
+# in remote/models.tsv. runtime_mode is standalone or router-child, because a
+# router preset section overrides depth, batch, ubatch, and cache in
+# server-models.cpp's common_preset::merge and the two paths admit different
+# geometry. context, batch, and ubatch are the submission geometry the arm
+# measured; cache_k, cache_v, and flash_attention are the cache triple. threads
+# and parallel name the llama-server invocation the arm ran with; a change to
+# either is a different measurement. projector_state is none or loaded, because
+# a loaded projector changes the buffers the arm allocates. backend is vulkan,
+# cpu, or hip.
+#
+# status is validated, failed, or unverified. validated means the arm filled
+# and decoded to the stated depth and the post-arm control passed. failed means
+# the arm wedged, reset, or otherwise did not complete, and the row still
+# belongs in the ledger because a failed geometry is exactly what steers a
+# later choice away from it. unverified means the row is planned or claimed
+# without a completed arm; remote/check-validated-tuples.sh treats it the same
+# as an absent row when models.tsv requires a validated match.
+#
+# evidence is a repository-relative path that must exist in the tree when
+# status is validated. llama_commit, runner_sha256, kernel, mesa, and amdgpu
+# name the build and host identity the arm ran under, `-` where the retained
+# evidence does not carry that identity. measured_at is the ISO date the arm
+# ran, `-` where unknown.
+#
+# tuple_id	model_id	runtime_mode	context	batch	ubatch	cache_k	cache_v	flash_attention	threads	parallel	projector_state	backend	status	evidence	llama_commit	runner_sha256	kernel	mesa	amdgpu	measured_at
+qwen38-4b-distill-d16384-b128-ub32	qwen38-4b-distill	standalone	16384	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-versus-submission-geometry.md	-	-	-	-	-	2026-08-26
+qwen38-4b-distill-d16384-b2048-ub512	qwen38-4b-distill	standalone	16384	2048	512	q8_0	q4_0	on	2	1	none	vulkan	failed	evidence/depth-versus-submission-geometry.md	-	-	-	-	-	2026-08-26
+qwen38-4b-distill-d24576-b128-ub32	qwen38-4b-distill	standalone	24576	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen38-4b-distill/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen38-4b-distill-d32768-b128-ub32	qwen38-4b-distill	standalone	32768	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen38-4b-distill/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen38-2b-distill-d8192-b128-ub32	qwen38-2b-distill	standalone	8192	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen38-2b-distill/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen38-2b-distill-d16384-b128-ub32	qwen38-2b-distill	standalone	16384	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen38-2b-distill/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen38-2b-distill-d32768-b128-ub32	qwen38-2b-distill	standalone	32768	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen38-2b-distill/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-2b-d8192-b128-ub32	qwen35-2b	standalone	8192	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-2b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-2b-d16384-b128-ub32	qwen35-2b	standalone	16384	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-2b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-2b-d32768-b128-ub32	qwen35-2b	standalone	32768	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-2b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+lfm25-vl-16b-d8192-b128-ub32	lfm25-vl-16b	standalone	8192	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/lfm25-vl-16b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+lfm25-vl-16b-d16384-b128-ub32	lfm25-vl-16b	standalone	16384	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/lfm25-vl-16b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+lfm25-vl-16b-d32768-b128-ub32	lfm25-vl-16b	standalone	32768	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/lfm25-vl-16b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-08b-d8192-b128-ub32	qwen35-08b	standalone	8192	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-08b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-08b-d16384-b128-ub32	qwen35-08b	standalone	16384	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-08b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-08b-d32768-b128-ub32	qwen35-08b	standalone	32768	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-08b/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-08b-f16-d8192-b128-ub32	qwen35-08b-f16	standalone	8192	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-08b-f16/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-08b-f16-d16384-b128-ub32	qwen35-08b-f16	standalone	16384	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-08b-f16/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-08b-f16-d32768-b128-ub32	qwen35-08b-f16	standalone	32768	128	32	q8_0	q4_0	on	2	1	none	vulkan	validated	evidence/depth-validation-32k/qwen35-08b-f16/	-	027c49627b54a30f773c225a4b1309491e9db1dbb7e396d77c850dc8dccc6b0a	7.0.0-28-generic	-	-	2026-08-28
+qwen35-2b-d8192-b128-ub32-proj	qwen35-2b	standalone	8192	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/qwen35-2b/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+qwen35-2b-d16384-b128-ub32-proj	qwen35-2b	standalone	16384	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/qwen35-2b/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+qwen35-2b-d32768-b128-ub32-proj	qwen35-2b	standalone	32768	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/qwen35-2b/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+lfm25-vl-16b-d8192-b128-ub32-proj	lfm25-vl-16b	standalone	8192	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/lfm25-vl-16b/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+lfm25-vl-16b-d16384-b128-ub32-proj	lfm25-vl-16b	standalone	16384	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/lfm25-vl-16b/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+lfm25-vl-16b-d32768-b128-ub32-proj	lfm25-vl-16b	standalone	32768	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/lfm25-vl-16b/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+qwen35-4b-base-d8192-b128-ub32-proj	qwen35-4b-base	standalone	8192	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/qwen35-4b-base/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+qwen35-4b-base-d16384-b128-ub32-proj	qwen35-4b-base	standalone	16384	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/qwen35-4b-base/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29
+qwen35-4b-base-d32768-b128-ub32-proj	qwen35-4b-base	standalone	32768	128	32	q8_0	q4_0	on	1	1	loaded	vulkan	validated	evidence/depth-validation-32k-projector/qwen35-4b-base/	-	e8a2650acb7a0459704334af0d5ff4caa6cae55fdc25deb08182172a7e6ef591	7.0.0-29-generic	-	-	2026-08-29

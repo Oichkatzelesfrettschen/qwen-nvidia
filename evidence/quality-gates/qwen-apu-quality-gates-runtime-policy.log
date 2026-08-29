@@ -1,0 +1,16 @@
+affinity=0
+nice=19
+io=idle
+profile=paced-60 low=1 duty=60 serialized=1 max_nodes=32 strict=1
+driver=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json compatibility_driver=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+display=unset wayland=unset sysmem_fallback=unset amd_priority=unset memory_priority=unset allow_graphics=unset radv_perftest=unset
+radv_environment=accepted
+qwen_capacity_policy=accepted
+runtime_monitor=accepted gpu_busy_ceiling=accepted kernel_hazard_watcher=accepted
+device=AMD Radeon Graphics (RADV RAVEN2) vendor=0x1002 device=0x15d8 queue_family=1 global_priority=LOW result=VK_SUCCESS
+llama_default_priority=unchanged llama_low_priority=accepted device=RADV_RAVEN2
+cpu_tensor_rejection=accepted cpu_graph_rejection=accepted strict_vulkan_completion=accepted duty_cycle=60 low_priority=accepted
+artifact=accepted path=$HOME/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-server bytes=57475792 sha256=3d5b158160b08cf897bb05b47186a13f67e8a17def31012f2f8282f12e95cb08
+artifact=accepted path=$HOME/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-cli bytes=57643992 sha256=83cc86e271b7fe784d208c00ca22d1fe6875e7a956790d16b55a9e617d23cc5b
+artifact=accepted path=$HOME/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf bytes=2740937888 sha256=00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4
+remote_runtime_policy_gates=accepted

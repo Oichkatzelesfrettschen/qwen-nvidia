@@ -1,0 +1,334 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h b/ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h
+new file mode 100644
+index 000000000..8d62ac3ce
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h
+@@ -0,0 +1,158 @@
++#pragma once
++
++#include <cstdint>
++#include <cstring>
++#include <stdexcept>
++
++// A device that loses its queue reports only that the queue is gone, so the
++// dispatch that failed to retire has to be named from the host side. Each
++// dispatch appends one fixed-size record to this ring, and the device-lost
++// path prints every unretired record beside the last submitted serial and the
++// last serial a fence retired. GGML_VK_SUBMIT_TRACE=1 enables it; every
++// recording site is one load and one branch while it is disabled.
++
++#define GGML_VK_SUBMIT_TRACE_RING_SIZE   256
++#define GGML_VK_SUBMIT_TRACE_NAME_SIZE   64
++#define GGML_VK_SUBMIT_TRACE_BUFFERS     12
++
++static inline bool ggml_vk_parse_submit_trace(const char * value) {
++    if (value == nullptr) {
++        return false;
++    }
++    if (strcmp(value, "1") != 0) {
++        throw std::runtime_error("GGML_VK_SUBMIT_TRACE accepts only the exact value 1");
++    }
++    return true;
++}
++
++struct ggml_vk_submit_record {
++    uint64_t serial;
++    int      node_idx;
++    char     op_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     src0_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     src1_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     dst_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     pipeline_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    uint32_t grid[3];
++    uint32_t workgroup[3];
++    uint32_t buffer_count;
++    uint64_t buffer_handle[GGML_VK_SUBMIT_TRACE_BUFFERS];
++    uint64_t buffer_offset[GGML_VK_SUBMIT_TRACE_BUFFERS];
++    uint64_t buffer_size[GGML_VK_SUBMIT_TRACE_BUFFERS];
++};
++
++// The name a record carries is a snapshot: a ggml tensor name outlives the
++// dispatch that read it, and the pipeline name outlives the device, but the
++// dump runs after a device loss and copying removes the question.
++static inline void ggml_vk_submit_trace_copy_name(char * destination, const char * source) {
++    if (source == nullptr) {
++        destination[0] = '\0';
++        return;
++    }
++    strncpy(destination, source, GGML_VK_SUBMIT_TRACE_NAME_SIZE - 1);
++    destination[GGML_VK_SUBMIT_TRACE_NAME_SIZE - 1] = '\0';
++}
++
++struct ggml_vk_submit_trace {
++    bool enabled {};
++
++    // The node the graph builder is recording. A dispatch inherits it, since
++    // the dispatch site holds the pipeline and the buffers while the graph
++    // builder holds the operation and the tensors.
++    int         node_idx {-1};
++    const char * op_name {};
++    const char * src0_name {};
++    const char * src1_name {};
++    const char * dst_name {};
++
++    // The serial a dispatch is recorded under. It advances when the batch
++    // reaches the queue, so a record's serial states which submission carries
++    // it and comparing it against the two marks below gives the fence state.
++    uint64_t current_serial {1};
++    uint64_t last_submitted_serial {};
++    uint64_t last_completed_serial {};
++
++    ggml_vk_submit_record ring[GGML_VK_SUBMIT_TRACE_RING_SIZE] {};
++    uint64_t              written {};
++
++    void set_node(int idx, const char * op, const char * src0, const char * src1, const char * dst) {
++        node_idx   = idx;
++        op_name    = op;
++        src0_name  = src0;
++        src1_name  = src1;
++        dst_name   = dst;
++    }
++
++    void record_dispatch(const char * pipeline,
++                         uint32_t grid0, uint32_t grid1, uint32_t grid2,
++                         uint32_t wg0, uint32_t wg1, uint32_t wg2) {
++        ggml_vk_submit_record & record = ring[written % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++        record.serial   = current_serial;
++        record.node_idx = node_idx;
++        ggml_vk_submit_trace_copy_name(record.op_name, op_name);
++        ggml_vk_submit_trace_copy_name(record.src0_name, src0_name);
++        ggml_vk_submit_trace_copy_name(record.src1_name, src1_name);
++        ggml_vk_submit_trace_copy_name(record.dst_name, dst_name);
++        ggml_vk_submit_trace_copy_name(record.pipeline_name, pipeline);
++        record.grid[0] = grid0;
++        record.grid[1] = grid1;
++        record.grid[2] = grid2;
++        record.workgroup[0] = wg0;
++        record.workgroup[1] = wg1;
++        record.workgroup[2] = wg2;
++        record.buffer_count = 0;
++        written++;
++    }
++
++    // A descriptor offset is relative to its VkBuffer, so the handle travels
++    // beside the span and attribution reaches buffer granularity. Correlating a
++    // kernel virtual address needs the allocation base, which lives in the
++    // memory binding rather than here.
++    void record_buffer(uint64_t handle, uint64_t offset, uint64_t size) {
++        if (written == 0) {
++            return;
++        }
++        ggml_vk_submit_record & record = ring[(written - 1) % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++        if (record.buffer_count >= GGML_VK_SUBMIT_TRACE_BUFFERS) {
++            return;
++        }
++        record.buffer_handle[record.buffer_count] = handle;
++        record.buffer_offset[record.buffer_count] = offset;
++        record.buffer_size[record.buffer_count]   = size;
++        record.buffer_count++;
++    }
++
++    void mark_submitted() {
++        last_submitted_serial = current_serial;
++        current_serial++;
++    }
++
++    void mark_completed() {
++        last_completed_serial = last_submitted_serial;
++    }
++
++    // The dump answers what the device was holding, so it prints every record
++    // whose serial no fence has retired, bounded by what the ring still holds.
++    uint64_t unretired_count() const {
++        uint64_t count = 0;
++        while (count < written && count < GGML_VK_SUBMIT_TRACE_RING_SIZE) {
++            const ggml_vk_submit_record & record =
++                ring[(written - count - 1) % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++            if (record.serial <= last_completed_serial) {
++                break;
++            }
++            count++;
++        }
++        return count;
++    }
++
++    const char * fence_state(uint64_t serial) const {
++        if (serial <= last_completed_serial) {
++            return "retired";
++        }
++        if (serial <= last_submitted_serial) {
++            return "submitted";
++        }
++        return "recorded";
++    }
++};
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 19ccb7723..95ec74a0f 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1,6 +1,7 @@
+ #include "ggml-vulkan.h"
+ #include "ggml-vulkan-pacing.h"
+ #include "ggml-vulkan-submit-limit.h"
++#include "ggml-vulkan-submit-trace.h"
+ #include <vulkan/vulkan_core.h>
+ #include <chrono>
+ #if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+@@ -869,6 +870,8 @@ struct vk_device_struct {
+ 
+     bool serialize_submissions {};
+ 
++    ggml_vk_submit_trace submit_trace;
++
+     const ggml_cgraph * diag_cgraph {};
+     int diag_prev_start = -1;
+     int diag_prev_end = -1;
+@@ -2172,8 +2175,55 @@ static void ggml_vk_print_node_list(const ggml_cgraph * cgraph, int start, int e
+     GGML_LOG_CONT("  total: %d ops, %.2f GFLOP\n", n_ops, total_flops / 1e9);
+ }
+ 
++// The tail of the submission ring names the dispatches the device was holding
++// when it went away. A record at or below the last completed serial retired, so
++// the first record above it bounds the operation that failed to retire.
++static void ggml_vk_print_submit_trace(const vk_device& device) {
++    const ggml_vk_submit_trace & trace = device->submit_trace;
++    if (!trace.enabled || trace.written == 0) {
++        return;
++    }
++
++    const uint64_t count = trace.unretired_count();
++    if (count == 0) {
++        GGML_LOG_ERROR("ggml_vulkan: submission trace holds no unretired dispatch of %llu "
++                "(last submitted serial %llu, last retired serial %llu)\n",
++                (unsigned long long)trace.written,
++                (unsigned long long)trace.last_submitted_serial,
++                (unsigned long long)trace.last_completed_serial);
++        return;
++    }
++
++    GGML_LOG_ERROR("ggml_vulkan: submission trace, %llu unretired of %llu dispatches "
++            "(last submitted serial %llu, last retired serial %llu):\n",
++            (unsigned long long)count, (unsigned long long)trace.written,
++            (unsigned long long)trace.last_submitted_serial,
++            (unsigned long long)trace.last_completed_serial);
++
++    for (uint64_t back = count; back > 0; back--) {
++        const ggml_vk_submit_record & record =
++            trace.ring[(trace.written - back) % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++        GGML_LOG_CONT("  serial %llu node %d: %s (%s) src0=%s src1=%s "
++                "pipeline=%s grid=(%u,%u,%u) workgroup=(%u,%u,%u) fence=%s\n",
++                (unsigned long long)record.serial, record.node_idx,
++                record.dst_name, record.op_name,
++                record.src0_name, record.src1_name,
++                record.pipeline_name,
++                record.grid[0], record.grid[1], record.grid[2],
++                record.workgroup[0], record.workgroup[1], record.workgroup[2],
++                trace.fence_state(record.serial));
++        for (uint32_t i = 0; i < record.buffer_count; i++) {
++            GGML_LOG_CONT("      buffer %u: handle=0x%llx offset=0x%llx size=0x%llx\n", i,
++                    (unsigned long long)record.buffer_handle[i],
++                    (unsigned long long)record.buffer_offset[i],
++                    (unsigned long long)record.buffer_size[i]);
++        }
++    }
++}
++
+ static void ggml_vk_print_device_lost_info(const vk_device& device) {
+     ggml_vk_print_device_fault_info(device);
++    ggml_vk_print_submit_trace(device);
+     if (device->serialize_submissions && device->diag_cgraph != nullptr && device->diag_prev_start >= 0) {
+         GGML_LOG_ERROR("ggml_vulkan: device lost on %s, likely caused by previous submission (nodes %d to %d):\n",
+                 device->name.c_str(), device->diag_prev_start, device->diag_prev_end);
+@@ -6481,6 +6531,12 @@ static vk_device ggml_vk_get_device(size_t idx) {
+                           device->properties.deviceName.data(), device->max_nodes_per_submit);
+         }
+ 
++        device->submit_trace.enabled = ggml_vk_parse_submit_trace(getenv("GGML_VK_SUBMIT_TRACE"));
++        if (device->submit_trace.enabled) {
++            GGML_LOG_INFO("ggml_vulkan: %s: submission trace = on\n",
++                          device->properties.deviceName.data());
++        }
++
+         const bool force_disable_f16 = getenv("GGML_VK_DISABLE_F16") != nullptr;
+ 
+         device->fp16 = !force_disable_f16 && fp16_storage && fp16_compute;
+@@ -7179,6 +7235,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         device->idx = idx;
+ 
+         device->serialize_submissions = getenv("GGML_VK_SERIALIZE_SUBMISSIONS") != nullptr;
++        if (device->submit_trace.enabled && !device->serialize_submissions) {
++            throw std::runtime_error("GGML_VK_SUBMIT_TRACE requires GGML_VK_SERIALIZE_SUBMISSIONS");
++        }
+ 
+         device->disable_fusion = getenv("GGML_VK_DISABLE_FUSION") != nullptr;
+ 
+@@ -8297,6 +8356,15 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context&
+                                 0,
+                                 { descriptor_set },
+                                 {});
++    if (ctx->device->submit_trace.enabled) {
++        ggml_vk_submit_trace & trace = ctx->device->submit_trace;
++        trace.record_dispatch(pipeline->name.c_str(), wg0, wg1, wg2,
++                pipeline->wg_denoms[0], pipeline->wg_denoms[1], pipeline->wg_denoms[2]);
++        for (auto& buffer : descriptor_buffer_infos) {
++            trace.record_buffer((uint64_t)(VkBuffer)buffer.buffer, buffer.offset, buffer.range);
++        }
++    }
++
+     subctx->s->buffer->buf.dispatch(wg0, wg1, wg2);
+ }
+ 
+@@ -15418,6 +15486,13 @@ static bool ggml_vk_build_graph(ggml_backend_vk_context * ctx, ggml_cgraph * cgr
+     VK_LOG_DEBUG("ggml_vk_build_graph(" << node << ", " << ggml_op_name(node->op) << ")");
+     ctx->semaphore_idx = 0;
+ 
++    if (ctx->device->submit_trace.enabled) {
++        ctx->device->submit_trace.set_node(node_idx, ggml_op_name(node->op),
++                node->src[0] ? node->src[0]->name : nullptr,
++                node->src[1] ? node->src[1]->name : nullptr,
++                node->name);
++    }
++
+     ggml_tensor * src0 = node->src[0];
+     ggml_tensor * src1 = node->src[1];
+     ggml_tensor * src2 = node->src[2];
+@@ -15970,6 +16045,9 @@ static void ggml_vk_compute_forward(ggml_backend_vk_context * ctx, ggml_cgraph *
+         } else {
+             ggml_vk_submit(subctx, {});
+         }
++        if (ctx->device->submit_trace.enabled) {
++            ctx->device->submit_trace.mark_submitted();
++        }
+         ctx->submit_pending = true;
+ 
+ #ifdef GGML_VULKAN_CHECK_RESULTS
+@@ -16577,10 +16655,19 @@ static void ggml_vk_synchronize(ggml_backend_vk_context * ctx) {
+ 
+         if (ctx->device->serialize_submissions) {
+             ggml_vk_submit(compute_ctx, ctx->fence);
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_submitted();
++            }
+             VK_CHECK(ctx->device->device.waitForFences({ ctx->fence }, true, UINT64_MAX), "synchronize waitForFences", ctx->device);
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_completed();
++            }
+             ctx->device->device.resetFences({ ctx->fence });
+         } else {
+             ggml_vk_submit(compute_ctx, {});
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_submitted();
++            }
+         }
+         ctx->submit_pending = true;
+     }
+@@ -17290,6 +17377,9 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+                 ggml_vk_print_node_list(cgraph, start, end);
+                 throw;
+             }
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_completed();
++            }
+             if (ctx->duty_cycle_percent < 100) {
+                 const auto active_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::steady_clock::now() - pacing_interval_start).count();

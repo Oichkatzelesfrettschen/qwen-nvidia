@@ -1,0 +1,127 @@
+# The candidate ledger separates four things one URL conflates. A model identity
+# is what the weights learned. An artifact is one file expressing those weights
+# in one value format. A runtime shape is what the loader must support. A role
+# is what the appliance would serve the row for. Twenty-two distinct URLs
+# reduce to nineteen model identities here, because a safetensors repository and
+# its GGUF twin are one identity, and a plain and an i1 GGUF repository of one
+# fine-tune are one identity in two artifacts.
+#
+# The distinction decides how much device time a row costs. Throughput belongs
+# to an architecture and a value format, so five fine-tunes of one architecture
+# at one quantization share a throughput class and need one reference arm rather
+# than five. Quality belongs to the learned weights, so those same five need
+# five graded arms.
+#
+# The ledger fills in two phases because its columns have two sources. Every
+# column except architecture_fingerprint and chat_template_hash comes from the
+# Hugging Face model API. Those two come from the GGUF metadata block, which a
+# GGUF places at the head of the file, so remote/admit-candidate-static.py
+# reads them over an HTTP range request and the weights stay on the server. A
+# populated row therefore rests on a partial fetch of tens of megabytes rather
+# than on a local artifact. A safetensors row keeps `-` in both columns because
+# it publishes no GGUF header to read.
+#
+# `artifact-defective` names a row whose chosen artifact cannot be read as
+# published, which is a property of the file rather than of the weights: the 9B
+# Defiant Fable MTP artifact carries 4,942,442,720 bytes whose first 10.5 MiB
+# are zero, so its magic, metadata block, and tensor index are absent while the
+# tensor payload beyond them is intact.
+#
+# admission_stage is where a row sits rather than what is claimed about it.
+# `served` is already in remote/models.tsv. `static-admitted` has its
+# architecture and chat template read from the published header and no device
+# time. `phase-1` has its API record alone. `provenance` is a source artifact
+# retained for conversion rather than for serving. `excluded` has a checkable
+# property that removes it: pipeline sentence-similarity and
+# visual-document-retrieval name repositories with no chat path this suite can
+# grade. `superseded-by-gguf` names a safetensors repository whose own GGUF
+# twin is a separate row, which is redundancy rather than a defect.
+# `artifact-absent` names a repository whose pinned revision holds no model
+# file at all: the Damien420 0.8B max-distillation pair carries a
+# `.gitattributes` alone in both its GGUF and its source repository at the
+# revisions read on 2026-08-28, so there is nothing to fingerprint or fetch,
+# and the row re-enters admission when a later revision publishes a file.
+#
+# preferred_artifact names the file a row's fingerprint speaks for. `-` leaves
+# the Q4_K_M preference to choose, which is right across a roster and wrong where
+# a row exists for a specific rung: the 9B Defiant Fable row is admitted for its
+# two-bit IQ2_M artifact in the multi-token-prediction variant, which the
+# repository publishes beside an identically sized artifact without that block.
+#
+# conversion_required states whether serving this row needs a format the
+# appliance can produce. `yes` means the repository publishes safetensors alone,
+# and the appliance holds no torch, so the conversion runs elsewhere or the row
+# waits. A `yes` row is a scheduling fact rather than a rejection.
+#
+# finetune_lineage is `unverified` where the model card was not read. It is a
+# claim about provenance and this file does not assert one it has not checked.
+#
+# The six lifecycle columns carry a row from admission toward a serving
+# decision. runtime_class is the architecture, embedding width, feed-forward
+# width, and head-count group from evidence/model-admission/static-admission.md
+# -- the unit throughput belongs to, leaving out block count, which an ordinary
+# load skips past the multi-token-prediction block. `-` means no GGUF header
+# was read, so no class is known.
+#
+# throughput_reference names the candidate_id whose measured decode tok/s
+# stands for the row's class, with its evidence file, from
+# evidence/model-admission/runtime-class-throughput.md or remote/models.tsv. A
+# row that is itself the class's measured member, or a served row, carries `-`;
+# a class with no measured member anywhere carries `-`. quality_control names
+# the served remote/models.tsv row this candidate is graded against in one
+# sweep -- the incumbent of its runtime class -- or `-` where no served row
+# shares the class.
+#
+# next_test is the one device-time step that moves the row forward:
+# `strict-load` (remote/test-strict-vulkan-placement.sh has not yet run this
+# artifact), `throughput-arm` (loaded, needs a decode arm inside its class),
+# `quality-sweep` (loaded and measured, needs the graded suite), `depth-fill`
+# or `projector-depth-fill` (served but its validated_filled_depth gap is
+# open), or `none` where no test in this set applies -- a conversion-blocked
+# row, a structurally excluded pipeline, a defective artifact, or an already
+# served or retired row.
+#
+# stop_condition is the measurable criterion that retires the row, stated
+# before the arm that would decide it runs, the way
+# evidence/research-claim-methodology.md requires a falsifier stated first.
+# `-` where the row is already served or has no artifact to test.
+#
+# disposition is the row's current standing: `served` is in remote/models.tsv;
+# `redundant` names a measured or byte-identical class member elsewhere in
+# this ledger carrying the same quality claim, so this row adds none of its
+# own; `pending` names a row a next_test still moves; `retired` names a row
+# whose stop condition is already met -- an excluded pipeline, a defective
+# header, or a served row displaced by tier; `absent` names a row with no
+# artifact at the pinned revision.
+candidate_id	model_identity	finetune_lineage	artifact_repository	artifact_revision	artifact_kind	gguf_files	projector_files	pipeline	license	source_repository	preferred_artifact	architecture_fingerprint	chat_template_hash	intended_role	conversion_required	admission_stage	runtime_class	throughput_reference	quality_control	next_test	stop_condition	disposition
+qwen38-2b-distill-gguf	Qwen3.8-2B-Distill	qwen3.8-distill	empero-ai/Qwen3.8-2B-Distill-GGUF	f4f73582d0b149595450c719b9a7521a03894f9c	gguf	5	0	text-generation	apache-2.0	empero-ai/Qwen3.8-2B-Distill	-	qwen35/block_count=25/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144/nextn_predict_layers=1	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	fast-text	no	served	qwen35 / 2048 / 6144 / 8 / 2	-	-	none	-	served
+qwen38-2b-distill-src	Qwen3.8-2B-Distill	qwen3.8-distill	empero-ai/Qwen3.8-2B-Distill	e37a2dc4acc68ad75a91e07e63168cb04cc06345	safetensors	0	0	text-generation	apache-2.0	-	-	-	-	representation-source	no	provenance	-	-	-	none	-	redundant
+qwen38-2b-uncensored	Qwen3.8-2B-Uncensored	unverified	atakhadivi/Qwen3.8-2B-Uncensored-GGUF	649ee94d3f0e61c8e66ba77ec4d62fa0d4669f72	gguf	1	0	text-generation	apache-2.0	-	-	qwen35/block_count=24/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	uncensored-text	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen38-2b-distill-gguf, 9.19 tok/s decode (static-admission.md; runtime-class-throughput.md anchor re-run 7.69-8.09 tok/s)	qwen38-2b-distill-gguf	throughput-arm	decode below class reference by >20%	pending
+qwen2vl-2b-src	Qwen2-VL-2B-Instruct	qwen2-vl	Qwen/Qwen2-VL-2B-Instruct	895c3a49bc3fa70a340399125c650a463535e71c	safetensors	0	0	image-text-to-text	apache-2.0	-	-	-	-	vision	yes	superseded-by-gguf	-	-	-	none	-	redundant
+qwen3vl-embedding-2b	Qwen3-VL-Embedding-2B	qwen3-vl	Qwen/Qwen3-VL-Embedding-2B	9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda	safetensors	0	0	sentence-similarity	apache-2.0	-	-	-	-	embedding	yes	excluded	-	-	-	none	no chat-completion path this suite grades (sentence-similarity pipeline)	retired
+qwen35-2b-hauhau	Qwen3.5-2B-Uncensored-Aggressive	qwen3.5-2b	HauhauCS/Qwen3.5-2B-Uncensored-HauhauCS-Aggressive	2bcf35c1ebf62c837c12c1aa90b578ff4717e831	gguf	5	1	-	apache-2.0	-	-	qwen35/block_count=24/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	uncensored-text	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen38-2b-distill-gguf, 9.19 tok/s decode (static-admission.md; runtime-class-throughput.md anchor re-run 7.69-8.09 tok/s)	qwen38-2b-distill-gguf	throughput-arm	decode below class reference by >20%	pending
+qwen35-2b-unsloth	Qwen3.5-2B	qwen3.5-2b	unsloth/Qwen3.5-2B-GGUF	f6d5376be1edb4d416d56da11e5397a961aca8ae	gguf	25	3	image-text-to-text	apache-2.0	Qwen/Qwen3.5-2B	-	qwen35/block_count=24/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144	7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67	compact-vision	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen38-2b-distill-gguf, 9.19 tok/s decode (static-admission.md; runtime-class-throughput.md anchor re-run 7.69-8.09 tok/s)	qwen38-2b-distill-gguf	throughput-arm	decode below class reference by >20%	pending
+qwen35-2b-glm-deepseek	qwen3.5-2b-glm-deepseek-distillation	qwen3.5-2b	ertghiu256/qwen3.5-2b-glm-deepseek-distillation	63769e0bb9a32591d3c67f1fbcd650e8392ffdd0	safetensors	0	0	image-text-to-text	apache-2.0	-	-	-	-	creative	yes	phase-1	-	-	-	none	conversion_required=yes; no GGUF published to admit statically	pending
+qwen35-2b-unredacted	Qwen3.5-2B-Unredacted-MAX	qwen3.5-2b-unredacted	mradermacher/Qwen3.5-2B-Unredacted-MAX-GGUF	69d5860d3e02d2214ce0a7c5ff89cd8f769391ae	gguf	14	2	-	apache-2.0	-	-	qwen35/block_count=24/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	uncensored-text	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen38-2b-distill-gguf, 9.19 tok/s decode (static-admission.md; runtime-class-throughput.md anchor re-run 7.69-8.09 tok/s)	qwen38-2b-distill-gguf	throughput-arm	decode below class reference by >20%	pending
+qwen35-2b-unredacted-i1	Qwen3.5-2B-Unredacted-MAX	qwen3.5-2b-unredacted	mradermacher/Qwen3.5-2B-Unredacted-MAX-i1-GGUF	51de0e7834d565a91713afd4a9c73cdc57a76218	gguf	25	0	-	apache-2.0	-	-	qwen35/block_count=24/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	reconstruction-ladder	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen35-2b-unredacted, byte-identical Q4_K_M rung (static-admission.md); IQ4_XS -8.7%, IQ3_S -19.8% streamed against that rung, unmeasured for decode rate	-	none	-	redundant
+qwen35-2b-heretic	Qwen3.5-2B-Opus-Distilled-Heretic-Thinking	qwen3.5-2b	prithivMLmods/Qwen3.5-2B-Opus-Distilled-Heretic-Thinking-Multistage-SFT-v1.0-GGUF	48027b695bf608bbfd60c7d708e664e8999afe79	gguf	14	3	image-text-to-text	apache-2.0	-	-	qwen35/block_count=24/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	creative	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen38-2b-distill-gguf, 9.19 tok/s decode (static-admission.md; runtime-class-throughput.md anchor re-run 7.69-8.09 tok/s)	qwen38-2b-distill-gguf	throughput-arm	decode below class reference by >20%	pending
+qwenseer-2b	Qwenseer-2B	unverified	skyyuno/Qwenseer-2B-GGUF	81416455dfc8ab9df46e0e161a19364b32cd3aab	gguf	2	1	image-to-text	apache-2.0	-	-	qwen35/block_count=25/embedding_length=2048/feed_forward_length=6144/attention.head_count=8/attention.head_count_kv=2/context_length=262144/nextn_predict_layers=1	ea210e5b4997b7b1d3af5ee3ad34e7677ffe38df7469e8d88089789b5a27fae5	creative	no	static-admitted	qwen35 / 2048 / 6144 / 8 / 2	qwen38-2b-distill-gguf, 9.19 tok/s decode (static-admission.md; runtime-class-throughput.md anchor re-run 7.69-8.09 tok/s)	qwen38-2b-distill-gguf	throughput-arm	decode below class reference by >20%	pending
+qwen2vl-2b-platinum	Qwen2-VL-2B-Instruct-Platinum	qwen2-vl	CelesteImperia/Qwen2-VL-2B-Instruct-Platinum-GGUF	ff6ce2484f24c2fe18954e463e2114f94e513c81	gguf	5	0	image-to-text	apache-2.0	Qwen/Qwen2-VL-2B-Instruct	-	qwen2vl/block_count=28/embedding_length=1536/feed_forward_length=8960/attention.head_count=12/attention.head_count_kv=2/context_length=32768	a0bc6f6fc7a29a80017a433e8f03a1cc1236e838a944a2d034295a60c4f2fddb	vision	no	static-admitted	qwen2vl / 1536 / 8960 / 12 / 2	-	-	quality-sweep	vision/text score below roster threshold (no same-class served control; tool rows ungradeable, template names no tool_calls branch, static-admission.md)	pending
+vultron-retriever-08b	VultronRetrieverFlash-Qwen3.5-0.8B	qwen3.5-0.8b	vultr/VultronRetrieverFlash-Qwen3.5-0.8B	a2bcbcda0472dff9863380621bcff09b3d0261ac	safetensors	0	0	visual-document-retrieval	apache-2.0	-	-	-	-	retrieval	yes	excluded	-	-	-	none	no chat-completion path this suite grades (visual-document-retrieval pipeline)	retired
+qwen35-08b-opus-reason-src	Qwen3.5-0.8B-Opus-Reasoning-Distilled	qwen3.5-0.8b-opus-reason	Jackrong/Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled	af2f37de41af0bdcaea5e3790ad323030ea4af07	safetensors	0	0	text-generation	apache-2.0	-	-	-	-	reasoning	yes	superseded-by-gguf	-	-	-	none	-	redundant
+qwen35-08b-opus-reason	Qwen3.5-0.8B-Opus-Reasoning-Distilled	qwen3.5-0.8b-opus-reason	Jackrong/Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled-GGUF	9675af0af5c5d39cc459b3f947593c6314fee75e	gguf	11	1	text-generation	apache-2.0	Jackrong/Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled	-	qwen35/block_count=24/embedding_length=1024/feed_forward_length=3584/attention.head_count=8/attention.head_count_kv=2/context_length=262144	0800c03b537cb0d60244f37ac6d717b06c42c4828a40853b1f9853791f9afdae	reasoning	no	static-admitted	qwen35 / 1024 / 3584 / 8 / 2	qwen35-08b-bartowski, 18.53 tok/s decode (remote/models.tsv; runtime-class-throughput.md Q8_0 anchor 15.17-15.31 tok/s)	qwen35-08b-bartowski	quality-sweep	quality below qwen35-08b-bartowski in paired sweep; template names no enable_thinking key so thinking-off is inert, graded in native thinking mode instead	pending
+qwen35-08b-abliterated	Qwen3.5-0.8B-Opus-Distill-abliterated	qwen3.5-0.8b-opus	amkkk/Qwen3.5-0.8B-Opus-Distill-abliterated	6b7c6bb351fe9c1251c239a5957557826bf9e807	safetensors	0	0	image-text-to-text	apache-2.0	-	-	-	-	uncensored-text	yes	phase-1	-	-	-	none	conversion_required=yes; no GGUF published	pending
+qwen35-08b-bartowski	Qwen3.5-0.8B	qwen3.5-0.8b	bartowski/Qwen_Qwen3.5-0.8B-GGUF	f36b1ea49a332ede8fe5f389bbf5b3575ef71f48	gguf	27	2	image-text-to-text	apache-2.0	Qwen/Qwen3.5-0.8B	-	qwen35/block_count=25/embedding_length=1024/feed_forward_length=3584/attention.head_count=8/attention.head_count_kv=2/context_length=262144/nextn_predict_layers=1	273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80	compact-text	no	served	qwen35 / 1024 / 3584 / 8 / 2	-	-	none	-	served
+qwen35-08b-base	Qwen3.5-0.8B-Base	qwen3.5-0.8b	Qwen/Qwen3.5-0.8B-Base	dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68	safetensors	0	0	image-text-to-text	apache-2.0	-	-	-	-	creative-base	yes	phase-1	-	-	-	none	conversion_required=yes; no GGUF published	pending
+qwen3-zero-coder-v2-08b	Qwen3-Zero-Coder-Reasoning-V2-0.8B-NEO-EX	qwen3-zero-coder	DavidAU/Qwen3-Zero-Coder-Reasoning-V2-0.8B-NEO-EX-GGUF	471bc1d467ebf2616d54b867b6f93146f183e3ae	gguf	78	0	text-generation	apache-2.0	-	-	qwen3/block_count=42/embedding_length=1024/feed_forward_length=3072/attention.head_count=16/attention.head_count_kv=8/context_length=40960	87a2728cb8dc9fe424d624542f6060ec05a1d285ebbec578bb078900e33396b5	code-reasoning	no	static-admitted	qwen3 / 1024 / 3072 / 16 / 8	qwen3-zero-coder-08b, 15.96 tok/s decode (runtime-class-throughput.md)	-	quality-sweep	quality below roster threshold (no same-class served control; evidence/quality-roster/)	pending
+qwen35-08b-unsloth-unc	unsloth_Qwen3.5-0.8B_uncensored	qwen3.5-0.8b	tsilva/unsloth_Qwen3.5-0.8B_uncensored	2333f32297e44073d7f7e5259034b4a24c166c67	gguf	7	1	-	-	-	-	qwen35/block_count=24/embedding_length=1024/feed_forward_length=3584/attention.head_count=8/attention.head_count_kv=2/context_length=262144	7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67	uncensored-text	no	static-admitted	qwen35 / 1024 / 3584 / 8 / 2	qwen35-08b-bartowski, 18.53 tok/s decode (remote/models.tsv; runtime-class-throughput.md Q8_0 anchor 15.17-15.31 tok/s)	qwen35-08b-bartowski	throughput-arm	decode below class reference by >20%	pending
+qwen3-zero-coder-08b	Qwen3-Zero-Coder-Reasoning-0.8B-NEO-EX	qwen3-zero-coder	DavidAU/Qwen3-Zero-Coder-Reasoning-0.8B-NEO-EX-GGUF	13ad9920807bcaaabae3c5927f3c0d2f96a230b5	gguf	81	0	text-generation	apache-2.0	-	-	qwen3/block_count=42/embedding_length=1024/feed_forward_length=3072/attention.head_count=16/attention.head_count_kv=8/context_length=40960	8428c815ac94d82064e35ff1e841dcbe260e7e53a8d0bd3b94afa2eefa9bccab	code-reasoning	no	static-admitted	qwen3 / 1024 / 3072 / 16 / 8	-	-	quality-sweep	quality below roster threshold (no same-class served control; evidence/quality-roster/)	pending
+
+qwen35-9b-defiant-fable-mtp	Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP	unverified	DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF	239d236baf9172e5a4663add74bd34fd297b1c08	gguf	23	3	image-text-to-text	apache-2.0	DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP	Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-NEO-MAX-MTP-IQ2_M.gguf	-	-	creative-uncensored	no	artifact-defective	-	-	-	none	GGUF header unreadable: first 10.5 MiB zero, magic/metadata/tensor index absent (static-admission.md)	retired
+qwen35-9b-defiant-fable	Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX	unverified	DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP-GGUF	239d236baf9172e5a4663add74bd34fd297b1c08	gguf	23	3	image-text-to-text	apache-2.0	DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-NEO-IMATRIX-MAX-MTP	Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-NEO-MAX-IQ2_M.gguf	-	-	creative-uncensored	no	static-admitted	qwen35 / 4096 / 12288 / 16 / 4	qwen38-9b-distill, 1.76 tok/s decode (remote/models.tsv; absent from runtime-class-throughput.md sweep)	qwen38-9b-distill	strict-load	fails strict Vulkan placement (CPU fallback reached), or decode below class reference by >20% once loaded	pending
+qwen38-9b-distill	Qwen3.8-9B-Distill	qwen3.8-distill	empero-ai/Qwen3.8-9B-Distill-GGUF	760121cd70bb4c36b2b5ec58eb765e0df5987efe	gguf	5	0	text-generation	apache-2.0	empero-ai/Qwen3.8-9B	Qwen3.8-9B-Q4_K_M.gguf	-	-	quality-text	no	served	qwen35 / 4096 / 12288 / 16 / 4	-	-	none	tier=archive in remote/models.tsv: 1.76 tok/s decode displaced by qwen38-4b-distill's 3.34 tok/s at comparable quality (47/55 against 5/5-screen, not the full 55-row suite)	retired
+
+qwen35-08b-max-distill-gguf	Qwen3.5-0.8b-Qwen3.8-max-distillation-50k	unverified	Damien420/Qwen3.5-0.8b-Qwen3.8-max-distillation-50k-checkpoint-gguf	606fd2ab311e7212afacee89149196adef1ae9f6	gguf	0	0	-	-	Damien420/Qwen3.5-0.8b-Qwen3.8-max-distillation-50k	-	-	-	compact-text	no	artifact-absent	-	-	-	none	repository at pinned revision holds only .gitattributes	absent
+qwen35-08b-max-distill-src	Qwen3.5-0.8b-Qwen3.8-max-distillation-50k	unverified	Damien420/Qwen3.5-0.8b-Qwen3.8-max-distillation-50k	a529f4f7148115c77e057227831550ddd172c0fd	safetensors	0	0	-	-	-	-	-	-	compact-text	yes	artifact-absent	-	-	-	none	repository at pinned revision holds only .gitattributes	absent
+minicpm5-1b-fable5-v2	MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking	minicpm5-1b	GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking-GGUF	1c5821260e77c42e0b350f0248fabcf3c90ecade	gguf	2	0	text-generation	apache-2.0	GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking	MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking-Q8_0.gguf	llama/block_count=24/embedding_length=1536/feed_forward_length=4608/attention.head_count=16/attention.head_count_kv=2/context_length=131072	7451a05cf1e28a79d97d7c0bc951028c0b1915119bf9046acd06a0e3d931f47c	reasoning	no	static-admitted	llama / 1536 / 4608 / 16 / 2	-	-	strict-load	fails strict Vulkan placement (CPU fallback reached)	pending
+minicpm5-1b-stock	MiniCPM5-1B	minicpm5-1b	openbmb/MiniCPM5-1B-GGUF	3d55fac80935ae6456986ad2384b5cbcc4d6c948	gguf	3	0	text-generation	apache-2.0	openbmb/MiniCPM5-1B	MiniCPM5-1B-Q8_0.gguf	llama/block_count=24/embedding_length=1536/feed_forward_length=4608/attention.head_count=16/attention.head_count_kv=2/context_length=131072	7451a05cf1e28a79d97d7c0bc951028c0b1915119bf9046acd06a0e3d931f47c	reasoning	no	static-admitted	llama / 1536 / 4608 / 16 / 2	-	-	strict-load	fails strict Vulkan placement (CPU fallback reached)	pending

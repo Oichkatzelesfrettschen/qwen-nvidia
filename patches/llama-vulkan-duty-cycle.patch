@@ -1,0 +1,113 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan-pacing.h b/ggml/src/ggml-vulkan/ggml-vulkan-pacing.h
+new file mode 100644
+index 0000000..abfcb3a
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/ggml-vulkan-pacing.h
+@@ -0,0 +1,49 @@
++#pragma once
++
++#include <cstdint>
++#include <limits>
++#include <stdexcept>
++
++static inline uint32_t ggml_vk_parse_duty_cycle_percent(const char * value) {
++    if (value == nullptr) {
++        return 100;
++    }
++    if (*value == '\0') {
++        throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++    }
++
++    uint32_t result = 0;
++    for (const char * cursor = value; *cursor != '\0'; ++cursor) {
++        if (*cursor < '0' || *cursor > '9') {
++            throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++        }
++        result = result * 10 + static_cast<uint32_t>(*cursor - '0');
++        if (result > 100) {
++            throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++        }
++    }
++
++    if (result == 0) {
++        throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++    }
++    return result;
++}
++
++static inline uint64_t ggml_vk_pacing_idle_us(uint64_t active_us, uint32_t duty_cycle_percent) {
++    if (duty_cycle_percent == 0 || duty_cycle_percent > 100) {
++        throw std::invalid_argument("Vulkan duty cycle must be from 1 through 100");
++    }
++    if (active_us == 0 || duty_cycle_percent == 100) {
++        return 0;
++    }
++
++    const uint64_t idle_percent = 100 - duty_cycle_percent;
++    const uint64_t whole = active_us / duty_cycle_percent;
++    const uint64_t remainder = active_us % duty_cycle_percent;
++    if (whole > std::numeric_limits<uint64_t>::max() / idle_percent) {
++        return std::numeric_limits<uint64_t>::max();
++    }
++
++    return whole * idle_percent +
++        (remainder * idle_percent + duty_cycle_percent - 1) / duty_cycle_percent;
++}
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 04483b2..b434def 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1,7 +1,8 @@
+ #include "ggml-vulkan.h"
++#include "ggml-vulkan-pacing.h"
+ #include <vulkan/vulkan_core.h>
+-#if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+ #include <chrono>
++#if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+ #include "ggml-cpu.h"
+ #endif
+ 
+@@ -2337,6 +2338,7 @@ struct ggml_backend_vk_context {
+     std::string name;
+ 
+     vk_device device;
++    uint32_t duty_cycle_percent {100};
+ 
+     size_t semaphore_idx, event_idx;
+     ggml_vk_garbage_collector gc;
+@@ -7706,6 +7708,13 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
+     ctx->name = GGML_VK_NAME + std::to_string(idx);
+ 
+     ctx->device = ggml_vk_get_device(idx);
++    ctx->duty_cycle_percent = ggml_vk_parse_duty_cycle_percent(getenv("GGML_VK_DUTY_CYCLE_PERCENT"));
++    if (ctx->duty_cycle_percent < 100) {
++        if (!ctx->device->serialize_submissions) {
++            throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT requires GGML_VK_SERIALIZE_SUBMISSIONS");
++        }
++        GGML_LOG_INFO("ggml_vulkan: %s: duty cycle = %u%%\n", ctx->device->properties.deviceName.data(), ctx->duty_cycle_percent);
++    }
+ 
+     ctx->semaphore_idx = 0;
+     ctx->event_idx = 0;
+@@ -17247,6 +17256,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     uint64_t batch_flops = 0;
+     uint64_t total_flops = 0;
+     uint64_t flops_cap = 200'000'000'000ULL;
++    auto pacing_interval_start = std::chrono::steady_clock::now();
+ 
+     // On weaker AMD GPUs larger submissions can hit a driver timeout, submit more often to avoid this
+     if (ctx->device->vendor_id == VK_VENDOR_ID_AMD && ctx->device->shader_core_count > 0) {
+@@ -17273,6 +17283,13 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+                 ggml_vk_print_node_list(cgraph, start, end);
+                 throw;
+             }
++            if (ctx->duty_cycle_percent < 100) {
++                const auto active_us = std::chrono::duration_cast<std::chrono::microseconds>(
++                    std::chrono::steady_clock::now() - pacing_interval_start).count();
++                const auto idle_us = ggml_vk_pacing_idle_us(static_cast<uint64_t>(active_us), ctx->duty_cycle_percent);
++                std::this_thread::sleep_for(std::chrono::microseconds(idle_us));
++                pacing_interval_start = std::chrono::steady_clock::now();
++            }
+             ctx->device->device.resetFences({ ctx->fence });
+             ctx->submit_pending = false;
+             ctx->device->diag_cgraph = cgraph;

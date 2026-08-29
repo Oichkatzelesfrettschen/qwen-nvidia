@@ -1,0 +1,64 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h b/ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h
+new file mode 100644
+index 0000000..419bb40
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h
+@@ -0,0 +1,31 @@
++#pragma once
++
++#include <cstdint>
++#include <limits>
++#include <stdexcept>
++
++static inline uint32_t ggml_vk_parse_max_nodes_per_submit(
++        const char * value, uint32_t default_value) {
++    if (value == nullptr) {
++        return default_value;
++    }
++    if (*value == '\0') {
++        throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT must be a positive decimal integer");
++    }
++
++    uint32_t result = 0;
++    for (const char * cursor = value; *cursor != '\0'; ++cursor) {
++        if (*cursor < '0' || *cursor > '9') {
++            throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT must be a positive decimal integer");
++        }
++        const uint32_t digit = static_cast<uint32_t>(*cursor - '0');
++        if (result > (std::numeric_limits<uint32_t>::max() - digit) / 10) {
++            throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT exceeds uint32_t");
++        }
++        result = result * 10 + digit;
++    }
++    if (result == 0) {
++        throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT must be a positive decimal integer");
++    }
++    return result;
++}
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index b434def..d9f0774 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1,5 +1,6 @@
+ #include "ggml-vulkan.h"
+ #include "ggml-vulkan-pacing.h"
++#include "ggml-vulkan-submit-limit.h"
+ #include <vulkan/vulkan_core.h>
+ #include <chrono>
+ #if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+@@ -6474,9 +6475,11 @@
+         // Submit at least every 100 nodes, in case there are workloads without as much matmul.
+         device->max_nodes_per_submit = 100;
+-        const char* GGML_VK_MAX_NODES_PER_SUBMIT = getenv("GGML_VK_MAX_NODES_PER_SUBMIT");
+-        if (GGML_VK_MAX_NODES_PER_SUBMIT != nullptr) {
+-            uint32_t max_nodes_per_submit = std::stoul(GGML_VK_MAX_NODES_PER_SUBMIT);
+-            device->max_nodes_per_submit = std::max(max_nodes_per_submit, 1u);
++        const char * runtime_max_nodes_per_submit = getenv("GGML_VK_MAX_NODES_PER_SUBMIT");
++        device->max_nodes_per_submit = ggml_vk_parse_max_nodes_per_submit(
++            runtime_max_nodes_per_submit, device->max_nodes_per_submit);
++        if (runtime_max_nodes_per_submit != nullptr) {
++            GGML_LOG_INFO("ggml_vulkan: %s: maximum nodes per submission = %u\n",
++                          device->properties.deviceName.data(), device->max_nodes_per_submit);
+         }
+ 
+         const bool force_disable_f16 = getenv("GGML_VK_DISABLE_F16") != nullptr;

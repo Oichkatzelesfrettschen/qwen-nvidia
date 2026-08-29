@@ -1,0 +1,64 @@
+# One row per served image shape. A profile_id names a bundle in
+# remote/image-models.tsv at one placement arm and one request geometry, and
+# several profiles reach one bundle the way several web profiles reach one
+# checkpoint in remote/web-profiles.tsv.
+#
+# placement names where each component executes, and the appliance decides
+# which arm wins by measurement rather than by reasoning: `A` puts the text
+# encoder, the diffusion trunk, and the VAE on Vulkan; `B` runs the text
+# encoder on the CPU with diffusion and VAE on Vulkan; `C` runs the text
+# encoder and the VAE on the CPU with diffusion alone on Vulkan. The arm binds
+# the bundle's own composition, so remote/image-registry.sh requires arm B to
+# name a text encoder and arm C to name a text encoder and a VAE -- a bundle
+# that omits the component an arm places has no arm to place it on. The LLM
+# ladder is the reason the arms exist rather than a single answer: every tested
+# hybrid placement lost to full Vulkan there because both sides draw on the one
+# DDR4 controller, and whether a diffusion graph repeats that result is
+# unmeasured.
+#
+# width, height, and steps are what the profile requests; max_dimension and
+# max_steps are what it admits. The registry requires width and height at or
+# below max_dimension and steps at or below max_steps, so an authorization
+# grant that names a larger image is refused against the profile rather than
+# against the runtime. timeout_s is the runtime's own hard bound, and the
+# service, MCP, router, and browser deadlines stack above it so a stalled run
+# is ended by the process that owns it.
+#
+# execution_policy decides what the profile may do, over `refused` and
+# `validator-gated`, mirroring remote/web-profiles.tsv. `refused` runs nothing:
+# the profile is an admitted shape and no generation executes against it.
+# `validator-gated` admits a generation behind an authorization grant that
+# binds prompt hash, seed, dimensions, and step count, and it requires
+# validated_evidence to name a retained record that exists in the tree, because
+# a profile that may spend the device must carry the run that showed it safe.
+# One row reads `validator-gated`: image-sdxs-512-a carries the served turn of
+# evidence/image-appliance/served-turn-admission/, where an approved generation
+# reached the runtime through router, broker, MCP child, and service and every
+# refusal the design rests on fired once. Every other row reads `refused` and
+# admits a shape alone; a measured campaign on the appliance is what moves the
+# next one.
+#
+# validated_evidence is a repository-relative path, `-` where no run has been
+# retained. Any path present must exist in the tree whatever the policy reads,
+# so a record removed from the tree refuses the query rather than leaving a
+# claim pointing at nothing.
+#
+# review_model pairs one vision checkpoint with this image shape, because the
+# reviewer belongs to the profile that produced the artifact rather than to the
+# conversation that asked for it. `-` offers no review and is what every
+# checked-in row reads: a second resident checkpoint has to fit beside the
+# language row inside the Vulkan budget this machine carves, and no appliance
+# run has measured that pair. A named value is a remote/models.tsv model_id
+# whose projector column reads `required`; remote/build-web-presets.sh joins it
+# against that registry, requires a projector on disk and a validated tuple with
+# the projector loaded, and emits a review-only section beside the language one.
+# That section carries the vision row's own tuple and its projector, names no
+# MCP configuration, and offers no tool, so the page reviews an artifact through
+# it and reaches nothing else.
+#
+# profile_id	model_id	placement	width	height	steps	sampler	cfg	max_steps	max_dimension	timeout_s	execution_policy	validated_evidence	review_model
+image-sdxs-512-a	sdxs-512	A	512	512	1	euler	1.0	4	512	300	validator-gated	evidence/image-appliance/design.md	lfm25-vl-16b
+image-sdxs-512-b	sdxs-512	B	512	512	1	euler	1.0	4	512	300	refused	-	-
+image-sd15-lcm-a	sd15-lcm-v1	A	512	512	4	lcm	1.5	8	512	300	refused	-	-
+image-sd15-base-a	sd15-base	A	512	512	20	euler_a	7.0	30	512	300	refused	-	-
+image-sd-turbo-a	sd-turbo	A	512	512	1	euler_a	1.0	4	512	300	refused	-	-

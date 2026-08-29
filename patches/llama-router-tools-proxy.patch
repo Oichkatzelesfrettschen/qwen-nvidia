@@ -1,0 +1,22 @@
+diff --git a/tools/server/server.cpp b/tools/server/server.cpp
+index 5fe2729ba..0d5ba74d3 100644
+--- a/tools/server/server.cpp
++++ b/tools/server/server.cpp
+@@ -337,7 +337,16 @@ int llama_server(common_params & params, int argc, char ** argv) {
+         return 1;
+     }
+ 
+-    if (!params.server_tools.empty() || !mcp_mgr.empty()) {
++    if (is_router_server && params.server_tools.empty() && mcp_mgr.empty()) {
++        // a router holding no tools of its own forwards /tools to the child the
++        // request selects, the same way it forwards the model-scoped inference
++        // routes: GET resolves the model from the query string and POST from the
++        // top-level "model" key of the body. the child that owns the MCP manager
++        // serves the route, so its tool set, credentials, and limits stay with
++        // the model section that configured them
++        ctx_http.get ("/tools",           ex_wrapper(models_routes->proxy_get));
++        ctx_http.post("/tools",           ex_wrapper(models_routes->proxy_post));
++    } else if (!params.server_tools.empty() || !mcp_mgr.empty()) {
+         try {
+             tools.setup(params.server_tools, mcp_mgr, params.server_tools_runtime);
+         } catch (const std::exception & e) {

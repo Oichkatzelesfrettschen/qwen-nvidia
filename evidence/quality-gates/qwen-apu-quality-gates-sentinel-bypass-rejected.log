@@ -1,0 +1,21 @@
+patch_replay_match=ggml/src/ggml-vulkan/ggml-vulkan.cpp sha256=db34fbfc5ee5368ccc5999dc5a37c90dd3198ae0aff8138440cd7f5f0532eca4
+patch_replay_match=ggml/src/ggml-vulkan/ggml-vulkan-pacing.h sha256=16abd2face079cad962bb722026d7418e65de67c18c1e1f954df733c1598a70a
+patch_replay_match=ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h sha256=4b8befd927e9b0c83cfc7cfe843d2f853a9a9db7f6a55c147ffcd4129afd95f8
+patch_replay_match=src/llama-context.cpp sha256=ecc818cdce4a7265f6f932962c325a582f42b91cb2661916fa28b5a79a49d1ad
+patch_replay_match=src/llama-model-loader.cpp sha256=d0d6c8725891ac4baf68fd947ab4be75cc93ba37b1e988ca1c556881a49d0abc
+patch_series=accepted commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
+vulkan_pacing_math=accepted
+vulkan_submit_limit_parser=accepted
+graphics_service_probe=$TMPDIR/quality-gate-temp/vulkan-graphics-service-probe sha256=9149d444068c83eb79f7c382760db7790e2a8157ffda2f3b0fc452da4d06fe33
+graphics_service_probe=accepted positive_samples=5 deadline_termination=accepted
+affinity=0
+nice=19
+io=idle
+profile=paced-60 low=1 duty=60 serialized=1 max_nodes=32 strict=1
+driver=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json compatibility_driver=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+display=unset wayland=unset sysmem_fallback=unset amd_priority=unset memory_priority=unset allow_graphics=unset radv_perftest=unset
+model_cpu_sentinel=unset guard_cpu_sentinel=unset
+radv_environment=accepted
+qwen_capacity_policy=accepted
+server PID is not running: 502025
+watchdog monitor test returned 2 instead of 3

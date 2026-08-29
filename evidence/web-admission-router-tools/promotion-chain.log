@@ -1,0 +1,66 @@
+
+=== teardown utc=2026-08-28T19:54:51Z
+stopped tmux_socket=qwen-runtime tmux_session=qwen-webui
+torn down: no server, tmux session, probe, approval broker, or router snapshot; port 8080 free
+teardown exit=0
+
+=== promote utc=2026-08-28T19:54:52Z
+promotion=accepted preset=raven2-vulkan-production target=$HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production strict_vulkan=passed multimodal=passed previous=none
+promote exit=0
+
+=== strict utc=2026-08-28T19:55:34Z
+
+=== resumed-after-reboot utc=2026-08-28T20:10:44Z
+
+=== strict utc=2026-08-28T20:10:44Z
+cpu_tensor_rejection=accepted cpu_graph_rejection=accepted strict_vulkan_completion=accepted duty_cycle=60 low_priority=accepted
+strict exit=0
+
+=== admission utc=2026-08-28T20:11:04Z
+ordinary_router_recorded=pass running=0 server=4117a9c4d58e530c
+preset_generated=pass 1 section
+web_launch=pass web_launch presets=$HOME/qwen-webui-state/web-admission-router/web-presets.ini unvalidated_depth_marker=absent authorizer_ready=1 bind=127.0.0.1 models_max=1;web_launch broker_port=8571 broker_state_dir=$HOME/qwen-webui-state/web-admission-router/web-mcp signing_key=configured profile=web-balanced-admission provider=fake;
+router_listener_loopback=pass 127.0.0.1:8080,
+broker_listener_loopback=pass 127.0.0.1:8571,
+broker_pid_recorded=pass broker_pid=4137
+broker_secret_mode=pass 600
+router_roster=pass web-balanced-admission,
+served_context=observed n_ctx=8192 requested=8192
+tools_without_model_refused=pass status=400 model name is missing from the request
+tools_unknown_model_refused=pass status=400 model 'no-such-model' not found
+tool_enumeration=pass web_fetch_exa,web_search_exa, via http://127.0.0.1:8080
+child_port_control=observed port=59159 status=200 tools=web_fetch_exa,web_search_exa,
+ui_executor_targets_router=observed served page is not the fallback UI or lacks the model-scoped routes (status=200)
+broker_health_identity=pass profile=web-balanced-admission provider=fake pid=4137
+session_secret_issued=pass status=200
+session_foreign_origin_refused=pass status=403
+session_absent_origin_refused=pass status=403
+session_name_host_refused=pass status=403
+grant_issued=pass status=200 bytes=439
+grant_wrong_profile_refused=pass status=403
+grant_wrong_session_refused=pass status=403
+grant_foreign_origin_refused=pass status=403
+post_without_model_refused=pass status=400 model name is missing from the request
+post_unknown_model_refused=pass status=400 model 'no-such-model' not found
+search_executed=pass results=2 via http://127.0.0.1:8080
+grant_replay_refused=pass the authorization is spent; a grant admits one search and the operator issues another
+search_without_grant_refused=pass search_exa requires an authorization token issued by `server.py authorize`; the operator grants the query rather than th
+routing_key_outside_arguments=pass top-level model executed the search; params.model refused: the call carries an argument the tool does not read: model
+fetch_by_result_id=pass chars=632 via http://127.0.0.1:8080
+fetch_allowance_enforced=pass the per-search fetch budget of 1 is exhausted; a further document needs a new search
+fetch_url_refused=pass the result_id signature fails verification
+delayed_provider_completes=pass elapsed=5s status=200
+mcp_deadline_precedes_router=pass elapsed=30s status=200 request timed out
+child_serves_after_stall=pass status=200
+model_proposes_search=observed model=web-balanced-admission arguments={"query":"raven2 vulkan decode rate","max_results":3}
+model_reads_tool_result=pass Based on the search results, the decode rate for Raven2 with Vulkan decode is:  **3.07 tok/s** on the 4B distill model.
+secret_hygiene=pass key, grant, session secret, and query text absent from process images, logs, status, and audit
+web_teardown=pass torn down: no server, tmux session, probe, approval broker, or router snapshot; port 8080 free
+absence_proved=pass router, child, broker, secret, and both ports
+ordinary_restore=pass models=lfm25-vl-16b,qwen35-08b,qwen35-08b-f16,qwen35-2b,qwen35-4b-base,qwen38-2b-distill,qwen38-4b-distill,
+ordinary_tools_disabled=pass model=lfm25-vl-16b status=403 feature_disabled
+models_max_evicts_previous=fail qwen35-08b=loading then qwen35-08b=loading qwen38-2b-distill=unloaded
+web router admission against the fake provider: 1 required checks failed
+admission exit=1
+
+=== done utc=2026-08-28T20:13:37Z

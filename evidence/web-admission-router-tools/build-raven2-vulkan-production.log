@@ -1,0 +1,712 @@
+preset=raven2-vulkan-production source=$HOME/src/llama.cpp-qwen-apu commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0 worktree=dirty jobs=2
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- llama.cpp version: 0.2.0-dev
+CMAKE_BUILD_TYPE=Release
+-- Found Git: /usr/bin/git (found version "2.43.0") 
+-- The ASM compiler identification is GNU
+-- Found assembler: /usr/bin/cc
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Warning: ccache not found - consider installing it for faster compilation or disable this warning with GGML_CCACHE=OFF
+-- CMAKE_SYSTEM_PROCESSOR: x86_64
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: -msse4.2;-mf16c;-mfma;-mbmi2;-mavx;-mavx2 GGML_SSE42;GGML_F16C;GGML_FMA;GGML_BMI2;GGML_AVX;GGML_AVX2
+-- Found Vulkan: /usr/lib/x86_64-linux-gnu/libvulkan.so (found version "1.3.275") found components: glslc missing components: glslangValidator
+-- Vulkan found
+-- GL_KHR_cooperative_matrix supported by glslc
+-- GL_NV_cooperative_matrix2 not supported by glslc
+-- GL_NV_cooperative_matrix_decode_vector not supported by glslc
+-- GL_EXT_integer_dot_product not supported by glslc
+-- GL_EXT_bfloat16 not supported by glslc
+-- GL_EXT_float_e2m1 not supported by glslc
+-- GL_EXT_float_e4m3 not supported by glslc
+-- Including Vulkan backend
+-- ggml version: 0.21.0
+-- ggml commit:  f280b26-dirty
+-- Configuring done (2.4s)
+-- Generating done (0.2s)
+-- Build files have been written to: $HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production
+[0/2] Re-checking globbed directories...
+[1/628] Building CXX object ggml/src/CMakeFiles/ggml-base.dir/ggml.cpp.o
+[2/628] Building C object ggml/src/CMakeFiles/ggml-base.dir/ggml-alloc.c.o
+[3/628] Building CXX object ggml/src/CMakeFiles/ggml-base.dir/ggml-backend.cpp.o
+[4/628] Building C object ggml/src/CMakeFiles/ggml-base.dir/ggml.c.o
+[5/628] Building CXX object ggml/src/CMakeFiles/ggml-base.dir/ggml-opt.cpp.o
+[6/628] Building CXX object ggml/src/CMakeFiles/ggml-base.dir/ggml-threading.cpp.o
+[7/628] Building CXX object ggml/src/CMakeFiles/ggml-base.dir/ggml-backend-meta.cpp.o
+[8/628] Building CXX object ggml/src/CMakeFiles/ggml-base.dir/gguf.cpp.o
+[9/628] Building C object ggml/src/CMakeFiles/ggml-base.dir/ggml-quants.c.o
+[10/628] Linking CXX static library ggml/src/libggml-base.a
+[11/628] Building C object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/ggml-cpu.c.o
+[12/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/ggml-cpu.cpp.o
+[13/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/hbm.cpp.o
+[14/628] Building C object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/quants.c.o
+[15/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/traits.cpp.o
+[16/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/amx/amx.cpp.o
+[17/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/amx/mmq.cpp.o
+[18/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/binary-ops.cpp.o
+[19/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/repack.cpp.o
+[20/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/vec.cpp.o
+[21/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/unary-ops.cpp.o
+[22/628] Building C object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/arch/x86/quants.c.o
+[23/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/arch/x86/repack.cpp.o
+[24/628] Creating directories for 'vulkan-shaders-gen'
+[25/628] No download step for 'vulkan-shaders-gen'
+[26/628] No update step for 'vulkan-shaders-gen'
+[27/628] No patch step for 'vulkan-shaders-gen'
+[28/628] Performing configure step for 'vulkan-shaders-gen'
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Enabling coopmat glslc support
+-- Configuring done (1.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: $HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix/src/vulkan-shaders-gen-build
+[29/628] Building CXX object ggml/src/CMakeFiles/ggml-cpu.dir/ggml-cpu/ops.cpp.o
+[30/628] Linking CXX static library ggml/src/libggml-cpu.a
+[31/628] Building CXX object vendor/hash/CMakeFiles/vendor-hash.dir/hash.cpp.o
+[32/628] Building C object vendor/hash/CMakeFiles/vendor-hash.dir/xxhash/xxhash.c.o
+[33/628] Building CXX object vendor/hash/CMakeFiles/vendor-hash.dir/sha1/sha1.c.o
+[34/628] Building C object vendor/hash/CMakeFiles/vendor-hash.dir/sha256/sha256.c.o
+[35/628] Linking CXX static library vendor/hash/libvendor-hash.a
+[36/628] Performing build step for 'vulkan-shaders-gen'
+[1/2] Building CXX object CMakeFiles/vulkan-shaders-gen.dir/vulkan-shaders-gen.cpp.o
+[2/2] Linking CXX executable vulkan-shaders-gen
+[37/628] Performing install step for 'vulkan-shaders-gen'
+-- Installing: $HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production/Release/./vulkan-shaders-gen
+[38/628] Completed 'vulkan-shaders-gen'
+[39/628] Generate vulkan shaders header
+[40/628] Generate vulkan shaders for acc.comp
+[41/628] Generate vulkan shaders for add.comp
+[42/628] Generate vulkan shaders for add1.comp
+[43/628] Generate vulkan shaders for add_id.comp
+[44/628] Generate vulkan shaders for arange.comp
+[45/628] Generate vulkan shaders for argmax.comp
+[46/628] Generate vulkan shaders for argsort.comp
+[47/628] Generate vulkan shaders for argsort_large.comp
+[48/628] Generate vulkan shaders for col2im_1d.comp
+[49/628] Generate vulkan shaders for concat.comp
+[50/628] Generate vulkan shaders for contig_copy.comp
+[51/628] Generate vulkan shaders for conv2d_dw.comp
+[52/628] Generate vulkan shaders for conv2d_mm.comp
+[53/628] Generate vulkan shaders for conv3d_mm.comp
+[54/628] Generate vulkan shaders for conv_transpose_1d.comp
+[55/628] Generate vulkan shaders for copy.comp
+[56/628] Generate vulkan shaders for copy_from_quant.comp
+[57/628] Building CXX object vendor/cpp-httplib/CMakeFiles/cpp-httplib.dir/httplib.cpp.o
+[58/628] Generate vulkan shaders for copy_transpose.comp
+[59/628] Generate vulkan shaders for copy_transpose_02.comp
+[60/628] Generate vulkan shaders for count_equal.comp
+[61/628] Generate vulkan shaders for count_experts.comp
+[62/628] Generate vulkan shaders for cumsum.comp
+[63/628] Generate vulkan shaders for cumsum_multipass1.comp
+[64/628] Generate vulkan shaders for cumsum_multipass2.comp
+[65/628] Generate vulkan shaders for dequant_f32.comp
+[66/628] Generate vulkan shaders for dequant_iq1_m.comp
+[67/628] Generate vulkan shaders for dequant_iq1_s.comp
+[68/628] Generate vulkan shaders for dequant_iq2_s.comp
+[69/628] Generate vulkan shaders for dequant_iq2_xs.comp
+[70/628] Generate vulkan shaders for dequant_iq2_xxs.comp
+[71/628] Generate vulkan shaders for dequant_iq3_s.comp
+[72/628] Generate vulkan shaders for dequant_iq3_xxs.comp
+[73/628] Generate vulkan shaders for dequant_iq4_nl.comp
+[74/628] Generate vulkan shaders for dequant_iq4_xs.comp
+[75/628] Generate vulkan shaders for dequant_mxfp4.comp
+[76/628] Generate vulkan shaders for dequant_nvfp4.comp
+[77/628] Generate vulkan shaders for dequant_q1_0.comp
+[78/628] Generate vulkan shaders for dequant_q2_0.comp
+[79/628] Generate vulkan shaders for dequant_q2_k.comp
+[80/628] Generate vulkan shaders for copy_to_quant.comp
+[81/628] Generate vulkan shaders for dequant_q3_k.comp
+[82/628] Generate vulkan shaders for dequant_q4_0.comp
+[83/628] Generate vulkan shaders for dequant_q4_k.comp
+[84/628] Generate vulkan shaders for dequant_q4_1.comp
+[85/628] Generate vulkan shaders for dequant_q5_1.comp
+[86/628] Generate vulkan shaders for dequant_q5_0.comp
+[87/628] Generate vulkan shaders for dequant_q5_k.comp
+[88/628] Generate vulkan shaders for dequant_q6_k.comp
+[89/628] Generate vulkan shaders for dequant_tq2_0.comp
+[90/628] Generate vulkan shaders for dequant_q8_0.comp
+[91/628] Generate vulkan shaders for diag.comp
+[92/628] Generate vulkan shaders for diag_mask_inf.comp
+[93/628] Generate vulkan shaders for fill.comp
+[94/628] Generate vulkan shaders for div.comp
+[95/628] Generate vulkan shaders for flash_attn_cm1.comp
+[96/628] Generate vulkan shaders for flash_attn_cm2.comp
+[97/628] Generate vulkan shaders for flash_attn_mask_opt.comp
+[98/628] Generate vulkan shaders for flash_attn_split_k_reduce.comp
+[99/628] Generate vulkan shaders for fwht.comp
+[100/628] Generate vulkan shaders for flash_attn.comp
+[101/628] Generate vulkan shaders for gated_delta_net.comp
+[102/628] Generate vulkan shaders for geglu.comp
+[103/628] Generate vulkan shaders for geglu_erf.comp
+[104/628] Generate vulkan shaders for geglu_quick.comp
+[105/628] Generate vulkan shaders for get_rows_back.comp
+[106/628] Generate vulkan shaders for get_rows.comp
+[107/628] Generate vulkan shaders for gla.comp
+[108/628] Generate vulkan shaders for group_norm.comp
+[109/628] Generate vulkan shaders for im2col.comp
+[110/628] Generate vulkan shaders for im2col_3d.comp
+[111/628] Generate vulkan shaders for l2_norm.comp
+[112/628] Generate vulkan shaders for log.comp
+[113/628] Generate vulkan shaders for mul.comp
+[114/628] Generate vulkan shaders for mul_mat_split_k_reduce.comp
+[115/628] Generate vulkan shaders for get_rows_quant.comp
+[116/628] Generate vulkan shaders for mul_mat_vec_iq1_m.comp
+[117/628] Generate vulkan shaders for mul_mat_vec_iq1_s.comp
+[118/628] Generate vulkan shaders for mul_mat_vec_iq2_s.comp
+[119/628] Generate vulkan shaders for mul_mat_vec_iq2_xs.comp
+[120/628] Generate vulkan shaders for mul_mat_vec_iq2_xxs.comp
+[121/628] Generate vulkan shaders for mul_mat_vec_iq3_s.comp
+[122/628] Generate vulkan shaders for mul_mat_vec_iq3_xxs.comp
+[123/628] Generate vulkan shaders for mul_mat_vec_nc.comp
+[124/628] Generate vulkan shaders for mul_mat_vec_p021.comp
+[125/628] Generate vulkan shaders for mul_mat_vec_q2_k.comp
+[126/628] Generate vulkan shaders for mul_mat_vec_q3_k.comp
+[127/628] Generate vulkan shaders for mul_mat_vec_q4_k.comp
+[128/628] Generate vulkan shaders for mul_mat_vec_q5_k.comp
+[129/628] Generate vulkan shaders for mul_mat_vec.comp
+[130/628] Generate vulkan shaders for mul_mat_vec_q6_k.comp
+[131/628] Generate vulkan shaders for mul_mat_vecq.comp
+[132/628] Generate vulkan shaders for mul_mat_vec_tq2_0.comp
+[133/628] Generate vulkan shaders for mul_mm_cm2.comp
+[134/628] Generate vulkan shaders for mul_mmq.comp
+[135/628] Generate vulkan shaders for multi_add.comp
+[136/628] Generate vulkan shaders for norm.comp
+[137/628] Generate vulkan shaders for opt_step_adamw.comp
+[138/628] Generate vulkan shaders for opt_step_sgd.comp
+[139/628] Generate vulkan shaders for out_prod.comp
+[140/628] Generate vulkan shaders for pad.comp
+[141/628] Generate vulkan shaders for pad_reflect_1d.comp
+[142/628] Generate vulkan shaders for pool1d.comp
+[143/628] Generate vulkan shaders for pool2d.comp
+[144/628] Generate vulkan shaders for quantize_q8_1.comp
+[145/628] Generate vulkan shaders for reglu.comp
+[146/628] Generate vulkan shaders for repeat.comp
+[147/628] Generate vulkan shaders for repeat_back.comp
+[148/628] Generate vulkan shaders for rms_norm.comp
+[149/628] Generate vulkan shaders for rms_norm_back.comp
+[150/628] Generate vulkan shaders for rms_norm_partials.comp
+[151/628] Generate vulkan shaders for roll.comp
+[152/628] Generate vulkan shaders for rope_multi.comp
+[153/628] Generate vulkan shaders for rope_neox.comp
+[154/628] Generate vulkan shaders for rope_norm.comp
+[155/628] Generate vulkan shaders for rope_vision.comp
+[156/628] Generate vulkan shaders for scale.comp
+[157/628] Generate vulkan shaders for silu_back.comp
+[158/628] Generate vulkan shaders for snake.comp
+[159/628] Generate vulkan shaders for soft_max.comp
+[160/628] Generate vulkan shaders for soft_max_back.comp
+[161/628] Generate vulkan shaders for soft_max_large1.comp
+[162/628] Generate vulkan shaders for soft_max_large2.comp
+[163/628] Generate vulkan shaders for soft_max_large3.comp
+[164/628] Generate vulkan shaders for solve_tri.comp
+[165/628] Generate vulkan shaders for ssm_conv.comp
+[166/628] Generate vulkan shaders for ssm_scan.comp
+[167/628] Generate vulkan shaders for sub.comp
+[168/628] Generate vulkan shaders for sum_rows.comp
+[169/628] Generate vulkan shaders for swiglu.comp
+[170/628] Generate vulkan shaders for swiglu_oai.comp
+[171/628] Generate vulkan shaders for timestep_embedding.comp
+[172/628] Generate vulkan shaders for topk_argsort.comp
+[173/628] Generate vulkan shaders for topk_moe.comp
+[174/628] Generate vulkan shaders for topk_nary_search.comp
+[175/628] Generate vulkan shaders for tri.comp
+[176/628] Generate vulkan shaders for unary.comp
+[177/628] Generate vulkan shaders for upscale.comp
+[178/628] Generate vulkan shaders for wkv6.comp
+[179/628] Generate vulkan shaders for wkv7.comp
+[180/628] Linking CXX static library vendor/cpp-httplib/libcpp-httplib.a
+[181/628] Building CXX object common/CMakeFiles/llama-common-base.dir/build-info.cpp.o
+[182/628] Linking CXX static library common/libllama-common-base.a
+[183/628] Building CXX object tools/ui/CMakeFiles/llama-ui-embed.dir/embed.cpp.o
+[184/628] Linking CXX executable tools/ui/llama-ui-embed
+[185/628] Provisioning UI assets
+CMake Warning at $HOME/src/llama.cpp-qwen-apu/scripts/ui-assets.cmake:359 (message):
+  UI: no assets available - building without an embedded UI.  In a
+  disconnected environment, download the pre-built UI from a llama.cpp
+  release at https://github.com/ggml-org/llama.cpp/releases and extract to
+  tools/ui/dist.
+
+
+embed: write output file $HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production/tools/ui/ui.h
+embed: write output file $HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production/tools/ui/ui.cpp
+[186/628] Building CXX object tools/ui/CMakeFiles/llama-ui.dir/ui.cpp.o
+[187/628] Linking CXX static library tools/ui/libllama-ui.a
+[188/628] Generate vulkan shaders for mul_mm.comp
+[189/628] Building CXX object ggml/src/CMakeFiles/ggml.dir/ggml-backend-dl.cpp.o
+[190/628] Building CXX object ggml/src/CMakeFiles/ggml.dir/ggml-backend-reg.cpp.o
+[191/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/acc.comp.cpp.o
+[192/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/add.comp.cpp.o
+[193/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/add1.comp.cpp.o
+[194/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/add_id.comp.cpp.o
+[195/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/arange.comp.cpp.o
+[196/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/argmax.comp.cpp.o
+[197/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/argsort.comp.cpp.o
+[198/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/argsort_large.comp.cpp.o
+[199/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/col2im_1d.comp.cpp.o
+[200/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/concat.comp.cpp.o
+[201/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/contig_copy.comp.cpp.o
+[202/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/conv2d_dw.comp.cpp.o
+[203/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/conv2d_mm.comp.cpp.o
+[204/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/conv3d_mm.comp.cpp.o
+[205/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/conv_transpose_1d.comp.cpp.o
+[206/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/copy.comp.cpp.o
+[207/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/copy_from_quant.comp.cpp.o
+[208/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/copy_to_quant.comp.cpp.o
+[209/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/copy_transpose.comp.cpp.o
+[210/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/copy_transpose_02.comp.cpp.o
+[211/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/count_equal.comp.cpp.o
+[212/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/count_experts.comp.cpp.o
+[213/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/cumsum.comp.cpp.o
+[214/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/cumsum_multipass1.comp.cpp.o
+[215/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/cumsum_multipass2.comp.cpp.o
+[216/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_f32.comp.cpp.o
+[217/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq1_m.comp.cpp.o
+[218/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq1_s.comp.cpp.o
+[219/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq2_s.comp.cpp.o
+[220/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq2_xs.comp.cpp.o
+[221/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq2_xxs.comp.cpp.o
+[222/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq3_s.comp.cpp.o
+[223/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq3_xxs.comp.cpp.o
+[224/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq4_nl.comp.cpp.o
+[225/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_iq4_xs.comp.cpp.o
+[226/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_mxfp4.comp.cpp.o
+[227/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_nvfp4.comp.cpp.o
+[228/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q1_0.comp.cpp.o
+[229/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q2_0.comp.cpp.o
+[230/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q2_k.comp.cpp.o
+[231/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q3_k.comp.cpp.o
+[232/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q4_0.comp.cpp.o
+[233/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q4_1.comp.cpp.o
+[234/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q4_k.comp.cpp.o
+[235/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q5_0.comp.cpp.o
+[236/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q5_1.comp.cpp.o
+[237/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q5_k.comp.cpp.o
+[238/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q6_k.comp.cpp.o
+[239/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_q8_0.comp.cpp.o
+[240/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/dequant_tq2_0.comp.cpp.o
+[241/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/diag.comp.cpp.o
+[242/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/diag_mask_inf.comp.cpp.o
+[243/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/div.comp.cpp.o
+[244/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/fill.comp.cpp.o
+[245/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/flash_attn.comp.cpp.o
+[246/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/flash_attn_cm1.comp.cpp.o
+[247/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/flash_attn_cm2.comp.cpp.o
+[248/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/flash_attn_mask_opt.comp.cpp.o
+[249/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/flash_attn_split_k_reduce.comp.cpp.o
+[250/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/fwht.comp.cpp.o
+[251/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/gated_delta_net.comp.cpp.o
+[252/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/geglu.comp.cpp.o
+[253/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/geglu_erf.comp.cpp.o
+[254/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/geglu_quick.comp.cpp.o
+[255/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/get_rows.comp.cpp.o
+[256/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/get_rows_back.comp.cpp.o
+[257/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/get_rows_quant.comp.cpp.o
+[258/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/gla.comp.cpp.o
+[259/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/group_norm.comp.cpp.o
+[260/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/im2col.comp.cpp.o
+[261/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/im2col_3d.comp.cpp.o
+[262/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/l2_norm.comp.cpp.o
+[263/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/log.comp.cpp.o
+[264/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul.comp.cpp.o
+[265/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_split_k_reduce.comp.cpp.o
+[266/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec.comp.cpp.o
+[267/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq1_m.comp.cpp.o
+[268/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq1_s.comp.cpp.o
+[269/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq2_s.comp.cpp.o
+[270/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq2_xs.comp.cpp.o
+[271/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq2_xxs.comp.cpp.o
+[272/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq3_s.comp.cpp.o
+[273/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_iq3_xxs.comp.cpp.o
+[274/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_nc.comp.cpp.o
+[275/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_p021.comp.cpp.o
+[276/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_q2_k.comp.cpp.o
+[277/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_q3_k.comp.cpp.o
+[278/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_q4_k.comp.cpp.o
+[279/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_q5_k.comp.cpp.o
+[280/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_q6_k.comp.cpp.o
+[281/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vec_tq2_0.comp.cpp.o
+[282/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mat_vecq.comp.cpp.o
+[283/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mm.comp.cpp.o
+[284/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mm_cm2.comp.cpp.o
+[285/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/mul_mmq.comp.cpp.o
+[286/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/multi_add.comp.cpp.o
+[287/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/norm.comp.cpp.o
+[288/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/opt_step_adamw.comp.cpp.o
+[289/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/opt_step_sgd.comp.cpp.o
+[290/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/out_prod.comp.cpp.o
+[291/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/pad.comp.cpp.o
+[292/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/pad_reflect_1d.comp.cpp.o
+[293/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/pool1d.comp.cpp.o
+[294/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/pool2d.comp.cpp.o
+[295/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/quantize_q8_1.comp.cpp.o
+[296/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/reglu.comp.cpp.o
+[297/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/repeat.comp.cpp.o
+[298/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/repeat_back.comp.cpp.o
+[299/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rms_norm.comp.cpp.o
+[300/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rms_norm_back.comp.cpp.o
+[301/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rms_norm_partials.comp.cpp.o
+[302/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/roll.comp.cpp.o
+[303/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rope_multi.comp.cpp.o
+[304/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rope_neox.comp.cpp.o
+[305/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rope_norm.comp.cpp.o
+[306/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/rope_vision.comp.cpp.o
+[307/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/scale.comp.cpp.o
+[308/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/silu_back.comp.cpp.o
+[309/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/snake.comp.cpp.o
+[310/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/soft_max.comp.cpp.o
+[311/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/soft_max_back.comp.cpp.o
+[312/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/soft_max_large1.comp.cpp.o
+[313/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/soft_max_large2.comp.cpp.o
+[314/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/soft_max_large3.comp.cpp.o
+[315/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/solve_tri.comp.cpp.o
+[316/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/ssm_conv.comp.cpp.o
+[317/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/ssm_scan.comp.cpp.o
+[318/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/sub.comp.cpp.o
+[319/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/sum_rows.comp.cpp.o
+[320/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/swiglu.comp.cpp.o
+[321/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/swiglu_oai.comp.cpp.o
+[322/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/timestep_embedding.comp.cpp.o
+[323/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/topk_argsort.comp.cpp.o
+[324/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/topk_moe.comp.cpp.o
+[325/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/topk_nary_search.comp.cpp.o
+[326/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/tri.comp.cpp.o
+[327/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/unary.comp.cpp.o
+[328/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/upscale.comp.cpp.o
+[329/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/wkv6.comp.cpp.o
+[330/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/wkv7.comp.cpp.o
+[331/628] Building CXX object src/CMakeFiles/llama.dir/llama.cpp.o
+[332/628] Building CXX object src/CMakeFiles/llama.dir/llama-adapter.cpp.o
+[333/628] Building CXX object src/CMakeFiles/llama.dir/llama-arch.cpp.o
+[334/628] Building CXX object src/CMakeFiles/llama.dir/llama-batch.cpp.o
+[335/628] Building CXX object src/CMakeFiles/llama.dir/llama-chat.cpp.o
+[336/628] Building CXX object src/CMakeFiles/llama.dir/llama-context.cpp.o
+[337/628] Building CXX object src/CMakeFiles/llama.dir/llama-cparams.cpp.o
+[338/628] Building CXX object ggml/src/ggml-vulkan/CMakeFiles/ggml-vulkan.dir/ggml-vulkan.cpp.o
+[339/628] Building CXX object src/CMakeFiles/llama.dir/llama-grammar.cpp.o
+[340/628] Linking CXX static library ggml/src/ggml-vulkan/libggml-vulkan.a
+[341/628] Linking CXX static library ggml/src/libggml.a
+[342/628] Building CXX object src/CMakeFiles/llama.dir/llama-hparams.cpp.o
+[343/628] Building CXX object src/CMakeFiles/llama.dir/llama-impl.cpp.o
+[344/628] Building CXX object src/CMakeFiles/llama.dir/llama-io.cpp.o
+[345/628] Building CXX object src/CMakeFiles/llama.dir/llama-graph.cpp.o
+[346/628] Building CXX object src/CMakeFiles/llama.dir/llama-kv-cache-iswa.cpp.o
+[347/628] Building CXX object src/CMakeFiles/llama.dir/llama-kv-cache.cpp.o
+[348/628] Building CXX object src/CMakeFiles/llama.dir/llama-kv-cache-dsa.cpp.o
+[349/628] Building CXX object src/CMakeFiles/llama.dir/llama-kv-cache-dsa-iswa.cpp.o
+[350/628] Building CXX object src/CMakeFiles/llama.dir/llama-kv-cache-msa.cpp.o
+[351/628] Building CXX object src/CMakeFiles/llama.dir/llama-memory.cpp.o
+[352/628] Building CXX object src/CMakeFiles/llama.dir/llama-memory-hybrid.cpp.o
+[353/628] Building CXX object src/CMakeFiles/llama.dir/llama-memory-hybrid-iswa.cpp.o
+[354/628] Building CXX object src/CMakeFiles/llama.dir/llama-kv-cache-dsv4.cpp.o
+[355/628] Building CXX object src/CMakeFiles/llama.dir/llama-mmap.cpp.o
+[356/628] Building CXX object src/CMakeFiles/llama.dir/llama-memory-recurrent.cpp.o
+[357/628] Building CXX object src/CMakeFiles/llama.dir/llama-model-saver.cpp.o
+[358/628] Building CXX object src/CMakeFiles/llama.dir/llama-model-loader.cpp.o
+[359/628] Building CXX object src/CMakeFiles/llama.dir/llama-model.cpp.o
+[360/628] Building CXX object src/CMakeFiles/llama.dir/llama-quant.cpp.o
+[361/628] Building CXX object src/CMakeFiles/llama.dir/llama-sampler.cpp.o
+[362/628] Building CXX object src/CMakeFiles/llama.dir/llama-vocab.cpp.o
+[363/628] Building CXX object src/CMakeFiles/llama.dir/unicode-data.cpp.o
+[364/628] Building CXX object src/CMakeFiles/llama.dir/models/afmoe.cpp.o
+[365/628] Building CXX object src/CMakeFiles/llama.dir/models/apertus.cpp.o
+[366/628] Building CXX object src/CMakeFiles/llama.dir/models/arcee.cpp.o
+[367/628] Building CXX object src/CMakeFiles/llama.dir/models/arctic.cpp.o
+[368/628] Building CXX object src/CMakeFiles/llama.dir/models/arwkv7.cpp.o
+[369/628] Building CXX object src/CMakeFiles/llama.dir/models/baichuan.cpp.o
+[370/628] Building CXX object src/CMakeFiles/llama.dir/models/bailingmoe.cpp.o
+[371/628] Building CXX object src/CMakeFiles/llama.dir/models/bailingmoe2.cpp.o
+[372/628] Building CXX object src/CMakeFiles/llama.dir/unicode.cpp.o
+[373/628] Building CXX object src/CMakeFiles/llama.dir/models/bailingmoe3.cpp.o
+[374/628] Building CXX object src/CMakeFiles/llama.dir/models/bert.cpp.o
+[375/628] Building CXX object src/CMakeFiles/llama.dir/models/bitnet.cpp.o
+[376/628] Building CXX object src/CMakeFiles/llama.dir/models/bloom.cpp.o
+[377/628] Building CXX object src/CMakeFiles/llama.dir/models/chatglm.cpp.o
+[378/628] Building CXX object src/CMakeFiles/llama.dir/models/chameleon.cpp.o
+[379/628] Building CXX object src/CMakeFiles/llama.dir/models/clip.cpp.o
+[380/628] Building CXX object src/CMakeFiles/llama.dir/models/codeshell.cpp.o
+[381/628] Building CXX object src/CMakeFiles/llama.dir/models/cogvlm.cpp.o
+[382/628] Building CXX object src/CMakeFiles/llama.dir/models/cohere2.cpp.o
+[383/628] Building CXX object src/CMakeFiles/llama.dir/models/cohere2moe.cpp.o
+[384/628] Building CXX object src/CMakeFiles/llama.dir/models/command-r.cpp.o
+[385/628] Building CXX object src/CMakeFiles/llama.dir/models/dbrx.cpp.o
+[386/628] Building CXX object src/CMakeFiles/llama.dir/models/deci.cpp.o
+[387/628] Building CXX object src/CMakeFiles/llama.dir/models/deepseek.cpp.o
+[388/628] Building CXX object src/CMakeFiles/llama.dir/models/deepseek2.cpp.o
+[389/628] Building CXX object src/CMakeFiles/llama.dir/models/deepseek2ocr.cpp.o
+[390/628] Building CXX object src/CMakeFiles/llama.dir/models/deepseek32.cpp.o
+[391/628] Building CXX object src/CMakeFiles/llama.dir/models/deepseek4.cpp.o
+[392/628] Building CXX object src/CMakeFiles/llama.dir/models/delta-net-base.cpp.o
+[393/628] Building CXX object src/CMakeFiles/llama.dir/models/dflash.cpp.o
+[394/628] Building CXX object src/CMakeFiles/llama.dir/models/dots1.cpp.o
+[395/628] Building CXX object src/CMakeFiles/llama.dir/models/dots3note.cpp.o
+[396/628] Building CXX object src/CMakeFiles/llama.dir/models/dream.cpp.o
+[397/628] Building CXX object src/CMakeFiles/llama.dir/models/eagle3.cpp.o
+[398/628] Building CXX object src/CMakeFiles/llama.dir/models/ernie4-5-moe.cpp.o
+[399/628] Building CXX object src/CMakeFiles/llama.dir/models/ernie4-5.cpp.o
+[400/628] Building CXX object src/CMakeFiles/llama.dir/models/eurobert.cpp.o
+[401/628] Building CXX object src/CMakeFiles/llama.dir/models/exaone-moe.cpp.o
+[402/628] Building CXX object src/CMakeFiles/llama.dir/models/exaone.cpp.o
+[403/628] Building CXX object src/CMakeFiles/llama.dir/models/exaone4.cpp.o
+[404/628] Building CXX object src/CMakeFiles/llama.dir/models/falcon-h1.cpp.o
+[405/628] Building CXX object src/CMakeFiles/llama.dir/models/falcon.cpp.o
+[406/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma-embedding.cpp.o
+[407/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma.cpp.o
+[408/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma2.cpp.o
+[409/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma3.cpp.o
+[410/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma3n.cpp.o
+[411/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma4-assistant.cpp.o
+[412/628] Building CXX object src/CMakeFiles/llama.dir/models/gemma4.cpp.o
+[413/628] Building CXX object src/CMakeFiles/llama.dir/models/glm4-moe.cpp.o
+[414/628] Building CXX object src/CMakeFiles/llama.dir/models/glm-dsa.cpp.o
+[415/628] Building CXX object src/CMakeFiles/llama.dir/models/glm4.cpp.o
+[416/628] Building CXX object src/CMakeFiles/llama.dir/models/gpt2.cpp.o
+[417/628] Building CXX object src/CMakeFiles/llama.dir/models/granite-hybrid.cpp.o
+[418/628] Building CXX object src/CMakeFiles/llama.dir/models/gptneox.cpp.o
+[419/628] Building CXX object src/CMakeFiles/llama.dir/models/granite-moe.cpp.o
+[420/628] Building CXX object src/CMakeFiles/llama.dir/models/granite-swa.cpp.o
+[421/628] Building CXX object src/CMakeFiles/llama.dir/models/granite-switch.cpp.o
+[422/628] Building CXX object src/CMakeFiles/llama.dir/models/granite.cpp.o
+[423/628] Building CXX object src/CMakeFiles/llama.dir/models/grok.cpp.o
+[424/628] Building CXX object src/CMakeFiles/llama.dir/models/grovemoe.cpp.o
+[425/628] Building CXX object src/CMakeFiles/llama.dir/models/hunyuan-dense.cpp.o
+[426/628] Building CXX object src/CMakeFiles/llama.dir/models/hunyuan-moe.cpp.o
+[427/628] Building CXX object src/CMakeFiles/llama.dir/models/hunyuan-vl.cpp.o
+[428/628] Building CXX object src/CMakeFiles/llama.dir/models/internlm2.cpp.o
+[429/628] Building CXX object src/CMakeFiles/llama.dir/models/hy-v3.cpp.o
+[430/628] Building CXX object src/CMakeFiles/llama.dir/models/jais2.cpp.o
+[431/628] Building CXX object src/CMakeFiles/llama.dir/models/jais.cpp.o
+[432/628] Building CXX object src/CMakeFiles/llama.dir/models/jamba.cpp.o
+[433/628] Building CXX object src/CMakeFiles/llama.dir/models/jina-bert-v2.cpp.o
+[434/628] Building CXX object src/CMakeFiles/llama.dir/models/jina-bert-v3.cpp.o
+[435/628] Building CXX object src/CMakeFiles/llama.dir/models/kimi-k3.cpp.o
+[436/628] Building CXX object src/CMakeFiles/llama.dir/models/kimi-linear.cpp.o
+[437/628] Building CXX object src/CMakeFiles/llama.dir/models/laguna.cpp.o
+[438/628] Building CXX object src/CMakeFiles/llama.dir/models/lfm2.cpp.o
+[439/628] Building CXX object src/CMakeFiles/llama.dir/models/lfm2moe.cpp.o
+[440/628] Building CXX object src/CMakeFiles/llama.dir/models/llada.cpp.o
+[441/628] Building CXX object src/CMakeFiles/llama.dir/models/llada-moe.cpp.o
+[442/628] Building CXX object src/CMakeFiles/llama.dir/models/llama.cpp.o
+[443/628] Building CXX object src/CMakeFiles/llama.dir/models/llama-embed.cpp.o
+[444/628] Building CXX object src/CMakeFiles/llama.dir/models/maincoder.cpp.o
+[445/628] Building CXX object src/CMakeFiles/llama.dir/models/llama4.cpp.o
+[446/628] Building CXX object src/CMakeFiles/llama.dir/models/mamba-base.cpp.o
+[447/628] Building CXX object src/CMakeFiles/llama.dir/models/mamba.cpp.o
+[448/628] Building CXX object src/CMakeFiles/llama.dir/models/mamba2.cpp.o
+[449/628] Building CXX object src/CMakeFiles/llama.dir/models/mellum.cpp.o
+[450/628] Building CXX object src/CMakeFiles/llama.dir/models/minicpm.cpp.o
+[451/628] Building CXX object src/CMakeFiles/llama.dir/models/mimo2.cpp.o
+[452/628] Building CXX object src/CMakeFiles/llama.dir/models/minicpm3.cpp.o
+[453/628] Building CXX object src/CMakeFiles/llama.dir/models/minimax-01.cpp.o
+[454/628] Building CXX object src/CMakeFiles/llama.dir/models/minimax-m2.cpp.o
+[455/628] Building CXX object src/CMakeFiles/llama.dir/models/minimax-m3.cpp.o
+[456/628] Building CXX object src/CMakeFiles/llama.dir/models/mistral3.cpp.o
+[457/628] Building CXX object src/CMakeFiles/llama.dir/models/mistral4.cpp.o
+[458/628] Building CXX object src/CMakeFiles/llama.dir/models/modern-bert.cpp.o
+[459/628] Building CXX object src/CMakeFiles/llama.dir/models/mpt.cpp.o
+[460/628] Building CXX object src/CMakeFiles/llama.dir/models/muse-glimmer.cpp.o
+[461/628] Building CXX object src/CMakeFiles/llama.dir/models/nanbeige.cpp.o
+[462/628] Building CXX object src/CMakeFiles/llama.dir/models/nemotron-h-moe.cpp.o
+[463/628] Building CXX object src/CMakeFiles/llama.dir/models/nemotron-h.cpp.o
+[464/628] Building CXX object src/CMakeFiles/llama.dir/models/nemotron.cpp.o
+[465/628] Building CXX object src/CMakeFiles/llama.dir/models/neo-bert.cpp.o
+[466/628] Building CXX object src/CMakeFiles/llama.dir/models/nomic-bert-moe.cpp.o
+[467/628] Building CXX object src/CMakeFiles/llama.dir/models/nomic-bert.cpp.o
+[468/628] Building CXX object src/CMakeFiles/llama.dir/models/olmo.cpp.o
+[469/628] Building CXX object src/CMakeFiles/llama.dir/models/olmo2.cpp.o
+[470/628] Building CXX object src/CMakeFiles/llama.dir/models/olmoe.cpp.o
+[471/628] Building CXX object src/CMakeFiles/llama.dir/models/openai-moe.cpp.o
+[472/628] Building CXX object src/CMakeFiles/llama.dir/models/openelm.cpp.o
+[473/628] Building CXX object src/CMakeFiles/llama.dir/models/orion.cpp.o
+[474/628] Building CXX object src/CMakeFiles/llama.dir/models/paddleocr.cpp.o
+[475/628] Building CXX object src/CMakeFiles/llama.dir/models/pangu-embed.cpp.o
+[476/628] Building CXX object src/CMakeFiles/llama.dir/models/phi2.cpp.o
+[477/628] Building CXX object src/CMakeFiles/llama.dir/models/phimoe.cpp.o
+[478/628] Building CXX object src/CMakeFiles/llama.dir/models/phi3.cpp.o
+[479/628] Building CXX object src/CMakeFiles/llama.dir/models/plamo.cpp.o
+[480/628] Building CXX object src/CMakeFiles/llama.dir/models/plamo2.cpp.o
+[481/628] Building CXX object src/CMakeFiles/llama.dir/models/plm.cpp.o
+[482/628] Building CXX object src/CMakeFiles/llama.dir/models/plamo3.cpp.o
+[483/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen.cpp.o
+[484/628] Building CXX object src/CMakeFiles/llama.dir/models/pockettts.cpp.o
+[485/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen2.cpp.o
+[486/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen2moe.cpp.o
+[487/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen2vl.cpp.o
+[488/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen3.cpp.o
+[489/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen35.cpp.o
+[490/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen35moe.cpp.o
+[491/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen3moe.cpp.o
+[492/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen3next.cpp.o
+[493/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen3tts.cpp.o
+[494/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen3vl.cpp.o
+[495/628] Building CXX object src/CMakeFiles/llama.dir/models/qwen3vlmoe.cpp.o
+[496/628] Building CXX object src/CMakeFiles/llama.dir/models/refact.cpp.o
+[497/628] Building CXX object src/CMakeFiles/llama.dir/models/rnd1.cpp.o
+[498/628] Building CXX object src/CMakeFiles/llama.dir/models/rwkv6-base.cpp.o
+[499/628] Building CXX object src/CMakeFiles/llama.dir/models/rwkv6.cpp.o
+[500/628] Building CXX object src/CMakeFiles/llama.dir/models/rwkv6qwen2.cpp.o
+[501/628] Building CXX object src/CMakeFiles/llama.dir/models/rwkv7-base.cpp.o
+[502/628] Building CXX object src/CMakeFiles/llama.dir/models/rwkv7.cpp.o
+[503/628] Building CXX object src/CMakeFiles/llama.dir/models/seed-oss.cpp.o
+[504/628] Building CXX object src/CMakeFiles/llama.dir/models/smallthinker.cpp.o
+[505/628] Building CXX object src/CMakeFiles/llama.dir/models/smollm3.cpp.o
+[506/628] Building CXX object src/CMakeFiles/llama.dir/models/stablelm.cpp.o
+[507/628] Building CXX object src/CMakeFiles/llama.dir/models/starcoder.cpp.o
+[508/628] Building CXX object src/CMakeFiles/llama.dir/models/starcoder2.cpp.o
+[509/628] Building CXX object src/CMakeFiles/llama.dir/models/step35.cpp.o
+[510/628] Building CXX object src/CMakeFiles/llama.dir/models/t5.cpp.o
+[511/628] Building CXX object src/CMakeFiles/llama.dir/models/t5encoder.cpp.o
+[512/628] Building CXX object src/CMakeFiles/llama.dir/models/talkie.cpp.o
+[513/628] Building CXX object src/CMakeFiles/llama.dir/models/wavtokenizer-dec.cpp.o
+[514/628] Building CXX object src/CMakeFiles/llama.dir/models/xverse.cpp.o
+[515/628] Linking CXX static library src/libllama.a
+[516/628] Building CXX object common/CMakeFiles/llama-common.dir/chat-auto-parser-generator.cpp.o
+[517/628] Building CXX object common/CMakeFiles/llama-common.dir/chat-auto-parser-helpers.cpp.o
+[518/628] Building CXX object common/CMakeFiles/llama-common.dir/chat-diff-analyzer.cpp.o
+[519/628] Building CXX object common/CMakeFiles/llama-common.dir/arg.cpp.o
+[520/628] Building CXX object common/CMakeFiles/llama-common.dir/chat-peg-parser.cpp.o
+[521/628] Building CXX object common/CMakeFiles/llama-common.dir/common.cpp.o
+[522/628] Building CXX object common/CMakeFiles/llama-common.dir/console.cpp.o
+[523/628] Building CXX object common/CMakeFiles/llama-common.dir/chat.cpp.o
+[524/628] Building CXX object common/CMakeFiles/llama-common.dir/debug.cpp.o
+[525/628] Building CXX object common/CMakeFiles/llama-common.dir/fit.cpp.o
+[526/628] Building CXX object common/CMakeFiles/llama-common.dir/hf-cache.cpp.o
+[527/628] Building CXX object common/CMakeFiles/llama-common.dir/download.cpp.o
+[528/628] Building CXX object common/CMakeFiles/llama-common.dir/imatrix-loader.cpp.o
+[529/628] Building CXX object common/CMakeFiles/llama-common.dir/json.cpp.o
+[530/628] Building CXX object common/CMakeFiles/llama-common.dir/llguidance.cpp.o
+[531/628] Building CXX object common/CMakeFiles/llama-common.dir/json-schema-to-grammar.cpp.o
+[532/628] Building CXX object common/CMakeFiles/llama-common.dir/log.cpp.o
+[533/628] Building CXX object common/CMakeFiles/llama-common.dir/ngram-cache.cpp.o
+[534/628] Building CXX object common/CMakeFiles/llama-common.dir/ngram-mod.cpp.o
+[535/628] Building CXX object common/CMakeFiles/llama-common.dir/ngram-map.cpp.o
+[536/628] Building CXX object common/CMakeFiles/llama-common.dir/preset.cpp.o
+[537/628] Building CXX object common/CMakeFiles/llama-common.dir/reasoning-budget.cpp.o
+[538/628] Building CXX object common/CMakeFiles/llama-common.dir/peg-parser.cpp.o
+[539/628] Building CXX object common/CMakeFiles/llama-common.dir/sampling.cpp.o
+[540/628] Building CXX object common/CMakeFiles/llama-common.dir/subproc.cpp.o
+[541/628] Building CXX object common/CMakeFiles/llama-common.dir/trie.cpp.o
+[542/628] Building CXX object common/CMakeFiles/llama-common.dir/unicode.cpp.o
+[543/628] Building CXX object common/CMakeFiles/llama-common.dir/jinja/lexer.cpp.o
+[544/628] Building CXX object common/CMakeFiles/llama-common.dir/speculative.cpp.o
+[545/628] Building CXX object common/CMakeFiles/llama-common.dir/jinja/parser.cpp.o
+[546/628] Building CXX object common/CMakeFiles/llama-common.dir/jinja/runtime.cpp.o
+[547/628] Building CXX object common/CMakeFiles/llama-common.dir/jinja/string.cpp.o
+[548/628] Building CXX object common/CMakeFiles/llama-common.dir/jinja/caps.cpp.o
+[549/628] Building CXX object common/CMakeFiles/llama-common.dir/jinja/value.cpp.o
+[550/628] Linking CXX static library common/libllama-common.a
+[551/628] Building CXX object tools/llama-bench/CMakeFiles/llama-bench.dir/main.cpp.o
+[552/628] Building CXX object tools/cli/CMakeFiles/llama-cli-impl.dir/cli.cpp.o
+[553/628] Building CXX object tools/cli/CMakeFiles/llama-cli-impl.dir/cli-client.cpp.o
+[554/628] Building CXX object tools/cli/CMakeFiles/llama-cli-impl.dir/cli-context.cpp.o
+[555/628] Building CXX object tools/cli/CMakeFiles/llama-cli.dir/main.cpp.o
+[556/628] Building CXX object tools/llama-bench/CMakeFiles/llama-bench-impl.dir/llama-bench.cpp.o
+[557/628] Linking CXX static library tools/llama-bench/libllama-bench-impl.a
+[558/628] Linking CXX executable bin/llama-bench
+[559/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-chat.cpp.o
+[560/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-queue.cpp.o
+[561/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-task.cpp.o
+[562/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-common.cpp.o
+[563/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-stream.cpp.o
+[564/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-context.cpp.o
+[565/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-mcp.cpp.o
+[566/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-tools.cpp.o
+[567/628] Building CXX object tools/server/CMakeFiles/server-context.dir/server-schema.cpp.o
+[568/628] Building CXX object tools/server/CMakeFiles/llama-server-impl.dir/server-http.cpp.o
+[569/628] Building CXX object tools/server/CMakeFiles/llama-server-impl.dir/server.cpp.o
+[570/628] Building CXX object tools/server/CMakeFiles/llama-server.dir/main.cpp.o
+[571/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/mtmd.cpp.o
+[572/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/mtmd-audio.cpp.o
+[573/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/mtmd-image.cpp.o
+[574/628] Building CXX object tools/server/CMakeFiles/llama-server-impl.dir/server-models.cpp.o
+[575/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/mtmd-helper-gen.cpp.o
+[576/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/clip.cpp.o
+[577/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/cogvlm.cpp.o
+[578/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/mtmd-helper.cpp.o
+[579/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/conformer.cpp.o
+[580/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/dots3note.cpp.o
+[581/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/dotsocr.cpp.o
+[582/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/exaone4_5.cpp.o
+[583/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/gemma4v.cpp.o
+[584/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/gemma4a.cpp.o
+[585/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/gemma4ua.cpp.o
+[586/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/gemma4uv.cpp.o
+[587/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/glm4v.cpp.o
+[588/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/granite-speech.cpp.o
+[589/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/hunyuanvl.cpp.o
+[590/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/granite4-vision.cpp.o
+[591/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/internvl.cpp.o
+[592/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/kimivl.cpp.o
+[593/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/kimik25.cpp.o
+[594/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/nemotron-v2-vl.cpp.o
+[595/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/muse-glimmer.cpp.o
+[596/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/llama4.cpp.o
+[597/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/llava.cpp.o
+[598/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/minicpmv.cpp.o
+[599/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/paddleocr.cpp.o
+[600/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/pixtral.cpp.o
+[601/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/qwen2vl.cpp.o
+[602/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/minimax-m3.cpp.o
+[603/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/qwen3vl.cpp.o
+[604/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/mimovl.cpp.o
+[605/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/qwen3a.cpp.o
+[606/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/mimo-audio.cpp.o
+[607/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/qwen3tts-spkenc.cpp.o
+[608/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/pockettts-seanet.cpp.o
+[609/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/qwen3tts-gen.cpp.o
+[610/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/pockettts-spkenc.cpp.o
+[611/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/step3vl.cpp.o
+[612/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/pockettts-gen.cpp.o
+[613/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/siglip.cpp.o
+[614/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/whisper-enc.cpp.o
+[615/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/deepseekocr.cpp.o
+[616/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/deepseekocr2.cpp.o
+[617/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/youtuvl.cpp.o
+[618/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/mobilenetv5.cpp.o
+[619/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/yasa2.cpp.o
+[620/628] Building CXX object tools/mtmd/CMakeFiles/mtmd.dir/models/parakeet.cpp.o
+[621/628] Linking CXX static library tools/mtmd/libmtmd.a
+[622/628] Linking CXX static library tools/server/libserver-context.a
+[623/628] Linking CXX static library tools/server/libllama-server-impl.a
+[624/628] Linking CXX static library tools/cli/libllama-cli-impl.a
+[625/628] Linking CXX executable bin/llama-cli
+[626/628] Linking CXX executable bin/llama-server
+[627/628] Building CXX object tools/mtmd/CMakeFiles/llama-mtmd-cli.dir/mtmd-cli.cpp.o
+[628/628] Linking CXX executable bin/llama-mtmd-cli
+preset=raven2-vulkan-production build=accepted manifest=$HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production/artifact-manifest.tsv
+preset	raven2-vulkan-production
+commit	f280b26983ad0fdb705a0d9ebf0503e76f2899b0
+worktree	dirty
+compiler_flags	-march=znver1 -mtune=znver1
+cmake_flags	-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_OPENSSL=OFF -DGGML_CCACHE=ON -DGGML_LTO=OFF -DGGML_OPENMP=OFF -DGGML_BLAS=OFF -DGGML_LLAMAFILE=OFF -DGGML_CPU=ON -DGGML_CUDA=OFF -DGGML_HIP=OFF -DGGML_OPENCL=OFF -DGGML_RPC=OFF -DGGML_SYCL=OFF -DGGML_VULKAN=ON -DLLAMA_SUBPROCESS=ON -DGGML_NATIVE=OFF -DGGML_SSE42=ON -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON
+executable	llama-server	57696808	4117a9c4d58e530c3c5ef6934596ae6d257ca61ef80c5f0f8a5ee71d1d63ca79
+executable	llama-cli	57865008	59b8154a83cb3da1555e07330a7ca7bf5cefd3de2603791302f2c29388e9c21c
+executable	llama-bench	54160040	557d6690d338bc79b81ea690762a0d8987c0ca66f3c122a5fcc0f2a8420df092
+executable	llama-mtmd-cli	55806024	dd094cfbddf4bc971c003a3612b8a83a34c6f39e05b6cac871ed78cdd98e54af

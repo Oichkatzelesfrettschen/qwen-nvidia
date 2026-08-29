@@ -1,0 +1,99 @@
+{
+  "_comment": [
+    "Tool schemas offered to the model on a `tool` row, by set name. The suite's",
+    "attachment column names a set as `tools:NAME` and the runner puts that set in",
+    "the request body's `tools` field.",
+    "",
+    "Nothing here is executed. The server is launched without --tools, so it holds",
+    "no tool server and runs no command; what these declarations produce is a",
+    "`tool_calls` object in the response, and the graders read that object. Tool",
+    "selection is therefore measured with the appliance's read-only boundary",
+    "intact rather than relaxed for the measurement.",
+    "",
+    "The sets are small on purpose. A model choosing among two or three tools is",
+    "the case the appliance would present; a set of twenty measures a retrieval",
+    "problem the appliance does not have."
+  ],
+  "weather": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Current weather conditions for a named city.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {"type": "string", "description": "City name"},
+            "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}
+          },
+          "required": ["city"]
+        }
+      }
+    }
+  ],
+  "weather_and_time": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Current weather conditions for a named city.",
+        "parameters": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_local_time",
+        "description": "Current local wall-clock time in a named city.",
+        "parameters": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    }
+  ],
+  "arithmetic": [
+    {
+      "type": "function",
+      "function": {
+        "name": "multiply",
+        "description": "Multiply two numbers exactly.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "left": {"type": "number"},
+            "right": {"type": "number"}
+          },
+          "required": ["left", "right"]
+        }
+      }
+    }
+  ],
+  "database": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read_record",
+        "description": "Read one record from the parts table by its identifier.",
+        "parameters": {
+          "type": "object",
+          "properties": {"record_id": {"type": "string"}},
+          "required": ["record_id"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_records",
+        "description": "List every record identifier in the parts table.",
+        "parameters": {"type": "object", "properties": {}}
+      }
+    }
+  ]
+}

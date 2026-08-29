@@ -1,0 +1,424 @@
+{
+  "summary": {
+    "rows": 10,
+    "requested_model": "qwen35-4b-base",
+    "tool_stages": {
+      "rows": 10,
+      "called_a_tool": 8,
+      "arguments_parsed": 10,
+      "names_match": 10,
+      "arguments_match": 9
+    },
+    "images_omitted": false,
+    "images_sent": 0,
+    "served_models": [
+      "qwen35-4b-base"
+    ],
+    "passed": 8,
+    "completion_rate": 1.0,
+    "empty_answer_rate": 0.0,
+    "truncated_rate": 0.0,
+    "correct_on_completed": 0.8,
+    "reasoning_words_total": 0,
+    "generated_tokens_total": 314,
+    "wall_seconds_total": 310.1960408097366,
+    "by_category": {
+      "tool": {
+        "attempted": 10,
+        "passed": 8,
+        "truncated": 0,
+        "empty": 0
+      }
+    }
+  },
+  "records": [
+    {
+      "id": "tool-01",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Oslo",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Oslo",
+            "unit": "celsius"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 38,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 40,
+      "prompt_tokens": 307,
+      "decode_tok_per_second": 3.059809868122195,
+      "wall_seconds": 35.651508408016525
+    },
+    {
+      "id": "tool-02",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_local_time:city=Tokyo",
+      "attachment": "tools:weather_and_time",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_local_time",
+          "arguments": {
+            "city": "Tokyo"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_local_time"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 35,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 28,
+      "prompt_tokens": 341,
+      "decode_tok_per_second": 3.0633601589135098,
+      "wall_seconds": 27.671984704909846
+    },
+    {
+      "id": "tool-03",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Lisbon",
+      "attachment": "tools:weather_and_time",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Lisbon"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 39,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 28,
+      "prompt_tokens": 342,
+      "decode_tok_per_second": 3.0699522736123392,
+      "wall_seconds": 27.580428996006958
+    },
+    {
+      "id": "tool-04",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "multiply:left=47|right=89",
+      "attachment": "tools:arithmetic",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "multiply",
+          "arguments": {
+            "left": 47,
+            "right": 89
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "multiply"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 59,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 40,
+      "prompt_tokens": 297,
+      "decode_tok_per_second": 2.460965770048494,
+      "wall_seconds": 34.591382171958685
+    },
+    {
+      "id": "tool-05",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "no_tool_call",
+      "expectation": "paris",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [],
+      "tool_detail": {
+        "emitted": [],
+        "called_a_tool": false,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 54,
+      "passed": true,
+      "reason": "answered without a tool call, matched paris",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "The capital of France is Paris.",
+      "reasoning_words": 0,
+      "generated_tokens": 8,
+      "prompt_tokens": 310,
+      "decode_tok_per_second": 3.048045027462886,
+      "wall_seconds": 22.371719591901638
+    },
+    {
+      "id": "tool-06",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "read_record:record_id=P-4471",
+      "attachment": "tools:database",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "read_record",
+          "arguments": {
+            "record_id": "P-4471"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "read_record"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 58,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 32,
+      "prompt_tokens": 339,
+      "decode_tok_per_second": 2.8824338899840076,
+      "wall_seconds": 31.35771886596922
+    },
+    {
+      "id": "tool-07",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "list_records",
+      "attachment": "tools:database",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "list_records",
+          "arguments": {},
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "list_records"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 51,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 14,
+      "prompt_tokens": 330,
+      "decode_tok_per_second": 3.0737220409514356,
+      "wall_seconds": 22.974040705012158
+    },
+    {
+      "id": "tool-08",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Oslo",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Reykjavik"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": false
+      },
+      "prompt_characters": 165,
+      "passed": false,
+      "reason": "arguments disagree with get_weather:city=Oslo",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 29,
+      "prompt_tokens": 337,
+      "decode_tok_per_second": 3.007781775979124,
+      "wall_seconds": 27.864864113973454
+    },
+    {
+      "id": "tool-09",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "no_tool_call",
+      "expectation": "book|novel|sail",
+      "attachment": "tools:weather",
+      "images_sent": 0,
+      "tool_calls": [],
+      "tool_detail": {
+        "emitted": [],
+        "called_a_tool": false,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 61,
+      "passed": false,
+      "reason": "none of book|novel|sail",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "I recommend \"The Cruel Sea\" by Anthony Powell, as it vividly captures the tension, camaraderie, and peril of life aboard a Royal Navy warship during World War II.",
+      "reasoning_words": 0,
+      "generated_tokens": 40,
+      "prompt_tokens": 310,
+      "decode_tok_per_second": 2.386336059997628,
+      "wall_seconds": 34.4792416379787
+    },
+    {
+      "id": "tool-10",
+      "requested_model": "qwen35-4b-base",
+      "served_model": "qwen35-4b-base",
+      "category": "tool",
+      "grader": "tool_call",
+      "expectation": "get_weather:city=Oslo;get_local_time:city=Oslo",
+      "attachment": "tools:weather_and_time",
+      "images_sent": 0,
+      "tool_calls": [
+        {
+          "name": "get_weather",
+          "arguments": {
+            "city": "Oslo"
+          },
+          "arguments_parsed": true
+        },
+        {
+          "name": "get_local_time",
+          "arguments": {
+            "city": "Oslo"
+          },
+          "arguments_parsed": true
+        }
+      ],
+      "tool_detail": {
+        "emitted": [
+          "get_weather",
+          "get_local_time"
+        ],
+        "called_a_tool": true,
+        "arguments_parsed": true,
+        "names_match": true,
+        "arguments_match": true
+      },
+      "prompt_characters": 69,
+      "passed": true,
+      "reason": "tool and arguments match",
+      "truncated": false,
+      "empty_answer": false,
+      "error": null,
+      "content": "",
+      "reasoning_words": 0,
+      "generated_tokens": 55,
+      "prompt_tokens": 346,
+      "decode_tok_per_second": 2.353293811652212,
+      "wall_seconds": 45.6531516140094
+    }
+  ]
+}

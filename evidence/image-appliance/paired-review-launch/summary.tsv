@@ -1,0 +1,38 @@
+ordinary_router_recorded	accepted	running=1 server=$HOME/src/llama.cpp-qwen-apu/build-raven2-vulkan-production/bin/llama-server
+ordinary_teardown	accepted	no residue
+image_ledger_promoted	accepted	image-sdxs-512-a validator-gated review_model=lfm25-vl-16b in $HOME/image-admission-20260829T123050Z-review/image-profiles.tsv
+image_runtime_present	accepted	$HOME/src/stable-diffusion.cpp-qwen-apu/build-raven2/bin/sd-cli template=sd-cli
+image_parameters_written	accepted	template=sd-cli runtime=$HOME/src/stable-diffusion.cpp-qwen-apu/build-raven2/bin/sd-cli
+preset_generated	accepted	image_profile=image-sdxs-512-a sections=2
+image_launch	accepted	image_launch timeouts runtime=300 service=330 mcp=360 proxy=3600 browser=660 proxy_source=llama-server-default;
+artifact_listener_loopback	accepted	127.0.0.1:34245
+image_service_recorded	accepted	image_service_pid=1375153
+router_listener_loopback	accepted	127.0.0.1:8080,
+api_key_minted	accepted	mode=600 path=$HOME/qwen-webui-state/api.key
+router_roster	refused	expected=web-image-admission,lfm25-vl-16b, measured=lfm25-vl-16b,web-image-admission,
+review_row_reports_vision	accepted	lfm25-vl-16b
+review_row_offers_no_tools	accepted	status=403
+tool_enumeration	accepted	image_generate_image, via http://127.0.0.1:8080
+web_tools_absent	accepted	the ui-mediated section emits the image server alone
+tools_unknown_model_refused	accepted	status=400
+broker_signs_image_profile	accepted	image_profile=image-sdxs-512-a
+session_secret_issued	accepted	status=200
+grant_issued	accepted	status=200 seed=20260829 bytes=614
+grant_wrong_image_profile_refused	accepted	status=400
+generation_completed	accepted	elapsed=12s sha256=17e452e6974ad6d3174c5d0c9f367c90867eb99ffa8a3a6f9e45e78eb4de7639 provenance=/artifacts/17e452e6974ad6d3174c5d0c9f367c90867eb99ffa8a3a6f9e45e78eb4de7639.json
+result_carries_identity_alone	accepted	status, sha256, and provenance_url
+grant_replay_refused	accepted	the authorization is spent; a grant admits one search and the operator issues another
+generation_without_grant_refused	accepted	authorization is required
+routing_key_outside_arguments	accepted	params.model refused: the call carries an argument the tool does not read: model
+artifact_png_matches_digest	accepted	type=image/png bytes=583938
+artifact_without_credential_refused	accepted	status=401
+provenance_names_seed_and_profile	accepted	seed=20260829 profile=image-sdxs-512-a
+lease_released_after_generation	accepted	$HOME/qwen-webui-state/vulkan-workload.lock
+browser_prompt_used	observed	Call the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool.
+browser_turn_completed	refused	tool_call_proposed=no error=TimeoutError(waited 600s for the approval dialog) reply=image_generate_image(red_apple_on_white_table, product_photography)
+browser_turn_tool_message	observed	none
+secret_hygiene	accepted	key, grant, session secret, and prompt text absent from process images, logs, status, and provenance
+image_teardown	accepted	torn down: no server, tmux session, probe, approval broker, image service, or router snapshot; port 8080 free
+image_residue_absent	accepted	image teardown verified: no service, no runtime, no partial artifact, lease free
+absence_proved	accepted	router, MCP child, broker, secret, and both ports
+ordinary_restore	accepted	the ordinary router serves again

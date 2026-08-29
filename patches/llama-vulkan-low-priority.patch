@@ -1,0 +1,163 @@
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -3283,6 +3283,37 @@
+     abort();
+ }
+ 
++#if defined(VK_KHR_global_priority)
++static bool ggml_vk_queue_family_supports_global_priority(
++        const vk::PhysicalDevice & physical_device,
++        uint32_t                   queue_family_index,
++        VkQueueGlobalPriorityKHR   requested_priority) {
++    uint32_t queue_family_count = 0;
++    vkGetPhysicalDeviceQueueFamilyProperties2(physical_device, &queue_family_count, nullptr);
++    if (queue_family_index >= queue_family_count) {
++        return false;
++    }
++
++    std::vector<VkQueueFamilyProperties2> queue_family_properties(queue_family_count);
++    std::vector<VkQueueFamilyGlobalPriorityPropertiesKHR> global_priority_properties(queue_family_count);
++    for (uint32_t family_index = 0; family_index < queue_family_count; ++family_index) {
++        queue_family_properties[family_index].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
++        queue_family_properties[family_index].pNext = &global_priority_properties[family_index];
++        global_priority_properties[family_index].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_GLOBAL_PRIORITY_PROPERTIES_KHR;
++    }
++    vkGetPhysicalDeviceQueueFamilyProperties2(physical_device, &queue_family_count, queue_family_properties.data());
++
++    const auto & priorities = global_priority_properties[queue_family_index];
++    for (uint32_t priority_index = 0; priority_index < priorities.priorityCount; ++priority_index) {
++        if (priorities.priorities[priority_index] == requested_priority) {
++            return true;
++        }
++    }
++
++    return false;
++}
++#endif
++
+ static std::unique_ptr<vk_queue> ggml_vk_create_queue(vk_device& device, uint32_t queue_family_index, uint32_t queue_index, vk::PipelineStageFlags&& stage_flags, bool transfer_only) {
+     VK_LOG_DEBUG("ggml_vk_create_queue()");
+     std::lock_guard<std::recursive_mutex> guard(device->mutex);
+@@ -6204,6 +6235,9 @@
+         bool coopmat2_decode_vector_support = false;
+         bool pipeline_executable_properties_support = false;
+         bool internally_sync_support = false;
++#if defined(VK_KHR_global_priority)
++        bool global_priority_support = false;
++#endif
+         device->coopmat_support = false;
+         device->integer_dot_product = false;
+         device->shader_64b_indexing = false;
+@@ -6277,6 +6311,10 @@
+ #endif
+             } else if (strcmp(VK_KHR_INTERNALLY_SYNCHRONIZED_QUEUES_EXTENSION_NAME, properties.extensionName) == 0) {
+                 internally_sync_support = true;
++#if defined(VK_KHR_global_priority)
++            } else if (strcmp(VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME, properties.extensionName) == 0) {
++                global_priority_support = true;
++#endif
+             } else if (strcmp("VK_EXT_device_fault", properties.extensionName) == 0) {
+                 device->device_fault = true;
+             }
+@@ -6460,6 +6498,11 @@
+         const vk::QueueFlagBits graphics_flag = allow_graphics_queue ? (vk::QueueFlagBits)0 : vk::QueueFlagBits::eGraphics;
+         const uint32_t compute_queue_family_index = ggml_vk_find_queue_family_index(queue_family_props, vk::QueueFlagBits::eCompute, graphics_flag, -1, 1);
+         const uint32_t transfer_queue_family_index = ggml_vk_find_queue_family_index(queue_family_props, vk::QueueFlagBits::eTransfer, vk::QueueFlagBits::eCompute | graphics_flag, compute_queue_family_index, 1);
++        const char * low_priority_environment = getenv("GGML_VK_LOW_PRIORITY");
++        if (low_priority_environment != nullptr && strcmp(low_priority_environment, "1") != 0) {
++            throw std::runtime_error("GGML_VK_LOW_PRIORITY accepts only the exact value 1");
++        }
++        const bool low_priority_requested = low_priority_environment != nullptr;
+ 
+         const float priorities[] = { 1.0f, 1.0f };
+         device->single_queue = compute_queue_family_index == transfer_queue_family_index && queue_family_props[compute_queue_family_index].queueCount == 1;
+@@ -6491,6 +6534,22 @@
+         internally_synchronized_queues_features.pNext = nullptr;
+         internally_synchronized_queues_features.internallySynchronizedQueues = VK_FALSE;
+ 
++#if defined(VK_KHR_global_priority)
++        VkPhysicalDeviceGlobalPriorityQueryFeaturesKHR global_priority_query_features{};
++        global_priority_query_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GLOBAL_PRIORITY_QUERY_FEATURES_KHR;
++        if (low_priority_requested) {
++            if (!global_priority_support) {
++                throw std::runtime_error("GGML_VK_LOW_PRIORITY requires VK_KHR_global_priority");
++            }
++            last_struct->pNext = (VkBaseOutStructure *) &global_priority_query_features;
++            last_struct = (VkBaseOutStructure *) &global_priority_query_features;
++        }
++#else
++        if (low_priority_requested) {
++            throw std::runtime_error("GGML_VK_LOW_PRIORITY requires Vulkan headers with VK_KHR_global_priority");
++        }
++#endif
++
+         if (internally_sync_support) {
+             last_struct->pNext = (VkBaseOutStructure *)&internally_synchronized_queues_features;
+             last_struct = (VkBaseOutStructure *)&internally_synchronized_queues_features;
+@@ -6643,6 +6702,28 @@
+ 
+         vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
+ 
++#if defined(VK_KHR_global_priority)
++        VkDeviceQueueGlobalPriorityCreateInfoKHR global_priority_create_info{};
++        if (low_priority_requested) {
++            if (!global_priority_query_features.globalPriorityQuery) {
++                throw std::runtime_error("GGML_VK_LOW_PRIORITY requires globalPriorityQuery support");
++            }
++            if (!ggml_vk_queue_family_supports_global_priority(
++                    device->physical_device, compute_queue_family_index, VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR)) {
++                throw std::runtime_error("compute queue family does not support LOW global priority");
++            }
++            if (transfer_queue_family_index != compute_queue_family_index &&
++                !ggml_vk_queue_family_supports_global_priority(
++                    device->physical_device, transfer_queue_family_index, VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR)) {
++                throw std::runtime_error("transfer queue family does not support LOW global priority");
++            }
++
++            global_priority_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_KHR;
++            global_priority_create_info.globalPriority = VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR;
++            device_extensions.push_back(VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME);
++        }
++#endif
++
+         device->device_fault = device->device_fault && fault_features.deviceFault;
+ 
+         device->has_internally_synchronized_queues = internally_synchronized_queues_features.internallySynchronizedQueues;
+@@ -6662,6 +6743,14 @@
+             device_queue_create_infos.push_back({queue_flags, compute_queue_family_index, 1, priorities});
+         }
+ 
++#if defined(VK_KHR_global_priority)
++        if (low_priority_requested) {
++            for (auto & queue_create_info : device_queue_create_infos) {
++                queue_create_info.pNext = &global_priority_create_info;
++            }
++        }
++#endif
++
+         device->pipeline_executable_properties_support = pipeline_executable_properties_support;
+ 
+         device->fp16 = device->fp16 && vk12_features.shaderFloat16;
+@@ -6941,7 +7030,21 @@
+             .setQueueCreateInfos(device_queue_create_infos)
+             .setPEnabledExtensionNames(device_extensions);
+         device_create_info.setPNext(&device_features2);
+-        device->device = device->physical_device.createDevice(device_create_info);
++        try {
++            device->device = device->physical_device.createDevice(device_create_info);
++        } catch (const vk::SystemError & error) {
++#if defined(VK_KHR_global_priority)
++            if (low_priority_requested &&
++                error.code() == vk::make_error_code(vk::Result::eErrorNotPermittedKHR)) {
++                GGML_LOG_ERROR("ggml_vulkan: LOW global queue priority was not permitted\n");
++            }
++#endif
++            throw;
++        }
++
++        if (low_priority_requested) {
++            GGML_LOG_INFO("ggml_vulkan: %s: global queue priority = LOW\n", device->properties.deviceName.data());
++        }
+ 
+         if (device->device_fault) {
+             device->pfn_vkGetDeviceFaultInfoEXT = (PFN_vkGetDeviceFaultInfoEXT)

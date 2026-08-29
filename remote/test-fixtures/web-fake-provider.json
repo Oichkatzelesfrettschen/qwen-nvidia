@@ -1,0 +1,82 @@
+{
+  "search": {
+    "raven2 vulkan decode": [
+      {
+        "title": "Vulkan decode on Raven2",
+        "url": "https://example.org/raven2",
+        "publishedDate": "2026-01-05",
+        "author": "A. Measurer",
+        "highlights": [
+          "decode reaches 3.07 tok/s on the 4B distill",
+          "two Vega compute units share one DDR4 controller"
+        ]
+      },
+      {
+        "title": "MCP tool routes in llama-server",
+        "url": "https://docs.example.net/llama-server-tools",
+        "publishedDate": "2026-03-03",
+        "author": "",
+        "highlights": [
+          "GET /tools lists the wrapped MCP tools",
+          "POST /tools runs one named tool with the caller's params"
+        ]
+      }
+    ],
+    "raven2 vulkan decode slow": [
+      {
+        "title": "Vulkan decode on Raven2",
+        "url": "https://example.org/raven2",
+        "publishedDate": "2026-01-05",
+        "author": "A. Measurer",
+        "highlights": [
+          "decode reaches 3.07 tok/s on the 4B distill",
+          "two Vega compute units share one DDR4 controller"
+        ]
+      },
+      {
+        "title": "MCP tool routes in llama-server",
+        "url": "https://docs.example.net/llama-server-tools",
+        "publishedDate": "2026-03-03",
+        "author": "",
+        "highlights": [
+          "GET /tools lists the wrapped MCP tools",
+          "POST /tools runs one named tool with the caller's params"
+        ]
+      }
+    ],
+    "raven2 vulkan decode stalled": [
+      {
+        "title": "Vulkan decode on Raven2",
+        "url": "https://example.org/raven2",
+        "publishedDate": "2026-01-05",
+        "author": "A. Measurer",
+        "highlights": [
+          "decode reaches 3.07 tok/s on the 4B distill",
+          "two Vega compute units share one DDR4 controller"
+        ]
+      },
+      {
+        "title": "MCP tool routes in llama-server",
+        "url": "https://docs.example.net/llama-server-tools",
+        "publishedDate": "2026-03-03",
+        "author": "",
+        "highlights": [
+          "GET /tools lists the wrapped MCP tools",
+          "POST /tools runs one named tool with the caller's params"
+        ]
+      }
+    ]
+  },
+  "contents": {
+    "https://example.org/raven2": {
+      "text": "Vulkan decode on Raven2. The Qwen3.8-4B distill at Q4_K_M decodes at 3.07 tokens per second with every layer on the Vulkan device. The two Vega compute units and the two Zen+ cores draw on one DDR4-2133 controller, so a split placement adds synchronization without adding bandwidth. FIXTURE-PAGE-RAVEN2-END"
+    },
+    "https://docs.example.net/llama-server-tools": {
+      "text": "llama-server exposes GET /tools and POST /tools. The first lists each wrapped MCP tool as a function definition; the second invokes one tool with the params object taken verbatim from the request body. FIXTURE-PAGE-TOOLS-END"
+    }
+  },
+  "delays": {
+    "raven2 vulkan decode slow": 5,
+    "raven2 vulkan decode stalled": 40
+  }
+}

@@ -1,0 +1,306 @@
+{
+  "origin": "http://127.0.0.1:8080",
+  "model": "web-image-admission",
+  "history": [
+    {
+      "role": "user",
+      "content": "Call the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_0",
+          "type": "function",
+          "function": {
+            "name": "image_generate_image",
+            "arguments": "{\"prompt\":\"a red apple on a white table, product photography\",\"seed\":12345,\"width\":512,\"height\":512,\"steps\":1,\"profile_id\":\"image-sdxs-512-a\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_0",
+      "name": "image_generate_image",
+      "content": "Image generated: sha256 7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3, provenance /artifacts/7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3.json."
+    },
+    {
+      "role": "assistant",
+      "content": "Image generated: sha256 7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3, provenance /artifacts/7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3.json."
+    }
+  ],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:8080/tools?model=web-image-admission&autoload=true",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:8080/v1/chat/completions",
+      "method": "POST",
+      "body": {
+        "model": "web-image-admission",
+        "stream": true,
+        "temperature": 0.7,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 512,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Call the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "reasoning_budget": 0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "image_generate_image",
+              "description": "Generate one image under the image-sdxs-512-a image profile, which renders 512x512 and admits at most 512 pixels a side and 4 sampler steps. The call runs only under a grant the user approved for these exact arguments, and the reply names the artifact digest and its provenance URL.",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "The approved prompt, at most 2000 characters."
+                  },
+                  "negative_prompt": {
+                    "type": "string",
+                    "description": "The approved negative prompt, empty when the approval named none."
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709552000,
+                    "description": "The seed the approval displayed. The runtime chooses none."
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel width. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel height. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 1,
+                    "description": "Sampler steps. The image-sdxs-512-a profile runs 1 and admits at most 4."
+                  },
+                  "profile_id": {
+                    "type": "string",
+                    "enum": [
+                      "image-sdxs-512-a"
+                    ],
+                    "description": "The image profile this server serves. image-sdxs-512-a is the one profile it admits, and the grant names the same one."
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "seed",
+                  "width",
+                  "height",
+                  "steps",
+                  "profile_id"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8571/session",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:8571/grant-image",
+      "method": "POST",
+      "body": {
+        "context": "qwen-image-generate-v1",
+        "language_profile": "web-image-admission",
+        "image_profile": "image-sdxs-512-a",
+        "prompt_hash": "e7a8c5d5a47abb487bf2fad632ba28140634892620278d13cb146b252636bd24",
+        "negative_prompt_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seed": 12345,
+        "aspect": "1:1",
+        "max_dimension": 512,
+        "max_steps": 1,
+        "conversation_generation": 0
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8080/tools",
+      "method": "POST",
+      "body": {
+        "model": "web-image-admission",
+        "tool": "image_generate_image",
+        "params": {
+          "prompt": "a red apple on a white table, product photography",
+          "negative_prompt": "",
+          "seed": 12345,
+          "width": 512,
+          "height": 512,
+          "steps": 1,
+          "profile_id": "image-sdxs-512-a"
+        },
+        "stream": false
+      }
+    },
+    {
+      "url": "http://127.0.0.1:44911/artifacts/7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3.png",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:8080/v1/chat/completions",
+      "method": "POST",
+      "body": {
+        "model": "web-image-admission",
+        "stream": true,
+        "temperature": 0.7,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 512,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Call the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool."
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_0",
+                "type": "function",
+                "function": {
+                  "name": "image_generate_image",
+                  "arguments": "{\"prompt\":\"a red apple on a white table, product photography\",\"seed\":12345,\"width\":512,\"height\":512,\"steps\":1,\"profile_id\":\"image-sdxs-512-a\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_0",
+            "name": "image_generate_image",
+            "content": "Image generated: sha256 7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3, provenance /artifacts/7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3.json."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "reasoning_budget": 0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "image_generate_image",
+              "description": "Generate one image under the image-sdxs-512-a image profile, which renders 512x512 and admits at most 512 pixels a side and 4 sampler steps. The call runs only under a grant the user approved for these exact arguments, and the reply names the artifact digest and its provenance URL.",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "The approved prompt, at most 2000 characters."
+                  },
+                  "negative_prompt": {
+                    "type": "string",
+                    "description": "The approved negative prompt, empty when the approval named none."
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709552000,
+                    "description": "The seed the approval displayed. The runtime chooses none."
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel width. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel height. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 1,
+                    "description": "Sampler steps. The image-sdxs-512-a profile runs 1 and admits at most 4."
+                  },
+                  "profile_id": {
+                    "type": "string",
+                    "enum": [
+                      "image-sdxs-512-a"
+                    ],
+                    "description": "The image profile this server serves. image-sdxs-512-a is the one profile it admits, and the grant names the same one."
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "seed",
+                  "width",
+                  "height",
+                  "steps",
+                  "profile_id"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "imageStates": [
+    "Image complete"
+  ],
+  "imageCards": [
+    {
+      "caption": "sha256 7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3 | seed 12345 | 512x512 | 1 steps | image-sdxs-512-a",
+      "src": "blob:http://127.0.0.1:8080/334de91a-1606"
+    }
+  ],
+  "log": "you\nCall the image_generate_image tool now to generate this image: a red apple on a white table, product photography. Do not describe it; call the tool.\nqwen\nimage_generate_image({\"prompt\":\"a red apple on a white table, product photography\",\"seed\":12345,\"width\":512,\"height\":512,\"steps\":1,\"profile_id\":\"image-sdxs-512-a\"})\nImage complete\n19.6 tok/s prefill | 3.3 tok/s decode | 113 generated tokens in 71.3s | ended on tool_calls\nsha256 7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3 | seed 12345 | 512x512 | 1 steps | image-sdxs-512-a\nremove image\nqwen\nImage generated: sha256 7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3, provenance /artifacts/7c6b7565059771e7e68d467afeae10233204915659c22728442467552e9e6fe3.json.\n18.4 tok/s prefill | 3.3 tok/s decode | 138 generated tokens in 50.0s",
+  "selected_model_at_load": "web-image-admission",
+  "dialog": {
+    "heading": "Authorize one image generation",
+    "note": "",
+    "args": {
+      "prompt": "a red apple on a white table, product photography",
+      "negative prompt": "(none)",
+      "seed": "12345",
+      "width": "512",
+      "height": "512",
+      "steps": "1",
+      "profile": "image-sdxs-512-a"
+    }
+  },
+  "error": null
+}

@@ -1,0 +1,32 @@
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -32,6 +32,19 @@ static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
+     throw std::runtime_error("Unsupported ctx type");
+ }
+ 
++static bool graph_node_has_backend_work(const ggml_tensor * node) {
++    switch (node->op) {
++        case GGML_OP_NONE:
++        case GGML_OP_RESHAPE:
++        case GGML_OP_VIEW:
++        case GGML_OP_PERMUTE:
++        case GGML_OP_TRANSPOSE:
++            return false;
++        default:
++            return true;
++    }
++}
++
+ static bool graph_uses_cpu_backend(ggml_backend_sched_t sched, ggml_cgraph * graph) {
+     if (!getenv("LLAMA_NO_CPU_FALLBACK")) {
+         return false;
+@@ -39,6 +52,9 @@ static bool graph_uses_cpu_backend(ggml_backend_sched_t sched, ggml_cgraph * gr
+ 
+     for (int node_index = 0; node_index < ggml_graph_n_nodes(graph); ++node_index) {
+         ggml_tensor * node = ggml_graph_node(graph, node_index);
++        if (!graph_node_has_backend_work(node)) {
++            continue;
++        }
+         ggml_backend_t backend = ggml_backend_sched_get_tensor_backend(sched, node);
+         ggml_backend_dev_t device = backend ? ggml_backend_get_device(backend) : nullptr;
+         if (device && ggml_backend_dev_type(device) == GGML_BACKEND_DEVICE_TYPE_CPU) {

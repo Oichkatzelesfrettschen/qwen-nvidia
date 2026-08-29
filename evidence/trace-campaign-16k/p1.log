@@ -1,0 +1,10 @@
+ggml_vulkan: Found 1 Vulkan devices:
+ggml_vulkan: 0 = AMD Radeon Graphics (RADV RAVEN2) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 64 | shared memory: 65536 | int dot: 0 | matrix cores: none
+ggml_vulkan: AMD Radeon Graphics (RADV RAVEN2): maximum nodes per submission = 16
+ggml_vulkan: AMD Radeon Graphics (RADV RAVEN2): submission trace = on
+ggml_vulkan: AMD Radeon Graphics (RADV RAVEN2): global queue priority = LOW
+| model                          |       size |     params | backend    | ngl | n_batch | n_ubatch | type_k | type_v |  fa | dev          | ot                    |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | ------: | -------: | -----: | -----: | --: | ------------ | --------------------- | --------------: | -------------------: |
+| qwen35 4B Q4_K - Medium        |   2.58 GiB |     4.33 B | Vulkan     |  99 |     128 |       32 |   q8_0 |   q4_0 |   1 | Vulkan0      | .*=Vulkan0            |   tg32 @ d16384 |          1.17 ± 0.00 |
+
+build: f280b26 (1)
