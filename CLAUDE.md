@@ -6,119 +6,72 @@ code in this repository.
 `~/AGENTS.md` loads through the user memory and supplies the shared baseline.
 This file holds the repository doctrine and wins inside this tree.
 
-## The repository runs on two machines
+## The repository runs on one machine
 
-The Git tree lives on the workstation. The runtime lives on a Raven2 laptop
-reached over SSH. `qwen-laptop` stands for that host throughout this
-repository, and a working copy substitutes its own name. Editing a script here
-changes nothing on the laptop until it is copied:
+The Git tree and the runtime share a host. A `remote/` script executes from the
+checkout it is edited in, so an edit takes effect on the next invocation and no
+copy step stands between the two. The directory keeps its name because the
+diff that renamed it would swamp the work it carries; read `remote/` as "the
+scripts the appliance runs" rather than as a second machine.
 
-```sh
-rsync -a remote/ eirikr@qwen-laptop:~/qwen-laptop-setup/remote/
-rsync -a --delete patches/ eirikr@qwen-laptop:~/qwen-laptop-setup/patches/
-```
+That host is a workstation rather than an appliance, so the desktop is a live
+consumer of the same device every measurement runs on. `nvidia-smi` reports the
+compositor holding about 2.5 GiB of the 12 GiB carve-out and issuing graphics
+work at rest, which is a covariate of every recorded rate rather than a
+condition to exclude.
 
-Every `remote/` script executes from `~/qwen-laptop-setup/remote/` on the
-laptop. A change tested without that copy tests the previous revision.
-`build-llama-trace.sh` and `verify-llama-patch-series.sh` read `../patches`
-from their own directory, so the patch series travels with the scripts; a
-stale patch there fails the replay digest gate before any build starts.
-
-The laptop runs the appliance by itself. `remote/build-llama-vulkan.sh` builds
-there with the distribution toolchain, the fetch scripts pull the checkpoint
-from its pinned revision, and the launch and teardown scripts need nothing
-else. That path is what the repository requires, and it stays free of
-containers, daemons, and package managers beyond the distribution's own.
-
-Two workstation-side helpers exist because two 2.3 GHz cores are slow, and
-neither is a dependency. `remote/build-llama-ui.sh` runs Node where Node
-already is and copies static files over. `remote/build-llama-on-workstation.sh`
-builds llama.cpp inside an `ubuntu:24.04` container on the workstation and
-rsyncs plain binaries; the image supplies the glibc 2.39 the laptop links
-against, and the container stays on the workstation. What reaches the laptop is
-an ELF executable.
+The Raven2 laptop this tree was written on is a separate repository,
+`Oichkatzelesfrettschen/qwen-apu`, reachable here as the `apu` Git remote. A
+fix that belongs to both trees is cherry-picked across it.
 
 ## Hardware sets every ceiling in this repository
 
-AMD Athlon Silver 3050U, Raven2, two Zen+ cores at 2.3 GHz, two Vega compute
-units, 29 GiB of shared DDR4. Measured by `remote/run-placement-sweep.sh`
-through `llama-bench`, free of the guarded launch path:
+AMD Ryzen 5 5600X3D, six Zen 3 cores at 3.3 GHz with twelve threads and 96 MiB
+of L3, 31 GiB of DDR4, and one NVIDIA GeForce RTX 4070 Ti: AD104, compute
+capability 8.9, 12282 MiB of GDDR6X on a 192-bit bus, driver 610.57.04 with
+CUDA 13.3. `remote/build-llama-cuda.sh` builds one binary carrying the CUDA
+and Vulkan backends, so `llama-bench --device` selects between them and two
+rows differ by the backend alone.
 
-| Placement, Qwen3.5-4B Q4_K_M | prefill tok/s | decode tok/s |
-| --- | ---: | ---: |
-| All layers on Vulkan | 20.88 | 2.84 |
-| 27 of 32 layers on Vulkan | 22.08 | 2.42 |
-| CPU only, 2 threads | 16.09 | 2.63 |
-| CPU only, 1 thread | 17.17 | 2.02 |
+CUDA is the serving backend and Vulkan is the fallback the same binary reaches.
+That inverts the APU tree, where Vulkan was the only accelerated path the device
+offered, and it changes which ceiling binds: device memory rather than memory
+bandwidth. A 12 GiB carve-out with 2.5 GiB already resident holds one 9B Q4_K_M
+trunk, a 0.8B draft, and two KV caches with little room over, so every paired
+serving arm states its resident total before it runs.
 
-Every tested hybrid placement lost to full Vulkan, and decode rises from the
-9-layer minimum through the fully offloaded endpoint. The ladder dips below
-CPU-only at its first partial point: a split adds CPU-to-Vulkan synchronization
-and activation transfers while both sides draw on the one DDR4 controller, so
-the placements share a bandwidth domain instead of combining two.
+`CMAKE_CUDA_ARCHITECTURES=89` emits one SASS variant for this device.
+`GGML_CUDA_FA_ALL_QUANTS=ON` is required rather than optional: `remote/models.tsv`
+serves every row at `cache_type_k=q8_0` with `cache_type_v=q4_0`, and the
+default CUDA build compiles flash-attention kernels for a subset of KV type
+combinations that excludes a mixed pair, so a default build leaves the served
+cache triple off the flash-attention path at run time. nvcc reads
+`crt/host_config.h` and refuses a host compiler newer than GCC 15 where the
+distribution default is GCC 16, so the whole tree builds with `g++-15`.
 
-Memory is trained at the DIMMs' rated DDR4-2133 speed. Both UMC channels report
-`0x00000520` at SMN register `0x50200`; the DDR4 ratio in bits 7:0 is `0x20`,
-and `(0x20 / 3) x 200` is 2133.33 MT/s. Their timing registers decode to
-15-15-15-36, tRP 15, and tRC 51, which match the fastest profile in both Crucial
-CT16G4SFD8213 SPD EEPROMs. Rank derating and an HP firmware speed cap are ruled
-out for the installed population.
+`remote/sample-nvidia-clocks.sh` records SM clock, memory clock, temperature,
+power draw, both utilisation counters, device memory occupancy, and the active
+throttle reason beside every rate, one row per second. A rate whose operating
+state went unrecorded is not comparable to a later one, and on this device the
+state moves under its own power and thermal budget rather than on a driver DPM
+ladder.
 
-On this SMU10 path, `pp_dpm_mclk` is a misleading sysfs name: the kernel obtains
-its selected value with `PPSMC_MSG_GetFclkFrequency`. The 933 and 1067 MHz
-entries are dynamic fabric-clock states, not alternate DRAM training results,
-and retained Vulkan telemetry shows 1067 MHz selected under load. Theoretical
-dual-channel peak is therefore `2 x 8 bytes x 2133 MT/s = 34.13 GB/s`. The
-15.44 GB/s two-thread host read is about 45% of that peak and bounds the two
-Zen+ cores' load/store path rather than the memory controller or iGPU.
+`remote/run-cuda-baseline-sweep.sh` measures each checkpoint forward and again
+in reverse, so the same checkpoint meets both ends of whatever drift the sweep
+carries and the paired mean is the reported figure. The forward-to-reverse span
+is this host's own instability and it is measured rather than assumed: the
+figures the APU tree carries -- about 4% at rest and 30.6% under desktop load --
+belong to a 15 W part sharing one DDR4 controller with its iGPU and say nothing
+about a discrete card with its own memory.
 
-`remote/sample-gpu-clocks.sh` records dynamic FCLK beside every rate. All five
-repeatability arms stayed at 933 MHz even though other retained Vulkan runs
-selected 1067 MHz. The measurement spread it was added to explain is real and
-lies elsewhere:
-`evidence/measurement-state-and-memory-clock.md` measures 3.11 tok/s and 3.24
-tok/s from identical flags ten minutes apart with `mclk` at 933 and `sclk`
-peaking at 1100 in both, so a depth-0 rate on this machine carries about 4% of
-uncontrolled spread that neither ladder explains.
-
-Under desktop load that spread reaches 30.6%. `evidence/decode-bound-analysis.md`
-sweeps five checkpoints four times at nice 19 and finds the 2B spanning 8.95 to
-12.13 GB/s, three of those arms at 88 C with `mclk` at 933, so neither die
-temperature nor memory clock orders it, and load average orders it with the
-opposite sign on Q6_K. A comparison on this machine is therefore read within a
-sweep, where both arms met the same machine minutes apart, and a difference
-below about 20% quoted from single arms reports queue position.
-
-A prediction band on this machine states a ratio against a checkpoint measured
-in the same sweep. Four absolute bands built from the four-block means in
-`evidence/decode-bound-analysis.md` all read low against the seven-checkpoint
-sweep in `evidence/model-admission/universal-candidate-ladder.md`, because that
-sweep ran 11.1 to 11.5% above those means on the two checkpoints common to both.
-No falsifier was met, and the offset was larger than every effect the
-predictions were trying to resolve, so an absolute band measures the sweep.
-
-That sweep proposed one scalar offset per sweep as the remedy, and
-`evidence/model-admission/runtime-class-throughput.md` leaves the remedy
-unconfirmed. Against the seven-checkpoint sweep the 4B distill fell 10.6% where
-the 2B distill fell 16.4% in the same twelve-arm re-run, moving the pair's ratio
-from 0.3634 to 0.3884, whose nominal 95% interval overlaps the registered 0.345
-to 0.382 band by 0.002. Two sweeps cannot separate a size-dependent term from
-their own scatter, so the anchor control fails narrowly and inconclusively. A
-ratio against an in-sweep checkpoint is more stable than an absolute rate and
-is not invariant; the cross-sweep term on this pair was observed at 6.9% once
-and its expected size is unmeasured.
-
-The reported deviation of a rate is not its uncertainty. `llama-bench` prints a
-standard deviation over the repetitions inside one arm, and those repetitions
-agree far more closely than an arm agrees with its own reverse: the 4B distill
-measured 3.41 +/- 0.01 and 2.95 +/- 0.01 in one sweep, 0.3% within each arm
-against 14.5% between them. Raising the repetition count measures one machine
-state better rather than narrowing the spread, and four slots per checkpoint
-brought that row to a 4.4% span where two slots gave 14.5%. Load peak does not
-order the instability: the 0.8B Q8_0 arm at the sweep's highest load peak
-landed 0.9% from its pair. Checkpoint size and queue distance remain
-confounded, because the mirrored order put the large pairs nine to eleven slots
-apart and the small pairs one to five, so neither is credited.
+Every measured number below this section, and every measured column in
+`remote/models.tsv` and `evidence/` that predates this host, was taken on the
+Raven2 APU over RADV Vulkan. They are retained as that machine's history rather
+than served as current fact. A default here changes when a measurement on this
+host moves it, `evidence/ada/` holds those measurements, and a device-derived
+verdict from the APU -- an amdgpu ring wedge, an amdgpu kernel signature behind
+a quarantine row, a K-quant ladder closed on a 34 GB/s bandwidth ceiling --
+carries no authority on this device until it is re-measured here.
 
 The registry rather than a constant sets the admitted depth.
 `remote/models.tsv` carries `context_default`, `context_ceiling`, and

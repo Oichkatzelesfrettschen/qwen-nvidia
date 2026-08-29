@@ -3,7 +3,11 @@ set -eu
 
 # Every models.tsv row that claims a numeric validated_filled_depth must own a
 # validated row in remote/validated-tuples.tsv naming the same model, depth,
-# geometry, cache policy, and projector state. models.tsv holds one
+# geometry, cache policy, and projector state, measured on the backend this
+# host serves. A depth filled on one backend states nothing about another: the
+# graph, the flash-attention kernels, and the allocator all differ, so a
+# Vulkan-on-Raven2 row is history rather than validation for a CUDA claim, and
+# QWEN_SERVING_BACKEND names which rows may validate one. models.tsv holds one
 # validated_filled_depth tuple per row and the ledger holds every measured arm,
 # so the cross-ledger check derives the complete tuple models.tsv already
 # claims and requires the ledger to carry the same tuple.
@@ -16,6 +20,16 @@ fi
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 model_registry=${QWEN_MODEL_REGISTRY:-$script_directory/models.tsv}
 tuple_ledger=${QWEN_VALIDATED_TUPLES:-$script_directory/validated-tuples.tsv}
+serving_backend=${QWEN_SERVING_BACKEND:-cuda}
+
+case $serving_backend in
+    cuda|vulkan|hip|cpu) ;;
+    *)
+        printf 'QWEN_SERVING_BACKEND takes cuda, vulkan, hip, or cpu: %s\n' \
+            "$serving_backend" >&2
+        exit 2
+        ;;
+esac
 
 if [ ! -r "$model_registry" ]; then
     printf 'model registry is unreadable: %s\n' "$model_registry" >&2
@@ -26,7 +40,7 @@ if [ ! -r "$tuple_ledger" ]; then
     exit 1
 fi
 
-awk -F'\t' '
+awk -F'\t' -v serving_backend="$serving_backend" '
     FILENAME == ARGV[1] {
         if ($0 ~ /^#/ || $0 ~ /^[[:space:]]*$/) { next }
         tuple_rows++
@@ -55,7 +69,7 @@ awk -F'\t' '
         }
         if ($9 !~ /^(on|off|auto)$/ || $10 !~ /^[1-9][0-9]*$/ ||
             $11 !~ /^[1-9][0-9]*$/ || $12 !~ /^(none|loaded)$/ ||
-            $13 !~ /^(vulkan|cpu|hip)$/ ||
+            $13 !~ /^(cuda|vulkan|cpu|hip)$/ ||
             $14 !~ /^(validated|failed|unverified)$/) {
             printf "%s: tuple carries an invalid policy or status field\n", \
                 $1 > "/dev/stderr"
@@ -72,7 +86,7 @@ awk -F'\t' '
                 $1 > "/dev/stderr"
             malformed++
         }
-        if ($14 != "validated") { next }
+        if ($14 != "validated" || $13 != serving_backend) { next }
         # model_id, context, batch, ubatch, cache_k, cache_v, flash_attention,
         # projector_state
         key = $2 SUBSEP $4 SUBSEP $5 SUBSEP $6 SUBSEP $7 SUBSEP $8 SUBSEP \
@@ -103,9 +117,9 @@ awk -F'\t' '
         key = $1 SUBSEP $19 SUBSEP $17 SUBSEP $18 SUBSEP $8 SUBSEP $9 SUBSEP \
             $10 SUBSEP expected_projector_state
         if (!(key in validated_tuples)) {
-            printf "%s: models.tsv claims validated_filled_depth %s at batch %s, ubatch %s, cache %s/%s, flash attention %s, projector state %s, and no validated row in %s matches\n", \
+            printf "%s: models.tsv claims validated_filled_depth %s at batch %s, ubatch %s, cache %s/%s, flash attention %s, projector state %s, and no validated %s row in %s matches\n", \
                 $1, $19, $17, $18, $8, $9, $10, \
-                expected_projector_state, "'"$tuple_ledger"'" > "/dev/stderr"
+                expected_projector_state, serving_backend, "'"$tuple_ledger"'" > "/dev/stderr"
             gaps++
         }
     }
@@ -120,6 +134,7 @@ awk -F'\t' '
                 gaps, malformed, checked > "/dev/stderr"
             exit 1
         }
-        printf "check_validated_tuples=accepted checked=%d\n", checked
+        printf "check_validated_tuples=accepted backend=%s checked=%d\n", \
+            serving_backend, checked
     }
 ' "$tuple_ledger" "$model_registry"

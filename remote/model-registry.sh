@@ -380,8 +380,8 @@ validate_tuple_ledger() {
                     $1, $12 > "/dev/stderr"
                 bad++
             }
-            if ($13 != "vulkan" && $13 != "cpu" && $13 != "hip") {
-                printf "%s: backend %s is not vulkan, cpu, or hip\n", \
+            if ($13 != "cuda" && $13 != "vulkan" && $13 != "cpu" && $13 != "hip") {
+                printf "%s: backend %s is not cuda, vulkan, cpu, or hip\n", \
                     $1, $13 > "/dev/stderr"
                 bad++
             }

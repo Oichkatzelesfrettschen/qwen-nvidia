@@ -392,7 +392,7 @@ QWEN_MODEL_REGISTRY=$tuple_fixture_models \
 
 valid_tuple_ledger=$work_directory/valid-tuples.tsv
 printf '%b\n' \
-    "tuple-model-d8192-b128-ub32\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
+    "tuple-model-d8192-b128-ub32\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
     >"$valid_tuple_ledger"
 if QWEN_MODEL_REGISTRY=$tuple_fixture_models \
     QWEN_VALIDATED_TUPLES=$valid_tuple_ledger \
@@ -435,8 +435,8 @@ fi
 
 duplicate_tuple_ledger=$work_directory/duplicate-tuples.tsv
 printf '%b\n' \
-    "dupe\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
-    "dupe\ttuple-model\tstandalone\t4096\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tfailed\t-\t-\t-\t-\t-\t-\t-" \
+    "dupe\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
+    "dupe\ttuple-model\tstandalone\t4096\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tfailed\t-\t-\t-\t-\t-\t-\t-" \
     >"$duplicate_tuple_ledger"
 set +e
 QWEN_MODEL_REGISTRY=$tuple_fixture_models \
@@ -455,7 +455,7 @@ fi
 
 unknown_model_tuple_ledger=$work_directory/unknown-model-tuples.tsv
 printf '%b\n' \
-    "orphan\tno-such-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tfailed\t-\t-\t-\t-\t-\t-\t-" \
+    "orphan\tno-such-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tfailed\t-\t-\t-\t-\t-\t-\t-" \
     >"$unknown_model_tuple_ledger"
 set +e
 QWEN_MODEL_REGISTRY=$tuple_fixture_models \
@@ -474,7 +474,7 @@ fi
 
 malformed_integer_tuple_ledger=$work_directory/malformed-integer-tuples.tsv
 printf '%b\n' \
-    "malformed\ttuple-model\tstandalone\t08192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tfailed\t-\t-\t-\t-\t-\t-\t-" \
+    "malformed\ttuple-model\tstandalone\t08192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tfailed\t-\t-\t-\t-\t-\t-\t-" \
     >"$malformed_integer_tuple_ledger"
 set +e
 QWEN_MODEL_REGISTRY=$tuple_fixture_models \
@@ -494,7 +494,7 @@ fi
 
 absent_evidence_tuple_ledger=$work_directory/absent-evidence-tuples.tsv
 printf '%b\n' \
-    "no-evidence\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\tevidence/no-such-path.md\t-\t-\t-\t-\t-\t-" \
+    "no-evidence\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\tevidence/no-such-path.md\t-\t-\t-\t-\t-\t-" \
     >"$absent_evidence_tuple_ledger"
 set +e
 QWEN_MODEL_REGISTRY=$tuple_fixture_models \
@@ -515,7 +515,7 @@ fi
 evidence_execution_marker=$work_directory/evidence-path-executed
 executable_evidence_tuple_ledger=$work_directory/executable-evidence-tuples.tsv
 printf '%b\n' \
-    "executable-evidence\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\tevidence/missing\"; touch $evidence_execution_marker; #\t-\t-\t-\t-\t-\t-" \
+    "executable-evidence\ttuple-model\tstandalone\t8192\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\tevidence/missing\"; touch $evidence_execution_marker; #\t-\t-\t-\t-\t-\t-" \
     >"$executable_evidence_tuple_ledger"
 set +e
 QWEN_MODEL_REGISTRY=$tuple_fixture_models \
@@ -541,7 +541,7 @@ printf '%b\n' \
     >"$check_tuple_models"
 matching_check_tuples=$work_directory/matching-check-tuples.tsv
 printf '%b\n' \
-    "check-model-d4096-b128-ub32\tcheck-model\tstandalone\t4096\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
+    "check-model-d4096-b128-ub32\tcheck-model\tstandalone\t4096\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
     >"$matching_check_tuples"
 if QWEN_MODEL_REGISTRY=$check_tuple_models \
     QWEN_VALIDATED_TUPLES=$matching_check_tuples \
@@ -553,7 +553,7 @@ fi
 
 gap_check_tuples=$work_directory/gap-check-tuples.tsv
 printf '%b\n' \
-    "check-model-d2048-b128-ub32\tcheck-model\tstandalone\t2048\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
+    "check-model-d2048-b128-ub32\tcheck-model\tstandalone\t2048\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
     >"$gap_check_tuples"
 set +e
 QWEN_MODEL_REGISTRY=$check_tuple_models \
@@ -595,7 +595,7 @@ printf '%b\n' \
     >"$projector_check_models"
 projector_none_tuples=$work_directory/projector-none-tuples.tsv
 printf '%b\n' \
-    "vision-none\tvision-model\tstandalone\t4096\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tvulkan\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
+    "vision-none\tvision-model\tstandalone\t4096\t128\t32\tq8_0\tq4_0\ton\t2\t1\tnone\tcuda\tvalidated\t$evidence_present_relative\t-\t-\t-\t-\t-\t-" \
     >"$projector_none_tuples"
 set +e
 QWEN_MODEL_REGISTRY=$projector_check_models \
@@ -612,7 +612,7 @@ else
 fi
 
 projector_loaded_tuples=$work_directory/projector-loaded-tuples.tsv
-sed 's/\tnone\tvulkan\t/\tloaded\tvulkan\t/' \
+sed 's/\tnone\tcuda\t/\tloaded\tcuda\t/' \
     "$projector_none_tuples" >"$projector_loaded_tuples"
 if QWEN_MODEL_REGISTRY=$projector_check_models \
     QWEN_VALIDATED_TUPLES=$projector_loaded_tuples \
@@ -620,6 +620,30 @@ if QWEN_MODEL_REGISTRY=$projector_check_models \
     report check_validated_tuples_accepts_loaded_projector accepted
 else
     report check_validated_tuples_accepts_loaded_projector rejected
+fi
+
+# A depth filled on one backend states nothing about another, so the same
+# validated row read under a different serving backend leaves the claim
+# unmatched. The row here differs from the accepted one by its backend field
+# alone, which is what makes the refusal attributable.
+foreign_backend_tuples=$work_directory/foreign-backend-tuples.tsv
+sed 's/\tnone\tcuda\t/\tloaded\tvulkan\t/' \
+    "$projector_none_tuples" >"$foreign_backend_tuples"
+set +e
+QWEN_MODEL_REGISTRY=$projector_check_models \
+QWEN_VALIDATED_TUPLES=$foreign_backend_tuples \
+    "$check_validated_tuples" >"$work_directory/foreign-backend.out" \
+    2>"$work_directory/foreign-backend.err"
+foreign_backend_status=$?
+set -e
+if [ "$foreign_backend_status" -ne 0 ] &&
+   grep -F 'no validated cuda row' "$work_directory/foreign-backend.err" >/dev/null &&
+   QWEN_SERVING_BACKEND=vulkan QWEN_MODEL_REGISTRY=$projector_check_models \
+    QWEN_VALIDATED_TUPLES=$foreign_backend_tuples \
+    "$check_validated_tuples" >"$work_directory/foreign-backend-served.out"; then
+    report check_validated_tuples_discriminates_backend accepted
+else
+    report check_validated_tuples_discriminates_backend rejected
 fi
 
 if [ "$failures" -eq 0 ]; then

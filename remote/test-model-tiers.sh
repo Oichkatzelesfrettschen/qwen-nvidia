@@ -245,6 +245,7 @@ section_key() {
 # real file and over two fabricated ones, which is what proves it discriminates.
 count_profile_leaks() {
     count_presets=$1
+    count_profiles=$2
     leaks=0
     while IFS='	' read -r subject depth batch ubatch cache_k cache_v flash; do
         [ -n "$subject" ] || continue
@@ -260,34 +261,41 @@ count_profile_leaks() {
                 "$subject" "$depth" "$batch" "$ubatch" "$cache_k" "$cache_v" "$flash" >&2
             leaks=$((leaks + 1))
         fi
-    done <<COUNT_PROFILES
-$("$reader" quarantine-profiles)
-COUNT_PROFILES
+    done <"$count_profiles"
     printf '%s' "$leaks"
 }
 
-if [ "$(count_profile_leaks "$presets" 2>/dev/null)" -eq 0 ]; then
+# The profile list is a file rather than a command substitution so the same
+# detector runs over the shipped authority and over a fabricated one. The
+# shipped ledger carries no profile-scope row on this host, and a detector
+# fed an empty list reports every preset file clean, so the positive control
+# below supplies its own row rather than borrowing the registry's.
+live_profiles=$work/live-quarantine-profiles.tsv
+"$reader" quarantine-profiles >"$live_profiles"
+
+if [ "$(count_profile_leaks "$presets" "$live_profiles" 2>/dev/null)" -eq 0 ]; then
     report quarantine_profiles accepted
 else
-    count_profile_leaks "$presets" >/dev/null
+    count_profile_leaks "$presets" "$live_profiles" >/dev/null
     report quarantine_profiles rejected
 fi
 
 # The detector fires on a section built to serve the quarantined tuple whole. A
 # detector that never fires reports every preset file clean, including one that
 # leaks, so the positive control runs beside the real check.
+control_profiles=$work/control-quarantine-profiles.tsv
+printf 'control-model\t16384\t2048\t512\tq8_0\tq4_0\ton\n' >"$control_profiles"
 leaking_presets=$work/leaking-presets.ini
-"$reader" quarantine-profiles |
-    while IFS='	' read -r subject depth batch ubatch cache_k cache_v flash; do
-        [ -n "$subject" ] || continue
-        printf '[%s]\nLLAMA_ARG_CTX_SIZE = %s\nLLAMA_ARG_BATCH = %s\n' \
-            "$subject" "$depth" "$batch"
-        printf 'LLAMA_ARG_UBATCH = %s\nLLAMA_ARG_CACHE_TYPE_K = %s\n' \
-            "$ubatch" "$cache_k"
-        printf 'LLAMA_ARG_CACHE_TYPE_V = %s\nLLAMA_ARG_FLASH_ATTN = %s\n\n' \
-            "$cache_v" "$flash"
-    done >"$leaking_presets"
-if [ "$(count_profile_leaks "$leaking_presets" 2>/dev/null)" -gt 0 ]; then
+while IFS='	' read -r subject depth batch ubatch cache_k cache_v flash; do
+    [ -n "$subject" ] || continue
+    printf '[%s]\nLLAMA_ARG_CTX_SIZE = %s\nLLAMA_ARG_BATCH = %s\n' \
+        "$subject" "$depth" "$batch"
+    printf 'LLAMA_ARG_UBATCH = %s\nLLAMA_ARG_CACHE_TYPE_K = %s\n' \
+        "$ubatch" "$cache_k"
+    printf 'LLAMA_ARG_CACHE_TYPE_V = %s\nLLAMA_ARG_FLASH_ATTN = %s\n\n' \
+        "$cache_v" "$flash"
+done <"$control_profiles" >"$leaking_presets"
+if [ "$(count_profile_leaks "$leaking_presets" "$control_profiles" 2>/dev/null)" -gt 0 ]; then
     report quarantine_profile_detector accepted
 else
     report quarantine_profile_detector rejected
@@ -300,7 +308,7 @@ fi
 distinct_presets=$work/distinct-presets.ini
 sed 's/^LLAMA_ARG_CACHE_TYPE_K = .*/LLAMA_ARG_CACHE_TYPE_K = f16/' \
     "$leaking_presets" >"$distinct_presets"
-if [ "$(count_profile_leaks "$distinct_presets" 2>/dev/null)" -eq 0 ]; then
+if [ "$(count_profile_leaks "$distinct_presets" "$control_profiles" 2>/dev/null)" -eq 0 ]; then
     report quarantine_profile_cache_discriminated accepted
 else
     report quarantine_profile_cache_discriminated rejected
@@ -329,9 +337,40 @@ fi
 # Runtime-mode queries include `any` and the requested execution path. A
 # router-child-only failure must not become a standalone prohibition, while the
 # router builder must still see it.
-if "$reader" quarantine-subjects router-child | grep -qx ministral3-3b &&
-   ! "$reader" quarantine-subjects standalone | grep -qx ministral3-3b &&
-   "$reader" quarantine-subjects standalone | grep -qx nanbeige42-3b; then
+# The `any` half runs against a fixture because the shipped ledger carries one
+# router-child row alone, and an assertion that reads only what the registry
+# happens to hold stops testing the filter the day a row leaves.
+runtime_filter_registry=$work/runtime-filter-models.tsv
+runtime_filter_quarantine=$work/runtime-filter-quarantine.tsv
+runtime_filter_reasons=$work/runtime-filter-reasons
+runtime_filter_root=$work/runtime-filter-models
+mkdir -p "$runtime_filter_reasons" "$runtime_filter_root/Any" \
+    "$runtime_filter_root/Child"
+: >"$runtime_filter_root/Any/model.gguf"
+: >"$runtime_filter_root/Child/model.gguf"
+: >"$runtime_filter_reasons/any-record.md"
+: >"$runtime_filter_reasons/child-record.md"
+printf '%s\n' \
+    'any-model	fixture	Any/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused' \
+    'child-model	fixture	Child/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused' \
+    >"$runtime_filter_registry"
+printf '%s\n' \
+    'any-record	model	any-model	device-lost	-	-	-	-	-	-	-	-	evidence/quarantine/any-record.md	any' \
+    'child-record	model	child-model	graph-assert-abort	-	-	-	-	-	-	-	-	evidence/quarantine/child-record.md	router-child' \
+    >"$runtime_filter_quarantine"
+runtime_filter_subjects() {
+    QWEN_MODEL_REGISTRY=$runtime_filter_registry \
+    QWEN_MODEL_ROOT=$runtime_filter_root \
+    QWEN_QUARANTINE_REGISTRY=$runtime_filter_quarantine \
+    QWEN_QUARANTINE_REASONS=$runtime_filter_reasons \
+        "$reader" quarantine-subjects "$1"
+}
+if runtime_filter_subjects router-child | grep -qx child-model &&
+   ! runtime_filter_subjects standalone | grep -qx child-model &&
+   runtime_filter_subjects standalone | grep -qx any-model &&
+   runtime_filter_subjects router-child | grep -qx any-model &&
+   "$reader" quarantine-subjects router-child | grep -qx ministral3-3b &&
+   ! "$reader" quarantine-subjects standalone | grep -qx ministral3-3b; then
     report quarantine_runtime_filter accepted
 else
     report quarantine_runtime_filter rejected
