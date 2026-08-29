@@ -34,7 +34,7 @@ set -eu
 # 2029 of 2048 MiB, so the pair is measured before it is served: this wrapper
 # sums every model and projector the preset names, adds the image runtime's own
 # resident cost, hands the total to model-memory-preflight.sh, and refuses on
-# the `vulkan_budget_headroom=short` line the probe reports. The preflight
+# the `device_budget_headroom=short` line the probe reports. The preflight
 # stays the single authority for what the device has, and the launch is a
 # reader of it. A `-` review_model leaves one section, and the review runs
 # through remote/image-review.py against a separate launch.
@@ -431,7 +431,7 @@ printf 'image_launch timeouts runtime=%s service=%s mcp=%s proxy=%s browser=%s p
 # probe answers whether the device holds it. model-memory-preflight.sh reports
 # and admits every launch by design -- a prediction that a model will not fit
 # was wrong once and read as a hardware limit -- so this launch reads its
-# `vulkan_budget_headroom` line and makes the refusal its own, where the pair
+# `device_budget_headroom` line and makes the refusal its own, where the pair
 # is a configuration choice rather than the single load the report was written
 # for. The runtime's resident cost is a measured figure from the standalone
 # campaign rather than a derived one, and it is charged whole because a
@@ -502,10 +502,10 @@ printf 'image_launch budget artifacts_mib=%s runtime_mib=%s required_mib=%s sect
 # launch that adds a second resident checkpoint the appliance has never held.
 if [ -n "$review_section" ] &&
     printf '%s\n' "$image_budget_report" |
-    grep -q '^vulkan_budget_headroom=short'; then
+    grep -q '^device_budget_headroom=short'; then
     printf 'the Vulkan budget holds less than the %s MiB this preset needs, plus the margin the probe adds\n' \
         "$required_vulkan_mib" >&2
-    printf '%s\n' "$image_budget_report" | grep '^vulkan_budget_headroom=' >&2
+    printf '%s\n' "$image_budget_report" | grep '^device_budget_headroom=' >&2
     printf 'pair the image row with a smaller review_model, or set review_model to - and review through remote/image-review.py\n' >&2
     exit 2
 fi

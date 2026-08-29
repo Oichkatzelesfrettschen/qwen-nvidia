@@ -82,7 +82,7 @@ set -eu
 # same shape and admits this one.
 printf 'model_bytes=%s\n' "$(wc -c <"$1")"
 printf 'host_headroom=ample\n'
-printf 'vulkan_budget_headroom=ample surplus_bytes=0\n'
+printf 'device_budget_headroom=ample surplus_bytes=0\n'
 EOF
 cat >"$harness/watch-qwen-kernel-hazards.sh" <<'EOF'
 #!/bin/sh

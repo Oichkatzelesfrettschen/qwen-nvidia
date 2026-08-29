@@ -203,9 +203,9 @@ printf 'model_bytes=%s\n' "$(wc -c <"$1")"
 printf 'required_vulkan_bytes=%s\n' "$(($2 * 1048576))"
 printf 'host_memory_headroom=ample surplus_bytes=0\n'
 if [ "$2" -le "${QWEN_MEMORY_PREFLIGHT_BUDGET_MIB:-8192}" ]; then
-    printf 'vulkan_budget_headroom=ample surplus_bytes=0\n'
+    printf 'device_budget_headroom=ample surplus_bytes=0\n'
 else
-    printf 'vulkan_budget_headroom=short shortfall_bytes=%s\n' \
+    printf 'device_budget_headroom=short shortfall_bytes=%s\n' \
         "$((($2 - ${QWEN_MEMORY_PREFLIGHT_BUDGET_MIB:-8192}) * 1048576))"
 fi
 printf 'model_memory_preflight=observe\n'
@@ -505,7 +505,7 @@ if run_launch "$presets_armed" env \
     outcome=ok
     grep -q 'image_launch budget artifacts_mib=2 runtime_mib=480 required_mib=482 sections=1' \
         "$work/single-budget.log" || outcome=budget_unreported
-    grep -q '^vulkan_budget_headroom=short' "$work/single-budget.log" ||
+    grep -q '^device_budget_headroom=short' "$work/single-budget.log" ||
         outcome=shortfall_unreported
     grep -qx 'QWEN_WEB_REVIEW_SECTION=unset' "$launch_record" ||
         outcome=review_section_exported
