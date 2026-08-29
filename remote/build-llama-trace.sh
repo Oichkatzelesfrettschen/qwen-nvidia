@@ -40,7 +40,7 @@ esac
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)
-base_source=${1:-"${HOME:?}/src/llama.cpp"}
+base_source=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 trace_source=${2:-"${HOME:?}/src/llama.cpp-qwen-nvidia-trace"}
 expected_commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
 trace_preset=raven2-vulkan-production

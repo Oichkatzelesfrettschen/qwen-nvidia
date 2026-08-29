@@ -58,7 +58,36 @@ ladder.
 
 `remote/run-cuda-baseline-sweep.sh` measures each checkpoint forward and again
 in reverse, so the same checkpoint meets both ends of whatever drift the sweep
-carries and the paired mean is the reported figure. The forward-to-reverse span
+carries and the paired mean is the reported figure. Every arm runs through
+`cuda-runtime-env.sh` and names its placement `-ot .*=CUDA0`, which is the
+placement `qwen-capacity-policy.sh` gives the server: at `-ngl 99` alone the
+scheduler left enough of the 9B on the host to halve its prefill, 2183.61
+against 4410.81 tok/s, while decode moved 1.1%
+(`evidence/ada/baseline-sweep-02/`). The wrapper's `LLAMA_NO_CPU_FALLBACK=1` is
+what makes that placement observable rather than silent, since llama-bench
+without `-ot` is refused outright.
+
+| Checkpoint | prefill tok/s | decode tok/s |
+| --- | ---: | ---: |
+| Qwen3.5-0.8B Q8_0 | 22769.94 | 310.50 |
+| Qwen3.8-2B distill Q4_K_M | 14748.05 | 231.37 |
+| Qwen3.8-4B distill Q4_K_M | 6703.23 | 113.54 |
+| Qwen3.8-9B distill Q4_K_M | 4410.81 | 67.91 |
+
+Four runtime levers are measured on the 2B and two are refuted.
+`evidence/ada/cuda-runtime-levers.md`: CUDA graphs buy 7.6% of decode and cost
+6.1% of prefill, fusion buys 5.8% of decode, programmatic dependent launch
+moves 0.2% against a 0.3% span, and a `GGML_CUDA_FORCE_MMQ=ON` build moves 0.7%.
+The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
+what it wins.
+
+Speculation is where the throughput is. A resident 0.8B draft loses on every
+class here -- 0.42, 0.61, and 0.75 of baseline on the 2B, 4B, and 9B --
+while the multi-token-prediction block each distill already ships wins on all
+three at 1.23, 1.42, and 1.47 for 150 to 470 MiB
+(`evidence/ada/speculation-runtime-classes.md`). `QWEN_SPEC_TYPE=draft-mtp`
+reaches every router child, which `evidence/ada/cuda-router-mtp/` verifies by
+the absence of the `model has unused tensor` lines an ordinary load prints. The forward-to-reverse span
 is this host's own instability and it is measured rather than assumed: the
 figures the APU tree carries -- about 4% at rest and 30.6% under desktop load --
 belong to a 15 W part sharing one DDR4 controller with its iGPU and say nothing

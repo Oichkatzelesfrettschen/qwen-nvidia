@@ -20,6 +20,13 @@ set -eu
 # Every arm samples device telemetry beside its own log, because a rate whose
 # clock, power, and utilisation state went unrecorded cannot be compared to a
 # later one.
+#
+# The arm names its tensor placement explicitly. The wrapper exports
+# LLAMA_NO_CPU_FALLBACK=1, which patches/llama-no-cpu-fallback.patch turns into
+# a refusal to load anything the CPU would hold, and llama-bench at -ngl 99
+# alone still places a buffer there and is refused. `-ot .*=DEVICE` is what
+# qwen-capacity-policy.sh gives the server, so the bench arm and the serving
+# path place tensors the same way.
 
 usage() {
     printf 'usage: %s OUTPUT_DIRECTORY MODEL_PATH [MODEL_PATH...]\n' "$0" >&2
@@ -51,6 +58,15 @@ bench_threads=${QWEN_BENCH_THREADS:-6}
 cache_type_k=${QWEN_CACHE_TYPE_K:-q8_0}
 cache_type_v=${QWEN_CACHE_TYPE_V:-q4_0}
 flash_attention=${QWEN_FLASH_ATTENTION:-1}
+# Every arm runs through the same wrapper the appliance serves under, so a
+# QWEN_CUDA_PROFILE arm measures what that profile exports rather than the
+# ambient environment: the wrapper scrubs every GGML_CUDA_* name before it
+# applies one.
+runtime_wrapper=${QWEN_RUNTIME_WRAPPER:-"$script_directory/cuda-runtime-env.sh"}
+[ -x "$runtime_wrapper" ] || {
+    printf 'runtime wrapper is absent or not executable: %s\n' "$runtime_wrapper" >&2
+    exit 2
+}
 
 [ -x "$bench" ] || {
     printf 'llama-bench is absent or not executable: %s\n' "$bench" >&2
@@ -72,8 +88,13 @@ summary=$output_directory/baseline-summary.tsv
 printf 'slot\tdirection\tmodel_id\tprefill_tok_s\tdecode_tok_s\tstatus\tsm_clock_mhz_max\tmemory_used_mib_max\tpower_w_max\ttemp_c_max\tthrottled_samples\tsamples\n' \
     >"$summary"
 
-printf 'sweep_start_utc=%s device=%s flags=-ngl 99 -fa %s -ctk %s -ctv %s -p %s -n %s -r %s -t %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bench_device" "$flash_attention" \
+# The binary is named and hashed because two build trees of the same commit
+# differ by their configure flags, and a rate read later cannot ask which one
+# produced it.
+printf 'sweep_start_utc=%s device=%s profile=%s bench=%s bench_sha256=%s flags=-ngl 99 -fa %s -ctk %s -ctv %s -p %s -n %s -r %s -t %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bench_device" \
+    "${QWEN_CUDA_PROFILE:-default}" "$bench" \
+    "$(sha256sum "$bench" | cut -d ' ' -f 1)" "$flash_attention" \
     "$cache_type_k" "$cache_type_v" "$prefill_tokens" "$generate_tokens" \
     "$bench_repeats" "$bench_threads" | tee "$output_directory/sweep-metadata.txt"
 
@@ -121,8 +142,8 @@ run_arm() {
     "$clock_sampler" "$arm_samples" 1 &
     sampler_pid=$!
     set +e
-    "$bench" -m "$model_path" --device "$bench_device" \
-        -ngl 99 -fa "$flash_attention" \
+    "$runtime_wrapper" "$bench" -m "$model_path" --device "$bench_device" \
+        -ngl 99 -ot ".*=$bench_device" -fa "$flash_attention" \
         -ctk "$cache_type_k" -ctv "$cache_type_v" \
         -p "$prefill_tokens" -n "$generate_tokens" \
         -r "$bench_repeats" -t "$bench_threads" -o md >"$arm_log" 2>&1

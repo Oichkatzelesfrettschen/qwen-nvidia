@@ -232,7 +232,7 @@ emitted_accepted=accepted
 [ "$(emitted_field 4)" = 8192 ] || emitted_accepted="context-$(emitted_field 4)"
 [ "$(emitted_field 12)" = loaded ] ||
     emitted_accepted="projector_state-$(emitted_field 12)"
-[ "$(emitted_field 13)" = vulkan ] ||
+[ "$(emitted_field 13)" = "${QWEN_SERVING_BACKEND:-cuda}" ] ||
     emitted_accepted="backend-$(emitted_field 13)"
 [ "$(emitted_field 14)" = validated ] ||
     emitted_accepted="status-$(emitted_field 14)"

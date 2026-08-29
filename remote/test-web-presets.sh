@@ -1936,6 +1936,11 @@ mkdir -p "$checked_in_model_root/${checked_in_review_file%/*}"
 : >"$checked_in_model_root/${checked_in_review_file%/*}/$checked_in_review_projector"
 
 presets_image_checked_in=$work/presets-image-checked-in.ini
+# The shipped image ledger reads `refused` on every row, because every image
+# grant it carried rested on device evidence taken on the Raven2 APU: the
+# generation arms ran sd-cli against RADV RAVEN2 and the paired review ran on
+# that machine's own carve-out. A generator run against it therefore emits a
+# language section and no image server at all, and says so rather than failing.
 if build "$web_profiles_ui" "$presets_image_checked_in" \
     env QWEN_IMAGE_PROFILES="$script_directory/image-profiles.tsv" \
     QWEN_MODEL_REGISTRY="$checked_in_registry" \
@@ -1948,44 +1953,22 @@ if build "$web_profiles_ui" "$presets_image_checked_in" \
     QWEN_IMAGE_PROFILES_JSON="$image_profiles_json" \
     >"$work/image-checked-in.log" 2>"$work/image-checked-in.err"; then
     outcome=ok
-    grep -Fqx '# qwen_image_profile=image-sdxs-512-a' \
-        "$presets_image_checked_in" || outcome=marker_names_another_profile
-    while IFS= read -r checked_in_config; do
-        grep -q '"image"' "$checked_in_config" || outcome=image_server_absent
-    done <<EOF
-$(sed -n 's/^LLAMA_ARG_MCP_SERVERS_CONFIG = //p' "$presets_image_checked_in")
-EOF
-    report checked_in_image_ledger_emits_its_server "$outcome"
-else
-    report checked_in_image_ledger_emits_its_server failed
-    cat "$work/image-checked-in.err" >&2
-fi
-
-# The shipped row pairs lfm25-vl-16b, admitted on the appliance by the paired
-# launch of evidence/image-appliance/paired-review-admission/, so the same
-# generator run emits the language section and the review-only section beside
-# it. The review section holds no execution grant, so the language section is
-# the only one naming an MCP configuration.
-if [ -s "$presets_image_checked_in" ]; then
-    outcome=ok
-    grep -Fqx '# qwen_image_review_model=lfm25-vl-16b' \
-        "$presets_image_checked_in" || outcome=review_marker_absent
-    grep -Fqx '# qwen_image_review_section=lfm25-vl-16b' \
-        "$presets_image_checked_in" || outcome=review_section_marker_absent
-    grep -Fqx '[lfm25-vl-16b]' "$presets_image_checked_in" ||
-        outcome=review_section_absent
-    grep -Fqx 'LLAMA_ARG_TAGS = vision-review,review-only' \
-        "$presets_image_checked_in" || outcome=wrong_tags
-    grep -Fqx \
-        "LLAMA_ARG_MMPROJ = $checked_in_model_root/${checked_in_review_file%/*}/$checked_in_review_projector" \
-        "$presets_image_checked_in" || outcome=projector_absent
-    [ "$(grep -c '^LLAMA_ARG_MCP_SERVERS_CONFIG' "$presets_image_checked_in")" \
-        -eq 1 ] || outcome=configuration_count
-    [ "$(grep -c '^\[' "$presets_image_checked_in")" -eq 2 ] ||
+    grep -Fqx '# qwen_image_profile=-' "$presets_image_checked_in" ||
+        outcome=image_marker_names_a_profile
+    grep -Fqx '# qwen_image_review_model=-' "$presets_image_checked_in" ||
+        outcome=review_marker_names_a_model
+    grep -Fqx '# qwen_image_review_section=-' "$presets_image_checked_in" ||
+        outcome=review_section_marker_names_a_section
+    grep -q '^LLAMA_ARG_MCP_SERVERS_CONFIG' "$presets_image_checked_in" &&
+        outcome=configuration_present_for_refused_ledger
+    [ "$(grep -c '^\[' "$presets_image_checked_in")" -eq 1 ] ||
         outcome=section_count
-    report checked_in_image_ledger_emits_its_reviewer "$outcome"
+    cat "$work/image-checked-in.log" "$work/image-checked-in.err" |
+        grep -q 'image_preset_skipped' || outcome=skip_unreported
+    report checked_in_image_ledger_emits_no_server "$outcome"
 else
-    report checked_in_image_ledger_emits_its_reviewer failed
+    report checked_in_image_ledger_emits_no_server failed
+    cat "$work/image-checked-in.err" >&2
 fi
 
 # An image row pairing a review_model adds one review-only vision section. The

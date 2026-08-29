@@ -912,14 +912,19 @@ done
 # directory it names.
 measured_at=$(date -u +%Y-%m-%d)
 : >"$emitted_rows"
+# The emitted row names the backend the arm ran on, because
+# check-validated-tuples.sh counts only rows whose backend equals the one the
+# host serves: a depth filled on one backend states nothing about another.
+serving_backend=${QWEN_SERVING_BACKEND:-cuda}
 awk -F'\t' -v OFS='\t' -v model_id="$model_id" \
     -v evidence="$evidence_root/$model_id/" -v commit="$llama_cpp_commit" \
     -v runner="$runner_sha256" -v kernel="$kernel_release" \
     -v mesa="$mesa_radv_version" -v amdgpu="$amdgpu_module_version" \
+    -v backend="$serving_backend" \
     -v measured_at="$measured_at" '
     NR > 1 && $10 == "ok" && $18 == "ok" && $20 == "healthy" {
         print model_id "-d" $3 "-b" $4 "-ub" $5 "-proj", model_id, "standalone",
-            $3, $4, $5, $6, $7, $8, 1, 1, "loaded", "vulkan", "validated",
+            $3, $4, $5, $6, $7, $8, 1, 1, "loaded", backend, "validated",
             evidence, commit, runner, kernel, mesa, amdgpu, measured_at
     }' "$summary" >>"$emitted_rows"
 

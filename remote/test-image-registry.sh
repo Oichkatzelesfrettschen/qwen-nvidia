@@ -453,18 +453,20 @@ else
     cat "$work_directory/seeded.err" >&2
 fi
 
-# One checked-in profile emits and the rest admit a shape alone. A section
-# carries one `mcpServers` object, so remote/build-web-presets.sh refuses two
-# emitting rows; the ledger states that bound directly by holding exactly one
-# validator-gated row, and every other row reads refused. Every checked-in
-# bundle reads candidate.
+# Every checked-in profile reads refused, because each image grant the ledger
+# once carried rested on device evidence taken on the Raven2 APU: sd-cli
+# generating against RADV RAVEN2 and a paired review inside that machine's own
+# carve-out. A section carries one `mcpServers` object, so
+# remote/build-web-presets.sh refuses two emitting rows, and the ledger states
+# that bound by holding at most one validator-gated row whatever else it holds.
 checked_in_gated=$("$reader" profiles | awk -F'\t' '$12 == "validator-gated" { print $1 }')
+checked_in_gated_count=$(printf '%s' "$checked_in_gated" | grep -c . || true)
 checked_in_other=$("$reader" profiles |
     awk -F'\t' '$12 != "validator-gated" && $12 != "refused"')
-if [ "$checked_in_gated" = image-sdxs-512-a ] && [ -z "$checked_in_other" ]; then
-    report one_profile_validator_gated accepted
+if [ "$checked_in_gated_count" -eq 0 ] && [ -z "$checked_in_other" ]; then
+    report every_profile_refused accepted
 else
-    report one_profile_validator_gated rejected
+    report every_profile_refused rejected
     printf 'validator-gated rows: %s\n' "${checked_in_gated:-<none>}" >&2
 fi
 if [ -z "$("$reader" models | awk -F'\t' '$12 != "candidate"')" ]; then

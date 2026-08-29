@@ -1,0 +1,10 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 11880 MiB):
+  Device 0: NVIDIA GeForce RTX 4070 Ti, compute capability 8.9, VMM: yes, VRAM: 11880 MiB
+ggml_vulkan: Found 1 Vulkan devices:
+ggml_vulkan: 0 = NVIDIA GeForce RTX 4070 Ti (NVIDIA) | uma: 0 | fp16: 1 | bf16: 1 | fp4: 0 | warp size: 32 | shared memory: 49152 | int dot: 1 | matrix cores: NV_coopmat2
+| model                          |       size |     params | backend    | ngl | type_k | type_v |  fa | dev          | ot                    |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | --: | ------------ | --------------------- | --------------: | -------------------: |
+| qwen35 2B Q4_K - Medium        |   1.21 GiB |     1.94 B | CUDA,Vulkan |  99 |   q8_0 |   q4_0 |   1 | CUDA0        | .*=CUDA0              |           pp512 |   14979.01 ± 1319.10 |
+| qwen35 2B Q4_K - Medium        |   1.21 GiB |     1.94 B | CUDA,Vulkan |  99 |   q8_0 |   q4_0 |   1 | CUDA0        | .*=CUDA0              |           tg128 |        230.38 ± 2.22 |
+
+build: f280b2698 (1935)
