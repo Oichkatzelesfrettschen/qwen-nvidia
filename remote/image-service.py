@@ -98,7 +98,16 @@ PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
 # chance to run. The wrapper renices itself and execs, so the parent can reach
 # `/proc/PID/stat` while the value is still the inherited one; this bounds how
 # long the parent waits for the wrapper's own write to land.
-PRIORITY_READBACK_TIMEOUT_SECONDS = 1.0
+#
+# The deadline is sized against the wrapper's cost rather than against an
+# assumed-instant renice. The wrapper spawns `renice`, `ps`, `awk`, and `ionice`
+# before it execs, which takes 1.2 ms on an idle host, and it does so at nice 19
+# on a machine `evidence/scheduling-priority-cost.md` measures under loadavg 4.9
+# to 7.0. The read-back returns the moment the value appears, so this number
+# decides only how slow a wrapper is called a refusal, and a refusal now ends
+# the job; five seconds stays two orders of magnitude above the measured cost
+# and far below the 300 second job deadline.
+PRIORITY_READBACK_TIMEOUT_SECONDS = 5.0
 PRIORITY_READBACK_INTERVAL_SECONDS = 0.01
 SERVICE_JOB_DEADLINE_SECONDS = 330
 TERMINATION_GRACE_SECONDS = 5.0

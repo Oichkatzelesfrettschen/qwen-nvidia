@@ -40,10 +40,23 @@ process actually holds instead of ending the shell on `set -e`.
 
 The read-back is bounded because the parent races the wrapper: a read taken
 immediately after `posix_spawn` returns the inherited value. `wait_for_process_nice`
-polls to a 1 second deadline, returns as soon as 19 appears, and otherwise
+polls to a five second deadline, returns as soon as 19 appears, and otherwise
 reports the last value it saw. An unreadable value now ends the job rather than
 recording `nice: "-"` beside a successful generation, which is what the previous
 `if observed_nice is not None and observed_nice != 19` admitted.
+
+That deadline is sized against the wrapper's own cost, because a refusal is no
+longer free. The wrapper spawns `renice`, `ps`, `awk`, and `ionice` before it
+execs, measured at a 1.2 ms median over twenty runs on an idle host, and it does
+so at nice 19 on a machine `evidence/scheduling-priority-cost.md` measures under
+loadavg 4.9 to 7.0. The read-back returns the moment 19 appears, so the number
+decides only how slow a wrapper is called a refusal.
+
+The wrapper's `qwen_priority_ready` line reaches an operator.
+`qwen-webui-session.sh` starts the service with `>"$image_service_log" 2>&1`
+into a mode-0600 file under the state directory, and the child inherits fd 2,
+so the marker and every refusal reason land beside the service's own `socket`
+and `listening` lines rather than in the test alone.
 
 The idle I/O class is set and read back as the ioprio value the kernel holds.
 The elevator decides what that class produces: BFQ acts on it and kyber does
