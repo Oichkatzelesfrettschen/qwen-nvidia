@@ -54,6 +54,20 @@ if [ "${1:-}" = --list-devices ]; then
     exit 0
 fi
 
+# QWEN_FAKE_IMAGE_PRIORITY_RECORD names a file this runtime writes its own
+# scheduling state into before it parses an argument. The state is recorded at
+# the runtime's first instruction rather than afterwards, which is what tests
+# that the priority was established by whatever executed this rather than by a
+# parent reaching it later.
+if [ -n "${QWEN_FAKE_IMAGE_PRIORITY_RECORD:-}" ]; then
+    printf 'nice=%s ioclass=%s\n' \
+        "$(LC_ALL=C /usr/bin/ps -o ni= -p "$$" | /usr/bin/awk 'NR == 1 {
+            gsub(/[[:space:]]/, "", $0); print
+        }')" \
+        "$(LC_ALL=C /usr/bin/ionice -p "$$" 2>/dev/null || printf unavailable)" \
+        >"$QWEN_FAKE_IMAGE_PRIORITY_RECORD"
+fi
+
 output=''
 width=''
 height=''

@@ -14,8 +14,9 @@ reader; neither does a query parameter, which the route ignores entirely.
 
 The job pipeline is one sequence with one owner: parse the request, hand it to
 the injected verifier for its profile parameters, refuse every cap violation,
-acquire the Vulkan workload lease, spawn the pinned runtime at an absolute nice
-of 19 in its own session, write `<job>.part.png`, validate the PNG against the
+acquire the Vulkan workload lease, spawn the pinned runtime through
+`remote/qwen-exec-idle-priority.sh` so it holds nice 19 and the idle I/O class
+before its first instruction, in its own session, write `<job>.part.png`, validate the PNG against the
 requested dimensions, hash it, rename it to `<sha256>.png`, write the
 provenance JSON, and release the lease. Every refusal above the lease runs
 before `flock`, so a request the service declines leaves the GPU lease
@@ -92,6 +93,13 @@ import image_protocol as protocol  # noqa: E402
 PROTOCOL_VERSION = protocol.PROTOCOL_VERSION
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 RUNTIME_HARD_TIMEOUT_SECONDS = 300
+PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
+# The runtime's priority is read back from `/proc` after the wrapper has had a
+# chance to run. The wrapper renices itself and execs, so the parent can reach
+# `/proc/PID/stat` while the value is still the inherited one; this bounds how
+# long the parent waits for the wrapper's own write to land.
+PRIORITY_READBACK_TIMEOUT_SECONDS = 1.0
+PRIORITY_READBACK_INTERVAL_SECONDS = 0.01
 SERVICE_JOB_DEADLINE_SECONDS = 330
 TERMINATION_GRACE_SECONDS = 5.0
 CONTROL_LINE_BYTE_CAP = protocol.MAX_LINE_BYTES
@@ -718,6 +726,24 @@ def read_process_nice(pid):
         return None
 
 
+def wait_for_process_nice(pid, expected, timeout_seconds):
+    """Poll `/proc/PID/stat` until the child's nice value is `expected`.
+
+    The wrapper establishes the priority inside the child, so the parent races
+    it: a read taken immediately after `posix_spawn` returns the inherited
+    value rather than the wrapper's. The loop returns as soon as the expected
+    value appears and otherwise reports the last value it saw, which separates a
+    wrapper that set a different priority from one whose process left before it
+    could be read.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    observed = read_process_nice(pid)
+    while observed != expected and time.monotonic() < deadline:
+        time.sleep(PRIORITY_READBACK_INTERVAL_SECONDS)
+        observed = read_process_nice(pid)
+    return observed
+
+
 class JobState:
     """What a running job exposes to `status` and `cancel` while it runs.
 
@@ -824,6 +850,16 @@ class ImageService:
             raise ProfileRefused(
                 f"the profile runtime is absent or not executable: {runtime_path}"
             )
+        # The spawn executes the wrapper and the wrapper executes the runtime,
+        # so a missing wrapper is a refusal above the lease rather than a
+        # `posix_spawn` failure inside it.
+        if not os.path.isfile(PRIORITY_WRAPPER) or not os.access(
+            PRIORITY_WRAPPER, os.X_OK
+        ):
+            raise ProfileRefused(
+                "the priority wrapper is absent or not executable: "
+                f"{PRIORITY_WRAPPER}"
+            )
 
     def handle_generate(self, payload, request_id):
         request = self.parse_generate(payload)
@@ -900,7 +936,7 @@ class ImageService:
                 self.job.part_path = ""
 
     def execute_runtime(self, request, profile, part_path, deadline):
-        """Spawn the pinned runtime at nice 19 and wait out its own deadline.
+        """Spawn the pinned runtime through the priority wrapper and wait it out.
 
         The child runs in its own session, so a runtime that forks is signalled
         as a process group rather than leaving workers on the device. The hard
@@ -954,26 +990,48 @@ class ImageService:
                 )
         usage_before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
         spawned_at = time.time()
+        # The wrapper establishes nice 19 and the idle I/O class inside the
+        # child and execs the runtime, so the priority is in force before the
+        # runtime's first instruction. A parent that spawned the runtime
+        # directly and reniced it by pid left a window covering Vulkan instance
+        # creation and device enumeration, which is the part of a generation
+        # that competes with a resident language model. `exec` keeps the pid,
+        # the process group, and the session, so the cancellation target and
+        # the wait below are the ones this spawn recorded. `posix_spawn` carries
+        # no priority attribute and `preexec_fn` is unsafe in a threaded process
+        # (subprocess(3)), which is why the mechanism is a child-side wrapper.
         with open(os.devnull, "rb") as devnull:
             child_pid = os.posix_spawn(
-                argv[0],
-                argv,
+                PRIORITY_WRAPPER,
+                [PRIORITY_WRAPPER, *argv],
                 environment,
                 file_actions=[(os.POSIX_SPAWN_DUP2, devnull.fileno(), 0)],
                 setsid=True,
             )
-        # The priority is applied as an absolute value from the parent rather
-        # than as an offset in the child, so the runtime lands at 19 whatever
-        # the launching shell's own niceness is, and it is read back below
-        # because the request and the applied value are two claims.
-        with contextlib.suppress(OSError):
-            os.setpriority(os.PRIO_PROCESS, child_pid, 19)
-        observed_nice = read_process_nice(child_pid)
+        # The pid is published before the priority is read, so a cancellation
+        # arriving while the wrapper still initializes reaches the child rather
+        # than pid 0.
         with self.job.lock:
             self.job.child_pid = child_pid
             cancel_requested = self.job.cancel_requested
         if cancel_requested:
             self.signal_child(child_pid)
+        # The wrapper's own verification is the execution gate; this read-back
+        # is the independent observation the provenance record retains. An
+        # unreadable value ends the job rather than recording an unobserved
+        # priority beside a successful generation.
+        observed_nice = wait_for_process_nice(
+            child_pid, 19, PRIORITY_READBACK_TIMEOUT_SECONDS
+        )
+        if observed_nice != 19:
+            self.terminate_and_reap(child_pid)
+            with self.job.lock:
+                self.job.child_pid = 0
+            raise RuntimeFailed(
+                "the runtime priority read back as "
+                f"{observed_nice if observed_nice is not None else 'unreadable'} "
+                "where 19 is required"
+            )
         runtime_deadline = min(spawned_at + applied_timeout, deadline)
         status, timed_out = self.wait_for_child(child_pid, runtime_deadline)
         elapsed = time.time() - spawned_at
@@ -987,7 +1045,7 @@ class ImageService:
             "runtime_seconds": round(elapsed, 3),
             "timeout_s_requested": profile["timeout_s"],
             "timeout_s_applied": applied_timeout,
-            "nice": observed_nice if observed_nice is not None else UNOBSERVED,
+            "nice": observed_nice,
             "children_maxrss_kib": max(usage_after, usage_before),
         }
         if os.WIFSIGNALED(status):
@@ -1008,16 +1066,27 @@ class ImageService:
                 f"the runtime exited {outcome['exit_status']} with signal "
                 f"{outcome['terminating_signal']}"
             )
-        if observed_nice is not None and observed_nice != 19:
-            raise RuntimeFailed(
-                f"the runtime ran at nice {observed_nice} where 19 is required"
-            )
         return outcome
 
     def signal_child(self, child_pid):
         """End the owned child's process group, SIGTERM first."""
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(child_pid, signal.SIGTERM)
+
+    def terminate_and_reap(self, child_pid):
+        """End a child refused before its deadline and clear its exit status.
+
+        The refusal happens before `wait_for_child` runs, so this path owns the
+        reap. SIGKILL rather than SIGTERM ends the group, because the runtime
+        never reached the state its own shutdown writes and a runtime that
+        ignores SIGTERM would hold this `waitpid` open. The shutdown path reaps
+        the same pid, so `ChildProcessError` is the child's departure rather
+        than an error.
+        """
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(child_pid, signal.SIGKILL)
+        with contextlib.suppress(ChildProcessError, OSError):
+            os.waitpid(child_pid, 0)
 
     def wait_for_child(self, child_pid, runtime_deadline):
         """Reap the child, terminating on its deadline and killing on grace.

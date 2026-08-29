@@ -695,6 +695,33 @@ with `/proc/PID/stat` before signalling and then runs
 `remote/image-teardown-check.sh`, which proves no service, no runtime, no
 partial artifact, and a free lease.
 
+A process holds its scheduling priority before its first instruction rather than
+receiving it from a parent afterwards. `remote/qwen-exec-idle-priority.sh` sets
+nice 19 and the idle I/O class in itself, verifies both against the kernel, and
+execs the command its argv names, so `exec` keeps the pid, the process group,
+and the session the spawning parent recorded while the values are already in
+force. `image-service.py` spawns the pinned runtime through it because
+`posix_spawn` carries no priority attribute and `preexec_fn` is unsafe in a
+threaded process, and the window a parent-side `setpriority` left open covered
+the runtime's Vulkan instance creation and device enumeration. The service still
+reads the child's nice value back from `/proc` as an independent observation,
+now on a bounded poll because it races the wrapper, and an unreadable value ends
+the job rather than recording `nice: "-"` beside a completed generation.
+`measure-dpm-force.sh` applies the same two values to itself once and records
+them in every arm.
+
+`renice --priority` names an absolute nice value where `renice -n` is relative
+under POSIXLY_CORRECT and `nice -n` is always an increment against the caller,
+so the increment spellings reach 19 from any caller at nice 0 or above and fall
+short of it from a caller at a negative nice. Every refusal reads the kernel
+rather than the tool's exit status, which is what keeps a failed `renice` on the
+refusal path instead of ending the shell on `set -e`. The idle I/O class is
+established and proved as an ioprio value; the elevator decides what it
+produces, BFQ acts on it and kyber does not, so `harness_ioclass=idle` states
+the class rather than an effect on I/O.
+`evidence/exec-idle-priority.md` carries the falsifiers, including the
+negative-nice and cancellation arms it records as unrun with their reasons.
+
 The generation grant joins two profiles and the broker binds them with two
 arguments. `image_grant.enforce_image_authorization` compares a claim's
 `language_profile` against `QWEN_IMAGE_LANGUAGE_PROFILE` and its
@@ -931,6 +958,8 @@ remote/image-service.py --state-dir DIR --profiles-json FILE
 remote/image-teardown-check.sh [STATE_DIRECTORY]
                                                 # no service, runtime, partial artifact, or held lease
 remote/test-vulkan-workload-lease.sh           # one workload, both writers of the lease
+remote/qwen-exec-idle-priority.sh COMMAND [ARGUMENT...]
+                                                # nice 19 and idle I/O, verified, then exec
 remote/image-review.py --router-origin URL --artifact-origin URL --model ID \
     --sha256 HEX --prompt-hash HEX --constraint NAME=DESCRIPTION \
     [--image-mode real|withheld|swapped [--swap-sha256 HEX]]
@@ -981,6 +1010,7 @@ remote/test-qwen-image-launch.sh
 remote/test-run-image-standalone.sh
 remote/test-admit-image-router.sh
 remote/test-vulkan-workload-lease.sh
+remote/test-exec-idle-priority.sh
 remote/test-fallback-webui-image-authorization.sh
 python3 remote/test-image-protocol.py
 python3 remote/test-image-service.py

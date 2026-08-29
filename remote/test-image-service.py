@@ -388,6 +388,61 @@ class ImageServiceTest(unittest.TestCase):
         second = session.control(generate_request(request_id="req-0002"))
         self.assertEqual(first["sha256"], second["sha256"])
 
+    def test_runtime_records_nice_19_at_its_first_instruction(self):
+        """The runtime holds the priority before it parses an argument.
+
+        The record is written by the runtime itself ahead of its argument
+        parse, so it reports the state the process started in rather than a
+        state a parent reached afterwards. That distinction is the whole point
+        of executing through remote/qwen-exec-idle-priority.sh: the parent's
+        own read-back cannot tell an early priority from a late one.
+        """
+        record_path = os.path.join(self.temporary.name, "runtime-priority.txt")
+        session = self.start(
+            runtime_environment={"QWEN_FAKE_IMAGE_PRIORITY_RECORD": record_path}
+        )
+        session.control(generate_request())
+        with open(record_path, encoding="ascii") as handle:
+            self.assertEqual(handle.read().strip(), "nice=19 ioclass=idle")
+
+    def test_priority_readback_separates_a_wrapped_child_from_a_bare_one(self):
+        """The read-back reports the wrapper's value and the caller's without it.
+
+        `wait_for_process_nice` is the input the spawn's refusal branch decides
+        on. A child executed through the wrapper reads 19 whatever the caller
+        holds; the same child executed directly reads the caller's own value,
+        which is what the branch refuses. A pid that has left reads as
+        unreadable rather than as a number.
+        """
+        wrapper = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
+        sleeper = ["/bin/sh", "-c", "sleep 5"]
+        wrapped = subprocess.Popen(
+            [wrapper, *sleeper], stderr=subprocess.DEVNULL
+        )
+        try:
+            self.assertEqual(
+                service_module.wait_for_process_nice(wrapped.pid, 19, 2.0),
+                19,
+                "a wrapped child reaches nice 19",
+            )
+        finally:
+            wrapped.kill()
+            wrapped.wait()
+        bare = subprocess.Popen(sleeper)
+        try:
+            self.assertEqual(
+                service_module.wait_for_process_nice(bare.pid, 19, 0.2),
+                os.getpriority(os.PRIO_PROCESS, 0),
+                "an unwrapped child holds the caller's own nice value",
+            )
+        finally:
+            bare.kill()
+            bare.wait()
+        self.assertIsNone(
+            service_module.wait_for_process_nice(bare.pid, 19, 0.05),
+            "a departed child reads as unreadable rather than as a value",
+        )
+
     def test_runtime_environment_carries_the_radv_icd_pin(self):
         """The spawned runtime inherits VK_DRIVER_FILES and VK_ICD_FILENAMES.
 

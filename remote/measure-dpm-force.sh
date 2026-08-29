@@ -58,6 +58,55 @@ if ! sudo -n true 2>/dev/null; then
     exit 2
 fi
 
+# The harness establishes its own priority once, absolutely, and proves it
+# against the kernel before any arm runs. Every arm then inherits it, so a
+# recorded rate carries the priority the summary names rather than the priority
+# the calling shell happened to hold. `renice --priority` is the absolute form:
+# `renice -n` is relative where POSIXLY_CORRECT is set (renice(1)), and the
+# `nice -n 19` each arm used before is an increment against the caller, which
+# reaches 19 from any caller at nice 0 or above and falls short of it from a
+# caller at a negative nice.
+#
+# The idle I/O class is set and read back as the ioprio value the kernel holds.
+# The elevator decides what that class produces -- BFQ acts on it, kyber does
+# not -- so the summary records the class rather than an effect on I/O.
+measurement_nice=19
+
+# The kernel read-back rather than the tool exit status is the gate, so a
+# renice that fails reaches the refusal below with the value the process
+# actually holds instead of ending the shell on `set -e`.
+/usr/bin/renice --priority "$measurement_nice" --pid "$$" >/dev/null || :
+
+observed_nice=$(
+    LC_ALL=C /usr/bin/ps -o ni= -p "$$" |
+        /usr/bin/awk 'NR == 1 {
+            gsub(/[[:space:]]/, "", $0)
+            print
+        }'
+)
+
+if [ "$observed_nice" != "$measurement_nice" ]; then
+    printf 'measurement priority refused: expected=%s observed=%s\n' \
+        "$measurement_nice" "${observed_nice:-unavailable}" >&2
+    exit 2
+fi
+
+/usr/bin/ionice -c 3 -p "$$" || :
+
+observed_ioclass=$(
+    LC_ALL=C /usr/bin/ionice -p "$$" 2>/dev/null || :
+)
+
+case $observed_ioclass in
+    idle | 'idle:'*)
+        ;;
+    *)
+        printf 'measurement I/O priority refused: observed=%s\n' \
+            "${observed_ioclass:-unavailable}" >&2
+        exit 2
+        ;;
+esac
+
 original_level=$(cat "$level_node")
 sampler_pid=''
 stop_sampler() {
@@ -82,7 +131,7 @@ trap 'exit 143' TERM
 
 mkdir -p "$output_directory"
 summary=$output_directory/dpm-summary.tsv
-printf 'arm\tlevel\tfclk_before_load\tdecode_tok_s\tstatus\tfclk_modal\tsclk_max\ttemp_c_max\n' \
+printf 'arm\tlevel\tfclk_before_load\tdecode_tok_s\tstatus\tfclk_modal\tsclk_max\ttemp_c_max\tharness_nice\tharness_ioclass\n' \
     >"$summary"
 
 measurement_failed=0
@@ -113,13 +162,13 @@ run_arm() {
         return 1
     fi
 
-    printf 'arm_start_utc=%s label=%s level=%s mclk_before_load=%s\n' \
+    printf 'arm_start_utc=%s label=%s level=%s mclk_before_load=%s nice=%s ioclass=idle\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$arm_label" "$applied_level" \
-        "$selected_fclk"
+        "$selected_fclk" "$observed_nice"
     "$clock_sampler" "$arm_samples" 1 &
     sampler_pid=$!
     set +e
-    nice -n 19 ionice -c 3 "$bench" -m "$model_path" \
+    "$bench" -m "$model_path" \
         -ngl 99 -t 2 -r 3 -p 0 -n 64 -o md >"$arm_log" 2>&1
     arm_status=$?
     set -e
@@ -160,8 +209,9 @@ run_arm() {
                 (temperature_samples ? sprintf("%.1f", temp_max / 1000) : "unavailable")
         }' "$arm_samples")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$arm_label" "$applied_level" \
-        "$selected_fclk" "$decode" "$arm_status" "$clock_report" >>"$summary"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$arm_label" "$applied_level" \
+        "$selected_fclk" "$decode" "$arm_status" "$clock_report" \
+        "$observed_nice" idle >>"$summary"
     printf 'arm_stop_utc=%s label=%s decode=%s status=%s clocks=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$arm_label" "$decode" "$arm_status" \
         "$(printf '%s' "$clock_report" | tr '\t' ' ')"
