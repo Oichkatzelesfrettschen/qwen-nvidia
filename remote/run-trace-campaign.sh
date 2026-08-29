@@ -78,7 +78,7 @@ script_path=$script_directory/$(basename -- "$0")
 
 model_path=${QWEN_TRACE_MODEL_PATH:-"${HOME:?}/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf"}
 trace_build_directory=${QWEN_TRACE_BUILD_DIR:-}
-appliance_source=${QWEN_TRACE_APPLIANCE_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+appliance_source=${QWEN_TRACE_APPLIANCE_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 patch_source=${QWEN_TRACE_PATCH_SOURCE:-}
 environment_wrapper=${QWEN_TRACE_ENV_WRAPPER:-"$script_directory/radv-low-priority-env.sh"}
 clock_sampler=${QWEN_TRACE_CLOCK_SAMPLER:-"$script_directory/sample-gpu-clocks.sh"}

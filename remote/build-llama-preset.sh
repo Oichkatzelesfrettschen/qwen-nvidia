@@ -36,7 +36,7 @@ usage() {
 [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
 
 preset=$1
-source_directory=${2:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+source_directory=${2:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 build_jobs=${QWEN_BUILD_JOBS:-$(nproc 2>/dev/null || echo 1)}
 expected_commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0

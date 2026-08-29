@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-    printf 'usage: %s start [paced-60|low-serialized|low-async]|status|stop|key\n' \
+    printf 'usage: %s start [default|no-graphs|no-fusion|pdl|unified]|status|stop|key\n' \
         "$0" >&2
     exit 2
 fi
@@ -14,7 +14,7 @@ action=$1
 # decode rate and buys nothing back under this workload. low-serialized remains
 # for sustained long-context prefill, where the depth ladder measured async
 # raising probe p90 8.6-fold.
-profile=${2:-low-async}
+profile=${2:-default}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 tmux_socket=qwen-runtime
 tmux_session=qwen-webui
@@ -45,12 +45,12 @@ model_path=${QWEN_MODEL_PATH:-"${HOME:?}/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-
 # at it in one rename, so switching build arms or rolling one back leaves this
 # script untouched. The named directory is what the appliance was built with
 # before presets existed, and it serves until a promotion happens.
-llama_source_directory=${QWEN_LLAMA_SOURCE_DIRECTORY:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+llama_source_directory=${QWEN_LLAMA_SOURCE_DIRECTORY:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 llama_server=${QWEN_LLAMA_SERVER:-}
 if [ -z "$llama_server" ]; then
     llama_server=$llama_source_directory/build-appliance-current/bin/llama-server
     if [ ! -x "$llama_server" ]; then
-        llama_server=$llama_source_directory/build-qwen-vulkan/bin/llama-server
+        llama_server=$llama_source_directory/build-qwen-cuda-sm89/bin/llama-server
     fi
 fi
 static_path=${QWEN_STATIC_PATH:-"$script_directory/../webui-llama-ui"}
@@ -66,10 +66,32 @@ shell_quote() {
 
 case $action in
     start)
-        case $profile in
-            paced-60 | low-serialized | low-async | custom) ;;
+        # The profile vocabulary belongs to the backend that serves. CUDA's
+        # profiles name what cuda-runtime-env.sh exports; the Vulkan names are
+        # radv-low-priority-env.sh's and stay reachable under
+        # QWEN_SERVING_BACKEND=vulkan.
+        case ${QWEN_SERVING_BACKEND:-cuda} in
+            cuda)
+                case $profile in
+                    default | no-graphs | no-fusion | pdl | unified | custom) ;;
+                    *)
+                        printf 'unknown CUDA profile: %s\n' "$profile" >&2
+                        exit 2
+                        ;;
+                esac
+                ;;
+            vulkan)
+                case $profile in
+                    paced-60 | low-serialized | low-async | custom) ;;
+                    *)
+                        printf 'unknown Vulkan profile: %s\n' "$profile" >&2
+                        exit 2
+                        ;;
+                esac
+                ;;
             *)
-                printf 'unknown Vulkan profile: %s\n' "$profile" >&2
+                printf 'QWEN_SERVING_BACKEND takes cuda or vulkan: %s\n' \
+                    "${QWEN_SERVING_BACKEND:-cuda}" >&2
                 exit 2
                 ;;
         esac
@@ -101,7 +123,10 @@ case $action in
         # VK_ICD_FILENAMES for every runtime it spawns and derives both from
         # that name, and a value that stopped at this boundary would leave the
         # service deriving from the default path instead.
-        for forwarded_name in QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
+        for forwarded_name in QWEN_SERVING_BACKEND QWEN_CUDA_DEVICES \
+                              QWEN_SERVING_NICE QWEN_SERVING_CPU_LIST \
+                              QWEN_SERVING_THREADS \
+                              QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
                               QWEN_INFERENCE_CPU QWEN_SPEC_TYPE \
                               QWEN_SPEC_DRAFT_N_MAX QWEN_SPEC_DRAFT_P_MIN \
                               QWEN_SPEC_BACKEND_SAMPLING QWEN_BACKEND_SAMPLING \
@@ -255,7 +280,7 @@ case $action in
             "$tmux_socket" "$tmux_session"
         ;;
     *)
-        printf 'usage: %s start [paced-60|low-serialized|low-async]|status|stop|key\n' \
+        printf 'usage: %s start [default|no-graphs|no-fusion|pdl|unified]|status|stop|key\n' \
             "$0" >&2
         exit 2
         ;;

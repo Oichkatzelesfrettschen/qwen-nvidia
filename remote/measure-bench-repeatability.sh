@@ -23,7 +23,7 @@ fi
 model_path=$1
 output_directory=${2:-"${HOME:?}/qwen-bench-repeatability"}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-bench"}
+bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench"}
 clock_sampler=${QWEN_CLOCK_SAMPLER:-"$script_directory/sample-gpu-clocks.sh"}
 idle_seconds=${QWEN_IDLE_SECONDS:-600}
 

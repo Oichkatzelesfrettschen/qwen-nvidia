@@ -21,7 +21,7 @@ fi
 
 fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/qwen-prepare-source.XXXXXX")
 trap 'rm -rf "$fixture_root"' EXIT INT TERM
-patched_source=$fixture_root/llama.cpp-qwen-apu
+patched_source=$fixture_root/llama.cpp-qwen-nvidia
 
 expect_output() {
     expected=$1

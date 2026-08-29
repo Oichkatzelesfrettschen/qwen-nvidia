@@ -35,7 +35,7 @@ fi
 
 output_directory=${QWEN_BANDWIDTH_OUTPUT:-"${HOME:?}/qwen-bandwidth-ladder"}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-bench"}
+bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench"}
 census=${QWEN_TENSOR_CENSUS:-"$script_directory/gguf-tensor-census.py"}
 clock_sampler=${QWEN_CLOCK_SAMPLER:-"$script_directory/sample-gpu-clocks.sh"}
 generate_tokens=${QWEN_BENCH_GENERATE:-64}

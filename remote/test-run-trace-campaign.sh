@@ -39,7 +39,7 @@ chmod +x "$trace_build/bin/llama-bench"
 printf 'preset\traven2-vulkan-production\ncommit\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\n' \
     >"$trace_build/artifact-manifest.tsv"
 
-appliance_source=$work_directory/llama.cpp-qwen-apu
+appliance_source=$work_directory/llama.cpp-qwen-nvidia
 production_build=$appliance_source/build-raven2-vulkan-production
 mkdir -p "$production_build/bin"
 cat >"$production_build/bin/llama-server" <<'SERVER'

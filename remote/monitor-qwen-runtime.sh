@@ -2,14 +2,14 @@
 set -eu
 
 if [ "$#" -ne 5 ]; then
-    printf 'usage: %s SERVER_PID TELEMETRY_LOG VULKAN_PROFILE LATENCY_WATCHDOG_PID KERNEL_HAZARD_WATCHDOG_PID\n' \
+    printf 'usage: %s SERVER_PID TELEMETRY_LOG RUNTIME_PROFILE LATENCY_WATCHDOG_PID KERNEL_HAZARD_WATCHDOG_PID\n' \
         "$0" >&2
     exit 2
 fi
 
 server_pid=$1
 telemetry_log=$2
-vulkan_profile=$3
+runtime_profile=$3
 latency_watchdog_pid=$4
 kernel_hazard_watchdog_pid=$5
 
@@ -34,7 +34,7 @@ case $kernel_hazard_watchdog_pid in
         ;;
 esac
 
-case $vulkan_profile in
+case $runtime_profile in
     paced-60)
         maximum_gpu_busy_percent=75
         ;;
@@ -46,8 +46,14 @@ case $vulkan_profile in
     low-async | custom)
         maximum_gpu_busy_percent=100
         ;;
+    default | no-graphs | no-fusion | pdl | unified)
+        # The CUDA profiles submit continuously and the card is discrete, so
+        # aggregate busy is recorded rather than enforced and the latency
+        # watchdog carries the responsiveness stop condition alone.
+        maximum_gpu_busy_percent=100
+        ;;
     *)
-        printf 'unknown Vulkan profile: %s\n' "$vulkan_profile" >&2
+        printf 'unknown runtime profile: %s\n' "$runtime_profile" >&2
         exit 2
         ;;
 esac
@@ -92,11 +98,47 @@ maximum_swapin_bytes_per_sample=67108864
 # than enforced.
 report_temperature_millicelsius=90000
 gpu_device_directory=${QWEN_GPU_DEVICE_DIRECTORY:-/sys/class/drm/card1/device}
+nvidia_device_index=${QWEN_NVIDIA_DEVICE_INDEX:-0}
+gpu_telemetry_source=${QWEN_GPU_TELEMETRY_SOURCE:-}
+if [ -z "$gpu_telemetry_source" ]; then
+    if [ -r "$gpu_device_directory/gpu_busy_percent" ]; then
+        gpu_telemetry_source=amdgpu_sysfs
+    else
+        gpu_telemetry_source=nvml
+    fi
+fi
+case $gpu_telemetry_source in
+    amdgpu_sysfs) ;;
+    nvml)
+        command -v nvidia-smi >/dev/null 2>&1 || {
+            printf 'NVML telemetry needs nvidia-smi and it is absent from PATH\n' >&2
+            exit 2
+        }
+        ;;
+    *)
+        printf 'QWEN_GPU_TELEMETRY_SOURCE takes amdgpu_sysfs or nvml: %s\n' \
+            "$gpu_telemetry_source" >&2
+        exit 2
+        ;;
+esac
 if [ "$gpu_device_directory" != /sys/class/drm/card1/device ] && \
    [ "${QWEN_GUARD_TEST_MODE:-0}" != 1 ]; then
     printf 'GPU device override requires QWEN_GUARD_TEST_MODE=1\n' >&2
     exit 2
 fi
+# The policy the monitor enforces is the one the runtime wrapper applied, and
+# the session exports both values before starting this process.
+case ${QWEN_SERVING_BACKEND:-cuda} in
+    vulkan)
+        expected_affinity=${QWEN_INFERENCE_CPU:-0}
+        expected_nice=19
+        ;;
+    *)
+        expected_affinity=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2>/dev/null || echo 0)}
+        expected_nice=${QWEN_SERVING_NICE:-0}
+        ;;
+esac
+
 page_size=$(getconf PAGESIZE)
 previous_pswpin=$(awk '$1 == "pswpin" { print $2 }' /proc/vmstat)
 temperature_reported=0
@@ -135,7 +177,7 @@ terminate_server() {
 {
     printf 'monitor_start_utc=%s server_pid=%s sample_seconds=%s profile=%s latency_watchdog_pid=%s kernel_hazard_watchdog_pid=%s guard_affinity=%s guard_nice=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$server_pid" "$sample_seconds" \
-        "$vulkan_profile" "$latency_watchdog_pid" "$kernel_hazard_watchdog_pid" \
+        "$runtime_profile" "$latency_watchdog_pid" "$kernel_hazard_watchdog_pid" \
         "$guard_affinity" "$guard_nice"
     printf 'threshold_mem_available_kib=%s threshold_swapin_bytes_per_sample=%s report_temperature_millicelsius=%s\n' \
         "$minimum_mem_available_kib" "$maximum_swapin_bytes_per_sample" \
@@ -161,17 +203,37 @@ while server_is_original_process; do
     swapin_bytes=$((swapin_pages * page_size))
     previous_pswpin=$current_pswpin
 
-    if [ ! -r "$gpu_device_directory/gpu_busy_percent" ] || \
-       [ ! -r "$gpu_device_directory/mem_info_gtt_used" ] || \
-       [ ! -r "$gpu_device_directory/mem_info_vram_used" ]; then
-        terminate_server gpu_telemetry_unavailable
-    fi
+    # NVML answers where amdgpu's sysfs files do, and the sample keeps its
+    # column names across both: utilisation is the busy percent, device memory
+    # is the vram figure, and a discrete card maps nothing onto GTT, which is
+    # an APU's system-memory aperture. A device that reports nothing ends the
+    # run, because a guard that cannot see the device is not guarding it.
+    if [ "$gpu_telemetry_source" = nvml ]; then
+        gpu_sample=$(nvidia-smi --id="$nvidia_device_index" \
+            --query-gpu=utilization.gpu,memory.used,clocks.sm,clocks.mem \
+            --format=csv,noheader,nounits 2>/dev/null) || gpu_sample=''
+        if [ -z "$gpu_sample" ]; then
+            terminate_server gpu_telemetry_unavailable
+        fi
+        gpu_busy_percent=$(printf '%s' "$gpu_sample" | awk -F', *' '{ print $1 }')
+        vram_used_bytes=$(printf '%s' "$gpu_sample" |
+            awk -F', *' '{ printf "%d", $2 * 1048576 }')
+        gtt_used_bytes=unavailable
+        sclk=$(printf '%s' "$gpu_sample" | awk -F', *' '{ print $3 }')
+        mclk=$(printf '%s' "$gpu_sample" | awk -F', *' '{ print $4 }')
+    else
+        if [ ! -r "$gpu_device_directory/gpu_busy_percent" ] || \
+           [ ! -r "$gpu_device_directory/mem_info_gtt_used" ] || \
+           [ ! -r "$gpu_device_directory/mem_info_vram_used" ]; then
+            terminate_server gpu_telemetry_unavailable
+        fi
 
-    gpu_busy_percent=$(cat "$gpu_device_directory/gpu_busy_percent")
-    gtt_used_bytes=$(cat "$gpu_device_directory/mem_info_gtt_used")
-    vram_used_bytes=$(cat "$gpu_device_directory/mem_info_vram_used")
-    sclk=$(tr '\n' ';' <"$gpu_device_directory/pp_dpm_sclk")
-    mclk=$(tr '\n' ';' <"$gpu_device_directory/pp_dpm_mclk")
+        gpu_busy_percent=$(cat "$gpu_device_directory/gpu_busy_percent")
+        gtt_used_bytes=$(cat "$gpu_device_directory/mem_info_gtt_used")
+        vram_used_bytes=$(cat "$gpu_device_directory/mem_info_vram_used")
+        sclk=$(tr '\n' ';' <"$gpu_device_directory/pp_dpm_sclk")
+        mclk=$(tr '\n' ';' <"$gpu_device_directory/pp_dpm_mclk")
+    fi
 
     maximum_observed_temperature=0
     for temperature_path in /sys/class/hwmon/hwmon*/temp*_input; do
@@ -190,10 +252,10 @@ while server_is_original_process; do
         "$maximum_observed_temperature" "$gpu_busy_percent" "$gtt_used_bytes" \
         "$vram_used_bytes" "$sclk" "$mclk" >>"$telemetry_log"
 
-    if [ "$affinity" != 0 ]; then
+    if [ "$affinity" != "$expected_affinity" ]; then
         terminate_server process_affinity_changed
     fi
-    if [ "$nice_value" != 19 ]; then
+    if [ "$nice_value" != "$expected_nice" ]; then
         terminate_server process_nice_changed
     fi
     if [ "$mem_available_kib" -lt "$minimum_mem_available_kib" ]; then

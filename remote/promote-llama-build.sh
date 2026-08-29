@@ -24,7 +24,7 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
 fi
 
 preset=$1
-source_directory=${2:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+source_directory=${2:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 current_link=$source_directory/build-appliance-current
 previous_link=$source_directory/build-appliance-previous

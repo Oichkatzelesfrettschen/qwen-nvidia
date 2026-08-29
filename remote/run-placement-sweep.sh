@@ -9,7 +9,7 @@ set -eu
 # rather than the served rate, and the desktop cost of the winner is measured
 # separately through the latency probe.
 
-bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-bench"}
+bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench"}
 output=${1:-"${HOME:?}/qwen-model-comparison/placement-sweep.txt"}
 prompt_tokens=${QWEN_BENCH_PROMPT:-512}
 generate_tokens=${QWEN_BENCH_GENERATE:-64}

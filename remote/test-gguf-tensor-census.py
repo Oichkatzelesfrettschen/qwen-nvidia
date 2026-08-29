@@ -38,7 +38,7 @@ def locate_gguf_py():
         candidates.append(Path(os.environ["GGUF_PY_PATH"]))
     home = Path.home()
     candidates += [
-        home / "src/llama.cpp-qwen-apu/gguf-py",
+        home / "src/llama.cpp-qwen-nvidia/gguf-py",
         home / "worktrees/llama-qwen-vulkan-pacer/gguf-py",
         home / "src/llama.cpp/gguf-py",
     ]

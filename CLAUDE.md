@@ -468,11 +468,54 @@ qwen-launch.sh            waits for /health, prints reachable addresses
       run-qwen-capacity-server.sh
         model-memory-preflight.sh   reports headroom
         qwen-capacity-policy.sh     builds the llama-server argv
-          radv-low-priority-env.sh  scrubs env, applies profile
+          cuda-runtime-env.sh       scrubs env, applies profile and priority
             qwen-router-exec-guard.sh  rechecks authority identities, execs
 ```
 
-Five properties of that chain surprise a reader who meets one file alone.
+`QWEN_SERVING_BACKEND` selects the wrapper on that second-to-last line and the
+device the argv names. `cuda` is the default and yields `cuda-runtime-env.sh`
+with `--device CUDA0`; `vulkan` yields `radv-low-priority-env.sh` with
+`--device Vulkan0`. Naming the device is what keeps the two apart, because the
+promoted binary carries both backends and enumerates CUDA0 and Vulkan0 for the
+same card: a router child that named neither allocated on Vulkan0 here while
+every measurement that set the defaults ran on CUDA0.
+
+The profile vocabulary belongs to the wrapper. `cuda-runtime-env.sh` takes
+`default`, `no-graphs`, `no-fusion`, `pdl`, `unified`, and `custom`, and each
+names what it exports out of the eleven `GGML_CUDA_*` and `GGML_OP_OFFLOAD_*`
+variables the backend reads. It also applies the scheduling policy rather than
+inheriting one -- `QWEN_SERVING_NICE` at 0 and `QWEN_SERVING_CPU_LIST` at the
+online CPU set -- and exports both, so the session and the runtime monitor
+require of the server exactly what the wrapper asked for. The APU tree's one
+core at nice 19 was the second core the desktop needed; twelve threads and a
+discrete card make that pinning a cost with nothing bought.
+
+`unified` is a residency lever rather than a performance one:
+`GGML_CUDA_ENABLE_UNIFIED_MEMORY` lets an allocation exceed the 12 GiB carve-out
+by paging over PCIe, which belongs to an arm that would otherwise not run at
+all.
+
+Three device-facing guards changed with the host.
+`remote/vulkan-graphics-service-probe.c` selects its physical device by vendor
+-- NVIDIA first, AMD second, `QWEN_PROBE_VENDOR_ID` over both -- where it
+required vendor `0x1002`. `remote/watch-qwen-kernel-hazards.sh` adds the NVRM
+Xid, bus-fallen-off, and RmInitAdapter signatures beside the amdgpu ones and
+reads the ring buffer through `sudo -n dmesg` where `kernel.dmesg_restrict`
+hides it. `remote/monitor-qwen-runtime.sh` samples NVML through `nvidia-smi`
+where the amdgpu sysfs files are absent, keeping its column names: utilisation
+is the busy percent, device memory is the vram figure, and a discrete card maps
+nothing onto GTT.
+
+`remote/admit-cuda-router-serving.sh` runs the assembled chain once: it
+launches in router mode, asks two models for one reply each, reads back the
+placement line and memory breakdown each child prints, records how many
+children were resident together, and tears the appliance down. The retained run
+in `evidence/ada/cuda-router-serving/` carries nine checks with none rejected,
+both the 2B distill and the 0.8B answering from CUDA0 with both resident at
+5307 MiB of device memory.
+
+Five properties of the Vulkan-side chain surprise a reader who meets one file
+alone.
 
 `radv-low-priority-env.sh` unsets every `GGML_VK_*` variable before its profile
 case runs, so an ambient submission setting reaches the server only when the
@@ -800,17 +843,26 @@ in the binary and the tool set belongs to the section.
 ## Commands
 
 ```sh
-# Start and stop the appliance (run on the laptop)
-~/qwen-laptop-setup/remote/qwen-launch.sh [paced-60|low-serialized|low-async]
-~/qwen-laptop-setup/remote/qwen-web-launch.sh [PROFILE]   # web presets, loopback only
-~/qwen-laptop-setup/remote/qwen-image-launch.sh [PROFILE] # web presets with the image lane armed
-~/qwen-laptop-setup/remote/qwen-teardown.sh
-~/qwen-laptop-setup/remote/qwen-webui-control.sh status
+# Start and stop the appliance
+remote/qwen-launch.sh [default|no-graphs|no-fusion|pdl|unified]
+QWEN_ROUTER=1 QWEN_ROUTER_MAX=2 remote/qwen-launch.sh   # the picker, two children resident
+remote/qwen-web-launch.sh [PROFILE]     # web presets, loopback only
+remote/qwen-image-launch.sh [PROFILE]   # web presets with the image lane armed
+remote/qwen-teardown.sh
+remote/qwen-webui-control.sh status
 
-# Select a checkpoint, a listener, and the inference core
+# Select a checkpoint, a listener, and the serving backend
 QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
-QWEN_BIND_HOST=0.0.0.0 QWEN_INFERENCE_CPU=1 \
-    ~/qwen-laptop-setup/remote/qwen-launch.sh
+QWEN_BIND_HOST=0.0.0.0 QWEN_SERVING_BACKEND=vulkan \
+    remote/qwen-launch.sh low-serialized
+
+# Build, measure, and admit on this host
+remote/build-llama-cuda.sh                     # CUDA and Vulkan in one binary, sm_89
+remote/run-cuda-baseline-sweep.sh OUT MODEL...  # mirrored prefill and decode
+remote/run-speculation-sweep.sh OUT TARGET [DRAFT]
+                                                # baseline, external draft, MTP, n-gram
+remote/sample-nvidia-clocks.sh OUT_TSV [SECONDS] # the state a rate ran at
+remote/admit-cuda-router-serving.sh OUT        # the whole chain, two models, one teardown
 
 # Measurement harnesses, each of which owns its own launch and teardown
 remote/compare-model-candidate.sh LABEL MODEL_PATH [PROFILE]

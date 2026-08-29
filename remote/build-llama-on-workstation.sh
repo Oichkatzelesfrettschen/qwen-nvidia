@@ -25,9 +25,9 @@ usage() {
 
 [ "$#" -le 2 ] || usage
 
-source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 destination_host=${2:-${QWEN_LAPTOP_HOST:-qwen-laptop}}
-destination_directory=${QWEN_DESTINATION_DIRECTORY:-src/llama.cpp-qwen-apu/build-qwen-vulkan/bin}
+destination_directory=${QWEN_DESTINATION_DIRECTORY:-src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin}
 container=${QWEN_CONTAINER:-podman}
 image=${QWEN_BUILD_IMAGE:-docker.io/library/ubuntu:24.04}
 backends=${QWEN_BUILD_BACKENDS:-vulkan}

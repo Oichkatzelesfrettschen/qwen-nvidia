@@ -70,6 +70,7 @@ start_test_process 19 5
 start_watchdog_process
 start_kernel_watchdog_process
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/positive-telemetry.log" \
     paced-60 "$watchdog_pid" "$kernel_watchdog_pid"
@@ -90,6 +91,7 @@ start_watchdog_process
 start_kernel_watchdog_process
 set +e
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/negative-telemetry.log" \
     paced-60 "$watchdog_pid" "$kernel_watchdog_pid"
@@ -117,6 +119,7 @@ start_watchdog_process
 start_kernel_watchdog_process
 set +e
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/gpu-busy-telemetry.log" \
     paced-60 "$watchdog_pid" "$kernel_watchdog_pid"
@@ -145,6 +148,7 @@ start_test_process 19 5
 start_watchdog_process
 start_kernel_watchdog_process
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/priority-first-telemetry.log" \
     low-serialized "$watchdog_pid" "$kernel_watchdog_pid"
@@ -163,6 +167,7 @@ start_test_process 19 5
 start_watchdog_process
 start_kernel_watchdog_process
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/async-priority-first-telemetry.log" \
     low-async "$watchdog_pid" "$kernel_watchdog_pid"
@@ -185,6 +190,7 @@ wait "$watchdog_pid" 2>/dev/null || true
 watchdog_pid=""
 set +e
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/watchdog-telemetry.log" \
     low-serialized 999999999 999999998
@@ -204,6 +210,7 @@ start_persistent_test_process 19
 start_watchdog_process
 set +e
 QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+QWEN_SERVING_BACKEND=vulkan QWEN_INFERENCE_CPU=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/kernel-watchdog-telemetry.log" \
     low-serialized "$watchdog_pid" 999999997
@@ -242,4 +249,61 @@ grep -F 'action=SIGTERM' "$temporary_directory/hazard-watch.log" >/dev/null
 grep -F 'guard_affinity=1 guard_nice=0' \
     "$temporary_directory/hazard-watch.log" >/dev/null
 
-printf 'runtime_monitor=accepted gpu_busy_ceiling=accepted kernel_hazard_watcher=accepted\n'
+# The CUDA policy is the one the appliance serves under here, and it differs
+# from the Vulkan fixtures above in both fields: every online CPU rather than
+# one, and the desktop's own priority rather than nice 19. The arm runs the same
+# monitor against a process carrying that policy and requires it to accept, then
+# moves the process off it and requires the abort.
+online_cpu_list=$(cat /sys/devices/system/cpu/online 2>/dev/null || echo 0)
+taskset -c "$online_cpu_list" sleep 5 &
+test_pid=$!
+renice -n 0 -p "$test_pid" >/dev/null
+start_watchdog_process
+start_kernel_watchdog_process
+QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+    "$script_directory/monitor-qwen-runtime.sh" \
+    "$test_pid" "$temporary_directory/cuda-positive-telemetry.log" \
+    default "$watchdog_pid" "$kernel_watchdog_pid"
+wait "$test_pid" 2>/dev/null || true
+test_pid=""
+kill "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+watchdog_pid=""
+kill "$kernel_watchdog_pid" 2>/dev/null || true
+wait "$kernel_watchdog_pid" 2>/dev/null || true
+kernel_watchdog_pid=""
+grep -F 'reason=server_exited' \
+    "$temporary_directory/cuda-positive-telemetry.log" >/dev/null
+grep -F 'profile=default' \
+    "$temporary_directory/cuda-positive-telemetry.log" >/dev/null
+
+taskset -c "$online_cpu_list" sh -c 'while :; do sleep 1; done' &
+test_pid=$!
+renice -n 11 -p "$test_pid" >/dev/null
+start_watchdog_process
+start_kernel_watchdog_process
+set +e
+QWEN_GUARD_TEST_MODE=1 QWEN_GPU_DEVICE_DIRECTORY=$fake_gpu_directory \
+    "$script_directory/monitor-qwen-runtime.sh" \
+    "$test_pid" "$temporary_directory/cuda-negative-telemetry.log" \
+    default "$watchdog_pid" "$kernel_watchdog_pid"
+cuda_monitor_status=$?
+set -e
+if [ "$cuda_monitor_status" -ne 3 ]; then
+    printf 'runtime monitor CUDA negative test returned %s instead of 3\n' \
+        "$cuda_monitor_status" >&2
+    exit 1
+fi
+grep -F 'reason=process_nice_changed' \
+    "$temporary_directory/cuda-negative-telemetry.log" >/dev/null
+kill "$test_pid" 2>/dev/null || true
+wait "$test_pid" 2>/dev/null || true
+test_pid=""
+kill "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+watchdog_pid=""
+kill "$kernel_watchdog_pid" 2>/dev/null || true
+wait "$kernel_watchdog_pid" 2>/dev/null || true
+kernel_watchdog_pid=""
+
+printf 'runtime_monitor=accepted cuda_runtime_policy=accepted gpu_busy_ceiling=accepted kernel_hazard_watcher=accepted\n'

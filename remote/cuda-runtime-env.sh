@@ -33,6 +33,24 @@ fi
 
 cuda_profile=${QWEN_CUDA_PROFILE:-default}
 cuda_devices=${QWEN_CUDA_DEVICES:-0}
+serving_nice=${QWEN_SERVING_NICE:-0}
+serving_cpu_list=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2>/dev/null || echo 0)}
+
+# The scheduling policy is applied rather than inherited, and it is exported so
+# the session that started this process can read back what to require of it.
+# A discrete card decodes while the host waits on it, so the server runs at the
+# desktop's own priority across every core here, where the APU tree pinned one
+# core at nice 19 to leave the second for the desktop.
+renice -n "$serving_nice" -p $$ >/dev/null 2>&1 || {
+    printf 'renice to %s failed\n' "$serving_nice" >&2
+    exit 1
+}
+taskset -pc "$serving_cpu_list" $$ >/dev/null 2>&1 || {
+    printf 'taskset to %s failed\n' "$serving_cpu_list" >&2
+    exit 1
+}
+export QWEN_SERVING_NICE=$serving_nice
+export QWEN_SERVING_CPU_LIST=$serving_cpu_list
 
 # `custom` needs its inputs, so they are recorded before the scrub removes them.
 requested_disable_graphs=${GGML_CUDA_DISABLE_GRAPHS:-}

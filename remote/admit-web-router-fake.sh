@@ -173,9 +173,9 @@ if pgrep -x llama-server >/dev/null 2>&1; then
     jq -r '.data[].id' "$call_out" 2>/dev/null | sort >"$output_directory/ordinary-model-ids.txt" || true
     ordinary_server=$(readlink -f "/proc/$(pgrep -x llama-server | head -1)/exe")
 else
-    ordinary_server=${QWEN_LLAMA_SERVER:-"$HOME/src/llama.cpp-qwen-apu/build-appliance-current/bin/llama-server"}
+    ordinary_server=${QWEN_LLAMA_SERVER:-"$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-server"}
     [ -x "$ordinary_server" ] || \
-        ordinary_server=$HOME/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-server
+        ordinary_server=$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-server
 fi
 sha256sum "$ordinary_server" >"$output_directory/ordinary-llama-server.sha256"
 if [ -x "$script_directory/hash-load-closure.sh" ]; then

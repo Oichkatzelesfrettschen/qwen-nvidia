@@ -242,6 +242,12 @@ int main(int argument_count, char **argument_values)
         VkPhysicalDevice *physical_devices = NULL;
         uint32_t physical_device_count = 0;
         uint32_t physical_device_index;
+        uint32_t probe_vendor_id = 0;
+        const char *probe_vendor_text = getenv("QWEN_PROBE_VENDOR_ID");
+
+        if (probe_vendor_text != NULL && probe_vendor_text[0] != '\0') {
+            probe_vendor_id = (uint32_t) strtoul(probe_vendor_text, NULL, 0);
+        }
 
         result = vkEnumeratePhysicalDevices(instance, &physical_device_count, NULL);
         if (result != VK_SUCCESS || physical_device_count == 0) {
@@ -265,16 +271,34 @@ int main(int argument_count, char **argument_values)
 
                 vkGetPhysicalDeviceProperties(physical_devices[physical_device_index],
                                               &candidate_properties);
-                if (candidate_properties.vendorID == 0x1002) {
+                /* The probe measures the card the compositor draws on, so it
+                 * selects by GPU vendor rather than by enumeration order. A
+                 * NVIDIA device wins where one exists, an AMD device follows,
+                 * and QWEN_PROBE_VENDOR_ID overrides both with a decimal or
+                 * 0x-prefixed vendor id. */
+                if (probe_vendor_id != 0) {
+                    if (candidate_properties.vendorID == probe_vendor_id) {
+                        physical_device = physical_devices[physical_device_index];
+                        physical_device_properties = candidate_properties;
+                        break;
+                    }
+                    continue;
+                }
+                if (candidate_properties.vendorID == 0x10DE) {
                     physical_device = physical_devices[physical_device_index];
                     physical_device_properties = candidate_properties;
                     break;
+                }
+                if (candidate_properties.vendorID == 0x1002 &&
+                    physical_device == VK_NULL_HANDLE) {
+                    physical_device = physical_devices[physical_device_index];
+                    physical_device_properties = candidate_properties;
                 }
             }
         }
         free(physical_devices);
         if (result != VK_SUCCESS || physical_device == VK_NULL_HANDLE) {
-            fprintf(stderr, "RADV AMD physical device is unavailable\n");
+            fprintf(stderr, "no NVIDIA or AMD physical device is available\n");
             exit_status = EXIT_FAILURE;
             goto cleanup;
         }

@@ -7,11 +7,11 @@ set -eu
 # the laptop with nothing listening until someone runs this again.
 
 if [ "$#" -gt 1 ]; then
-    printf 'usage: %s [paced-60|low-serialized|low-async]\n' "$0" >&2
+    printf 'usage: %s [default|no-graphs|no-fusion|pdl|unified]\n' "$0" >&2
     exit 2
 fi
 
-profile=${1:-low-async}
+profile=${1:-default}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 control=$script_directory/qwen-webui-control.sh
 state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-webui-state"}

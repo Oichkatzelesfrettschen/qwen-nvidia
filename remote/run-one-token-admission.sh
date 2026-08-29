@@ -42,7 +42,7 @@ fi
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 record=$1
 output_directory=${2:-"${HOME:?}/qwen-webui-state/one-token-admission"}
-llama_server=${QWEN_LLAMA_SERVER:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-server"}
+llama_server=${QWEN_LLAMA_SERVER:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-server"}
 # Staged artifacts sit beside the tier tree rather than inside it.
 # build-router-presets.sh owns $QWEN_MODEL_ROOT/candidates as the candidate tier
 # link directory and exits 1 on any real entry it finds there, so a fetch

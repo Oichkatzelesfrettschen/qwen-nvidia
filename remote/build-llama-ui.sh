@@ -16,7 +16,7 @@ fi
 
 ssh_target=$1
 remote_static_directory=${2:-qwen-laptop-setup/webui-llama-ui}
-source_directory=${QWEN_UI_SOURCE:-src/llama.cpp-qwen-apu/tools/ui}
+source_directory=${QWEN_UI_SOURCE:-src/llama.cpp-qwen-nvidia/tools/ui}
 work_directory=$(mktemp -d)
 
 cleanup() {

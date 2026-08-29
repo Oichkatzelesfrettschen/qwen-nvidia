@@ -12,7 +12,7 @@ ionice -c 3 -p $$ >/dev/null 2>&1 || true
 build_jobs=${QWEN_BUILD_JOBS:-$(nproc 2>/dev/null || echo 1)}
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 build_directory=${2:-$source_directory/build-qwen-vulkan}
 expected_commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
 ui_dist_directory=$build_directory/tools/ui/dist

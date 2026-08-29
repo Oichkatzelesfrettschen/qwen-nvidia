@@ -24,7 +24,7 @@ fi
 
 model_path=$1
 output_directory=${2:-"${HOME:?}/qwen-kv-cache-factorial"}
-bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-bench"}
+bench=${QWEN_LLAMA_BENCH:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench"}
 depths=${QWEN_FACTORIAL_DEPTHS:-"0 4096 16384"}
 QWEN_CELL_SUFFIX=''
 generate_tokens=${QWEN_BENCH_GENERATE:-64}

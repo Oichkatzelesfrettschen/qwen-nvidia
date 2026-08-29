@@ -26,7 +26,7 @@ usage() {
     printf 'usage: %s [BASE_SOURCE [TRACE_SOURCE]]\n' "$0" >&2
     printf '\nBASE_SOURCE supplies the pinned upstream commit and defaults to\n' >&2
     printf 'src/llama.cpp under the home directory; TRACE_SOURCE receives the\n' >&2
-    printf 'six patches and defaults to src/llama.cpp-qwen-apu-trace there.\n' >&2
+    printf 'six patches and defaults to src/llama.cpp-qwen-nvidia-trace there.\n' >&2
     printf '\nenvironment:\n' >&2
     printf '  QWEN_TRACE_PREPARE_ONLY=1  compose the source and stop\n' >&2
     printf '  QWEN_BUILD_JOBS            forwarded to build-llama-preset.sh\n' >&2
@@ -41,7 +41,7 @@ esac
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 base_source=${1:-"${HOME:?}/src/llama.cpp"}
-trace_source=${2:-"${HOME:?}/src/llama.cpp-qwen-apu-trace"}
+trace_source=${2:-"${HOME:?}/src/llama.cpp-qwen-nvidia-trace"}
 expected_commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
 trace_preset=raven2-vulkan-production
 

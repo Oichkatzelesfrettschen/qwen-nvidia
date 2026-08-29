@@ -1066,16 +1066,33 @@ if [ "${QWEN_BACKEND_SAMPLING:-0}" = 1 ]; then
     set -- "$@" --backend-sampling
 fi
 
+# The device is named rather than left to enumeration order. A binary carrying
+# both backends offers CUDA0 and Vulkan0 for the same card, and a server that
+# names neither has served on Vulkan0 here while every measurement that set the
+# defaults ran on CUDA0.
+case ${QWEN_SERVING_BACKEND:-cuda} in
+    vulkan) serving_device=Vulkan0 ;;
+    *)      serving_device=CUDA0 ;;
+esac
+serving_threads=${QWEN_SERVING_THREADS:-6}
+case $serving_threads in
+    '' | *[!0-9]* | 0)
+        printf 'QWEN_SERVING_THREADS must be a positive integer: %s\n' \
+            "$serving_threads" >&2
+        exit 2
+        ;;
+esac
+
 set -- "$@" \
     --log-verbosity 4 \
-    --device Vulkan0 \
+    --device "$serving_device" \
     --split-mode none \
     --n-gpu-layers all \
-    --override-tensor '.*=Vulkan0' \
+    --override-tensor ".*=$serving_device" \
     --fit off \
     --parallel 1 \
-    --threads 1 \
-    --threads-batch 1 \
+    --threads "$serving_threads" \
+    --threads-batch "$serving_threads" \
     --ctx-checkpoints 0 \
     --cache-ram 0 \
     --no-context-shift \
@@ -1103,14 +1120,41 @@ if [ "$router_enabled" != 1 ]; then
         --cache-type-v "$cache_type_v"
 fi
 
-# The appliance admits one active qwen-owned Vulkan workload, and
+# The backend the appliance serves on decides which environment wrapper runs
+# the server. QWEN_SERVING_BACKEND selects it, `cuda` is the default on this
+# host, and each wrapper scrubs the ambient names of both backends before it
+# exports its own profile, so a named profile means one thing whichever
+# backend it belongs to.
+runtime_environment_wrapper=$script_directory/cuda-runtime-env.sh
+case ${QWEN_SERVING_BACKEND:-cuda} in
+    cuda) ;;
+    vulkan)
+        runtime_environment_wrapper=$script_directory/radv-low-priority-env.sh
+        ;;
+    *)
+        printf 'QWEN_SERVING_BACKEND takes cuda or vulkan: %s\n' \
+            "${QWEN_SERVING_BACKEND:-cuda}" >&2
+        exit 2
+        ;;
+esac
+[ -x "$runtime_environment_wrapper" ] || {
+    printf 'runtime environment wrapper is absent: %s\n' \
+        "$runtime_environment_wrapper" >&2
+    exit 1
+}
+printf 'runtime_environment backend=%s wrapper=%s profile=%s\n' \
+    "${QWEN_SERVING_BACKEND:-cuda}" "$(basename "$runtime_environment_wrapper")" \
+    "${QWEN_CUDA_PROFILE:-${QWEN_VULKAN_PROFILE:-default}}"
+
+# The appliance admits one active qwen-owned device workload, and
 # ~/qwen-webui-state/vulkan-workload.lock is the kernel lock that carries it.
 # remote/image-service.py takes it across one generation and llama-server holds
 # it from the first busy slot to the last idle one, so a resident idle server
 # competes with nothing while active prompt processing and decode exclude a
-# generation. radv-low-priority-env.sh scrubs the GGML_VK_*, display, AMD,
-# RADV, and VK layer names alone, so this variable crosses the exec boundary
-# untouched. In router mode server-models.cpp snapshots environ into base_env
+# generation. The lock keeps its name because
+# patches/llama-server-vulkan-workload-lease.patch reads
+# QWEN_VULKAN_WORKLOAD_LOCK, and neither wrapper scrubs it, so the variable
+# crosses the exec boundary untouched. In router mode server-models.cpp snapshots environ into base_env
 # at server_models_routes construction and spawns every child with that copy, so
 # the child executing the graphs opens the lock; the router parent leaves
 # server_context uninitialised and opens nothing.
@@ -1125,7 +1169,7 @@ printf 'vulkan_workload_lease path=%s\n' "$QWEN_VULKAN_WORKLOAD_LOCK"
 if [ "$router_enabled" = 1 ]; then
     verify_router_preset_identity || exit 2
     validate_current_router_authorities || exit 2
-    exec "$script_directory/radv-low-priority-env.sh" \
+    exec "$runtime_environment_wrapper" \
         "$script_directory/qwen-router-exec-guard.sh" \
         "$router_presets" "$router_preset_guard_sha256" \
         "$router_registry" "$router_registry_guard_sha256" \
@@ -1135,4 +1179,4 @@ if [ "$router_enabled" = 1 ]; then
         "$@"
 fi
 
-exec "$script_directory/radv-low-priority-env.sh" "$@"
+exec "$runtime_environment_wrapper" "$@"

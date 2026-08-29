@@ -38,7 +38,12 @@ taskset -pc 1 $$ >/dev/null
 ionice -c 3 -p $$
 guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status)
 
-hazard_pattern='ring[^[:cntrl:]]*timeout|GPU reset|amdgpu[^[:cntrl:]]*reset|VM fault|device loss|device lost|out of memory|oom-kill'
+# The signatures cover both drivers because one tree serves on CUDA and falls
+# back to Vulkan on the same card. NVRM Xid lines are the NVIDIA equivalent of
+# an amdgpu ring timeout: Xid 13, 31, and 43 name a faulting channel, Xid 79
+# names a card that stopped answering, and RmInitAdapter failure names a device
+# that never came up.
+hazard_pattern='ring[^[:cntrl:]]*timeout|GPU reset|amdgpu[^[:cntrl:]]*reset|VM fault|device loss|device lost|out of memory|oom-kill|NVRM[^[:cntrl:]]*Xid|GPU has fallen off the bus|RmInitAdapter failed|nvidia[^[:cntrl:]]*GPU at PCI[^[:cntrl:]]*has fallen'
 temporary_directory=$(mktemp -d)
 kernel_reader_pid=""
 
@@ -80,9 +85,20 @@ if [ -n "$test_input" ]; then
     exit $?
 fi
 
+# kernel.dmesg_restrict hides the ring buffer from unprivileged readers on this
+# distribution, so the watcher reads it through the same passwordless sudo rule
+# that administers the host and says which path it took. A host that grants
+# neither has no kernel evidence to watch and the launch fails here rather than
+# serving with a blind guard.
+dmesg_command='dmesg'
 if ! dmesg --color=never >/dev/null 2>&1; then
-    printf 'unprivileged dmesg access is required for the kernel hazard watcher\n' >&2
-    exit 1
+    if sudo -n dmesg --color=never >/dev/null 2>&1; then
+        dmesg_command='sudo -n dmesg'
+    else
+        printf 'the kernel hazard watcher reads dmesg directly or through sudo -n, and neither answers\n' >&2
+        printf 'grant one with: sudo sysctl -w kernel.dmesg_restrict=0\n' >&2
+        exit 1
+    fi
 fi
 
 kernel_stream=$temporary_directory/kernel-stream.log
@@ -90,7 +106,7 @@ kernel_error=$temporary_directory/kernel-stream.err
 kernel_batch=$temporary_directory/kernel-batch.log
 : >"$kernel_stream"
 : >"$kernel_error"
-dmesg --follow-new --color=never >"$kernel_stream" 2>"$kernel_error" &
+$dmesg_command --follow-new --color=never >"$kernel_stream" 2>"$kernel_error" &
 kernel_reader_pid=$!
 
 sleep 0.1
@@ -99,8 +115,9 @@ if ! kill -0 "$kernel_reader_pid" 2>/dev/null; then
     cat "$kernel_error" >&2
     exit 1
 fi
-printf 'watch_ready_utc=%s source=dmesg_follow_new reader_pid=%s guard_affinity=%s guard_nice=%s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kernel_reader_pid" \
+printf 'watch_ready_utc=%s source=%s reader_pid=%s guard_affinity=%s guard_nice=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$(printf '%s' "$dmesg_command" | tr ' ' '_')_follow_new" "$kernel_reader_pid" \
     "$guard_affinity" "$guard_nice" >>"$hazard_log"
 
 next_line=1

@@ -4,6 +4,17 @@ set -eu
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 wrapper=$script_directory/radv-low-priority-env.sh
 
+# The wrapper refuses to run without the RADV ICD it pins, so a host serving on
+# CUDA with no AMD driver installed cannot exercise it at all. Reporting that as
+# a skip keeps the Vulkan-on-AMD path testable where it exists and stops it from
+# reading as a failure where the driver is simply absent.
+radv_icd=${QWEN_RADV_ICD:-/usr/share/vulkan/icd.d/radeon_icd.x86_64.json}
+if [ ! -r "$radv_icd" ]; then
+    printf 'radv_low_priority_env=skipped reason=radv_icd_absent path=%s\n' \
+        "$radv_icd"
+    exit 0
+fi
+
 capture_environment() {
     profile=$1
     # The nested shell expands its own runtime environment after the wrapper runs.

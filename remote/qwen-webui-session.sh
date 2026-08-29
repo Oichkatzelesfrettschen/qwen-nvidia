@@ -2,7 +2,7 @@
 set -eu
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-llama_server=${1:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-server"}
+llama_server=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-server"}
 model_path=${2:-"${HOME:?}/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf"}
 static_path=${3:-"$script_directory/../webui"}
 # The 4K allocation rung consumes 2,724 MiB of measured Vulkan memory and uses
@@ -12,7 +12,7 @@ context_size=${4:-4096}
 required_vulkan_mib=${5:-4096}
 server_port=${6:-8080}
 state_directory=${7:-"${HOME:?}/qwen-webui-state"}
-vulkan_profile=${8:-low-serialized}
+runtime_profile=${8:-default}
 
 umask 077
 mkdir -p "$state_directory"
@@ -346,7 +346,15 @@ fi
 # The session owns the state directory, so it names the one the Vulkan workload
 # lease lives in; qwen-capacity-policy.sh derives the lock path from it and
 # image-service.py opens the same file under its own --state-dir.
-QWEN_VULKAN_PROFILE=$vulkan_profile \
+# One positional profile reaches the wrapper the serving backend selects, so
+# the name is exported under that wrapper's own variable and the other stays
+# absent rather than carrying a value from the wrong vocabulary.
+case ${QWEN_SERVING_BACKEND:-cuda} in
+    vulkan) runtime_profile_variable=QWEN_VULKAN_PROFILE ;;
+    *)      runtime_profile_variable=QWEN_CUDA_PROFILE ;;
+esac
+
+env "$runtime_profile_variable=$runtime_profile" \
 QWEN_WEBUI_STATE_DIRECTORY=$state_directory \
 "$script_directory/run-qwen-capacity-server.sh" \
     "$llama_server" "$model_path" "$context_size" "$required_vulkan_mib" \
@@ -357,6 +365,21 @@ printf '%s\n' "$server_pid" >"$pid_file"
 ready_for_monitor=0
 attempt=0
 inference_cpu=${QWEN_INFERENCE_CPU:-0}
+# The runtime policy the session requires is the one its wrapper applies, and
+# the two wrappers apply different ones. radv-low-priority-env.sh pins one core
+# at nice 19 because the APU's second core is the desktop's; cuda-runtime-env.sh
+# runs across every core at the desktop's own priority and exports both values,
+# so the check reads back what was asked for rather than a constant.
+case ${QWEN_SERVING_BACKEND:-cuda} in
+    vulkan)
+        expected_affinity=$inference_cpu
+        expected_nice=19
+        ;;
+    *)
+        expected_affinity=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2>/dev/null || echo 0)}
+        expected_nice=${QWEN_SERVING_NICE:-0}
+        ;;
+esac
 # Model loading performs one-time Vulkan allocation and transfer work before the
 # HTTP service can accept inference. Arm the service-latency watchdog only after
 # llama-server reports itself ready, while still requiring the runtime CPU
@@ -377,7 +400,8 @@ while [ "$attempt" -lt 1200 ]; do
     fi
     affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' "/proc/$server_pid/status")
     nice_value=$(ps -o ni= -p "$server_pid" | tr -d ' ')
-    if [ "$affinity" = "$inference_cpu" ] && [ "$nice_value" = 19 ] && \
+    if [ "$affinity" = "$expected_affinity" ] && \
+       [ "$nice_value" = "$expected_nice" ] && \
        grep -F "$readiness_marker" "$server_log" >/dev/null 2>&1; then
         ready_for_monitor=1
         break
@@ -422,9 +446,25 @@ fi
 : >"$graphics_latency_log"
 (
     unset AMD_PRIORITY DISPLAY WAYLAND_DISPLAY
-    export VK_DRIVER_FILES=${QWEN_RADV_ICD:-/usr/share/vulkan/icd.d/radeon_icd.x86_64.json}
-    export VK_ICD_FILENAMES=$VK_DRIVER_FILES
-    exec taskset -c 1 ionice -c 3 "$latency_probe" \
+    # The probe measures the compositor's own device, so it names an ICD rather
+    # than accepting whichever the loader enumerates first. QWEN_GRAPHICS_ICD
+    # wins where the caller sets it, the installed NVIDIA and RADV files follow
+    # in that order, and a host carrying neither leaves the loader to enumerate.
+    graphics_icd=${QWEN_GRAPHICS_ICD:-}
+    if [ -z "$graphics_icd" ]; then
+        for icd_candidate in /usr/share/vulkan/icd.d/nvidia_icd.json \
+                             /usr/share/vulkan/icd.d/radeon_icd.x86_64.json; do
+            if [ -r "$icd_candidate" ]; then
+                graphics_icd=$icd_candidate
+                break
+            fi
+        done
+    fi
+    if [ -n "$graphics_icd" ]; then
+        export VK_DRIVER_FILES=$graphics_icd
+        export VK_ICD_FILENAMES=$graphics_icd
+    fi
+    exec ionice -c 3 "$latency_probe" \
         --log "$graphics_latency_log" --watch-pid "$server_pid" \
         --interval-ms 16 --deadline-us 20000 $latency_probe_mode_argument
 ) &
@@ -475,7 +515,7 @@ if [ "$kernel_watch_ready" -ne 1 ]; then
 fi
 
 "$script_directory/monitor-qwen-runtime.sh" "$server_pid" "$telemetry_log" \
-    "$vulkan_profile" "$latency_watchdog_pid" \
+    "$runtime_profile" "$latency_watchdog_pid" \
     "$kernel_hazard_watchdog_pid" &
 monitor_pid=$!
 require_broker_running
@@ -497,7 +537,7 @@ if [ -n "$image_service_pid" ]; then
 fi
 printf 'state=running server_pid=%s monitor_pid=%s latency_watchdog_pid=%s kernel_hazard_watchdog_pid=%s%s profile=%s host=%s port=%s context=%s latency_mode=%s utc=%s\n' \
     "$server_pid" "$monitor_pid" "$latency_watchdog_pid" \
-    "$kernel_hazard_watchdog_pid" "$broker_status_field" "$vulkan_profile" \
+    "$kernel_hazard_watchdog_pid" "$broker_status_field" "$runtime_profile" \
     "${QWEN_BIND_HOST:-127.0.0.1}" "$server_port" "$context_size" \
     "$latency_probe_mode" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
@@ -608,7 +648,7 @@ fi
 printf 'state=stopped server_status=%s monitor_status=%s latency_status=%s kernel_hazard_status=%s broker_status=%s stopped_component=%s profile=%s utc=%s\n' \
     "$server_status" "$monitor_status" "$latency_status" \
     "$kernel_hazard_status" "$broker_status" "$supervised_component" \
-    "$vulkan_profile" \
+    "$runtime_profile" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     >"$status_file"
 exit "$session_status"

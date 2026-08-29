@@ -30,7 +30,7 @@ usage() {
 
 [ "$#" -le 1 ] || usage
 
-source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-apu"}
+source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 hip_target=${QWEN_HIP_TARGET:-gfx900}
 force_mmq=${QWEN_FORCE_MMQ:-OFF}
 build_jobs=${QWEN_BUILD_JOBS:-$(nproc 2>/dev/null || echo 1)}

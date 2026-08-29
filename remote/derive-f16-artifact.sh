@@ -34,7 +34,7 @@ destination_directory=${4:?destination directory is required}
 source_path=$destination_directory/$source_name
 artifact_path=$destination_directory/$artifact_name
 partial_path=$artifact_path.part
-quantize=${QWEN_LLAMA_QUANTIZE:-"${HOME:?}/src/llama.cpp-qwen-apu/build-qwen-vulkan/bin/llama-quantize"}
+quantize=${QWEN_LLAMA_QUANTIZE:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-quantize"}
 quantize_threads=${QWEN_QUANTIZE_THREADS:-2}
 census=${QWEN_GGUF_CENSUS:-$script_directory/gguf-tensor-census.py}
 
@@ -52,7 +52,7 @@ fi
 # census excludes the multi-token-prediction block an ordinary load skips, which
 # is the figure a conversion must leave unchanged.
 census_facts() {
-    GGUF_PY_PATH=${GGUF_PY_PATH:-"${HOME:?}/src/llama.cpp-qwen-apu/gguf-py"} \
+    GGUF_PY_PATH=${GGUF_PY_PATH:-"${HOME:?}/src/llama.cpp-qwen-nvidia/gguf-py"} \
         "$census" --json "$1" | python3 -c '
 import json
 import sys

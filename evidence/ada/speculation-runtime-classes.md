@@ -48,7 +48,9 @@ The prediction holds in direction and fails in magnitude. The external draft
 loses on all three classes, and the loss shrinks monotonically with target size
 exactly as predicted -- 0.42, 0.61, 0.75 at n=4 -- but it never crosses one,
 where the arithmetic of the standalone rates says it should. The 0.8B decodes
-at 312.74 tok/s alone, so four sequential drafts cost 12.8 ms and a 9B verify
+at 312.74 tok/s under llama-bench, and served rates on this harness run 7 to 8%
+below their bench counterparts, so the estimate that follows is bench-derived
+and generous to the draft. Four sequential drafts cost 12.8 ms and a 9B verify
 step costs about 15 ms; at the measured mean accepted length of 2.5 to 3.9
 tokens that predicts about 89 tok/s against the 66 baseline. The arm measures
 49.77. Each draft forward inside the server therefore costs about 10 ms rather
@@ -61,7 +63,12 @@ The MTP head wins on every class and its advantage grows with target size:
 external draft's 0.24 to 0.85, costs 150 to 470 MiB rather than a resident
 second model, and runs in place against the target's own trunk, so it pays no
 second model's launch overhead. This is the block `qwen35.nextn_predict_layers`
-declares and an ordinary load skips.
+declares and an ordinary load skips, and the server log rather than device
+occupancy proves it loaded: every baseline arm prints 15 `model has unused
+tensor ... -- ignoring` lines and every MTP arm prints none. Occupancy cannot
+settle it, since the 2B's block is 37,767,168 bytes and its MTP arm reads 4085
+MiB against the baseline's 4167, well inside what the compositor moves between
+arms.
 
 The n-gram arm reports the sweep's one methodological finding rather than a
 speedup. Its 2B mean of 294.25 comes entirely from the prose prompt at 459.5
@@ -70,6 +77,31 @@ continuation entered a loop, and a loop is what an n-gram drafter predicts
 perfectly. The code and math prompts, at ratios of 0.99, sit at 216.1 and 207.2
 against a 219.1 and 220.2 baseline. Read per prompt, `ngram-simple` is baseline
 on this workload and the degeneracy column is what separates the two readings.
+
+## Output identity separates the arms a second time
+
+At temperature 0 with top_k 1, a verified speculative step accepts a draft
+token only where it equals the target's own choice, so a speculation arm must
+reproduce its baseline's reply. Comparing each arm's retained reply against the
+baseline's, character by character:
+
+| arm | identical | diverges |
+| --- | ---: | --- |
+| draft-mtp | 8 of 9 | 4B code, at character 740 of 793 |
+| ngram-simple | 8 of 9 | 4B math, at character 567 of 767 |
+| draft-simple, n=4 | 1 of 9 | eight replies, at characters 33 to 355 |
+
+The MTP and n-gram divergences sit in the last tenth of their replies, which is
+the signature of a near-tie argmax flipping under a different batch shape rather
+than of a different computation: the arms agree through hundreds of tokens and
+part at one. Their rate ratios stand.
+
+The external draft parts from its baseline within the first few dozen
+characters on eight of nine replies, so that arm is not reproducing the target's
+greedy output. Whatever it decodes 25 to 33% slower, it is a different reply,
+and the ratio understates neither speed nor cost so much as it names the wrong
+comparison. The acceptance rule that admits those tokens is unidentified here;
+`--spec-draft-p-min` sits at its default of 0 in every arm.
 
 Prefill falls in every speculation arm -- 1756 to 1075 tok/s on the 2B -- which
 is expected: the draft context prefills the same prompt beside the target.
@@ -82,6 +114,9 @@ measure are refuted as throughput configurations on this device, and the same
 0.8B remains the fast-text serving row it already is.
 
 ## What stays open
+
+Why an accepted draft token changes the greedy reply is unresolved and is the
+first thing to settle before any external-draft arm is quoted again.
 
 The 10 ms per draft forward is measured and unattributed. Whether it is CUDA
 graph capture skipped for the draft context, per-call synchronisation, or
