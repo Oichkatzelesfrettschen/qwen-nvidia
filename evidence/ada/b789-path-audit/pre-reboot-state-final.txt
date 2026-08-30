@@ -1,0 +1,52 @@
+utc=2026-08-30T18:29:01Z boot_id=e2516e05-873f-430a-ad12-f0ef49562009 uptime=up 5 days, 4 hours, 6 minutes
+driver=610.57.04 cuda=NVIDIA GeForce RTX 4070 Ti
+
+# device
+memory.used [MiB], memory.total [MiB], temperature.gpu, power.draw [W], clocks.current.sm [MHz], clocks.current.memory [MHz]
+1429 MiB, 12282 MiB, 49, 60.13 W, 2835 MHz, 10501 MHz
+
+# BAR1
+    BAR1 Memory Usage
+        Total                                          : 16384 MiB
+        Used                                           : 1442 MiB
+        Free                                           : 14942 MiB
+    Conf Compute Protected Memory Usage
+
+# compute clients
+pid, used_gpu_memory [MiB]
+15034, 274 MiB
+
+# host mapping
+MemAvailable:   17739012 kB
+SwapCached:       472564 kB
+Unevictable:      173764 kB
+Mlocked:            1016 kB
+SUnreclaim:      2130060 kB
+PageTables:       150928 kB
+SecPageTables:      2180 kB
+
+# ring signature count
+nvrm_no_memory_lines=266
+xid_lines=0 reset_lines=0 fallen_off_lines=0
+
+# workloads
+llama_processes=0 tmux_qwen_sessions=0 port_8080=0 vmware_vmx=0
+
+# latch
+gpu_state_latch=clear taint=/home/eirikr/qwen-webui-state/gpu-state-tainted
+
+# Read of this state
+The ring holds 266 NV_ERR_NO_MEMORY lines, the count the path audit's guard
+halted on, so no signature entered it in the eleven hours between the two
+captures and nothing on this host reached the device in that interval. No Xid,
+reset, or fallen-off-bus record appears across the boot's five days. The
+framebuffer is 88% free, BAR1 is 91% free, and the one compute client at 274
+MiB is the compositor. No llama process, qwen tmux session, listener on 8080,
+or powered-on VMware guest exists, so the reboot destroys no running work.
+
+Host memory moved under the desktop alone. MemAvailable fell from 21527100 to
+17739012 kB, SUnreclaim rose from 2001204 to 2130060 kB, and PageTables from
+143648 to 150928 kB across an interval carrying no qwen workload. That is the
+accumulation the clean boot removes, and it is why a reboot changes the
+profiler and the host state together: a quiet unprofiled matrix after it
+separates neither.
