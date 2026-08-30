@@ -1,0 +1,46 @@
+utc=2026-08-30T06:41:28Z boot_id=e2516e05-873f-430a-ad12-f0ef49562009 uptime=up 4 days, 16 hours, 19 minutes
+driver=610.57.04 cuda=NVIDIA GeForce RTX 4070 Ti
+
+# device
+memory.used [MiB], memory.total [MiB], temperature.gpu, power.draw [W], clocks.current.sm [MHz], clocks.current.memory [MHz]
+1429 MiB, 12282 MiB, 52, 61.25 W, 2835 MHz, 10501 MHz
+
+# BAR1
+    BAR1 Memory Usage
+        Total                                          : 16384 MiB
+        Used                                           : 1442 MiB
+        Free                                           : 14942 MiB
+    Conf Compute Protected Memory Usage
+        Total                                          : 0 MiB
+
+# compute clients
+pid, used_gpu_memory [MiB]
+15034, 274 MiB
+
+# host mapping
+MemAvailable:   21527100 kB
+SwapCached:       435452 kB
+Unevictable:      173780 kB
+Mlocked:            1032 kB
+SUnreclaim:      2001204 kB
+PageTables:       143648 kB
+SecPageTables:      2180 kB
+
+# ring signature count
+nvrm_no_memory_lines=263
+xid_lines=0 reset_lines=0 fallen_off_lines=0
+
+# latch
+gpu_state_latch=clear taint=/home/eirikr/qwen-webui-state/gpu-state-tainted
+
+# Read of this state
+The kernel ring carries 263 NV_ERR_NO_MEMORY lines across this boot's four
+days and no Xid, reset, or fallen-off-bus record. The device answers, the
+framebuffer is 88% free, BAR1 is 91% free, and the one compute client at 274
+MiB is the compositor.
+
+SUnreclaim reads 2001204 kB. Two gigabytes of unreclaimable slab is an
+observation rather than an explanation: nothing here attributes the RM's
+system-memory refusals to it, and the counter is recorded so the clean boot's
+own value is comparable. SwapCached at 435452 kB and Unevictable at 173780 kB
+are recorded for the same reason.
