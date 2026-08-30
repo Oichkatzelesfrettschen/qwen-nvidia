@@ -8,7 +8,7 @@ llama-server, and every appliance launch until this run printed
 and `common_preset::merge` overwrites, which is documented in this tree for
 `--ctx-size` and was unverified for the speculation flags.
 
-`QWEN_SPEC_TYPE=draft-mtp remote/admit-cuda-router-serving.sh` answers it. The
+`QWEN_SPEC_TYPE=draft-mtp scripts/admit-cuda-router-serving.sh` answers it. The
 child's own argv carries `--spec-type draft-mtp`, and the discriminator that
 `evidence/ada/speculation-runtime-classes.md` established holds: an ordinary
 load reports each prediction-block tensor as `model has unused tensor ... --
@@ -28,7 +28,7 @@ The rate. This run drives one three-token reply per model, which proves the
 route rather than the throughput, and the 1.23 to 1.47 figures come from the
 standalone harness. A served-throughput arm under the router is unrun.
 
-`remote/models.tsv` carries no speculation fields, so the setting reaches the
+`scripts/models.tsv` carries no speculation fields, so the setting reaches the
 server through the environment rather than through the registry, and every
 child gets it or none does. A per-row setting is what would let the 0.8B serve
 without a head it may not carry while the distills use theirs.

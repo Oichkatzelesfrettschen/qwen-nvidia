@@ -1,0 +1,47 @@
+# Quarantine holds what has produced a device-level failure or carries no
+# validated safe tuple. A row here keeps its subject out of the router picker,
+# and scripts/build-router-presets.sh reads this file rather than inferring the
+# state from the tier field alone, because a quarantine has two scopes and the
+# registry has one row per checkpoint.
+#
+# scope `model` quarantines a checkpoint: every profile of it stays out of the
+# picker until the re-entry gate is met. scope `profile` quarantines one tuple
+# of an otherwise admitted checkpoint, and the geometry columns name that tuple
+# exactly. A profile row leaves the checkpoint servable at every other geometry,
+# which is the distinction between "the model cannot run 16K" and "this graph at
+# this submission size does not retire".
+#
+# failure_class is a fixed vocabulary rather than prose, because two wedges this
+# tree recorded differ in what the driver reported and merging them would assert
+# one mechanism where two are observed. `ring-timeout-only` is a compute-ring
+# timeout with no fault record. `gfxhub-page-fault` adds a page fault in the
+# coredump. `vm-protection-fault` names a protection fault. `device-lost` is a
+# VK_ERROR_DEVICE_LOST with no kernel record. `post-reset-control-failure` is a
+# control that fails after a reset, which is persistent corruption rather than
+# one rejected graph. `no-validated-safe-tuple` carries no device failure and
+# states that no depth has been filled and decoded on this subject.
+#
+# depth, batch, ubatch, cache_type_k, cache_type_v, and flash_attention name the
+# affected tuple; `-` in a scope `model` row means the quarantine is not bounded
+# to one geometry. reason_record points at the retained record under evidence/,
+# which carries the kernel signature, the validated safe tuples, and the
+# re-entry gate in full.
+#
+# runtime_mode names the execution path the failure follows, because the failure
+# unit includes how the process was created. `any` means the subject fails on
+# every path tried. `router-child` means it fails when the router spawns it and
+# runs on the standalone paths, which is what
+# evidence/quarantine/ministral3-3b.md isolates across four
+# negative controls: the same argv and the same four environment variables
+# reserve the identical 1,150-node graph and listen when the process is started
+# directly. The tier stays quarantine either way, since the picker reaches a
+# checkpoint only as a router child.
+#
+# The one row here carries prior-host evidence. A graph assertion abort belongs
+# to llama.cpp's own graph construction rather than to a driver, so the row
+# holds until an arm on this device either reproduces it or clears it; the
+# quarantine keeps a checkpoint with a recorded abort out of the picker while
+# that arm is unrun.
+#
+# id	scope	subject	failure_class	depth	batch	ubatch	cache_type_k	cache_type_v	flash_attention	first_evidence	latest_evidence	reason_record	runtime_mode
+ministral3-3b	model	ministral3-3b	graph-assert-abort	-	-	-	-	-	-	evidence/legacy/raven2/universal-candidate-ladder.md	evidence/legacy/raven2/universal-candidate-ladder.md	evidence/quarantine/ministral3-3b.md	router-child

@@ -1,6 +1,6 @@
 # The assembled launch chain serves two checkpoints from CUDA
 
-`remote/admit-cuda-router-serving.sh` ran the whole chain once on this host:
+`scripts/admit-cuda-router-serving.sh` ran the whole chain once on this host:
 preflight, capacity policy, `cuda-runtime-env.sh`, the router exec guard, two
 router children, and the teardown. Nine checks, none rejected.
 
@@ -36,8 +36,8 @@ which `evidence/ada/speculation-runtime-classes.md` refutes for the same pairs.
 
 One reply of three tokens per model exercises the route rather than the
 quality, the depth, or the throughput of either child. The graded suite and the
-depth arms are unrun on this host, so `remote/models.tsv` still carries `-` in
-`validated_filled_depth` for every row and `remote/validated-tuples.tsv` holds
+depth arms are unrun on this host, so `scripts/models.tsv` still carries `-` in
+`validated_filled_depth` for every row and `scripts/validated-tuples.tsv` holds
 no `cuda` row.
 
 The appliance's own lifetime is bounded by the invoking process group here:

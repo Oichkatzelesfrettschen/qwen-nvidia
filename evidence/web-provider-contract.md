@@ -3,9 +3,9 @@
 A search argument reaches the web MCP child through a human approval. The
 dialog in `webui/index.html` names the query, the publication interval, both
 domain lists, the result count, and whether `max_age_hours` of 0 forces a live
-crawl, and `remote/web-mcp/authorize-broker.py` signs a single-use grant over
+crawl, and `scripts/web-mcp/authorize-broker.py` signs a single-use grant over
 those exact fields. `enforce_search_authorization` in
-`remote/web-mcp/server.py` compares the call's arguments against that claim
+`scripts/web-mcp/server.py` compares the call's arguments against that claim
 field by field, so the arguments the provider receives are the ones a person
 read.
 
@@ -63,7 +63,7 @@ Which engines answer belongs to the instance's own `settings.yml`, which groups
 them under qwen-named categories. The web profile names a category and the
 provider sends it, so the engine population changes by editing the instance
 rather than through any request field a model or an environment reaches.
-`remote/web-profiles.tsv` carries the policy in five trailing columns:
+`scripts/web-profiles.tsv` carries the policy in five trailing columns:
 
 | Column | What it states |
 | --- | --- |
@@ -78,7 +78,7 @@ The seeded rows: `web-open` queries `qwen-open` alone; `web-balanced` queries
 `web-sovereign` queries `qwen-yacy` alone. Every checked-in row keeps
 `execution_policy=refused`, so the shipped ledger emits nothing.
 
-`remote/build-web-presets.sh` validates the policy for every row whatever its
+`scripts/build-web-presets.sh` validates the policy for every row whatever its
 execution_policy -- the way the depth and tier rules are validated -- and emits
 it into the MCP configuration as `QWEN_WEB_SEARXNG_URL`,
 `QWEN_WEB_SEARXNG_PRIMARY_CATEGORY`, `QWEN_WEB_SEARXNG_FALLBACK_CATEGORY`, and
@@ -203,7 +203,7 @@ request position to occupy.
 
 The tools stay `search_exa` and `fetch_exa`, which llama-server composes with
 the MCP server name `web` into `web_search_exa` and `web_fetch_exa`. The
-identifiers are written into `webui/index.html`, `remote/admit-web-router-fake.sh`,
+identifiers are written into `webui/index.html`, `scripts/admit-web-router-fake.sh`,
 and `evidence/web-admission-fake.md`, and the pinned llama-ui renders those two
 natively. The rename to `web_search` and `web_fetch` with the current names kept
 as aliases is a later phase: it touches the page, the admission harness, and two
@@ -213,7 +213,7 @@ from losing its tool surface mid-turn.
 ## What is unmeasured
 
 No run of this provider against a live SearXNG instance is retained. Every
-result here comes from `remote/web-mcp/test-web-mcp.py`, which stands a
+result here comes from `scripts/web-mcp/test-web-mcp.py`, which stands a
 standard-library HTTP server on loopback in the instance's place and in the
 source page's place. That covers the request the provider composes, the category
 and fallback logic, the mapping and provenance, every refusal the contract
@@ -222,5 +222,5 @@ establishes nothing about result quality, coverage, or latency from any real
 engine population, and nothing about how often a real page is lost to the
 redirect refusal or the content-type gate.
 
-`remote/admit-web-router-fake.sh` runs the router path on the appliance against
+`scripts/admit-web-router-fake.sh` runs the router path on the appliance against
 the fake provider and has not been run against `searxng`.

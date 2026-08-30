@@ -13,7 +13,7 @@ them.
 
 Two processes take `flock(LOCK_EX)` on one file.
 
-`remote/image-service.py` holds it from job start to artifact rename. Every
+`scripts/image-service.py` holds it from job start to artifact rename. Every
 refusal above the lease runs before the `flock`, so a request the service
 declines leaves the lock untouched. The acquisition waits rather than refusing
 at once: `QWEN_IMAGE_LEASE_WAIT_S` bounds the wait at 60 seconds by default and
@@ -34,11 +34,12 @@ opened fails `init()` rather than serving with the guard silently absent. The
 descriptor carries `O_CLOEXEC`, so nothing the process spawns inherits the open
 file description `flock` binds to.
 
-`remote/qwen-capacity-policy.sh` exports the path on every launch, derived from
-`QWEN_WEBUI_STATE_DIRECTORY`, which `remote/qwen-webui-session.sh` sets to the
+`scripts/qwen-capacity-policy.sh` exports the path on every launch, derived from
+`QWEN_WEBUI_STATE_DIRECTORY`, which `scripts/qwen-webui-session.sh` sets to the
 same state directory it hands `image-service.py` as `--state-dir`.
-`remote/radv-low-priority-env.sh` scrubs the `GGML_VK_*`, display, AMD, RADV,
-and VK layer names, so the variable crosses the exec boundary untouched.
+`scripts/vulkan-runtime-env.sh` scrubs the `GGML_VK_*`, display, AMD-named, and
+VK layer variables ahead of its own profile case, so the workload-lock
+variable crosses the exec boundary untouched.
 
 In router mode the child holds the lease. `tools/server/server.cpp` calls
 `ctx_server.load_model` -- and therefore `init()` -- only in its non-router
@@ -101,16 +102,16 @@ server ends cleanly.
 - A lease is still held after the last slot idles. `flock -n` on the lock file
   succeeds once the release line is written; a lock that stays taken past that
   line falsifies the release side.
-- The two writers name different files. `remote/test-vulkan-workload-lease.sh`
+- The two writers name different files. `scripts/test-vulkan-workload-lease.sh`
   compares the basename `qwen-capacity-policy.sh` exports against
   `image-service.py`'s `LEASE_FILE_NAME` and requires the session to hand both
   sides one state directory.
 - The variable is scrubbed before the exec. The same test requires
-  `radv-low-priority-env.sh` to leave `QWEN_VULKAN_WORKLOAD_LOCK` alone.
+  `vulkan-runtime-env.sh` to leave `QWEN_VULKAN_WORKLOAD_LOCK` alone.
 
 ## What ran on the workstation
 
-`remote/test-vulkan-workload-lease.sh` against a CPU-only build of the patched
+`scripts/test-vulkan-workload-lease.sh` against a CPU-only build of the patched
 tree admits all ten checks:
 
 ```text
@@ -130,28 +131,27 @@ served_lease=admitted waited_ms=5894 elapsed_s=6
 The lease lives in `tools/server/server-context.cpp` and reads no backend, so a
 CPU-only build proves the state machine whole rather than approximating it. What
 a CPU build leaves unmeasured is the device: whether excluding the two workloads
-changes decode rate, generation latency, or the kernel-hazard signature on
-RAVEN2 is an appliance measurement.
+changes decode rate, generation latency, or the kernel-hazard signature on this
+host's own device is a measurement this host has not yet run.
 
-## Admitting it on the appliance
+## Admitting it on the device
+
+The prior host built and served from a separate checkout reached over `rsync`
+and SSH; this tree builds and serves from the one checkout the patch lives in,
+so admission needs no transfer step between a build machine and a runtime
+host.
 
 ```sh
-rsync -a remote/ eirikr@qwen-laptop:~/qwen-laptop-setup/remote/
-rsync -a --delete patches/ eirikr@qwen-laptop:~/qwen-laptop-setup/patches/
-
-# on the laptop
-cd ~/qwen-laptop-setup
-remote/verify-llama-patch-series.sh
-QWEN_LLAMA_CANDIDATE_PATCHES=1 remote/verify-llama-patch-series.sh
-git -C ~/src/llama.cpp-qwen-apu apply \
-    ~/qwen-laptop-setup/patches/llama-server-vulkan-workload-lease.patch
-remote/build-llama-preset.sh raven2-vulkan-production
-remote/promote-llama-build.sh ~/src/llama.cpp-qwen-apu/build-raven2-vulkan-production
-remote/test-vulkan-workload-lease.sh   # path and patch halves
+scripts/verify-llama-patch-series.sh
+QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
+git -C SOURCE_DIRECTORY apply patches/llama-server-vulkan-workload-lease.patch
+scripts/build-llama-cuda.sh SOURCE_DIRECTORY
+scripts/promote-llama-build.sh PRESET SOURCE_DIRECTORY
+scripts/test-vulkan-workload-lease.sh   # path and patch halves
 QWEN_LEASE_TEST_SERVER=$HOME/bin/llama-server \
 QWEN_LEASE_TEST_MODEL=$HOME/models/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf \
-    remote/test-vulkan-workload-lease.sh
-remote/admit-image-router.sh ~/evidence/image-router-lease
+    scripts/test-vulkan-workload-lease.sh
+scripts/admit-image-router.sh OUTPUT_DIRECTORY
 ```
 
 `admit-image-router.sh` replays the image lane alone, so the arm the lease

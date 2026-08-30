@@ -1,11 +1,13 @@
 # Image appliance design and first-campaign falsifiers
 
-The HP 14-dk1xxx laptop is the image appliance: an AMD Athlon Silver 3050U,
-Raven2 gfx902, two Zen+ cores at 2.3 GHz, two Vega compute units, 29 GiB of
-shared DDR4, Mesa RADV. It is the development target, the benchmark authority,
-and the delivery machine at once, so every ceiling, prediction, and requirement
-in the image lane comes from measurements taken on it. A result from another GPU
-describes another machine and stays out of this tree.
+The image appliance is one physical machine acting as development target,
+benchmark authority, and delivery machine at once, so every ceiling,
+prediction, and requirement in the image lane comes from measurements taken on
+it. This design was developed on the prior host, a laptop-class AMD APU that
+is a separate repository from this tree; `evidence/legacy/raven2/` retains
+what that host measured, and none of those figures are re-asserted as facts
+about this host's device. A result from another GPU describes another machine
+and stays out of this tree.
 
 Nothing in this document is a measurement. No image has been generated on the
 appliance, so every quantity below is either a bound this lane imposes or a
@@ -41,12 +43,12 @@ the work holds it -- never the router parent and never an idle loaded model.
 A file, a bundle, and a served shape are separate claims, and merging them loses
 a distinction the runtime acts on.
 
-`remote/image-artifacts.tsv` holds a byte sequence a publisher offers:
+`scripts/image-artifacts.tsv` holds a byte sequence a publisher offers:
 repository, revision, filename, SHA-256, byte count, licence, component type,
 and the fetch script that pins it. Identity here is the digest, and the row says
 nothing about what the file is for.
 
-`remote/image-models.tsv` holds a bundle: the set of artifacts that produce one
+`scripts/image-models.tsv` holds a bundle: the set of artifacts that produce one
 image together, with the architecture, the trained resolution, and the
 publisher's own sampling recipe. The split earns itself immediately -- the SD
 1.5 diffusion checkpoint appears in two bundles, once with the VAE packaged
@@ -55,7 +57,7 @@ inside it as `sd15-base` and once with `sd-vae-ft-mse` as a separate decoder in
 states that pairing nowhere, and a registry with one row per bundle downloads
 the trunk twice.
 
-`remote/image-profiles.tsv` holds a served shape: one bundle at one placement
+`scripts/image-profiles.tsv` holds a served shape: one bundle at one placement
 arm with a request geometry and the bounds that admit it. Several profiles reach
 one bundle the way several web profiles reach one checkpoint, because the arm
 and the step count are what a campaign varies while the bundle stays fixed.
@@ -66,11 +68,11 @@ component inside itself, which is what a single-file Stable Diffusion checkpoint
 does with its CLIP encoder and its VAE; `-` states that the bundle omits the
 component. A single `-` for the first two merges cases the placement arms
 distinguish: arm B runs the text encoder on the CPU and arm C runs the VAE there
-too, so `remote/image-registry.sh` requires the arm's components to be named,
+too, so `scripts/image-registry.sh` requires the arm's components to be named,
 and a bundle that omits one has no arm to place it on.
 
-`remote/image-quarantine.tsv` carries model and profile scopes for the same
-reason `remote/quarantine.tsv` does: "this bundle cannot run here" and "this arm
+`scripts/image-quarantine.tsv` carries model and profile scopes for the same
+reason `scripts/quarantine.tsv` does: "this bundle cannot run here" and "this arm
 at this size does not retire" are different claims that steer different later
 choices. It holds a header and no rows, because no image subject has failed yet.
 
@@ -84,11 +86,11 @@ failure exists. Every artifact leaves revision, SHA-256, and byte count at `-`,
 and those three move together, so the pin lane makes one atomic edit per file
 and a partial pin is refused rather than trusted. The fetch-script column is
 validated by name shape rather than by an executable path, which is where these
-registries diverge from `remote/models.tsv`: a served checkpoint's downloader
+registries diverge from `scripts/models.tsv`: a served checkpoint's downloader
 exists because the checkpoint is on the machine, and an image row states an
 admitted source before any byte has crossed the network.
 
-`remote/image-registry.sh` validates all four files whole on every query and
+`scripts/image-registry.sh` validates all four files whole on every query and
 answers from the rows validation returned, so a caller reading one profile
 cannot act on a ledger a sibling row has made unsafe to read, and a file
 replaced between validation and the answer cannot separate semantic admission
@@ -123,9 +125,10 @@ Each of these is registered before the campaign runs. Meeting one is the
 finding, and the campaign record states it as such rather than retrying.
 
 - The selected Vulkan device string names `llvmpipe` or `lavapipe`. The campaign
-  measures a software rasterizer and no result about Raven2 exists.
-- The runtime selects a device implicitly rather than from the explicit RADV
-  RAVEN2 selection the build and launch record names.
+  measures a software rasterizer and no result about the appliance's own device
+  exists.
+- The runtime selects a device implicitly rather than from the explicit Vulkan
+  device selection the build and launch record names.
 - The runtime's own placement report shows any component on the CPU that the
   profile's placement arm assigns to Vulkan. A silent CPU fallback produces an
   image and measures the host.
@@ -133,7 +136,7 @@ finding, and the campaign record states it as such rather than retrying.
   requires the device idle before `qwen-launch.sh` runs.
 - The post-campaign LLM control fails after `qwen-launch.sh`. A control that
   fails after a run is persistent corruption rather than one rejected graph, and
-  it moves the profile to `remote/image-quarantine.tsv` with
+  it moves the profile to `scripts/image-quarantine.tsv` with
   `post-reset-control-failure`.
 - The kernel log records a nonzero count of ring resets, VM faults, or device
   loss across the run window, read from the same hazard watcher the LLM lane
@@ -157,7 +160,7 @@ time is a bound rather than a rate.
 
 ## Provenance and the interfaces above the registry
 
-An image is identified by its own SHA-256. `remote/image-service.py` accepts a
+An image is identified by its own SHA-256. `scripts/image-service.py` accepts a
 signed request on a Unix socket, acquires the workload lease, spawns the pinned
 runtime, writes a `.part` file, validates the PNG, hashes it, renames it
 atomically to `<sha256>.png`, writes a provenance JSON beside it, and releases
@@ -176,8 +179,8 @@ Where the model omits a seed, the trusted UI generates and displays it before
 approval, so randomness is fixed before authorization rather than chosen after
 it.
 
-`remote/image-protocol.md` freezes the request and response shape those layers
-exchange at `protocol_version=1`, and `remote/image_protocol.py` is the checker
+`scripts/image-protocol.md` freezes the request and response shape those layers
+exchange at `protocol_version=1`, and `scripts/image_protocol.py` is the checker
 it requires the service and MCP lanes to import rather than restate. Neither
 lane exists in this tree yet, so that is the contract they are built against.
 

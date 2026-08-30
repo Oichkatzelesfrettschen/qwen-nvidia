@@ -21,10 +21,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes shellcheck
-          python3 -m venv /tmp/qwen-apu-quality-gates
-          /tmp/qwen-apu-quality-gates/bin/pip install ruff==0.14.11
+          python3 -m venv /tmp/qwen-quality-gates
+          /tmp/qwen-quality-gates/bin/pip install ruff==0.14.11
 
       - name: Run clone-local gates
         env:
-          PATH: /tmp/qwen-apu-quality-gates/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-        run: remote/repository-quality-gates.sh
+          PATH: /tmp/qwen-quality-gates/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        run: scripts/repository-quality-gates.sh

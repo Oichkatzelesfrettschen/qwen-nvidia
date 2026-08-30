@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "web": {
+      "command": "python3",
+      "args": [
+        "scripts/web-mcp/server.py",
+        "--provider",
+        "exa"
+      ],
+      "env": {
+        "QWEN_WEB_PROVIDER": "exa",
+        "QWEN_WEB_EXA_KEY_FILE": "/path/to/private/exa-api.key",
+        "QWEN_WEB_TOKEN_KEY_FILE": "/path/to/private/web-mcp-token.key",
+        "QWEN_WEB_SEARCH_AUTH": "required",
+        "QWEN_WEB_TOKEN_LIFETIME_SECONDS": "900",
+        "QWEN_WEB_STATE_DIR": "/path/to/private/web-mcp-state",
+        "QWEN_WEB_PROFILE": "web-research-a",
+        "QWEN_WEB_SEARCH_PER_MINUTE": "10",
+        "QWEN_WEB_FETCH_PER_MINUTE": "20",
+        "QWEN_WEB_DAILY_BUDGET": "500",
+        "QWEN_WEB_DAILY_PAGE_BUDGET": "2000",
+        "QWEN_WEB_MAX_FETCHES_PER_SEARCH": "8"
+      },
+      "cwd": "/path/to/qwen-laptop-setup",
+      "timeout_ms": 30000
+    }
+  }
+}

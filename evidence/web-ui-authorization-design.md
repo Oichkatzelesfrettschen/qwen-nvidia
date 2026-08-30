@@ -11,7 +11,7 @@ substitution happens and the tool name is where the gate looks. A remembered
 grade over a tool name therefore records an approval of a call the user read
 and applies it to calls nobody reads.
 
-`remote/web-mcp/server.py` closes that gap at the wrapper rather than in the
+`scripts/web-mcp/server.py` closes that gap at the wrapper rather than in the
 front end: `search_exa` verifies an HMAC-signed grant over the query, both
 domain lists, the publication window, `max_age_hours`, `max_results`, and an
 expiry, and `enforce_search_authorization` compares the presented arguments
@@ -82,7 +82,7 @@ stating that the search did not run.
 
 ## Scope cut: the UI source lives outside this tree
 
-The change is unimplemented here. `remote/build-llama-ui.sh` reads the front end
+The change is unimplemented here. `scripts/build-llama-ui.sh` reads the front end
 from `${QWEN_UI_SOURCE:-src/llama.cpp-qwen-apu/tools/ui}` on the appliance and
 rsyncs the built `dist/` back, and this repository holds no `src/` directory and
 no vendored copy of that source. The files that would change are
@@ -157,8 +157,8 @@ reads the body before the status: an `error` at any status becomes a tool
 message naming what refused, a non-2xx or an unreadable body becomes one naming
 the status, and `plain_text_response` is the only success.
 
-`remote/test-web-tools-roundtrip.sh` measures that path end to end without the
-appliance. `remote/test-fixtures/fake-llama-tools-server.py` serves both routes
+`scripts/test-web-tools-roundtrip.sh` measures that path end to end without the
+appliance. `scripts/test-fixtures/fake-llama-tools-server.py` serves both routes
 over one `server.py` child on stdio and reproduces the `error`-at-200 mapping;
 the broker signs one grant over the approved fields, the exact `{tool, params}`
 body the page builds returns the fixture result, and the replay of the same
@@ -225,11 +225,11 @@ origin rather than assuming it: a `?broker=` query parameter wins, then the
 default. The meta tag names port 8571, so a launch on another port reaches the
 page through the query parameter alone.
 
-`remote/test-qwen-web-launch.sh` measures the exported marker, port, state
+`scripts/test-qwen-web-launch.sh` measures the exported marker, port, state
 directory, key path, derived profile, and provider, and requires an unset,
 absent, symlinked, group-readable, or empty key, a two-section preset, a
 contradicting `QWEN_WEB_PROFILE`, and an unknown provider each to refuse the
-launch. `remote/test-qwen-session-signals.sh` drives a complete startup
+launch. `scripts/test-qwen-session-signals.sh` drives a complete startup
 against fake guards and a fake broker serving `/health`, and requires the
 recorded `broker_pid` and identity line, a launch failure when `/health`
 names another pid, the broker's death under SIGTERM, the secret's removal, an

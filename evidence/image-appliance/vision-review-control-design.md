@@ -23,8 +23,8 @@ the hypothesis this design registers is that the verdict is caused by the image.
 
 ## The four arms
 
-`remote/run-vision-review-control.sh` runs them in this order, each through
-`remote/image-review.py` against one router and one artifact listener:
+`scripts/run-vision-review-control.sh` runs them in this order, each through
+`scripts/image-review.py` against one router and one artifact listener:
 
 | Arm | `--image-mode` | Image the request carries |
 | --- | --- | --- |
@@ -38,7 +38,7 @@ constraint declaration, the same prompt hash, temperature 0, `top_k` 1, seed 1,
 400 reply tokens, thinking off, the same `response_format` schema, `cache_prompt`
 false, and no `tools` key. The withheld arm keeps the content a list holding the text part, so
 image presence is the single changed dimension, which is the convention
-`remote/run-quality-suite.py` already applies to its graded vision rows. The
+`scripts/run-quality-suite.py` already applies to its graded vision rows. The
 reviewed artifact is read and hashed over its own route in all three modes, so
 `artifact_digest_mismatch` and the rest of `fetch_artifact_png`'s refusals hold
 for a control arm and the record's `artifact_sha256` stays a verified claim.
@@ -125,7 +125,7 @@ router to 127.0.0.1:8080 and the artifact listener to the port
 artifact_origin=$(sed -n 's/^image_service_identity .*listener=//p' \
     "$HOME/qwen-webui-state/session.status" | sed -n '1p')
 
-~/qwen-laptop-setup/remote/run-vision-review-control.sh \
+~/qwen-laptop-setup/scripts/run-vision-review-control.sh \
     http://127.0.0.1:8080 "$artifact_origin" lfm25-vl-16b \
     "$ARTIFACT_A_SHA256" "$ARTIFACT_B_SHA256" "$PROMPT_HASH_A" \
     "$HOME/qwen-webui-state/vision-review-control" \

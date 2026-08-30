@@ -1,7 +1,7 @@
 # Explicit tensor placement doubles 9B prefill
 
 `evidence/ada/baseline-sweep-01/` measured four checkpoints with `-ngl 99`
-alone. This sweep measures the same four through `remote/cuda-runtime-env.sh`
+alone. This sweep measures the same four through `scripts/cuda-runtime-env.sh`
 with `-ot .*=CUDA0`, which is the placement `qwen-capacity-policy.sh` gives the
 server, and under the `LLAMA_NO_CPU_FALLBACK=1` the wrapper exports.
 
@@ -26,7 +26,7 @@ under `--override-tensor '.*=CUDA0' --fit off`, so sweep 01 measured a placement
 the serving path never uses.
 
 A rate compared across the two sweeps therefore compares harnesses. Sweep 02 is
-the reference for this host, and `remote/models.tsv` carries its four paired
+the reference for this host, and `scripts/models.tsv` carries its four paired
 means.
 
 ## What stays open

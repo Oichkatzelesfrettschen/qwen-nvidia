@@ -8,10 +8,10 @@ This file holds the repository doctrine and wins inside this tree.
 
 ## The repository runs on one machine
 
-The Git tree and the runtime share a host. A `remote/` script executes from the
+The Git tree and the runtime share a host. A `scripts/` script executes from the
 checkout it is edited in, so an edit takes effect on the next invocation and no
 copy step stands between the two. The directory keeps its name because the
-diff that renamed it would swamp the work it carries; read `remote/` as "the
+diff that renamed it would swamp the work it carries; read `scripts/` as "the
 scripts the appliance runs" rather than as a second machine.
 
 That host is a workstation rather than an appliance, so the desktop is a live
@@ -20,16 +20,19 @@ compositor holding about 2.5 GiB of the 12 GiB carve-out and issuing graphics
 work at rest, which is a covariate of every recorded rate rather than a
 condition to exclude.
 
-The Raven2 laptop this tree was written on is a separate repository,
-`Oichkatzelesfrettschen/qwen-apu`, reachable here as the `apu` Git remote. A
-fix that belongs to both trees is cherry-picked across it.
+This repository derives from the `qwen-apu` appliance tree. Its history begins
+at a parentless commit whose tree equals `qwen-apu` commit
+`55d8c73268d8c6496e77baaad732e1aea7a6183b`. The prior host's evidence carries
+authority only inside `qwen-apu`; here it is retained as prior-host comparison
+under `evidence/legacy/raven2/`. `docs/APU_UPSTREAM.md` states the
+relationship and lists the capabilities that carry no CUDA counterpart yet.
 
 ## Hardware sets every ceiling in this repository
 
 AMD Ryzen 5 5600X3D, six Zen 3 cores at 3.3 GHz with twelve threads and 96 MiB
 of L3, 31 GiB of DDR4, and one NVIDIA GeForce RTX 4070 Ti: AD104, compute
 capability 8.9, 12282 MiB of GDDR6X on a 192-bit bus, driver 610.57.04 with
-CUDA 13.3. `remote/build-llama-cuda.sh` builds one binary carrying the CUDA
+CUDA 13.3. `scripts/build-llama-cuda.sh` builds one binary carrying the CUDA
 and Vulkan backends, so `llama-bench --device` selects between them and two
 rows differ by the backend alone.
 
@@ -41,7 +44,7 @@ trunk, a 0.8B draft, and two KV caches with little room over, so every paired
 serving arm states its resident total before it runs.
 
 `CMAKE_CUDA_ARCHITECTURES=89` emits one SASS variant for this device.
-`GGML_CUDA_FA_ALL_QUANTS=ON` is required rather than optional: `remote/models.tsv`
+`GGML_CUDA_FA_ALL_QUANTS=ON` is required rather than optional: `scripts/models.tsv`
 serves every row at `cache_type_k=q8_0` with `cache_type_v=q4_0`, and the
 default CUDA build compiles flash-attention kernels for a subset of KV type
 combinations that excludes a mixed pair, so a default build leaves the served
@@ -49,14 +52,14 @@ cache triple off the flash-attention path at run time. nvcc reads
 `crt/host_config.h` and refuses a host compiler newer than GCC 15 where the
 distribution default is GCC 16, so the whole tree builds with `g++-15`.
 
-`remote/sample-nvidia-clocks.sh` records SM clock, memory clock, temperature,
+`scripts/sample-nvidia-clocks.sh` records SM clock, memory clock, temperature,
 power draw, both utilisation counters, device memory occupancy, and the active
 throttle reason beside every rate, one row per second. A rate whose operating
 state went unrecorded is not comparable to a later one, and on this device the
 state moves under its own power and thermal budget rather than on a driver DPM
 ladder.
 
-`remote/run-cuda-baseline-sweep.sh` measures each checkpoint forward and again
+`scripts/run-cuda-baseline-sweep.sh` measures each checkpoint forward and again
 in reverse, so the same checkpoint meets both ends of whatever drift the sweep
 carries and the paired mean is the reported figure. Every arm runs through
 `cuda-runtime-env.sh` and names its placement `-ot .*=CUDA0`, which is the
@@ -87,23 +90,22 @@ while the multi-token-prediction block each distill already ships wins on all
 three at 1.23, 1.42, and 1.47 for 150 to 470 MiB
 (`evidence/ada/speculation-runtime-classes.md`). `QWEN_SPEC_TYPE=draft-mtp`
 reaches every router child, which `evidence/ada/cuda-router-mtp/` verifies by
-the absence of the `model has unused tensor` lines an ordinary load prints. The forward-to-reverse span
-is this host's own instability and it is measured rather than assumed: the
-figures the APU tree carries -- about 4% at rest and 30.6% under desktop load --
-belong to a 15 W part sharing one DDR4 controller with its iGPU and say nothing
-about a discrete card with its own memory.
+the absence of the `model has unused tensor` lines an ordinary load prints. The
+forward-to-reverse span is this host's own instability and it is measured
+rather than assumed, because a desktop compositor sharing the device is a
+covariate this host carries and a prior host did not.
+`evidence/legacy/raven2/comparative-findings.tsv` retains the prior host's own
+span figures as comparison alone.
 
-Every measured number below this section, and every measured column in
-`remote/models.tsv` and `evidence/` that predates this host, was taken on the
-Raven2 APU over RADV Vulkan. They are retained as that machine's history rather
-than served as current fact. A default here changes when a measurement on this
-host moves it, `evidence/ada/` holds those measurements, and a device-derived
-verdict from the APU -- an amdgpu ring wedge, an amdgpu kernel signature behind
-a quarantine row, a K-quant ladder closed on a 34 GB/s bandwidth ceiling --
-carries no authority on this device until it is re-measured here.
+A default here changes when a measurement on this host moves it, and
+`evidence/ada/` holds those measurements. A device-derived verdict from
+`qwen-apu` -- a kernel-ring hazard, a quarantine row, a bandwidth-bound
+K-quant ladder -- carries no authority on this device until it is re-measured
+here; `evidence/legacy/raven2/` retains those verdicts as prior-host
+comparison.
 
 The registry rather than a constant sets the admitted depth.
-`remote/models.tsv` carries `context_default`, `context_ceiling`, and
+`scripts/models.tsv` carries `context_default`, `context_ceiling`, and
 `context_target` per checkpoint along with the KV cache types and the
 flash-attention setting, and `qwen-capacity-policy.sh` reads them.
 `QWEN_CACHE_TYPE_K`, `QWEN_CACHE_TYPE_V`, and `QWEN_FLASH_ATTN` override the
@@ -120,52 +122,35 @@ the row's own cache triple, Flash Attention state, `batch`, and `ubatch`. A
 server that loads a 24576-token allocation has proven it can reserve the memory
 and has not proven a near-full cache executes, so `qwen-capacity-policy.sh`
 prints the gap between the two fields on its `depth_validation` line at every
-launch. The 4B distill carried 24576 and 16384 there until
-`evidence/depth-validation-32k/` filled 24576 and 32768 at 128/32 with zero
-resets, zero faults, and a passing control after each, so its row reads 32768
-in both. Submission geometry belongs to the same
-claim: at 16384 the same checkpoint, cache, and device wedged the compute ring
-at 2048/512 and completed twice at 128/32, so `batch` and `ubatch` are registry
-fields rather than constants in the argv.
+launch. Submission geometry belongs to the same claim: `batch` and `ubatch` are
+registry fields rather than constants in the argv, because a depth that fills
+under one submission geometry can fail under another on the same model and
+cache triple. `evidence/legacy/raven2/comparative-findings.tsv` retains the
+prior host's own geometry-versus-depth finding as comparison; no arm on this
+device has yet run it.
 
 `models.tsv` carries one `validated_filled_depth`/`batch`/`ubatch`/cache/Flash
-Attention tuple per row, which cannot state that 16384 passes at batch 128 and
-wedges at batch 2048 for the same model and cache triple.
-`remote/validated-tuples.tsv` carries every measured arm instead, keyed by
+Attention tuple per row, which cannot state that one submission geometry
+passes at a depth where another fails for the same model and cache triple.
+`scripts/validated-tuples.tsv` carries every measured arm instead, keyed by
 `tuple_id`, with `model_id`, `runtime_mode`, the submission geometry, the cache
 triple, `threads`, `parallel`, `projector_state`, `backend`, and `status` over
 `validated`, `failed`, or `unverified`. A `validated` row requires its
 `evidence` path to exist in the tree; a `failed` row carries the same fields
 and belongs in the ledger because a rejected geometry is what steers a later
-choice away from it. `remote/model-registry.sh tuples MODEL_ID` and
+choice away from it. `scripts/model-registry.sh tuples MODEL_ID` and
 `tuple TUPLE_ID [FIELD]` read the ledger after validating every row in it, the
 same discipline `emit_servable_rows` applies to the quarantine authority.
-`remote/check-validated-tuples.sh` derives the tuple each `models.tsv` row with
+`scripts/check-validated-tuples.sh` derives the tuple each `models.tsv` row with
 a numeric `validated_filled_depth` already claims and requires a `validated`
 ledger row matching model, depth, batch, ubatch, and cache triple; a gap
-between the two files fails the gate rather than serving silently. The seeded
-16384 rows carry `evidence/depth-versus-submission-geometry.md`: batch 128 at
-depth 16384 passes and batch 2048 wedges the compute ring under the same
-cache triple, both at the probe's own `-t 2`.
-
-`remote/probe-depth-wedge.sh` treats an output directory as a resumable evidence
-ledger. `wedge-metadata.tsv` binds the ledger to the model SHA-256, model byte
-count, and recovery-control length. Startup validates every retained row against
-the invocation's cache K/V and Flash Attention tuple before it selects the
-requested arms. A recorded arm resumes only when its summary row is structurally
-complete, unique, and carries the requested depth and submission geometry, with
-its bench log, clock samples, control log, and any claimed kernel delta still
-present. A different model, tuple, incomplete artifact set, duplicate row, or
-legacy row without model identity requires a new output directory. The retained
-row also restores health and device-corruption state, so conditional arms and
-terminal halt behavior remain the same across an interrupted run.
+between the two files fails the gate rather than serving silently. No row in
+this tree yet carries a numeric `validated_filled_depth`, so the gate has
+nothing to check until a depth arm runs here.
 
 `check-validated-tuples.sh` maps a `projector` field of `required` onto an
-expected projector state of `loaded`, and `probe-depth-wedge.sh` drives
-llama-bench, which takes no `--mmproj` and allocates no projector buffers, so
-every arm it records reads `projector_state=none` and a vision row keeps `-` in
-`validated_filled_depth` however many arms it accumulates.
-`remote/probe-depth-projector.sh` measures the tuple those rows need. It reads
+expected projector state of `loaded`.
+`scripts/probe-depth-projector.sh` measures the tuple those rows need. It reads
 one registry row, resolves the projector through `select-projector.sh` in the
 model's own directory, and runs llama-server standalone at the row's cache
 triple and submission geometry with the projector attached. A probe request
@@ -179,11 +164,11 @@ question `bars.png` declares the answer to, so a projector that stopped
 encoding into the language model's embedding space fails the control and halts
 the chain. A healthy arm emits an appendable ledger line carrying
 `projector_state=loaded` beside its evidence directory rather than into
-`remote/validated-tuples.tsv`, because a `validated` row requires its evidence
+`scripts/validated-tuples.tsv`, because a `validated` row requires its evidence
 path to exist in the tree.
 
 The `tier` field states what is claimed about a row and
-`remote/build-router-presets.sh` turns it into what the picker offers.
+`scripts/build-router-presets.sh` turns it into what the picker offers.
 `production` is a serving tuple measured safe and useful; `candidate` leaves
 quality or performance unqualified with no device failure under its admitted
 tuple; `quarantine` names a reset, fault, device loss, correctness hazard, or
@@ -204,7 +189,7 @@ exists to survive. A runtime that compares emitted arguments against the user's
 own authorization is what moves a row to `validator-gated`, and this tree holds
 none: the appliance runs without `--tools` and the server executes nothing.
 
-The failure unit is a tuple rather than a checkpoint, so `remote/quarantine.tsv`
+The failure unit is a tuple rather than a checkpoint, so `scripts/quarantine.tsv`
 carries two scopes. A `model` row removes a checkpoint entirely; a `profile` row
 removes one tuple of a checkpoint that otherwise serves, and
 `qwen-capacity-policy.sh` refuses to construct that tuple rather than warning
@@ -240,8 +225,8 @@ quarantine section retains exactly one `LLAMA_ARG_TAGS` key that contains
 `quarantine` and excludes `default` and every conflicting tier tag; startup
 rejects a stale tag set before the server runs.
 
-`remote/build-web-presets.sh` generates a second preset file from
-`remote/web-profiles.tsv`, where a section is named for a profile rather than a
+`scripts/build-web-presets.sh` generates a second preset file from
+`scripts/web-profiles.tsv`, where a section is named for a profile rather than a
 checkpoint and several profiles serve one checkpoint at depths the profile
 chooses. Its head marker `# qwen_web_presets=1` switches
 `qwen-capacity-policy.sh` to resolve each section through its `LLAMA_ARG_MODEL`
@@ -252,7 +237,7 @@ current `validated_filled_depth` and refuses a `-` outright unless the preset
 carries the unvalidated-depth marker; a registry that lowers the field would
 otherwise leave an unmarked section serving a depth no run has filled and
 decoded. A preset also persists across an edit to the ledger, so the launch rejoins each
-section to `remote/web-profiles.tsv` by its `profile_id` and requires the row to
+section to `scripts/web-profiles.tsv` by its `profile_id` and requires the row to
 exist, to carry an emitting `execution_policy`, and to carry the same policy the
 section's `LLAMA_ARG_TAGS` claims; a row moved to `refused` or removed outright
 refuses the launch rather than serving the persisted MCP configuration.
@@ -267,7 +252,7 @@ tier rule, and the ceiling rule before that gate, so the ledger is validated
 whole and an edit to one row's `execution_policy` changes what emits rather
 than turning a previously successful ledger into an error. The `# qwen-web-presets: unvalidated-depth-override` marker forces the
 listener to loopback the way the quarantine marker does, and
-`remote/qwen-web-launch.sh` binds 127.0.0.1 with `QWEN_ROUTER_MAX=1`, refuses
+`scripts/qwen-web-launch.sh` binds 127.0.0.1 with `QWEN_ROUTER_MAX=1`, refuses
 a caller who asked for any other listener, and reads every
 `LLAMA_ARG_MCP_SERVERS_CONFIG` and `LLAMA_ARG_MMPROJ` path its sections name,
 since router mode reads a projector only when a request selects that child.
@@ -334,7 +319,7 @@ from a turn that offered the web tools reaches no network once it is off. A prop
 interval, both domain lists, the result count, and whether `max_age_hours` of 0
 forces a live crawl, and the dialog offers one approval and a refusal because
 the broker signs a single-use grant. An approval posts those exact parsed
-fields to `remote/web-mcp/authorize-broker.py` and posts the returned grant
+fields to `scripts/web-mcp/authorize-broker.py` and posts the returned grant
 inside the `params` object of one `POST /tools` request; `history` retains the
 proposal the grant was signed over and the result text, so the token reaches
 the server once and stays out of the transcript every later request re-sends
@@ -348,7 +333,7 @@ message naming what refused. A refusal in the dialog answers the call with a
 `role: 'tool'` message stating that the search did not run.
 
 A backend states what it can carry rather than being trusted to carry
-everything. Each `Provider` in `remote/web-mcp/server.py` declares
+everything. Each `Provider` in `scripts/web-mcp/server.py` declares
 `supports_exact_date_bounds`, `supports_freshness_max_age`,
 `supports_domain_filter`, `supports_num_results`, and `supports_paging`, and
 `refuse_unhonored_arguments` ends a call whose approved argument the active
@@ -357,7 +342,7 @@ ledger transaction that spends the grant. `exa` carries every field, at any
 `max_age_hours` including the 0 that forces a live crawl.
 
 One local SearXNG instance is the general-search endpoint, and the profile
-rather than the model decides what it is asked. `remote/web-profiles.tsv`
+rather than the model decides what it is asked. `scripts/web-profiles.tsv`
 carries `provider`, `primary_category`, `fallback_category`,
 `minimum_results`, and `searxng_url` per row, `build-web-presets.sh` validates
 them for every row and emits them into the MCP configuration, and
@@ -383,54 +368,22 @@ source over one GET of the canonical URL its Result ID was signed over, and
 `evidence/web-provider-contract.md` carries the flags, the profile columns, and
 what a run against a live instance still leaves unmeasured.
 
-The integer dot product is advertised, functional, and unaccelerated, which
-decides how most of this tree's bytes execute. RADV reports
-`shaderIntegerDotProduct = true` and sets all thirty of its `*Accelerated`
-capability flags false, and `ggml-vulkan.cpp:6492` gates `integer_dot_product`
-on `integerDotProduct4x8BitPackedSignedAccelerated` alone, so every `_q8_1`
-mat-vec and mat-mat pipeline goes unbuilt and the deployed `llama-server`
-contains no `mul_mat_vec_q4_k_q8_1` symbol against seven `mul_mat_vec_q4_k_f16`
-symbols. The instruction set agrees: LLVM's syntax reference lists `V_DOT2`,
-`V_DOT4`, and `V_DOT8` for gfx906 and none for gfx902, which is what this device
-reports. Nothing is emulated -- llama.cpp reads the driver's own report and
-declines the path -- so about 83% of production streamed bytes take the
-FP16-dequantize-then-dot family because the accelerated family does not exist
-here. `evidence/tensor-type-execution-audit.md` carries the type shares and a
-code-level account of the Q5_K trunk: Q5_K is the only one of the three K-quant
-rungs paying both the packed scale-and-minimum decode and an extra bit-plane
-merge, where Q4_K skips the bit-plane and Q6_K skips the complex scale, and the
-three are issued with identical tile parameters so subgroup utilisation does not
-order them.
+Whether this device's CUDA and Vulkan backends accelerate the packed-integer
+dot path a K-quant mat-vec kernel can take is unmeasured here.
+`evidence/legacy/raven2/comparative-findings.tsv` retains the prior host's
+unaccelerated-path finding, keyed to a Vulkan driver capability report specific
+to that silicon, as comparison; it carries no authority on this device until a
+CUDA-side kernel audit re-measures it.
 
-RADV on this device reports `shaderFloat16 = true` and names no bfloat16
-extension, so F16 is the 16-bit format the hardware advertises and BF16 is a
-separate question about llama.cpp's scalar pipelines. Both publishers of this
-tree's small checkpoints ship BF16 as their only 16-bit artifact, so
-`remote/build-llama-vulkan.sh` builds `llama-quantize` and the appliance
-produces F16 from BF16 itself. `remote/run-representation-arm.sh` measures one
-value format against another after matching architecture dimensions, tokenizer
-identity, and tensor layout, in the order control, subject, subject, control.
-The header check does not prove numeric tensor-value equality. The runner
-reports the ratio of paired means because this tree has
-measured one checkpoint under identical flags spanning 30.6% between sweeps.
-The census figure rather than the file size sets the streamed bytes a ratio
-rests on, since an ordinary load skips the multi-token-prediction block the file
-carries. `evidence/representation-gate-16-bit.md` registers the predictions.
-
-Sequential host read bandwidth measures 7.97 GB/s on one thread and 15.44 GB/s
-on two. Those figures measure the two Zen+ cores through the load/store path,
-which is a different consumer of the one DDR4 controller than the two Vega
-compute units, so they bound nothing about the GPU and the device ceiling
-stays unmeasured. The retained runs resolve no directional nice-level cost:
-`evidence/scheduling-priority-cost.md` alternates nice 19 against nice 0 arm by
-arm on a desktop under load 4.9 to 7.0 and measures a paired mean difference of
-1.10% in favour of nice 19, with two negative pairs, three positive pairs, and
-one exact zero. A nominal paired 95% interval spans -6.1% to +3.9%, so the run
-resolves no directional decode cost and does not establish equivalence. The
-priority is read back from `/proc` rather than asserted. That comparison is
-retained historical evidence. The live bandwidth harness now admits nice 19
-alone and applies it as an absolute child priority, independent of the calling
-shell's niceness.
+Both publishers of this tree's small checkpoints ship BF16 as their only
+16-bit artifact, so `scripts/build-llama-cuda.sh` builds `llama-quantize` and
+this tree derives F16 from BF16 itself. `scripts/verify-representation-pair.py`
+reads GGUF headers alone and refuses a representation arm whose architecture
+dimensions, tokenizer identity, or tensor names and shapes disagree between
+control and subject, while leaving tensor type and byte count free to vary; a
+passing header check does not prove numeric tensor-value equality.
+`evidence/legacy/raven2/comparative-findings.tsv` retains the prior host's own
+BF16-versus-F16 ratio as comparison; no arm on this device has yet measured it.
 
 A positive `QWEN_BENCH_PREFILL` requests a paired prefill/decode arm. A
 successful `llama-bench` process must emit exactly one
@@ -440,19 +393,12 @@ satisfy the requested arm. Missing or duplicate output remains `n/a` in the
 retained summary and makes the ladder terminal state `failed`; one half never
 promotes an incomplete pair to a completed sweep.
 
-Decode scales with checkpoint size, and a linear cost model over it is refuted.
-Two points, the 4B and the 9B, fit 0.1015 s per token plus 0.0869 s per GiB and
-predict 4.82 tok/s at 1.21 GiB; the 2B measures 9.46. The intercept absorbed
-depth-dependent overhead that a third depth exposes, so size predicts decode
-only within a narrow band around the fitted points and
-`evidence/qwen38-2b-distill-candidate.md` carries the refutation.
-
-| Checkpoint | weights | decode tok/s |
-| --- | ---: | ---: |
-| Qwen3.8-2B distill Q4_K_M | 1.21 GiB | 9.46 measured |
-| Qwen3.8-4B distill Q4_K_M | 2.58 GiB | 3.07 measured |
-| Qwen3.5-4B base Q4_K_M | 2.54 GiB | 2.84 measured |
-| Qwen3.8-9B distill Q4_K_M | 5.37 GiB | 1.76 measured |
+The prior host refuted a linear decode-cost model fit to checkpoint size: a
+two-point fit over its 4B and 9B rows predicted 4.82 tok/s at the 2B's weight
+count where the 2B measured 9.46.
+`evidence/legacy/raven2/comparative-findings.tsv` retains that refutation as
+comparison; the CUDA baseline table above is this device's own measured decode
+column and does not fit the prior host's model to it.
 
 ## Three runtime classes, one primary target
 
@@ -463,7 +409,7 @@ leaked into experiment selection; that ordering is retired. A general runtime
 experiment -- prompt-cache checkpoints, prefill geometry, MMVQ, cache type and
 Flash Attention, workgroup and compiler changes, graph optimization, n-gram
 speculation, aggregate throughput -- runs the current 2B first, the current
-0.8B second, and the current 4B third, and its result becomes a Raven2-wide
+0.8B second, and the current 4B third, and its result becomes a tree-wide
 default only where the classes agree; a win on one class alone becomes that
 class's profile setting. A representation arm follows the same order and reads
 the 0.8B's Q8_0, Q4_K_M, and F16 rungs as their own comparison, because that
@@ -474,7 +420,7 @@ the first, and the 0.8B as target takes n-gram or a smaller draft where one
 loads.
 
 Quality belongs to the learned checkpoint and throughput belongs to the
-execution class. Every checkpoint in `remote/models.tsv` -- stock, distill,
+execution class. Every checkpoint in `scripts/models.tsv` -- stock, distill,
 uncensored, or reasoning fine-tune -- receives its own graded reasoning, code,
 tool-selection, and termination admission, and the only arm a fine-tune skips
 is a throughput arm whose architecture, tensor shapes, quantization, backend,
@@ -503,7 +449,7 @@ qwen-launch.sh            waits for /health, prints reachable addresses
 
 `QWEN_SERVING_BACKEND` selects the wrapper on that second-to-last line and the
 device the argv names. `cuda` is the default and yields `cuda-runtime-env.sh`
-with `--device CUDA0`; `vulkan` yields `radv-low-priority-env.sh` with
+with `--device CUDA0`; `vulkan` yields `vulkan-runtime-env.sh` with
 `--device Vulkan0`. Naming the device is what keeps the two apart, because the
 promoted binary carries both backends and enumerates CUDA0 and Vulkan0 for the
 same card: a router child that named neither allocated on Vulkan0 here while
@@ -515,9 +461,11 @@ names what it exports out of the eleven `GGML_CUDA_*` and `GGML_OP_OFFLOAD_*`
 variables the backend reads. It also applies the scheduling policy rather than
 inheriting one -- `QWEN_SERVING_NICE` at 0 and `QWEN_SERVING_CPU_LIST` at the
 online CPU set -- and exports both, so the session and the runtime monitor
-require of the server exactly what the wrapper asked for. The APU tree's one
-core at nice 19 was the second core the desktop needed; twelve threads and a
-discrete card make that pinning a cost with nothing bought.
+require of the server exactly what the wrapper asked for.
+`vulkan-runtime-env.sh` applies the identical policy for the Vulkan fallback,
+because pinning one core away from the desktop was a prior host's tradeoff on
+a part with two cores total; twelve threads and a discrete card leave nothing
+to buy by repeating it.
 
 `unified` is a residency lever rather than a performance one:
 `GGML_CUDA_ENABLE_UNIFIED_MEMORY` lets an allocation exceed the 12 GiB carve-out
@@ -525,17 +473,18 @@ by paging over PCIe, which belongs to an arm that would otherwise not run at
 all.
 
 Three device-facing guards changed with the host.
-`remote/vulkan-graphics-service-probe.c` selects its physical device by vendor
+`scripts/vulkan-graphics-service-probe.c` selects its physical device by vendor
 -- NVIDIA first, AMD second, `QWEN_PROBE_VENDOR_ID` over both -- where it
-required vendor `0x1002`. `remote/watch-qwen-kernel-hazards.sh` adds the NVRM
-Xid, bus-fallen-off, and RmInitAdapter signatures beside the amdgpu ones and
-reads the ring buffer through `sudo -n dmesg` where `kernel.dmesg_restrict`
-hides it. `remote/monitor-qwen-runtime.sh` samples NVML through `nvidia-smi`
-where the amdgpu sysfs files are absent, keeping its column names: utilisation
-is the busy percent, device memory is the vram figure, and a discrete card maps
-nothing onto GTT.
+required vendor `0x1002`. `scripts/watch-qwen-kernel-hazards.sh` matches the NVRM
+Xid, bus-fallen-off, and RmInitAdapter signatures beside the device-neutral
+ring-timeout and reset lines, and reads the ring buffer through `sudo -n dmesg`
+where `kernel.dmesg_restrict` hides it. `scripts/monitor-qwen-runtime.sh`
+samples NVML through `nvidia-smi`, keeping its column names: utilisation is the
+busy percent, device memory is the vram figure, and `gtt_used_bytes` reads
+`unavailable` because GTT names a unified-memory aperture a discrete card has
+no counterpart for.
 
-`remote/admit-cuda-router-serving.sh` runs the assembled chain once: it
+`scripts/admit-cuda-router-serving.sh` runs the assembled chain once: it
 launches in router mode, asks two models for one reply each, reads back the
 placement line and memory breakdown each child prints, records how many
 children were resident together, and tears the appliance down. The retained run
@@ -546,13 +495,19 @@ both the 2B distill and the 0.8B answering from CUDA0 with both resident at
 Five properties of the Vulkan-side chain surprise a reader who meets one file
 alone.
 
-`radv-low-priority-env.sh` unsets every `GGML_VK_*` variable before its profile
-case runs, so an ambient submission setting reaches the server only when the
-`custom` profile captures it beforehand. A profile is defined by what it
-exports after the scrub: `low-async` exports `GGML_VK_MAX_NODES_PER_SUBMIT=16`
-alone, which leaves `GGML_VK_SERIALIZE_SUBMISSIONS` absent rather than zero,
-and that absence carries the measured 1.348 to 2.718 decode tok/s difference
-against `low-serialized`.
+`vulkan-runtime-env.sh` unsets every `GGML_VK_*` variable, the display and
+vendor-selection variables, and the Vulkan validation-layer variables before
+its profile case runs, so an ambient submission setting reaches the server
+only when the `custom` profile captures it beforehand and restores it after
+the scrub. `default` exports nothing beyond the scrub, pins the ICD to
+`/usr/share/vulkan/icd.d/nvidia_icd.json` (`QWEN_VULKAN_ICD` overrides it), and
+exports `LLAMA_NO_CPU_FALLBACK=1` the way `cuda-runtime-env.sh` does for the
+CUDA path. The submission-profile vocabulary the wrapper carried on the prior
+host -- `paced-60`, `low-serialized`, `low-async` -- named settings measured
+against the prior host's two-compute-unit part;
+`evidence/legacy/raven2/comparative-findings.tsv`
+retains the submission-node-count finding those profiles rested on as
+comparison, and no arm on this device has repeated it.
 
 tmux starts a session from its server's environment, so
 `qwen-webui-control.sh` forwards variables inside the command string. A
@@ -591,7 +546,7 @@ and a surviving secret authorizes a page against the next launch. The ordinary
 `qwen-launch.sh` path leaves the marker unset, records no `broker_pid`, and
 starts no broker.
 
-`remote/admit-web-router-fake.sh` runs that chain on the appliance against
+`scripts/admit-web-router-fake.sh` runs that chain on the appliance against
 the fake provider: the promoted `llama-server`, a real router child, the
 broker, and the MCP child all execute, and every request the page would make
 runs with curl in its place on the router port alone, from
@@ -599,7 +554,7 @@ runs with curl in its place on the router port alone, from
 and each refusal the design relies on. The page itself then runs the same
 turn: `qwen-web-launch.sh` serves `webui/index.html` rather than the pinned
 llama UI build, because that build neither scopes `GET /tools` by model nor
-posts the routing key, and `remote/web-mcp/drive-fallback-page.py` opens the
+posts the routing key, and `scripts/web-mcp/drive-fallback-page.py` opens the
 served page in the appliance's headless Chromium over the DevTools protocol
 with the standard library alone, sends the prompt, approves the one dialog,
 and reports every request the page's own `fetch` made. The admission reads
@@ -616,16 +571,16 @@ per-profile budgets bound the child rather than describing it, and its
 is answered by the child's own deadline rather than abandoned by the router.
 
 An image generation reaches the device the way a search reaches the network,
-and one lease separates the two. `remote/image_protocol.py` freezes the job
+and one lease separates the two. `scripts/image_protocol.py` freezes the job
 frame at version 1 and both `image-service.py` and `image-mcp/server.py` import
 it, so a closed request schema, a closed response schema, the 65536-byte line
 bound, and the coarse `square`/`portrait`/`landscape` label have one reading
-rather than three. `remote/build-web-presets.sh` reads
-`remote/image-profiles.tsv` as a second execution grant under the rules the web
+rather than three. `scripts/build-web-presets.sh` reads
+`scripts/image-profiles.tsv` as a second execution grant under the rules the web
 ledger takes: a `refused` row emits nothing under every setting, and a
 `validator-gated` row adds one `image` server to each emitted section's MCP
 configuration under `QWEN_WEB_AUTHORIZER_READY=1`, naming
-`remote/image-mcp/server.py` with the section's own profile as
+`scripts/image-mcp/server.py` with the section's own profile as
 `QWEN_IMAGE_LANGUAGE_PROFILE` because the grant binds the language profile and
 the image profile together. One image profile emits, since a section carries
 one `mcpServers` object, and `image-sdxs-512-a` is the checked-in row that
@@ -649,12 +604,12 @@ that fails to load -- answers the call with a tool message and ends the turn,
 because a dialog that settles nothing holds the page busy while the model waits
 on a result that never arrives.
 
-`remote/image-profiles.tsv` carries a `review_model` column naming the vision
+`scripts/image-profiles.tsv` carries a `review_model` column naming the vision
 checkpoint a shape's artifacts are reviewed by, and it decides whether the
 preset serves one section or two. A named row makes
-`remote/build-web-presets.sh` emit a review-only section for that model_id --
-its `remote/models.tsv` tuple, its projector, a `validated` row in
-`remote/validated-tuples.tsv` at that exact tuple with `projector_state=loaded`,
+`scripts/build-web-presets.sh` emit a review-only section for that model_id --
+its `scripts/models.tsv` tuple, its projector, a `validated` row in
+`scripts/validated-tuples.tsv` at that exact tuple with `projector_state=loaded`,
 no MCP configuration, tags `vision-review,review-only` -- so `GET /v1/models`
 returns two ids, `GET /props?model=` reports a vision modality for the second,
 and the page's Review button appears on an artifact card. Two resident
@@ -668,15 +623,15 @@ a one-section launch is the shape
 it reads the figure without being gated on it.
 `image-sdxs-512-a` names `lfm25-vl-16b` because the probe reported the pair
 ample twice on the appliance and one page session then generated and reviewed
-one artifact through it; every other row reads `-`, since the RADV RAVEN2
-probe runs on the appliance alone and no run has reported those pairs.
+one artifact through it; every other row reads `-`, since the headroom probe
+runs on the appliance alone and no run has reported those pairs.
 `evidence/image-appliance/paired-review-admission/` carries the admitted run,
 where the review cost 19.44 s against the generation's 11.62 s: 14.77 s of
 that is prompt evaluation of the 570-token multimodal prompt, so a smaller
 reply budget reaches 4.67 s of it and the roster holds no faster reviewer than
 the row already named.
 
-`remote/qwen-image-launch.sh`
+`scripts/qwen-image-launch.sh`
 rejoins the preset's image markers to the ledger, requires the row to still
 read `validator-gated`, requires its `review_model` to match the preset's own
 marker and the review section to carry a projector and no MCP configuration, requires the parameter file the service runs a job
@@ -688,15 +643,15 @@ ceiling, the service at its 330 s job deadline, the tool call at the emitted
 `IMAGE_GENERATION_TIMEOUT_MS`. The router proxy configures none of its own in
 this tree, so the launch reads llama-server's 3600 s default and requires it to
 outlast the tool call rather than asserting the 600 s bound
-`remote/image-protocol.md` proposes. `qwen-webui-session.sh` starts the service
+`scripts/image-protocol.md` proposes. `qwen-webui-session.sh` starts the service
 as a guarded child beside the broker and records `image_service_pid=` on the
 `state=running` line, and `qwen-teardown.sh` compares its recorded start time
 with `/proc/PID/stat` before signalling and then runs
-`remote/image-teardown-check.sh`, which proves no service, no runtime, no
+`scripts/image-teardown-check.sh`, which proves no service, no runtime, no
 partial artifact, and a free lease.
 
 A process holds its scheduling priority before its first instruction rather than
-receiving it from a parent afterwards. `remote/qwen-exec-idle-priority.sh` sets
+receiving it from a parent afterwards. `scripts/qwen-exec-idle-priority.sh` sets
 nice 19 and the idle I/O class in itself, verifies both against the kernel, and
 execs the command its argv names, so `exec` keeps the pid, the process group,
 and the session the spawning parent recorded while the values are already in
@@ -707,8 +662,6 @@ the runtime's Vulkan instance creation and device enumeration. The service still
 reads the child's nice value back from `/proc` as an independent observation,
 now on a bounded poll because it races the wrapper, and an unreadable value ends
 the job rather than recording `nice: "-"` beside a completed generation.
-`measure-dpm-force.sh` applies the same two values to itself once and records
-them in every arm.
 
 `renice --priority` names an absolute nice value where `renice -n` is relative
 under POSIXLY_CORRECT and `nice -n` is always an increment against the caller,
@@ -734,8 +687,8 @@ reports the pair and the session compares both before it admits the launch, so
 a broker signing for another lane fails at startup rather than at the first
 approved generation.
 
-`remote/admit-image-router.sh` runs that chain against one approved
-generation. It sets one `remote/image-profiles.tsv` row to `validator-gated` in
+`scripts/admit-image-router.sh` runs that chain against one approved
+generation. It sets one `scripts/image-profiles.tsv` row to `validator-gated` in
 a copy under its own output directory, writes a
 `ui-mediated` language row so the emitted section carries the image server
 alone, generates the preset under `QWEN_WEB_AUTHORIZER_READY=1`, launches
@@ -750,7 +703,7 @@ out-of-schema argument, the foreign image profile, and the uncredentialed
 artifact read are each refused once. `GET /artifacts/<sha>.png` is compared
 byte-for-byte against the digest the reply named and `GET /artifacts/<sha>.json`
 against the seed and profile that produced it. The page then runs the same turn
-through `remote/web-mcp/drive-fallback-page.py --lane image`, and the checks
+through `scripts/web-mcp/drive-fallback-page.py --lane image`, and the checks
 read its own request log: the grant is posted once, the generation names the
 model beside the tool, every request stays on the router, broker, and artifact
 origins, and the retained tool message carries the digest and the route alone.
@@ -766,9 +719,9 @@ and a parsed vision review of its own artifact.
 The 4B distill proposed a schema-valid call in every run there and the 2B
 distill answered in prose, which its `raw_tool_selection` grade of 2/10
 already states, so an image-capable language profile names the 4B.
-`remote/test-admit-image-router.sh` runs the whole harness on the workstation
-against `remote/test-fixtures/fake-router-server.py` and
-`remote/test-fixtures/fake-image-runtime.sh`, replacing the four device-owning
+`scripts/test-admit-image-router.sh` runs the whole harness on the workstation
+against `scripts/test-fixtures/fake-router-server.py` and
+`scripts/test-fixtures/fake-image-runtime.sh`, replacing the four device-owning
 links -- the memory preflight, the graphics latency probe, the kernel-hazard
 watcher, and the runtime monitor -- and leaving the launch chain, the broker,
 the service, the lease, the MCP child, the served page, and the teardown as
@@ -795,7 +748,7 @@ keeps the `lease_unavailable` reason.
 `patches/llama-server-vulkan-workload-lease.patch` makes llama-server the second
 writer under `QWEN_VULKAN_WORKLOAD_LOCK`, which `qwen-capacity-policy.sh`
 exports from the session state directory on every launch and
-`radv-low-priority-env.sh` leaves alone.
+`vulkan-runtime-env.sh` leaves alone.
 `server_context_impl::update_slots` owns the transitions: it takes the lease
 where its all-idle check finds a busy slot and releases it where the check finds
 none, so an idle loaded server holds nothing while every decoding pass runs
@@ -808,13 +761,13 @@ the block, so a stall is visible while it lasts and the acquire line carries
 `waited_ms`. The child holds it in router mode, since `server.cpp` calls
 `load_model` and therefore `init()` only in its non-router branch while
 `server-models.cpp` spawns each child from the `environ` snapshot in `base_env`.
-`remote/test-vulkan-workload-lease.sh` admits both halves and
+`scripts/test-vulkan-workload-lease.sh` admits both halves and
 `evidence/vulkan-workload-lease/README.md` registers the invariant, the
 falsifiers, and the appliance sequence; the patch is a candidate under
 `QWEN_LLAMA_CANDIDATE_PATCHES=1` awaiting admission on the device.
 
 A review of a generated image is the next transition through idle, and it runs
-against a vision model holding no executable tool. `remote/image-review.py`
+against a vision model holding no executable tool. `scripts/image-review.py`
 reads the artifact through `GET /artifacts/<sha256>.png` with the Web UI's own
 bearer credential, hashes the bytes against the digest the caller named, and
 posts one non-streamed `/v1/chat/completions` whose body omits `tools`
@@ -846,9 +799,9 @@ card rather than being chosen again, and the same approval dialog signs a fresh
 single-use grant over the composed prompt's hash. Two approved corrections per
 original request are the whole allowance, counted in the card's lineage so a
 correction's own review inherits the counter rather than restarting it.
-`remote/test-image-review.py` drives the module against a fake vision router
+`scripts/test-image-review.py` drives the module against a fake vision router
 that answers a tools-carrying request with a tool-call proposal, and
-`remote/web-mcp/test-fallback-page-image.py` drives the served page through one
+`scripts/web-mcp/test-fallback-page-image.py` drives the served page through one
 review, two approved corrections, and the third that reports the cap.
 `evidence/image-appliance/vision-review-design.md` registers the state machine,
 the schema, and the falsifiers, and names `lfm25-vl-16b` as the first appliance
@@ -858,13 +811,13 @@ A grammar states reply shape and leaves the source of a verdict open, so
 `image-review.py` takes `--image-mode` over `real`, `withheld`, and `swapped`
 with `--swap-sha256` naming the second artifact a swapped review sends.
 `withheld` keeps the multipart text part and drops the image part, the
-image-withheld convention `remote/run-quality-suite.py` applies to its graded
+image-withheld convention `scripts/run-quality-suite.py` applies to its graded
 vision rows, and `swapped` sends another artifact's bytes under the same prompt
 hash, constraint list, model, temperature, reply budget, thinking setting, and
 absent `tools` key. Both modes still read and hash the reviewed artifact over
 its own route, so every `fetch_artifact_png` refusal holds for a control arm and
 the audit line and verdict record carry `image_mode` beside `swap_sha256`.
-`remote/run-vision-review-control.sh` runs real-A, withheld-A,
+`scripts/run-vision-review-control.sh` runs real-A, withheld-A,
 swapped-A-with-B, and a closing real-A through one router and one artifact
 listener, retains a verdict record and an audit line per arm, and prints a
 summary TSV of per-arm `passed` counts and the `regenerate` flag. Every arm sends
@@ -900,164 +853,131 @@ in the binary and the tool set belongs to the section.
 
 ```sh
 # Start and stop the appliance
-remote/qwen-launch.sh [default|no-graphs|no-fusion|pdl|unified]
-QWEN_ROUTER=1 QWEN_ROUTER_MAX=2 remote/qwen-launch.sh   # the picker, two children resident
-remote/qwen-web-launch.sh [PROFILE]     # web presets, loopback only
-remote/qwen-image-launch.sh [PROFILE]   # web presets with the image lane armed
-remote/qwen-teardown.sh
-remote/qwen-webui-control.sh status
+scripts/qwen-launch.sh [default|no-graphs|no-fusion|pdl|unified]
+QWEN_ROUTER=1 QWEN_ROUTER_MAX=2 scripts/qwen-launch.sh   # the picker, two children resident
+scripts/qwen-web-launch.sh [PROFILE]     # web presets, loopback only
+scripts/qwen-image-launch.sh [PROFILE]   # web presets with the image lane armed
+scripts/qwen-teardown.sh
+scripts/qwen-webui-control.sh status
 
 # Select a checkpoint, a listener, and the serving backend
 QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
 QWEN_BIND_HOST=0.0.0.0 QWEN_SERVING_BACKEND=vulkan \
-    remote/qwen-launch.sh low-serialized
+    scripts/qwen-launch.sh default
 
 # Build, measure, and admit on this host
-remote/build-llama-cuda.sh                     # CUDA and Vulkan in one binary, sm_89
-remote/run-cuda-baseline-sweep.sh OUT MODEL...  # mirrored prefill and decode
-remote/run-speculation-sweep.sh OUT TARGET [DRAFT]
+scripts/build-llama-cuda.sh                     # CUDA and Vulkan in one binary, sm_89
+scripts/run-cuda-baseline-sweep.sh OUT MODEL...  # mirrored prefill and decode
+scripts/run-speculation-sweep.sh OUT TARGET [DRAFT]
                                                 # baseline, external draft, MTP, n-gram
-remote/sample-nvidia-clocks.sh OUT_TSV [SECONDS] # the state a rate ran at
-remote/admit-cuda-router-serving.sh OUT        # the whole chain, two models, one teardown
+scripts/sample-nvidia-clocks.sh OUT_TSV [SECONDS] # the state a rate ran at
+scripts/admit-cuda-router-serving.sh OUT        # the whole chain, two models, one teardown
 
 # Measurement harnesses, each of which owns its own launch and teardown
-remote/compare-model-candidate.sh LABEL MODEL_PATH [PROFILE]
-remote/run-placement-sweep.sh [OUTPUT]
-remote/reasoning-span-probe.sh OUTPUT_JSON     # against a live server
-remote/summarize-probe.sh ~/qwen-webui-state/graphics-latency.log
-remote/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
-remote/admit-candidate-static.py REPO REV      # a header over a range read
-remote/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
-remote/run-rocm-vulkan-matrix.sh [OUTPUT]      # HIP against Vulkan, phase by phase
-remote/run-kv-cache-factorial.sh MODEL [OUT]   # cache type crossed with flash attention
-remote/measure-served-decode.sh LABEL MODEL    # served decode at a fixed length
-remote/measure-bench-repeatability.sh MODEL    # what a depth-0 rate repeats to
-remote/run-quality-suite.py ENDPOINT OUT_JSON --long-context-characters 24000
+scripts/compare-model-candidate.sh LABEL MODEL_PATH [PROFILE]
+scripts/run-placement-sweep.sh [OUTPUT]
+scripts/reasoning-span-probe.sh OUTPUT_JSON     # against a live server
+scripts/summarize-probe.sh ~/qwen-webui-state/graphics-latency.log
+scripts/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
+scripts/admit-candidate-static.py REPO REV      # a header over a range read
+scripts/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
+scripts/measure-served-decode.sh LABEL MODEL    # served decode at a fixed length
+scripts/run-quality-suite.py ENDPOINT OUT_JSON --long-context-characters 24000
                                                 # the 75-row graded suite at explicit depth
-remote/run-quality-roster.sh [OUTPUT_DIR]      # that suite against every servable row
-remote/generate-quality-images.py [DIR]        # the vision fixtures, and --check
-remote/regrade-quality-roster.py RECORD...     # a grader change over retained replies
-remote/sample-gpu-clocks.sh OUT_TSV [SECONDS]  # the DPM step a rate ran at
-remote/measure-dpm-force.sh MODEL [OUT]         # auto against global high governor
-remote/model-registry.sh id|path SELECTOR [FIELD]
-remote/build-router-presets.sh [OUTPUT_INI]    # the picker, from the tier field
-remote/build-web-presets.sh OUTPUT_INI         # web profiles, from the execution_policy field
-remote/fetch-candidate-artifact.sh REPO REV FILE DIR  # observed, not pinned
-remote/run-one-token-admission.sh RECORD [OUT]  # load every candidate once
-remote/run-representation-arm.sh LABEL CONTROL SUBJECT
-                                                # one value format against another, ABBA
-remote/admit-web-router-fake.sh OUTPUT_DIR      # the web router against the fake provider
-remote/admit-image-router.sh OUTPUT_DIR         # one approved generation through the router
-remote/probe-depth-projector.sh MODEL_ID OUT   # filled depth, projector loaded
-remote/image-registry.sh artifacts|models|profiles|bundle|profile
+scripts/run-quality-roster.sh [OUTPUT_DIR]      # that suite against every servable row
+scripts/generate-quality-images.py [DIR]        # the vision fixtures, and --check
+scripts/regrade-quality-roster.py RECORD...     # a grader change over retained replies
+scripts/model-registry.sh id|path SELECTOR [FIELD]
+scripts/build-router-presets.sh [OUTPUT_INI]    # the picker, from the tier field
+scripts/build-web-presets.sh OUTPUT_INI         # web profiles, from the execution_policy field
+scripts/fetch-candidate-artifact.sh REPO REV FILE DIR  # observed, not pinned
+scripts/run-one-token-admission.sh RECORD [OUT]  # load every candidate once
+scripts/verify-representation-pair.py CONTROL SUBJECT
+                                                # GGUF-header structural identity, one value format against another
+scripts/admit-web-router-fake.sh OUTPUT_DIR      # the web router against the fake provider
+scripts/admit-image-router.sh OUTPUT_DIR         # one approved generation through the router
+scripts/probe-depth-projector.sh MODEL_ID OUT   # filled depth, projector loaded
+scripts/image-registry.sh artifacts|models|profiles|bundle|profile
                                                 # the four image authorities, validated whole
-remote/run-image-standalone.sh OUT MODEL       # one image, no llama process resident
-remote/build-stable-diffusion-vulkan.sh        # sd-cli from the pinned commit, Vulkan only
-remote/image-service.py --state-dir DIR --profiles-json FILE
+scripts/image-service.py --state-dir DIR --profiles-json FILE
                                                 # the lease owner, one generation at a time
-remote/image-teardown-check.sh [STATE_DIRECTORY]
+scripts/image-teardown-check.sh [STATE_DIRECTORY]
                                                 # no service, runtime, partial artifact, or held lease
-remote/test-vulkan-workload-lease.sh           # one workload, both writers of the lease
-remote/qwen-exec-idle-priority.sh COMMAND [ARGUMENT...]
+scripts/test-vulkan-workload-lease.sh           # one workload, both writers of the lease
+scripts/qwen-exec-idle-priority.sh COMMAND [ARGUMENT...]
                                                 # nice 19 and idle I/O, verified, then exec
-remote/image-review.py --router-origin URL --artifact-origin URL --model ID \
+scripts/image-review.py --router-origin URL --artifact-origin URL --model ID \
     --sha256 HEX --prompt-hash HEX --constraint NAME=DESCRIPTION \
     [--image-mode real|withheld|swapped [--swap-sha256 HEX]]
                                                 # one artifact reviewed by a vision model, zero tools
-remote/run-vision-review-control.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
+scripts/run-vision-review-control.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
     SHA256_A SHA256_B PROMPT_HASH OUTPUT_DIR --constraint NAME=DESCRIPTION
                                                 # real, withheld, swapped, and a closing real arm
-remote/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
+scripts/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
                                                 # token identity across the graph optimizer
 
-# Rebuild llama.cpp and the static UI
-remote/build-llama-preset.sh PRESET [SOURCE]   # one directory per build arm
-remote/build-llama-vulkan.sh                   # llama-server, llama-cli, llama-mtmd-cli
-remote/build-llama-on-workstation.sh           # optional, ships binaries over
-remote/build-llama-ui.sh                       # Node on the workstation
-remote/build-llama-dual.sh                     # Vulkan and HIP in one binary
-QWEN_FORCE_MMQ=ON remote/build-llama-dual.sh   # the MMQ kernel-policy arm
+# Rebuild the static UI, and the MMQ kernel-policy build arm
+scripts/build-llama-ui.sh                       # Node on the workstation
+QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
 
 # Hash-pinned model fetches
-remote/download-qwen35-4b-q4km.sh
-remote/download-qwen35-4b-mmproj.sh
-remote/download-qwen38-4b-distill-q4km.sh
-remote/download-nanbeige42-3b-q4km.sh            # community conversion
-remote/download-qwen38-2b-distill-bf16.sh       # the 16-bit rung, and the F16 source
-remote/download-qwen35-08b-bf16.sh
-remote/derive-qwen38-2b-distill-f16.sh         # F16 from BF16, validated
-remote/derive-qwen35-08b-f16.sh
-remote/download-sdxs-512.sh                    # the image funnel's first rung
-remote/download-sd15-base.sh
-remote/download-sd15-vae.sh
-remote/download-sd-turbo.sh
-remote/download-lcm-lora-sd15.sh
+scripts/download-qwen35-4b-q4km.sh
+scripts/download-qwen35-4b-mmproj.sh
+scripts/download-qwen38-4b-distill-q4km.sh
+scripts/download-nanbeige42-3b-q4km.sh            # community conversion
+scripts/download-qwen38-2b-distill-bf16.sh       # the 16-bit rung, and the F16 source
+scripts/download-qwen35-08b-bf16.sh
+scripts/derive-qwen38-2b-distill-f16.sh         # F16 from BF16, validated
+scripts/derive-qwen35-08b-f16.sh
+scripts/download-sdxs-512.sh                    # the image funnel's first rung
+scripts/download-sd15-base.sh
+scripts/download-sd15-vae.sh
+scripts/download-sd-turbo.sh
+scripts/download-lcm-lora-sd15.sh
 ```
 
 Tests are standalone POSIX shell scripts that exit non-zero on failure. Run one
 directly:
 
 ```sh
-remote/test-qwen-runtime-guards.sh
-remote/test-radv-low-priority-env.sh
-remote/test-model-registry.sh
-remote/test-model-tiers.sh
-remote/test-probe-depth-projector.sh
-remote/test-web-presets.sh
-remote/test-qwen-web-launch.sh
-remote/test-image-registry.sh
-remote/test-qwen-image-launch.sh
-remote/test-run-image-standalone.sh
-remote/test-admit-image-router.sh
-remote/test-vulkan-workload-lease.sh
-remote/test-exec-idle-priority.sh
-remote/test-fallback-webui-image-authorization.sh
-python3 remote/test-image-protocol.py
-python3 remote/test-image-service.py
-python3 remote/image-mcp/test-image-mcp.py
-python3 remote/test-image-review.py
-python3 remote/web-mcp/test-fallback-page-image.py
-remote/test-quality-suite.py
-remote/test-quality-roster.sh
-remote/test-promote-llama-build.sh
-remote/generate-quality-images.py --check
-remote/test-gguf-tokenizer-identity.py
-remote/test-admit-candidate-static.py
-remote/test-one-token-admission.sh
-remote/test-fetch-candidate-artifact.sh
-remote/test-run-graph-alias-ab.sh
-remote/verify-llama-patch-series.sh
-QWEN_LLAMA_CANDIDATE_PATCHES=1 remote/verify-llama-patch-series.sh
-GGUF_PY_PATH=~/src/llama.cpp-qwen-apu/gguf-py \
-    remote/test-gguf-tensor-census.py [MODEL...]
+scripts/test-qwen-runtime-guards.sh
+scripts/test-model-registry.sh
+scripts/test-model-tiers.sh
+scripts/test-probe-depth-projector.sh
+scripts/test-web-presets.sh
+scripts/test-qwen-web-launch.sh
+scripts/test-image-registry.sh
+scripts/test-qwen-image-launch.sh
+scripts/test-admit-image-router.sh
+scripts/test-vulkan-workload-lease.sh
+scripts/test-exec-idle-priority.sh
+scripts/test-fallback-webui-image-authorization.sh
+python3 scripts/test-image-protocol.py
+python3 scripts/test-image-service.py
+python3 scripts/image-mcp/test-image-mcp.py
+python3 scripts/test-image-review.py
+python3 scripts/web-mcp/test-fallback-page-image.py
+scripts/test-quality-suite.py
+scripts/test-quality-roster.sh
+scripts/test-promote-llama-build.sh
+scripts/generate-quality-images.py --check
+scripts/test-gguf-tokenizer-identity.py
+scripts/test-admit-candidate-static.py
+scripts/test-one-token-admission.sh
+scripts/test-fetch-candidate-artifact.sh
+scripts/test-run-graph-alias-ab.sh
+scripts/verify-llama-patch-series.sh
+QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
+GGUF_PY_PATH=~/src/llama.cpp-qwen-nvidia/gguf-py \
+    scripts/test-gguf-tensor-census.py [MODEL...]
 ```
 
-`remote/test-fixtures/fake-llama-server.sh` stands in for the real server so a
+`scripts/test-fixtures/fake-llama-server.sh` stands in for the real server so a
 guard test runs without a GPU.
-
-## The HIP backend needs one variable to load a model at all
-
-`remote/build-llama-dual.sh` puts Vulkan and HIP in one binary, so
-`llama-bench --device` selects the backend and two rows differ by the backend
-rather than by the build. Every HIP invocation exports `HSA_ENABLE_SDMA=0`.
-Without it `llama_model_loader::load_all_data` parks in `hipEventSynchronize`
-and never returns: `evidence/rocm-h0-operational-failure.md` records a run that
-held that wait state for 51 minutes where the same binary completes in 19
-seconds.
-
-HIP measures 14.06 prefill and 2.22 decode tok/s on Qwen3.8-4B Distill Q4_K_M
-against RADV Vulkan's 21.49 and 3.10 in the same phase-split protocol, so the
-recorded falsification criterion is tested and unmet.
-
-The build requires TheRock rather than the distribution. Ubuntu Noble ships HIP
-5.7.31921 where `ggml/src/ggml-hip/CMakeLists.txt` requires 6.1, TheRock's
-headers collide with `/usr/include/hip` when the distribution packages are also
-installed, and its LLVM 24 selects GCC 14's libstdc++.
-`evidence/therock-sdk-manifest.tsv` pins the nightly that produced the rows.
 
 ## Models and projectors pair by directory
 
-`qwen-launch.sh` calls `remote/select-projector.sh`, which searches the model
+`qwen-launch.sh` calls `scripts/select-projector.sh`, which searches the model
 file's own directory. A projector encodes images into the embedding space of the
 checkpoint that exported it, and a foreign projector of matching dimensions
 loads cleanly while placing image tokens where the language model reads nothing,
@@ -1094,49 +1014,15 @@ rather than carrying less overhead. Read the pairs and not the means: the same
 checkpoint under identical flags spans 30.6% across those four sweeps, enough
 that the 2B's slowest arm falls below the 4B's fastest.
 
-The tested 4B K-quant ladder is exhausted as a performance lever.
-`evidence/decode-bound-analysis.md` measures Q4_K_M ahead of i1-Q2_K, i1-Q5_K_M,
-and i1-Q6_K in every block. Q2_K streams 29.4% fewer bytes per token and decodes
-no faster, which closes that low-bit route, and Q6_K and Q5_K_M close the tested
-route upward. Achieved streaming forms two observed groups rather than ordering
-by bit width: a Q4_K trunk and a Q6_K trunk both reach about 8.1 GB/s where a
-Q5_K trunk reaches 5.9. IQ and other reconstruction kernels remain unmeasured.
-
-The low-bit route closes at 0.8B on the measured rows. The three 0.8B-class checkpoints of
-`evidence/model-admission/runtime-class-throughput.md` decode at 15.96, 15.17,
-and 15.31 tok/s while streaming 0.477, 0.547, and 0.801 GB per token: 5.2% of
-rate across 67.9% of bytes, over two value formats and two architectures, with
-every arm inside the sweep's span criterion. The whole token time there is 63
-to 66 ms, about a fifth of the 4B's 314 ms. The matched-structure pair streams
-0.254 GB more per token with a 0.6 ms shorter observed token time, inside the
-declared span. Architecture and format change with bytes across the wider set,
-so the measurements isolate neither a marginal byte cost nor the mechanism that
-sets the rate.
-
-The consequence is a serving decision. Qwen3.5-0.8B at Q8_0 streams 46.4% more
-bytes per token than the same checkpoint at Q4_K_M and the two decode rates
-differ by 0.9%, inside the within-arm deviations, so the direction is
-unresolved. Both registered accounts predicted the Q4_K_M 23 to 48% faster and
-are refuted on magnitude; the served `qwen35-08b` Q8_0 row keeps its position
-and a Q4_K_M rung of that class competes on quality rather than on throughput.
-The prefill halves separate where the decode halves do not, 146.22 against
-134.91 tok/s, which places Q4_K's super-block scale decode in the half where
-arithmetic rather than a per-token cost dominates.
-
-Qwen3-Zero-Coder-Reasoning-0.8B runs 42 blocks at 1024 embedding width against
-the Qwen3.5-0.8B's 24 and achieves 7.62 GB/s against 8.30 at 87.3% of the bytes,
-with a 24.3% prefill deficit against a 5.2% decode advantage. Achieved GB/s is
-bytes times rate, so that 8.2% deficit restates the two inputs, and the rows
-differ in architecture, feed-forward width, and head counts beside block count,
-so a per-dispatch cost stays a correlated observation until one trunk is
-measured at two depths.
-
-Two architectures now break the size ordering of achieved rate in the same
-direction. `evidence/model-admission/universal-candidate-ladder.md` recorded
-LFM2's short-convolution blocks doing it, and Qwen2-VL-2B at 28 blocks of full
-attention over 12 heads and 2 KV heads achieves 8.24 GB/s against the 2B
-distill's 9.71 in one sweep while streaming 22.4% fewer bytes. The operator mix
-rather than the byte count orders achieved rate across architectures.
+The prior host closed its tested 4B K-quant ladder, its 0.8B low-bit route,
+and a Q8_0-versus-Q4_K_M serving comparison on the 0.8B class, and it recorded
+two architectures -- LFM2's short-convolution blocks and Qwen2-VL-2B's full
+attention -- breaking the size ordering of achieved rate.
+`evidence/legacy/raven2/comparative-findings.tsv` and
+`evidence/legacy/raven2/universal-candidate-ladder.md` retain those findings
+as prior-host comparison. The served `qwen35-08b` Q8_0 row keeps its position
+on this device's own CUDA baseline table above rather than on that comparison;
+none of the ladder, route, or architecture-ordering arms has run here.
 
 Every distill ships a multi-token-prediction block that the speculation setting
 decides the fate of. `qwen35.nextn_predict_layers` is 1 and `block_count` counts
@@ -1159,13 +1045,13 @@ than a second trunk. `QWEN_SPEC_TYPE`, `QWEN_SPEC_DRAFT_N_MAX`,
 `QWEN_BACKEND_SAMPLING` carry those settings through the tmux boundary into
 `qwen-capacity-policy.sh`, which keeps `LLAMA_ARG_*` refused.
 
-`remote/gguf-tensor-census.py` reports these properties from the file, because
+`scripts/gguf-tensor-census.py` reports these properties from the file, because
 a Q4_K_M label names a recipe rather than a layout: the 2B is 50.08% Q6_K by
 byte where the 9B is 32.59%.
 
 A candidate declares its architecture and its chat template before it is
 fetched. A GGUF places the metadata block and tensor index at the head of the
-file, so `remote/admit-candidate-static.py` reads them over an HTTP range
+file, so `scripts/admit-candidate-static.py` reads them over an HTTP range
 request against a pinned revision and imports the census parser rather than
 writing a second one. Sixteen mebibytes covers a Qwen3.5 metadata block, whose
 248,320 tokens and their merges end the 2B distill's header at 10,962,034
@@ -1175,8 +1061,9 @@ reproduces the appliance's own full-file census on every identity field of the
 served 2B, including the 37,767,168 prediction-block bytes.
 
 The script runs on the workstation, which makes it a third workstation-side
-helper beside the UI build and the container build: it needs the network and
-the appliance's two 2.3 GHz cores are the wrong place to spend it.
+helper beside the UI build and the container build: it needs the network, and
+a fetch pass is not a resource to spend against a host that is also serving
+requests.
 
 Static admission is what makes the throughput stage small. Throughput belongs to
 an architecture and a value format, so grouping candidates by architecture,
@@ -1196,8 +1083,8 @@ template survey.
 
 A runtime class establishes a shared throughput expectation and nothing about a
 particular artifact, so admission by load runs every row rather than one
-representative per class. `remote/run-one-token-admission.sh` fetches each
-candidate and calls `remote/test-strict-vulkan-placement.sh`, which requires CPU
+representative per class. `scripts/run-one-token-admission.sh` fetches each
+candidate and calls `scripts/test-strict-vulkan-placement.sh`, which requires CPU
 tensor placement and CPU graph placement to be rejected, brings a strict Vulkan
 server up, drives a two-token completion, and requires the model, KV, and
 compute buffers to name Vulkan0 with no CPU fallback reached. Its `fetch` stage
@@ -1208,11 +1095,11 @@ after any refusal, so a later refusal reads against a device that had just
 answered.
 
 A candidate fetched from Hugging Face LFS is verified against the publisher.
-`remote/fetch-candidate-artifact.sh` reads the pinned revision's LFS object ID,
+`scripts/fetch-candidate-artifact.sh` reads the pinned revision's LFS object ID,
 requires the downloaded SHA-256 and byte count to match it, and reports the
 digest as `verified_sha256`. A repository artifact published outside LFS has no
 publisher digest; the fetcher reports that fallback as `observed_sha256`, and
-promotion into `remote/models.tsv` requires a `download-*.sh` that pins the
+promotion into `scripts/models.tsv` requires a `download-*.sh` that pins the
 observed digest as its expectation.
 
 GGUF weights stay outside Git because their sizes exceed the LFS per-file
@@ -1224,11 +1111,11 @@ SHA-256, and verifies an existing file in place.
 `evidence/` holds the measurements that justify every default, and a default
 changes when a measurement moves. State the falsification criterion before
 running a probe; when a result deviates from prediction, the deviation is the
-finding, and the evidence file records it as such. Several results in this tree
-exist because a stated hypothesis failed: submission node count moved decode
-3.5% where it was predicted to dominate, and asynchronous Vulkan raised probe
-p90 8.6-fold under sustained prefill while leaving chat decode at zero frame
-breaches.
+finding, and the evidence file records it as such. Several results in this
+tree exist because a stated hypothesis failed: programmatic dependent launch
+was predicted to move decode and moved 0.2% against a 0.3% span, and `-ngl 99`
+alone was predicted to place the whole 9B on CUDA0 and instead left enough on
+the host to halve its prefill.
 
 `evidence/SHA256SUMS` and `ARTIFACTS.md` fix the retention class of every
 surface. Git copies replace the private hostname with `qwen-laptop`, the home
@@ -1251,7 +1138,7 @@ sweep for the same reason a rate comparison is.
 The graded suite reaches past text through one column. `attachment` is `-` for
 a text row, `image:NAME` for a vision row, and `tools:SET` for a tool row, so a
 row states what its request carries beside the prompt.
-`remote/generate-quality-images.py` draws every fixture from a declaration in
+`scripts/generate-quality-images.py` draws every fixture from a declaration in
 its own source, which is what makes a vision answer gradeable: `bars.png` holds
 four bars whose tallest is JUN at 150 because the generator's table says so.
 A tool row executes nothing. The appliance runs without `--tools`, so the server
@@ -1269,7 +1156,7 @@ tests the claim a fixture makes and a digest comparison tests the encoder.
 
 A grader defect is corrected over retained replies rather than by re-running.
 `nonempty` passed a reply cut at the token budget, which is the termination
-failure the row tests, and `remote/regrade-quality-roster.py` re-applies the
+failure the row tests, and `scripts/regrade-quality-roster.py` re-applies the
 corrected grader to the reply each record already holds. The records stay as the
 harness wrote them and `evidence/quality-roster/regrade-summary.tsv` carries the
 recorded total beside the corrected one. Transport and served-model attribution
@@ -1278,7 +1165,7 @@ failures remain failures because a content grader cannot repair evidence origin.
 `llama-mtmd-cli` is built beside `llama-server` because the projector path fails
 by answering rather than by erroring. A projector of matching dimensions loads
 cleanly while writing image tokens the language model reads nothing from, so
-`remote/promote-llama-build.sh` reads an image whose content this repository
+`scripts/promote-llama-build.sh` reads an image whose content this repository
 declares and requires the answer to carry it. Promotion requires the text model,
 vision model, projector, and image before either smoke stage begins. The artifact
 manifest owns `llama-server`, `llama-cli`, `llama-mtmd-cli`, and the multimodal

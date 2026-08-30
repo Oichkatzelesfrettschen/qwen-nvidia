@@ -1,0 +1,36 @@
+# Quarantine holds what has produced a device-level or output-level failure in
+# the image lane. A row here keeps its subject out of every generation path,
+# and scripts/image-registry.sh reads this file rather than inferring the state
+# from the tier field alone, because a quarantine has two scopes where
+# scripts/image-models.tsv has one row per bundle.
+#
+# scope `model` quarantines a bundle: every profile of it stays refused until
+# the re-entry gate in the reason record is met, and the geometry columns read
+# `-` because the exclusion is unbounded. scope `profile` quarantines one
+# served shape of a bundle that otherwise generates, and width, height, steps,
+# and placement name that shape exactly. The distinction is the one
+# scripts/quarantine.tsv draws for the language ladder: "this bundle cannot run
+# here" and "this arm at this size does not retire" are different claims and
+# they steer different later choices.
+#
+# failure_class is a fixed vocabulary rather than prose. The six device classes
+# are the ones scripts/quarantine.tsv already names --  `ring-timeout-only`,
+# `gfxhub-page-fault`, `vm-protection-fault`, `device-lost`,
+# `post-reset-control-failure`, `no-validated-safe-tuple` -- and the image lane
+# adds two of its own. `runtime-timeout` is a run the pinned runtime's own hard
+# bound ended with the device healthy. `output-validation-failure` is a run
+# that produced bytes the PNG validator rejected, which is a correctness hazard
+# rather than a device event.
+#
+# first_evidence and latest_evidence name the runs that opened and last
+# confirmed the exclusion; reason_record points at the retained record under
+# evidence/ carrying the kernel signature, the safe shapes, and the re-entry
+# gate in full. Every path present must exist in the tree, so a removed record
+# refuses the query rather than leaving an exclusion no reader can act on.
+#
+# The file carries a header and no rows. Nothing has been generated on the
+# appliance, so no image subject has failed, and an empty ledger is the honest
+# state rather than an absent authority: scripts/image-registry.sh requires this
+# file to be readable before it answers any query.
+#
+# id	scope	subject	failure_class	width	height	steps	placement	first_evidence	latest_evidence	reason_record

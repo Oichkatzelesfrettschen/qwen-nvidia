@@ -1,12 +1,12 @@
 # Web router admission against the fake provider
 
-`remote/admit-web-router-fake.sh` runs the merged web path on the appliance
+`scripts/admit-web-router-fake.sh` runs the merged web path on the appliance
 with nothing reaching a network: the production `llama-server`
 (`3d5b158160b08cf8...`, `build-qwen-vulkan`), one real router child serving
 the 4B distill, `authorize-broker.py`, and the `server.py` MCP child under
 `--provider fake`. Every request the fallback page would make runs with curl in
 its place, and every boundary the design relies on is provoked once. The
-checked-in `remote/web-profiles.tsv` stayed at `execution_policy=refused`; the
+checked-in `scripts/web-profiles.tsv` stayed at `execution_policy=refused`; the
 one-row ledger the harness writes names `web-balanced-admission` at 8192 tokens,
 `max_results` 3, `max_fetches` 1, `max_chars_per_fetch` 12000.
 
@@ -18,7 +18,7 @@ router:         127.0.0.1:8080, QWEN_ROUTER_MAX=1, one preset section
 broker:         127.0.0.1:8571, --profile web-balanced-admission --provider fake
 child:          the router's model process, loopback port assigned at load
 MCP child:      python3 server.py --provider fake, stdio under the child
-fixture:        remote/test-fixtures/web-fake-provider.json
+fixture:        scripts/test-fixtures/web-fake-provider.json
 outage:         18:08:56Z to 18:10:51Z, ordinary router restored
 ```
 
@@ -108,7 +108,7 @@ a measurement:
 3. A standalone web launch outside router mode, which forgoes the preset file
    and the per-profile section the ledger is built on.
 
-Until one is chosen, `remote/web-profiles.tsv` stays refused and the page's
+Until one is chosen, `scripts/web-profiles.tsv` stays refused and the page's
 Web toggle reaches no executor on the appliance.
 
 ## Two defects found and repaired before the run
@@ -143,8 +143,8 @@ message, answered from it.
 
 The browser was not in the loop. The approval dialog, the grant injection
 into `params`, and the transcript hygiene the page performs are tested against
-the stdio fixture in `remote/test-fallback-webui-web-authorization.sh` and
-`remote/test-web-tools-roundtrip.sh`, and their first appliance run waits on
+the stdio fixture in `scripts/test-fallback-webui-web-authorization.sh` and
+`scripts/test-web-tools-roundtrip.sh`, and their first appliance run waits on
 the `/tools` routing decision above. The model altered the query in its own
 proposal (`raven2 vulkan decode rate` against the user's `raven2 vulkan
 decode`), which is the case the dialog exists for: the grant is signed over

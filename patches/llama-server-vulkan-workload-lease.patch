@@ -3,7 +3,7 @@ f280b26983ad0fdb705a0d9ebf0503e76f2899b0 after the six-patch production series
 and llama-vulkan-view-alias-deps.patch.
 
 The appliance admits one active qwen-owned Vulkan compute workload.
-remote/image-service.py holds ~/qwen-webui-state/vulkan-workload.lock with
+scripts/image-service.py holds ~/qwen-webui-state/vulkan-workload.lock with
 flock(LOCK_EX) from job start to artifact rename, and at f280b269 it is the only
 writer, so a chat turn and an image generation share the device. This patch
 makes llama-server the second writer under the same lock.
@@ -42,7 +42,7 @@ non-router branch -- so the router parent opens nothing. server-models.cpp
 snapshots environ into base_env at server_models_routes construction and spawns
 each child with that copy plus LLAMA_SERVER_ROUTER_PORT, so the variable reaches
 the child that owns the context and the graphs verbatim.
-remote/radv-low-priority-env.sh scrubs the GGML_VK_*, display, AMD, RADV, and VK
+scripts/vulkan-runtime-env.sh scrubs the GGML_VK_*, display, vendor, and VK
 layer names, so QWEN_VULKAN_WORKLOAD_LOCK crosses the exec boundary untouched.
 
 The whole block compiles on POSIX alone, guarded the way server.cpp guards its
@@ -79,7 +79,7 @@ index a9edbd7be..5c7da3b7e 100644
 +    // The appliance admits one active qwen-owned Vulkan workload, and an idle
 +    // loaded server is not one: residency reserves memory while the device
 +    // executes nothing. QWEN_VULKAN_WORKLOAD_LOCK names the file
-+    // remote/image-service.py takes with flock(LOCK_EX) across one generation,
++    // scripts/image-service.py takes with flock(LOCK_EX) across one generation,
 +    // so holding it from the first busy slot to the last idle one makes chat
 +    // decode and image generation exclude each other through the kernel. An
 +    // unset variable leaves the descriptor closed and every call below inert.

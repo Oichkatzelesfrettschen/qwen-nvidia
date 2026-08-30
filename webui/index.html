@@ -15,10 +15,10 @@
 -->
 <meta name="qwen-web-broker" content="http://127.0.0.1:8571">
 <!--
-  llama-server serves this front end from --path, so the laptop runs no second
+  llama-server serves this front end from --path, so the host runs no second
   web service or graphical process. The browser runs on the SSH client machine;
-  the Raven2 APU keeps its shared DDR4 and graphics queues for inference and the
-  existing desktop. The pinned build omits upstream's embedded SvelteKit assets
+  this host's GPU carries both inference and the existing desktop. The pinned
+  build omits upstream's embedded SvelteKit assets
   but retains the static-file and OpenAI-compatible API routes.
 
   Reasoning is shown, folded, beside the answer. A model can spend a whole small
@@ -116,7 +116,7 @@
   <span id="model">connecting</span>
   <select class="model-picker" id="model-picker" aria-label="Model" hidden></select>
   <span id="ctx">context pending</span>
-  <span>Raven2 UMA | LOW-priority Vulkan | service-latency guarded</span>
+  <span>Discrete GPU | CUDA primary, Vulkan fallback | service-latency guarded</span>
   <input class="key" type="password" id="api-key" placeholder="API key (only if the server asks)" autocomplete="off">
   <button class="act" id="set-key">set key</button>
   <label class="chip"><input type="checkbox" id="reasoning"> reasoning</label>
@@ -502,7 +502,7 @@ function findImageCancelToolName(listing) {
 function imageSchemaBounds(definition) {
   /* Return the served profile and the maxima the tool schema states.
 
-     remote/image-mcp/server.py builds `profile_id` as an enum of the one
+     scripts/image-mcp/server.py builds `profile_id` as an enum of the one
      profile its section serves and sets each maximum from that profile's own
      ceilings, read from the parameter file image-service.py enforces against,
      so the listing is this page's authority for what a proposal may carry and
@@ -667,7 +667,7 @@ function truncateToolResult(text) {
   /* Cap a tool result without cutting off an untrusted-content frame's own
      end marker.
 
-     `wrap_untrusted` (remote/web-mcp/server.py) closes a fetched page's text
+     `wrap_untrusted` (scripts/web-mcp/server.py) closes a fetched page's text
      with `END UNTRUSTED WEB CONTENT [nonce]` so the model can tell where
      attacker-controlled text ends, and a plain `.slice(0, cap)` can land
      inside the window or drop the footer line outright, handing the model an
@@ -696,7 +696,7 @@ function truncateFetchResult(text, footerMatch) {
   /* Recompute a fetched page's navigation lines after the cap trims its
      window, or return null when the frame carries no such lines to rewrite.
 
-     `wrap_untrusted` (remote/web-mcp/server.py) writes `Start Index`,
+     `wrap_untrusted` (scripts/web-mcp/server.py) writes `Start Index`,
      `Returned Characters`, `Next Start Index`, and `Possibly Truncated` ahead
      of the window it frames, so a paging model reads where to resume from
      those lines rather than from arithmetic over a body it cannot measure.
@@ -724,7 +724,7 @@ function truncateFetchResult(text, footerMatch) {
     /\nContent SHA-256: [0-9a-f]{64}\n/,
     '\nContent SHA-256: not recomputed; the client truncated this window.\n'
   );
-  // `wrap_untrusted` (remote/web-mcp/server.py) computes `Start Index` and
+  // `wrap_untrusted` (scripts/web-mcp/server.py) computes `Start Index` and
   // `Next Start Index` over Python `len`, which counts Unicode code points; a
   // JavaScript `.length` counts UTF-16 code units and reports one extra unit
   // per astral character (an emoji, for instance), and a raw `.slice` can
@@ -763,7 +763,7 @@ function truncateFetchResult(text, footerMatch) {
 function truncateSearchResult(text) {
   /* Cap a search-result reply at a whole result block, or return null.
 
-     `render_search_results` (remote/web-mcp/server.py) joins each result as
+     `render_search_results` (scripts/web-mcp/server.py) joins each result as
      one block on `\n---\n`, closes the reply with a trailing `\n---`, and
      appends `\nResults Omitted: N` outside every block when its own cap
      dropped results. A plain `.slice(0, cap)` can land inside a block,
@@ -1012,7 +1012,7 @@ function approveWebSearch(fields, proposalModel) {
           return;
         }
         // `LLAMA_ARG_ALIAS` carries the web profile's own profile_id
-        // (`remote/build-web-presets.sh`), and llama-server reports that
+        // (`scripts/build-web-presets.sh`), and llama-server reports that
         // alias as the model id `GET /v1/models` returns, so `requestModel`
         // already names the profile the selected router child serves. The
         // broker signs the grant's `profile_id` from this value and
@@ -1311,7 +1311,7 @@ function approveImageGeneration(fields, proposalModel, correctionNote = '') {
 // active workload.
 //
 // The verdict is one JSON object against a closed schema, parsed here the way
-// remote/image-review.py parses it: prose, an extra key, a missing key, a
+// scripts/image-review.py parses it: prose, an extra key, a missing key, a
 // `passed` that is not a boolean, and a constraint list naming anything other
 // than what this page declared are each refused, because a tolerant parse
 // would render a verdict the model did not state.
@@ -1342,7 +1342,7 @@ async function resolveVisionModel(generation, signal) {
   /* Return the first roster id whose props report a vision modality, or null.
 
      `GET /props?model=<id>` carries `modalities.vision` per served row, which
-     is the same field remote/compare-model-candidate.sh reads, so the page
+     is the same field scripts/compare-model-candidate.sh reads, so the page
      asks the server which of its models can read an image rather than matching
      a name. The read happens when a card exists to review, which keeps these
      requests out of every turn that generates nothing. */
@@ -1396,7 +1396,7 @@ function reviewHardConstraints(fields) {
 }
 
 function reviewSystemInstruction(constraints) {
-  // The same instruction remote/image-review.py sends: the schema, the four
+  // The same instruction scripts/image-review.py sends: the schema, the four
   // keys, and the standing of text inside the image.
   const lines = [
     'You review one image against the hard constraints named below.',
@@ -2119,7 +2119,7 @@ function proposedFetchParams(argumentText) {
   }
   const params = { result_id: typeof parsed.result_id === 'string' ? parsed.result_id : '' };
   for (const key of ['start_index', 'max_chars']) {
-    // `require_integer` (remote/web-mcp/server.py) reads an absent key as its
+    // `require_integer` (scripts/web-mcp/server.py) reads an absent key as its
     // own default, so an absent field is left out here to take that default.
     // A present-but-malformed value -- a float, a negative number, a numeric
     // string -- is silently different from absent: passing it through would
@@ -2144,7 +2144,7 @@ function imageRequestParams(fields, authorization) {
     width: fields.width,
     height: fields.height,
     steps: fields.steps,
-    // remote/image-mcp/server.py names this argument profile_id, lists it in
+    // scripts/image-mcp/server.py names this argument profile_id, lists it in
     // `required`, and refuses any name outside its schema, so the wire
     // spelling is the tool's rather than the proposal's.
     profile_id: fields.profile,

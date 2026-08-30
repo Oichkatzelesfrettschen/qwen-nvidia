@@ -1,73 +1,0 @@
-socket $HOME/qwen-webui-state/images/image-service.sock
-listening 127.0.0.1 53147
-pid 2155060
-ggml_vulkan: Found 1 Vulkan devices:
-ggml_vulkan: 0 = AMD Radeon Graphics (RADV RAVEN2) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 64 | shared memory: 65536 | int dot: 0 | matrix cores: none
-[INFO ] stable-diffusion.cpp:710  - loading model from '$HOME/models/image/sdxs-512'
-[INFO ] model_loader.cpp:233  - load $HOME/models/image/sdxs-512 using diffusers format
-[ERROR] model_loader.cpp:321  - failed to open '$HOME/models/image/sdxs-512/text_encoder_2/model.safetensors'
-[INFO ] stable-diffusion.cpp:796  - loading tae from '$HOME/models/image/sdxs-512/vae/diffusion_pytorch_model.safetensors'
-[INFO ] model_loader.cpp:242  - load $HOME/models/image/sdxs-512/vae/diffusion_pytorch_model.safetensors using safetensors format
-[INFO ] stable-diffusion.cpp:905  - Version: SDXS (09) 
-[INFO ] stable-diffusion.cpp:956  - Weight type stat:                      f32: 998  
-[INFO ] stable-diffusion.cpp:957  - Conditioner weight type stat:          f32: 372  
-[INFO ] stable-diffusion.cpp:958  - Diffusion model weight type stat:      f32: 358  
-[INFO ] stable-diffusion.cpp:959  - VAE weight type stat:                  f32: 134  
-[INFO ] stable-diffusion.cpp:1499 - using TAE for encoding / decoding
-[INFO ] stable-diffusion.cpp:1742 - total params memory size = 2272.78MB (VRAM 2272.78MB, RAM 0.00MB): text_encoders 1346.53MB(VRAM), diffusion_model 921.58MB(VRAM), vae 4.67MB(VRAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A)
-  |################                                  | 112/358 - 910.14MB/s[K  |#####################                             | 144/358 - 844.11MB/s[K  |##########################                        | 182/358 - 1005.93MB/s[K  |############################                      | 194/358 - 988.95MB/s[K  |################################################  | 338/358 - 1.19GB/s[K  |##################################################| 358/358 - 1.02GB/s[K
-[INFO ] model_loader.cpp:1304 - loading tensors completed, taking 1.20s (read: 0.39s, memcpy: 0.00s, convert: 0.28s, copy_to_backend: 0.13s)
-[INFO ] stable-diffusion.cpp:1846 - running in eps-prediction mode
-[INFO ] stable-diffusion.cpp:5619 - generate_image 512x512
-[INFO ] denoiser.hpp:1051 - get_sigmas with discrete scheduler
-[INFO ] stable-diffusion.cpp:4371 - sampling using Euler method
-  |#######                                           | 48/372 - 668.87MB/s[K  |##############                                    | 104/372 - 1.15GB/s[K  |##########################                        | 186/372 - 1.17GB/s[K  |####################################              | 266/372 - 1.17GB/s[K  |###############################################   | 346/372 - 1.17GB/s[K  |##################################################| 372/372 - 1.05GB/s[K
-[INFO ] model_loader.cpp:1304 - loading tensors completed, taking 1.21s (read: 0.73s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.21s)
-[INFO ] stable-diffusion.cpp:5287 - get_learned_condition completed, taking 2.04s
-[INFO ] stable-diffusion.cpp:5670 - generating image: 1/1 - seed 20260829
-  |==================================================| 1/1 - 4.00s/it[K
-[INFO ] stable-diffusion.cpp:5702 - sampling completed, taking 4.01s
-[INFO ] stable-diffusion.cpp:5714 - generating 1 latent images completed, taking 4.01s
-[INFO ] stable-diffusion.cpp:5312 - decoding 1 latents
-  |##################################################| 67/67 - 23.20MB/s[K
-[INFO ] model_loader.cpp:1304 - loading tensors completed, taking 0.20s (read: 0.01s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.00s)
-[INFO ] stable-diffusion.cpp:5378 - latent 1 decoded, taking 3.58s
-[INFO ] stable-diffusion.cpp:5382 - decode_first_stage completed, taking 3.58s
-[INFO ] stable-diffusion.cpp:5852 - generate_image completed in 9.65s
-[INFO ] main.cpp:490  - save result image 0 to '$HOME/qwen-webui-state/images/artifacts/2e1448c827f1eed1.part.png' (success)
-[INFO ] main.cpp:562  - 1/1 images saved
-ggml_vulkan: Found 1 Vulkan devices:
-ggml_vulkan: 0 = AMD Radeon Graphics (RADV RAVEN2) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 64 | shared memory: 65536 | int dot: 0 | matrix cores: none
-[INFO ] stable-diffusion.cpp:710  - loading model from '$HOME/models/image/sdxs-512'
-[INFO ] model_loader.cpp:233  - load $HOME/models/image/sdxs-512 using diffusers format
-[ERROR] model_loader.cpp:321  - failed to open '$HOME/models/image/sdxs-512/text_encoder_2/model.safetensors'
-[INFO ] stable-diffusion.cpp:796  - loading tae from '$HOME/models/image/sdxs-512/vae/diffusion_pytorch_model.safetensors'
-[INFO ] model_loader.cpp:242  - load $HOME/models/image/sdxs-512/vae/diffusion_pytorch_model.safetensors using safetensors format
-[INFO ] stable-diffusion.cpp:905  - Version: SDXS (09) 
-[INFO ] stable-diffusion.cpp:956  - Weight type stat:                      f32: 998  
-[INFO ] stable-diffusion.cpp:957  - Conditioner weight type stat:          f32: 372  
-[INFO ] stable-diffusion.cpp:958  - Diffusion model weight type stat:      f32: 358  
-[INFO ] stable-diffusion.cpp:959  - VAE weight type stat:                  f32: 134  
-[INFO ] stable-diffusion.cpp:1499 - using TAE for encoding / decoding
-[INFO ] stable-diffusion.cpp:1742 - total params memory size = 2272.78MB (VRAM 2272.78MB, RAM 0.00MB): text_encoders 1346.53MB(VRAM), diffusion_model 921.58MB(VRAM), vae 4.67MB(VRAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A)
-  |###############                                   | 104/358 - 790.71MB/s[K  |#####################                             | 146/358 - 986.15MB/s[K  |##########################                        | 182/358 - 1007.60MB/s[K  |#############################                     | 204/358 - 1.05GB/s[K  |##################################################| 358/358 - 1.21GB/s[K
-[INFO ] model_loader.cpp:1304 - loading tensors completed, taking 1.01s (read: 0.35s, memcpy: 0.00s, convert: 0.29s, copy_to_backend: 0.11s)
-[INFO ] stable-diffusion.cpp:1846 - running in eps-prediction mode
-[INFO ] stable-diffusion.cpp:5619 - generate_image 512x512
-[INFO ] denoiser.hpp:1051 - get_sigmas with discrete scheduler
-[INFO ] stable-diffusion.cpp:4371 - sampling using Euler method
-  |#######                                           | 46/372 - 655.67MB/s[K  |###########                                       | 76/372 - 996.38MB/s[K  |#####################                             | 154/372 - 1.01GB/s[K  |################################                  | 234/372 - 1.05GB/s[K  |###########################################       | 318/372 - 1.11GB/s[K  |##################################################| 372/372 - 1.05GB/s[K
-[INFO ] model_loader.cpp:1304 - loading tensors completed, taking 1.20s (read: 0.79s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.20s)
-[INFO ] stable-diffusion.cpp:5287 - get_learned_condition completed, taking 2.05s
-[INFO ] stable-diffusion.cpp:5670 - generating image: 1/1 - seed 12345
-  |==================================================| 1/1 - 4.04s/it[K
-[INFO ] stable-diffusion.cpp:5702 - sampling completed, taking 4.05s
-[INFO ] stable-diffusion.cpp:5714 - generating 1 latent images completed, taking 4.05s
-[INFO ] stable-diffusion.cpp:5312 - decoding 1 latents
-  |##################################################| 67/67 - 23.20MB/s[K
-[INFO ] model_loader.cpp:1304 - loading tensors completed, taking 0.20s (read: 0.01s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.00s)
-[INFO ] stable-diffusion.cpp:5378 - latent 1 decoded, taking 3.60s
-[INFO ] stable-diffusion.cpp:5382 - decode_first_stage completed, taking 3.60s
-[INFO ] stable-diffusion.cpp:5852 - generate_image completed in 9.72s
-[INFO ] main.cpp:490  - save result image 0 to '$HOME/qwen-webui-state/images/artifacts/d8a045700fe24e3e.part.png' (success)
-[INFO ] main.cpp:562  - 1/1 images saved

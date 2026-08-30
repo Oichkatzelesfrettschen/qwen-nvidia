@@ -1,9 +1,9 @@
 # What the CUDA runtime levers are worth on the 2B
 
-Five arms of `remote/run-cuda-baseline-sweep.sh` against Qwen3.8-2B-Distill
+Five arms of `scripts/run-cuda-baseline-sweep.sh` against Qwen3.8-2B-Distill
 Q4_K_M at the served tuple: full offload with `-ot .*=CUDA0`, flash attention
 on, `q8_0`/`q4_0` KV, pp512 and tg128, three repetitions, forward and reverse.
-Four vary `QWEN_CUDA_PROFILE` through `remote/cuda-runtime-env.sh` on one build;
+Four vary `QWEN_CUDA_PROFILE` through `scripts/cuda-runtime-env.sh` on one build;
 the fifth is a second build tree carrying `GGML_CUDA_FORCE_MMQ=ON`, which is a
 compile-time option rather than a variable.
 

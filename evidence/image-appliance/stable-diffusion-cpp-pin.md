@@ -1,5 +1,10 @@
 # stable-diffusion.cpp source pin and CLI audit
 
+This pin and its CLI audit target a Vulkan build validated on the prior host;
+its build script and standalone admission harness are not part of this tree,
+and every row in `scripts/image-profiles.tsv` reads `execution_policy=refused`
+until an image runtime is admitted on this host's device.
+
 ## Pinned commit
 
 `leejet/stable-diffusion.cpp` at `de298c225bed97c3f9026b73cd7b71e7879bd41b`
@@ -73,13 +78,15 @@ It calls `sd_list_devices` (`src/core/util.cpp:1004-1023`), which loads
 backend modules if none are registered yet and prints each
 `ggml_backend_dev_name(dev)` and `ggml_backend_dev_description(dev)` pair. On
 a Vulkan build against one physical device this reads one line whose name is
-`Vulkan0` and whose description names the reported device (`AMD Radeon
-Graphics (RADV RAVEN2)` on this appliance's `vulkaninfo --summary` output,
-per `remote/model-memory-preflight.sh:44`). The harness in this change reads
-that line and requires the description to name RAVEN2/RADV rather than
-hardcoding the device name `vulkan0`, since a description mismatch on a
-differently-ordered device enumeration is the failure this check exists to
-catch.
+`Vulkan0` and whose description names the reported device. The prior host's
+`vulkaninfo --summary` output named its device string there; that record is
+`evidence/legacy/raven2/` history rather than a claim about this host's own
+string, which is unmeasured because no image runtime is built here to query
+it. The harness this pin describes reads that line and requires the
+description to match the device string the build and launch record names
+rather than hardcoding the device name `vulkan0`, since a description
+mismatch on a differently-ordered device enumeration is the failure this check
+exists to catch.
 
 `--backend` (`examples/common/common.cpp:482-486`) takes a comma-separated
 `module=device` list, e.g. `diffusion=cuda0&cuda1` or
@@ -145,7 +152,7 @@ device name the `--backend` flag named. `--offload-to-cpu`, `--max-vram`, and
 `--stream-layers` (`examples/common/common.cpp:504,520,538`) name a further,
 deliberate CPU-resident staging path for streaming weights that exceed the
 device's budget. Proving zero CPU fallback under strict placement -- the way
-`remote/test-strict-vulkan-placement.sh` does for llama.cpp -- requires
+`scripts/test-strict-vulkan-placement.sh` does for llama.cpp -- requires
 reading which backend actually executed each operator, which is out of scope
 for this pin and named as an open question below.
 
@@ -184,7 +191,7 @@ pinned single-image path must carry no `%` character.
 
 ## LCM-LoRA loading
 
-`docs/lcm.md` states the mechanism directly:
+The upstream repository's own LCM doc states the mechanism directly:
 
 ```sh
 ./bin/sd-cli -m ../models/v1-5-pruned-emaonly.safetensors \
@@ -236,7 +243,7 @@ flattening them.
 Every revision is the repository's default-branch `sha` at fetch time
 (`GET /api/models/{repo}`); every digest and byte count is the file's Git LFS
 object (`GET /api/models/{repo}/tree/{revision}?recursive=1`, `lfs.oid` /
-`lfs.size`), read the way `remote/fetch-candidate-artifact.sh` reads a
+`lfs.size`), read the way `scripts/fetch-candidate-artifact.sh` reads a
 candidate GGUF. `sd_turbo.safetensors`, `v1-5-pruned-emaonly.safetensors`,
 `vae-ft-mse-840000-ema-pruned.safetensors`, and
 `pytorch_lora_weights.safetensors` are each single merged files; the SDXS-512
@@ -269,10 +276,11 @@ is the maintained mirror carrying the same weights and the
   `GGML_VK_ALLOW_SYSMEM_FALLBACK` or an unsupported-op path. That proof needs
   a live run against the device and belongs to the laptop-side admission
   lane, not this workstation-side pin.
-- The brief's four registries (`remote/image-artifacts.tsv`,
-  `remote/image-models.tsv`, `remote/image-profiles.tsv`,
-  `remote/image-quarantine.tsv`) are not created by this change. The fetch
-  scripts below use the `remote/download-*.sh` pinning discipline directly;
+- The brief's four registries (`scripts/image-artifacts.tsv`,
+  `scripts/image-models.tsv`, `scripts/image-profiles.tsv`,
+  `scripts/image-quarantine.tsv`) are not created by this change. The fetch
+  scripts below use the same `download-*.sh` pinning discipline `scripts/`
+  already carries directly;
   wiring them into a registry is deferred to whichever change introduces the
   four TSVs.
 - SDXS-512 also has a `vae_large/diffusion_pytorch_model.safetensors` sibling

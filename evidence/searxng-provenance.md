@@ -1,6 +1,6 @@
 # SearXNG and YaCy native install provenance
 
-This file is a template. `remote/install-searxng.sh` and `remote/install-yacy.sh`
+This file is a template. `scripts/install-searxng.sh` and `scripts/install-yacy.sh`
 run on the laptop, not on the workstation this tree is edited from, so every
 field below reads `-` until a laptop run fills it in. A field left `-` after a
 run states that the run did not reach that check; it is never filled with an
@@ -16,7 +16,7 @@ install root:         /opt/searxng-qwen-apu (world-readable; the searxng
                       user's searxng-src stage refuses a source under a
                       0750 home directory)
 installer log sha256: 2cece232571116ebd70736fd3e38e44f14769f33059474feed31bb080f217d44
-settings source:      remote/searxng-settings.yml
+settings source:      scripts/searxng-settings.yml
 settings sha256:      fde41eb1b357f340b1397c3a25e2e0fd63b087bd7f38ac63d40c1d1dbe8d14be
 installed settings:   /etc/searxng/settings.yml (0640 searxng:searxng)
 listener:             127.0.0.1:8888 alone (2026-08-29)
@@ -57,7 +57,7 @@ instance enables `brave` (the web engine) and leaves `braveapi` untouched at
 its upstream default. Every engine name above was verified present in the
 pinned tree; none were guessed.
 
-### Live verification (`remote/install-searxng.sh` fills this after a real run)
+### Live verification (`scripts/install-searxng.sh` fills this after a real run)
 
 ```text
 verified engine table (2026-08-29, /config membership read by the installer):
@@ -88,7 +88,7 @@ Two laptop facts moved the installer before this run verified. The upstream
 its readability check refuses a source under a home directory at mode 0750,
 so the install root lives under `/opt`, and `utils/brand.sh` reads settings
 through a bare `python`, which `python-is-python3` supplies on the appliance.
-`remote/searxng-control.sh` opens the server log inside the service-user shell,
+`scripts/searxng-control.sh` opens the server log inside the service-user shell,
 because the run directory is `searxng`-owned and the invoking human cannot
 create a file there.
 
@@ -139,8 +139,8 @@ java major version measured:  21 (openjdk 21.0.12)
 ```
 
 The JVM opens one dual-stack socket, so `ss -ltn` prints the IPv4 loopback
-as `[::ffff:127.0.0.1]:8090`; `remote/yacy-control.sh` and
-`remote/install-yacy.sh` read that spelling as the loopback listener, and the
+as `[::ffff:127.0.0.1]:8090`; `scripts/yacy-control.sh` and
+`scripts/install-yacy.sh` read that spelling as the loopback listener, and the
 control script matches listener strings as fixed text because a bracketed
 address read as a regular expression is a character class. A cold start on
 the two 2.3 GHz cores opened the listener 6 s after launch with the tree
@@ -175,6 +175,6 @@ pinned `searx/settings.yml` carries `timeout: 30`, which this instance's
 `max_request_timeout: 8.0` caps to 8 seconds regardless. A crossref query
 that upstream expected to need up to 30 seconds routinely times out under
 this instance's outgoing tuple; this is a consequence of the design facts
-this file was built from, not a bug in `remote/searxng-settings.yml`, and a
+this file was built from, not a bug in `scripts/searxng-settings.yml`, and a
 laptop run's live search against `qwen-academic` should confirm whether 8
 seconds is enough in practice.

@@ -1,10 +1,10 @@
 # The priority a runtime holds belongs to the runtime, not to its parent
 
-`remote/qwen-exec-idle-priority.sh` sets nice 19 and the idle I/O class in its
+`scripts/qwen-exec-idle-priority.sh` sets nice 19 and the idle I/O class in its
 own process, verifies both against the kernel, and replaces itself with the
-command its argv names. `remote/image-service.py` spawns the pinned image
-runtime through it and `remote/measure-dpm-force.sh` applies the same two
-values to itself before its first arm.
+command its argv names. `scripts/image-service.py` spawns the pinned image
+runtime through it, applying the same two values to the runtime before its
+first instruction.
 
 ## What the mechanism replaces
 
@@ -22,7 +22,7 @@ child-side wrapper is what remains, and `exec` keeps the pid, the process group,
 and the session, so the service's cancellation target and its `waitpid` are the
 ones its own spawn recorded.
 
-The DPM harness spelled its priority `nice -n 19 ionice -c 3` on each arm's
+A retired DPM-force harness spelled its priority `nice -n 19 ionice -c 3` on each arm's
 bench invocation. `nice -n` is an increment against the caller and `renice -n`
 is relative where POSIXLY_CORRECT is set (renice(1), util-linux 2.42.2), so both
 spellings reach 19 from a caller at nice 0 or above -- 19 is the ceiling and the
@@ -47,10 +47,13 @@ recording `nice: "-"` beside a successful generation, which is what the previous
 
 That deadline is sized against the wrapper's own cost, because a refusal is no
 longer free. The wrapper spawns `renice`, `ps`, `awk`, and `ionice` before it
-execs, measured at a 1.2 ms median over twenty runs on an idle host, and it does
-so at nice 19 on a machine `evidence/scheduling-priority-cost.md` measures under
-loadavg 4.9 to 7.0. The read-back returns the moment 19 appears, so the number
-decides only how slow a wrapper is called a refusal.
+execs, measured at a 1.2 ms median over twenty runs on an idle host. The
+loadavg 4.9 to 7.0 figure that the retired DPM-force harness's own
+nice-19-versus-nice-0 arms ran under is measured on the prior host, retained as
+`evidence/legacy/raven2/comparative-findings.tsv` finding
+`nice19-no-directional-cost`; the raw record stays in the qwen-apu repository.
+The read-back returns the moment 19 appears, so the number decides only how
+slow a wrapper is called a refusal.
 
 The wrapper's `qwen_priority_ready` line reaches an operator.
 `qwen-webui-session.sh` starts the service with `>"$image_service_log" 2>&1`
@@ -66,8 +69,8 @@ retained `harness_ioclass=idle` column states the class rather than a result.
 
 ## Falsifiers
 
-`remote/test-exec-idle-priority.sh` runs thirteen checks and
-`remote/test-image-service.py` carries two more.
+`scripts/test-exec-idle-priority.sh` runs eight checks and
+`scripts/test-image-service.py` carries two more.
 
 | Fixture | Required result | Status |
 | --- | --- | --- |
@@ -75,8 +78,6 @@ retained `harness_ioclass=idle` column states the class rather than a result.
 | `POSIXLY_CORRECT=1` from nice 5 | runtime records nice 19, idle | passes |
 | Priority call fails | exit 125, no readiness marker, runtime unexecuted | passes |
 | Absolute renice removed from the wrapper | exit 125, runtime unexecuted | passes |
-| DPM harness called from nice 5 | every summary row reads 19 and idle, bench inherits 19 | passes |
-| DPM priority call fails | exit 2 before the governor node is written, no arm runs | passes |
 | Runtime's own first instruction | nice 19 and idle already in force | passes |
 | Read-back against a wrapped child | 19 | passes |
 | Read-back against an unwrapped child | the caller's own value, which the spawn refuses | passes |
@@ -100,9 +101,9 @@ suite already carries is unaffected.
 
 ## Evidence class
 
-Fixture-verified rather than device-verified. Both hardened surfaces are pinned
-to the other host in this tree: `measure-dpm-force.sh` writes
-`power_dpm_force_performance_level`, which is an amdgpu node with no counterpart
-here, and every `remote/image-profiles.tsv` row reads `refused` against a
-RADV-pinned runtime. The change is source and fixture work, and no arm of it ran
-against this host's device.
+Fixture-verified rather than device-verified. The image runtime this wrapper
+protects is pinned to the prior host's Vulkan driver
+(`evidence/image-appliance/stable-diffusion-cpp-pin.md`), so every
+`scripts/image-profiles.tsv` row reads `refused` and no arm of the priority
+mechanism has run against this host's device. The change is source and fixture
+work alone.

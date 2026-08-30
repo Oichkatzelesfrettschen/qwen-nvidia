@@ -19,7 +19,7 @@ than the target's weight traffic.
 
 ## Method
 
-`remote/run-speculation-sweep.sh`, one llama-server per arm, target loaded at
+`scripts/run-speculation-sweep.sh`, one llama-server per arm, target loaded at
 `-ngl 99` with `q8_0`/`q4_0` KV, flash attention on, depth 8192, and the draft
 at `--spec-draft-ngl 99`. Each arm answers the same three prompts -- prose
 continuation, shell code, arithmetic reasoning -- at temperature 0 with 256

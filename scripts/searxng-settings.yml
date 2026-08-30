@@ -1,0 +1,129 @@
+# SearXNG settings for the laptop's loopback instance. use_default_settings
+# pulls every key this file omits from the pinned commit's own searx/settings.yml
+# (scripts/install-searxng.sh records the pin), and searx/settings_loader.py
+# merges an engine override by name: a dict field merges key by key, a list
+# field replaces the default outright. Every engine block below therefore
+# repeats the upstream default categories alongside the qwen-named one it
+# joins, so enabling one engine for this instance does not drop it from the
+# tab SearXNG already placed it under.
+#
+# One human drives this instance from the appliance's own loopback, so the
+# bot-facing limiter, the public-instance bot-detection tokens, and the image
+# proxy stay off: none of the three has a caller to defend against or a public
+# surface to protect. formats carries json beside html because
+# searx/webapp.py answers a format outside settings['search']['formats'] with
+# flask.abort(403) before the query ever reaches an engine, and the browser UI
+# still needs html.
+use_default_settings: true
+
+general:
+  instance_name: "qwen-searxng"
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+server:
+  port: 8888
+  bind_address: "127.0.0.1"
+  secret_key: "ultrasecretkey"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+# outgoing repeats every default value install-searxng.sh's provenance record
+# depends on (evidence/searxng-provenance.md), so the settings file states the
+# tuple this instance runs under rather than an installer default that a later
+# upstream edit could move without this file changing.
+outgoing:
+  request_timeout: 3.0
+  max_request_timeout: 8.0
+  pool_connections: 20
+  pool_maxsize: 10
+  enable_http2: true
+  retries: 0
+
+engines:
+  # qwen-open: an open, non-commercial index for a first look; wikidata rides
+  # beside wikipedia because the same query resolves the entity twin.
+  - name: mwmbl
+    disabled: false
+    categories: [general, qwen-open]
+  - name: wiby
+    disabled: false
+    categories: [general, blogs, qwen-open]
+  - name: wikipedia
+    categories: [general, qwen-open, qwen-academic]
+  - name: wikidata
+    categories: [general, qwen-open]
+
+  # qwen-broad: the commercial and privacy-respecting web engines together,
+  # enabled here even where the upstream default disables them (google, bing,
+  # qwant, mojeek ship disabled: true in searx/settings.yml). brave keeps its
+  # upstream name "brave" -- braveapi is a distinct, key-gated engine this
+  # instance does not enable.
+  - name: google
+    disabled: false
+    categories: [general, web, qwen-broad]
+  - name: bing
+    disabled: false
+    categories: [general, web, qwen-broad]
+  - name: brave
+    categories: [general, web, qwen-broad]
+  - name: duckduckgo
+    categories: [general, web, qwen-broad]
+  - name: startpage
+    categories: [general, web, qwen-broad]
+  - name: qwant
+    disabled: false
+    categories: [general, web, qwen-broad]
+  - name: mojeek
+    disabled: false
+    categories: [general, web, qwen-broad]
+
+  # qwen-academic: crossref ships disabled: true upstream; arxiv and pubmed
+  # ship enabled. wikipedia's block above already carries qwen-academic.
+  - name: crossref
+    disabled: false
+    categories: [science, "scientific publications", qwen-academic]
+  - name: arxiv
+    categories: [science, "scientific publications", qwen-academic]
+  - name: pubmed
+    categories: [science, "scientific publications", qwen-academic]
+
+  # qwen-news: all four ship enabled upstream (none carries disabled: true in
+  # the pinned tree), so this instance only widens their category membership.
+  # reuters names the engine module scripts/... confirmed present at the pin.
+  - name: reuters
+    categories: [news, qwen-news]
+  - name: google news
+    categories: [news, qwen-news]
+  - name: bing news
+    categories: [news, qwen-news]
+  - name: brave.news
+    categories: [news, qwen-news]
+
+  # qwen-yacy: the laptop's own on-demand peer at 127.0.0.1:8090
+  # (scripts/install-yacy.sh, scripts/yacy-control.sh). The engine is enabled
+  # and lives in qwen-yacy alone, so a qwen-open or qwen-broad search never
+  # asks it and a qwen-yacy search reaches it only while yacy-control.sh
+  # holds the peer up; a query while it is down fails that one engine and
+  # the instance suspends it for its own interval. search_mode "global"
+  # queries the wider YaCy network through that local peer rather than
+  # restricting to its own index; search_type "text" excludes the separate
+  # image engine this instance does not enable.
+  - name: yacy
+    engine: yacy
+    shortcut: ya
+    disabled: false
+    categories: [qwen-yacy]
+    base_url:
+      - http://127.0.0.1:8090
+    # searx/network refuses a plain-http request unless the engine opts in,
+    # and the local peer serves http alone (server.https=false in yacy.conf).
+    enable_http: true
+    search_mode: "global"
+    search_type: "text"

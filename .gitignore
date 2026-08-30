@@ -8,8 +8,17 @@ __pycache__/
 !evidence/**/*.log
 api.key
 *.key
-# Private hardware captures contain DIMM serials and SMBIOS identifiers. The
-# sanitized RCA and artifact hashes live in the tracked evidence documents.
-/evidence/hp14-dk1xxx-memory-configuration/
-evidence/ada/speculation-2b-target/
-evidence/ada/speculation-4b-target/
+# Private hardware captures carry DIMM serials and SMBIOS identifiers. The
+# sanitized findings and artifact hashes live in the tracked evidence documents.
+/evidence/*-memory-configuration/
+VP_VULKANINFO_*.json
+
+# Vendor SDK extracts are fetched rather than tracked.
+/cusparselt/
+
+# Two speculation sweeps ran while their own runner was being edited, and sh
+# reads a script incrementally, so the arms after the edit ran under different
+# code than the arms before it. The completed runs live beside them under
+# evidence/ada/speculation-target-*/.
+/evidence/ada/speculation-2b-target/
+/evidence/ada/speculation-4b-target/

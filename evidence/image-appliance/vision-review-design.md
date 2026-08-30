@@ -1,13 +1,14 @@
 # Vision review of a generated image, and the two corrections it may propose
 
-Most of this document predates any appliance run, and every quantity below is
-either a bound this lane imposes or a prediction registered with the
-observation that refutes it, except where a section names a run and points at
-its evidence directory. The mechanisms are in the tree and their tests run on
-the workstation: `remote/image-review.py` builds and parses the review,
-`remote/test-image-review.py` drives it against a fake vision router,
+This document predates any run against this host's device, and every quantity
+below is either a bound this lane imposes or a prediction registered with the
+observation that refutes it. The prior host ran this lane and its evidence
+stays with that host's own repository; none of its figures are restated here
+as claims about this device. The mechanisms are in the tree and their tests
+run on the workstation: `scripts/image-review.py` builds and parses the review,
+`scripts/test-image-review.py` drives it against a fake vision router,
 `webui/index.html` runs the same schema in the browser, and
-`remote/web-mcp/test-fallback-page-image.py` drives the served page through one
+`scripts/web-mcp/test-fallback-page-image.py` drives the served page through one
 review, two approved corrections, and the cap that ends them.
 
 ## The state machine
@@ -52,7 +53,7 @@ The reply is one JSON object and nothing around it:
  "regenerate": true}
 ```
 
-`remote/image-review.py:parse_verdict` and the page's `parseReviewVerdict` admit
+`scripts/image-review.py:parse_verdict` and the page's `parseReviewVerdict` admit
 that object under identical rules, and each refusal carries the code naming the
 rule it failed: `not_json` for prose or a fenced block, `extra_keys`,
 `missing_keys`, `constraint_count`, `constraint_names` where the reply names a
@@ -65,7 +66,7 @@ run exists to measure.
 `tool_calls` is read before the content is. The request body omits `tools`
 entirely rather than sending an empty list, so the vision model is offered no
 executable surface at all; a reply proposing a call answers a request nobody
-made and its text stays unread. `remote/test-image-review.py` makes the stub
+made and its text stays unread. `scripts/test-image-review.py` makes the stub
 enforce this from the other side: a request carrying a `tools` key is answered
 with a tool-call proposal, so a body that acquired one fails through the parser.
 
@@ -124,25 +125,12 @@ hash, so the broker signs for what will actually run.
 
 ## The appliance run to perform next
 
-Three vision rows are validated to 32768 with their projectors loaded
-(`evidence/depth-validation-32k-projector/`): `lfm25-vl-16b` at 15.87 decode
-tok/s, `qwen35-2b` at 9.43, and `qwen35-4b-base`. Run `lfm25-vl-16b` first
-because it is the fastest of the three and a 400-token reply at 15.87 tok/s
-bounds the review near 25 s where the 9.43 row bounds it near 42 s, then
-`qwen35-2b` as the control.
-
-Read the two inside one sweep. This machine spans 30.6% on one checkpoint under
-identical flags between sweeps, so a difference below about 20% quoted from
-single arms reports queue position rather than capability; the two vision rows
-review the same artifact against the same constraint list, alternating, in one
-sitting.
-
-Which phase the run takes is decided by one ledger field. `review_model` in
-`remote/image-profiles.tsv` names the vision checkpoint an image profile pairs,
-and `remote/build-web-presets.sh` emits a review-only section for it beside the
-language one: the vision row's own tuple from `remote/models.tsv`, its
-projector from `select-projector.sh`, a `validated` row in
-`remote/validated-tuples.tsv` at that exact tuple with `projector_state=loaded`,
+Which phase a review runs in is decided by one ledger field. `review_model` in
+`scripts/image-profiles.tsv` names the vision checkpoint an image profile
+pairs, and `scripts/build-web-presets.sh` emits a review-only section for it
+beside the language one: the vision row's own tuple from `scripts/models.tsv`,
+its projector from `select-projector.sh`, a `validated` row in
+`scripts/validated-tuples.tsv` at that exact tuple with `projector_state=loaded`,
 no MCP configuration, and the tags `vision-review,review-only`.
 `qwen-image-launch.sh` then names that section to `qwen-web-launch.sh` through
 `QWEN_WEB_REVIEW_SECTION`, which admits two sections and exports
@@ -150,95 +138,62 @@ no MCP configuration, and the tags `vision-review,review-only`.
 `GET /props?model=<vision id>` reports a vision modality, and the page's Review
 button appears on the artifact card.
 
-`image-sdxs-512-a` reads `review_model = lfm25-vl-16b`; every other row reads
-`-`. The budget gate is what decides it and it is unmeasurable off the device: `qwen-image-launch.sh` sums every
-`LLAMA_ARG_MODEL` and `LLAMA_ARG_MMPROJ` the preset names, adds the image
-runtime's measured resident cost, hands the total to
-`model-memory-preflight.sh`, and reports what the RADV RAVEN2 probe answers.
-A paired launch refuses on that probe's `vulkan_budget_headroom=short` line;
-a one-section launch reads the same figure and proceeds, since that shape has
-already generated an approved image on this machine and the preflight reports
-rather than predicts by design. Two paired launches have now reported
-`ample`, the second at `required_mib=4388` with 11.42 GiB of Vulkan margin
-free, and both sections served requests in it.
+Every row in `scripts/image-profiles.tsv` reads `execution_policy=refused` and
+`review_model=-` in this tree, so no vision-review pairing is live here. The
+prior host paired one profile with a vision reviewer after its own budget gate
+admitted the pair on its own Vulkan margin; that pairing, the decode-rate and
+VRAM-headroom figures behind it, and the run records that supported it belong
+to that host and are not restated here, because the budget gate is a
+device-specific measurement this host has not performed. Admitting a review
+pairing on this host repeats that budget gate against this host's own device
+memory before a `review_model` value is named: `qwen-image-launch.sh` sums
+every `LLAMA_ARG_MODEL` and `LLAMA_ARG_MMPROJ` the preset names, adds the image
+runtime's resident cost, hands the total to `model-memory-preflight.sh`, and
+reports what that preflight answers.
 
-The run is two phases wherever `review_model` reads `-`:
+The run is two phases wherever `review_model` reads `-`, which is every row
+today:
 
 1. Generate one artifact through `qwen-image-launch.sh` and record its digest
    and provenance. The lease is released at the rename, and the lane returns to
    idle.
 2. Run `image-service.py` on the same `--state-dir` so `GET /artifacts/` still
-   answers, bring up an ordinary router holding `lfm25-vl-16b` and `qwen35-2b`,
-   and run `remote/image-review.py` against the router origin and the artifact
-   listener for each vision model in turn, alternating, retaining the audit
-   line, the verdict JSON, and the raw reply.
+   answers, bring up an ordinary router holding the candidate vision and
+   language checkpoints, and run `scripts/image-review.py` against the router
+   origin and the artifact listener for each vision model in turn, alternating,
+   retaining the audit line, the verdict JSON, and the raw reply.
 
-Both steps have run twice: once with no `response_format`
-(`evidence/image-appliance/vision-review-first-run/`, three structural
-refusals of four rows) and once with a `json_schema`-carrying
-`response_format` (`evidence/image-appliance/vision-review-grammar-run/`,
-four of four rows accepted, the three prior refusals closed, and the one row
-present in both runs -- `qwen35-2b`/apple, the only row where both runs
-produced a verdict to compare -- unchanged in its judgment). The grammar
-run's own next step is the page arm below. It also proposes a timing arm it
-did not run: the two runs sit twenty minutes apart rather than in one sweep,
-every observed wall-time delta is positive, and the mean (+5.0%) sits at the
-edge of this machine's ~4% same-flags spread rather than clearly inside or
-outside it, so an alternating same-sweep rerun of the schema-free and
-grammar-bound conditions is what would resolve the direction rather than
-leave it at the edge of measurement noise.
-
-The page arm has run and is closed.
-`evidence/image-appliance/paired-review-admission/` retains it: one session
-carried the approved generation and a vision review of that same artifact,
-`lfm25-vl-16b` rendered `pass prompt_subject` on the card over the one
-constraint the page declared, the transcript kept no verdict text, and the
-review request carried no `tools` key. `remote/image-profiles.tsv` ships
-`review_model = lfm25-vl-16b` on `image-sdxs-512-a` because of it.
-`remote/test-admit-image-router.sh` runs that whole path on the workstation
-against `remote/test-fixtures/fake-router-server.py`, which serves the two
-sections, reports the vision modality from the section's own projector, and
-answers the verdict over the constraints the request declared; the browser
-clicks Review and the checklist it rendered is what the arm reads.
-`remote/web-mcp/test-fallback-page-image.py` remains the place the correction
-loop and its cap run end to end against a stub roster.
-
-What the page arm leaves for the appliance is a verdict that asks to
-regenerate. The retained review passed, so falsifiers 5 and 6 -- convergence
-and the lineage cap -- stayed unrun on the device, and falsifier 3's
-image-withheld control did not run either. Falsifier 4 is met and its
-measurement is below.
+`scripts/test-admit-image-router.sh` runs the review path end to end on the
+workstation against `scripts/test-fixtures/fake-router-server.py`, which serves
+two sections, reports the vision modality from the section's own projector,
+and answers the verdict over the constraints the request declared, and
+`scripts/web-mcp/test-fallback-page-image.py` runs the correction loop and its
+cap end to end against a stub roster. Both are fixture-verified rather than
+device-verified.
 
 ### Falsifiers
 
-Each of these is an observation that refutes a claim this design rests on. The
-first two are predicted failure modes with their remedies rather than
-hypotheses.
+Each of these is an observation that would refute a claim this design rests
+on, registered ahead of the run that would produce it. None has run against
+this host's device. The prior host's own arms are retained as that host's
+history in `evidence/legacy/raven2/` and are not restated as claims about this
+device.
 
-1. **The reply is fenced or narrated.** A model that answers
-   ```` ```json ... ``` ```` refuses as `not_json`, and so does one that writes a
-   sentence before the object. The check this falsifier left open has run:
-   `tools/server/server-common.cpp:1156-1174` in the workstation clone
-   `~/src/llama.cpp` at `c2c62855c` (containing the pinned `f280b269`) reads a
-   top-level `json_schema` key directly and reads
-   `response_format.json_schema.schema` for `{"type": "json_schema", ...}`,
-   and `common/chat.cpp:3673,3802` converts whichever schema arrived into a
-   grammar with `json_schema_to_grammar` -- so `response_format` is honoured
-   and `remote/image-review.py` now sends it. `evidence/image-appliance/vision-review-first-run/`
-   is the run this falsifier predicted against: none of its four rows produced
-   a fenced or narrated reply, so this specific prediction was not met on the
-   first appliance run. What that run hit instead is recorded there --
-   `constraint_count` and `hard_constraints_not_list`, an object that parses as
-   valid JSON while diverging from the declared shape -- which is the failure
-   class a grammar closes and a strict parser alone cannot, since the parser
-   only runs after the reply already exists.
-2. **Thinking off is inert against the template.** `enable_thinking: false` does
-   nothing to a chat template that ends its generation prompt with an unguarded
-   `<think>`, which this tree already records for one 0.8B row. A reasoning span
-   inside the 400-token budget ends the object unclosed and the parse refuses as
-   `not_json` with no useful distinction from case 1. The audit line separates
-   them: `reasoning_emitted=yes` says the budget went to reasoning, and the
-   remedy is a larger budget for that row rather than a schema change.
+1. **The reply is fenced or narrated.** A model that answers a fenced block or
+   a sentence before the object refuses as `not_json`. `common/chat.cpp` in
+   the pinned llama.cpp converts a `response_format.json_schema` schema into a
+   grammar with `json_schema_to_grammar`, so `response_format` is honoured and
+   `scripts/image-review.py` sends it; whether a served reply on this host
+   still needs the grammar to close the fenced-or-narrated failure class is
+   unmeasured here.
+2. **Thinking off is inert against the template.** `enable_thinking: false`
+   does nothing to a chat template that ends its generation prompt with an
+   unguarded `<think>`, which this tree already records for one 0.8B row. A
+   reasoning span inside the 400-token budget ends the object unclosed and the
+   parse refuses as `not_json` with no useful distinction from case 1. The
+   audit line separates them: `reasoning_emitted=yes` says the budget went to
+   reasoning, and the remedy is a larger budget for that row rather than a
+   schema change.
 3. **The verdict is unfaithful to the image.** Both vision rows answer with the
    schema and disagree with what the image shows. The image-withheld control
    applies here the way it does in the graded suite: run the same review with
@@ -248,17 +203,7 @@ hypotheses.
    exceeds the generation's makes a correction loop cost three generations plus
    three reviews; the audit line's `wall_seconds` against the provenance
    record's total is the comparison, and a review above the generation time
-   moves the default vision row or lowers the reply budget. This is met:
-   `evidence/image-appliance/paired-review-admission/` measures 19.44 s of
-   review against 11.62 s of generation, a ratio of 1.67, and both named
-   remedies miss the term that sets it. `lfm25-vl-16b` at 15.87 decode tok/s is
-   already the fastest projector-validated row the roster offers, and 14.77 s
-   of the 19.44 is prompt evaluation of the 570-token multimodal prompt against
-   4.67 s of reply, so a zero-token reply would still exceed the generation.
-   The cost is the image the reviewer reads. The consequence is a bound on the
-   correction loop -- three generations plus three reviews is about 93 s of
-   device time against 35 s of generation -- rather than a change to the
-   pairing.
+   moves the default vision row or lowers the reply budget.
 5. **The correction does not converge.** Two corrections that each fail the same
    named constraint refute the premise that a `prompt_delta` from a vision model
    repairs a named failure. The observation is the second correction's verdict
@@ -266,18 +211,11 @@ hypotheses.
    automatic proposal is withdrawn in favour of a human-written delta.
 6. **The cap leaks.** A third correction reaching the dialog for one original
    request refutes the lineage counter. The page arm asserts it against the
-   stub; the appliance repeats it once a two-section preset exists.
+   stub; a device run repeats it once a two-section preset exists here.
 7. **A two-section preset does not fit.** Raising `QWEN_ROUTER_MAX` to hold a
-   language row and a vision row together may exceed the 2048 MiB VRAM budget
-   that set `QWEN_ROUTER_MAX=1` in the first place. The observation is
-   `qwen-image-launch.sh` printing `vulkan_budget_headroom=short` against the
-   summed requirement, or the second load failing after an ample report, and
-   the consequence is that the page review stays a two-phase operation with the
-   CLI, or that the same model serves both roles. Neither observation was met
-   on either paired launch: `evidence/image-appliance/paired-review-launch/`
-   and `evidence/image-appliance/paired-review-admission/` both report
-   `ample`, the second at `required_mib=4388` with `surplus_bytes=12261912576`,
-   and both sections answered requests in the second. The 4B distill beside
-   `lfm25-vl-16b` is the pair `remote/image-profiles.tsv` now ships; the 2B
-   distill at 1.21 GiB is the smaller one the roster offers where a larger
-   language row is refused.
+   language row and a vision row together may exceed this host's own device
+   memory budget. The observation is `qwen-image-launch.sh` printing
+   `vulkan_budget_headroom=short` against the summed requirement, or the
+   second load failing after an ample report, and the consequence is that the
+   page review stays a two-phase operation with the CLI, or that the same
+   model serves both roles.

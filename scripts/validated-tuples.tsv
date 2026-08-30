@@ -1,0 +1,45 @@
+# A serving tuple ledger, one row per measured (context, batch, ubatch, cache,
+# Flash Attention) arm against one model. models.tsv carries a single
+# validated_filled_depth per row, which cannot express that one depth passes
+# under one submission geometry and fails under another for the same model and
+# cache triple: the 4B distill fills and decodes 16384 tokens at batch 128 and
+# ubatch 32 while the harness-default 2048 and 512 wedges the compute ring at
+# the same depth and cache triple. This ledger carries every measured arm
+# rather than collapsing them into one field, and
+# scripts/check-validated-tuples.sh requires the arm models.tsv already claims
+# through validated_filled_depth/batch/ubatch to appear here as a validated row.
+#
+# tuple_id is a unique key naming model, depth, and geometry. model_id is a row
+# in scripts/models.tsv. runtime_mode is standalone or router-child, because a
+# router preset section overrides depth, batch, ubatch, and cache in
+# server-models.cpp's common_preset::merge and the two paths admit different
+# geometry. context, batch, and ubatch are the submission geometry the arm
+# measured; cache_k, cache_v, and flash_attention are the cache triple. threads
+# and parallel name the llama-server invocation the arm ran with; a change to
+# either is a different measurement. projector_state is none or loaded, because
+# a loaded projector changes the buffers the arm allocates. backend is cuda,
+# vulkan, cpu, or hip, and scripts/check-validated-tuples.sh admits only rows
+# whose backend equals the serving backend the launch runs under.
+#
+# status is validated, failed, or unverified. validated means the arm filled
+# and decoded to the stated depth and the post-arm control passed. failed means
+# the arm wedged, reset, or otherwise did not complete, and the row still
+# belongs in the ledger because a failed geometry is exactly what steers a
+# later choice away from it. unverified means the row is planned or claimed
+# without a completed arm; scripts/check-validated-tuples.sh treats it the same
+# as an absent row when models.tsv requires a validated match.
+#
+# evidence is a repository-relative path that must exist in the tree when
+# status is validated. llama_commit, runner_sha256, kernel, mesa, and
+# gpu_module name the build and host identity the arm ran under, `-` where the
+# retained evidence does not carry that identity. measured_at is the ISO date
+# the arm ran, `-` where unknown.
+#
+# The ledger holds no row on this host. Every arm it carried was measured on
+# the prior host's APU over its Vulkan driver, where a depth validated under
+# one submission geometry says nothing about a different device, a different
+# driver, and a 12 GiB carve-out; the raw records stay in that host's own tree.
+# scripts/models.tsv reads `-` in validated_filled_depth for every row as a
+# result, and a depth campaign on this device is what fills both files.
+#
+# tuple_id	model_id	runtime_mode	context	batch	ubatch	cache_k	cache_v	flash_attention	threads	parallel	projector_state	backend	status	evidence	llama_commit	runner_sha256	kernel	mesa	gpu_module	measured_at
