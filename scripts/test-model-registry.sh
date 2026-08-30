@@ -34,7 +34,7 @@ check_rows() {
         /^[[:space:]]*$/ { next }
         {
             rows++
-            if (NF != 22) {
+            if (NF != 24) {
                 printf "row %d holds %d fields\n", NR, NF
                 bad++
                 next
@@ -123,7 +123,8 @@ check_cache_types() {
         cache_type_v _flash_attention _projector _projector_fetch_script \
         _decode_tok_s _prefill_tok_s \
         _quality _tier _batch _ubatch _validated_filled_depth \
-        _validation_evidence; do
+        _validation_evidence _raw_tool_selection _guarded_tool_execution \
+        _mtp_layers _speculation_profile; do
         case $model_id in
             '' | \#*) continue ;;
         esac
@@ -156,7 +157,7 @@ else
     report cache_type_vocabulary rejected
 fi
 
-expected_header=$(printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution')
+expected_header=$(printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile')
 actual_header=$(grep '^# id' "$registry" || true)
 if [ "$actual_header" = "$expected_header" ]; then
     report schema_header accepted
@@ -178,12 +179,43 @@ else
     report projector_fetch_lookup rejected
 fi
 
+# The subject is path resolution rather than the depth itself, so the expected
+# value is read from the registry by id: a depth the registry raises is not a
+# path-resolution failure.
+expected_ceiling=$("$reader" id qwen38-2b-distill context_ceiling)
 resolved=$("$reader" path \
     /any/prefix/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf context_ceiling)
-if [ "$resolved" = 32768 ]; then
+if [ -n "$expected_ceiling" ] && [ "$resolved" = "$expected_ceiling" ]; then
     report path_lookup accepted
 else
     report path_lookup rejected
+fi
+
+# The multi-token-prediction capability and the speculation policy that reads
+# it are two claims and two fields; both resolve by id and by path the same
+# way every other field does.
+if [ "$("$reader" id qwen38-2b-distill mtp_layers)" = 1 ] &&
+   [ "$("$reader" id qwen38-2b-distill speculation_profile)" = mtp1 ]; then
+    report mtp_speculation_id_lookup accepted
+else
+    report mtp_speculation_id_lookup rejected
+fi
+
+if [ "$("$reader" id qwen35-2b-heretic mtp_layers)" = 0 ] &&
+   [ "$("$reader" id qwen35-2b-heretic speculation_profile)" = off ]; then
+    report mtp_speculation_id_lookup_off accepted
+else
+    report mtp_speculation_id_lookup_off rejected
+fi
+
+resolved_mtp_layers=$("$reader" path \
+    /any/prefix/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf mtp_layers)
+resolved_speculation_profile=$("$reader" path \
+    /any/prefix/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf speculation_profile)
+if [ "$resolved_mtp_layers" = 1 ] && [ "$resolved_speculation_profile" = mtp1 ]; then
+    report mtp_speculation_path_lookup accepted
+else
+    report mtp_speculation_path_lookup rejected
 fi
 
 # A row that does not exist must fail rather than print an empty field, because
@@ -220,10 +252,10 @@ fi
 fixture_registry=$work_directory/models.tsv
 fixture_quarantine=$work_directory/quarantine.tsv
 printf '%b\n' \
-    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused' \
-    'model-blocked\ttext\tmodels/model-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused' \
-    'profile-blocked\ttext\tmodels/profile-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused' \
-    'profile-neighbour\ttext\tmodels/profile-neighbour.gguf\tfetch.sh\t4096\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused' \
+    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
+    'model-blocked\ttext\tmodels/model-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
+    'profile-blocked\ttext\tmodels/profile-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
+    'profile-neighbour\ttext\tmodels/profile-neighbour.gguf\tfetch.sh\t4096\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
     >"$fixture_registry"
 printf '%b\n' \
     'model-record\tmodel\tmodel-blocked\tdevice-lost\t-\t-\t-\t-\t-\t-\t-\t-\tevidence/model.md\tany' \
@@ -379,7 +411,7 @@ fi
 # validator names.
 tuple_fixture_models=$work_directory/tuple-models.tsv
 printf '%b\n' \
-    'tuple-model\ttext\tmodels/tuple-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused' \
+    'tuple-model\ttext\tmodels/tuple-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
     >"$tuple_fixture_models"
 
 # The validator resolves an evidence path against the repository root, the
@@ -537,7 +569,8 @@ fi
 check_validated_tuples=$script_directory/check-validated-tuples.sh
 check_tuple_models=$work_directory/check-tuple-models.tsv
 printf '%b\n' \
-    'check-model\ttext\tmodels/check-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/check-model.md\tunmeasured\trefused' \
+    "$expected_header" \
+    'check-model\ttext\tmodels/check-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/check-model.md\tunmeasured\trefused\t0\toff' \
     >"$check_tuple_models"
 matching_check_tuples=$work_directory/matching-check-tuples.tsv
 printf '%b\n' \
@@ -591,7 +624,8 @@ fi
 
 projector_check_models=$work_directory/projector-check-models.tsv
 printf '%b\n' \
-    'vision-model\tvision\tmodels/vision-model.gguf\tfetch.sh\t4096\t4096\t4096\tq8_0\tq4_0\ton\trequired\tfetch-projector.sh\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/vision.md\tunmeasured\trefused' \
+    "$expected_header" \
+    'vision-model\tvision\tmodels/vision-model.gguf\tfetch.sh\t4096\t4096\t4096\tq8_0\tq4_0\ton\trequired\tfetch-projector.sh\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/vision.md\tunmeasured\trefused\t0\toff' \
     >"$projector_check_models"
 projector_none_tuples=$work_directory/projector-none-tuples.tsv
 printf '%b\n' \

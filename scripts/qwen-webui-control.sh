@@ -106,9 +106,9 @@ case $action in
         # shell's, so submission settings must travel in the command itself.
         forwarded_environment=''
         # The projector and its image budget must survive the tmux boundary too.
-        # Speculation and backend sampling are policy arguments the capacity
-        # script reads from the environment, so they cross this boundary with
-        # the projector settings rather than reaching the tmux server's own.
+        # Backend sampling is a policy argument the capacity script reads from
+        # the environment, so it crosses this boundary with the projector
+        # settings rather than reaching the tmux server's own.
         # The approval broker's marker, port, program, state directory, signing
         # key path, profile, API-key requirement, and readiness decision cross
         # with them. qwen-web-launch.sh exports the values into the control
@@ -121,13 +121,20 @@ case $action in
         # VK_ICD_FILENAMES for every runtime it spawns and derives both from
         # that name, and a value that stopped at this boundary would leave the
         # service deriving from the default path instead.
+        #
+        # The four QWEN_SPEC_* variables cross the boundary only for a
+        # single-model launch. qwen-capacity-policy.sh refuses a router launch
+        # that carries any of them, because server-models.cpp's
+        # preset.merge(base_preset) overwrites every model section with a
+        # router-parent speculation argument; forwarding them here would hand
+        # the refusal something to refuse instead of leaving the registry's
+        # per-checkpoint speculation_profile column in control.
         for forwarded_name in QWEN_SERVING_BACKEND QWEN_CUDA_DEVICES \
                               QWEN_SERVING_NICE QWEN_SERVING_CPU_LIST \
                               QWEN_SERVING_THREADS \
                               QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
-                              QWEN_INFERENCE_CPU QWEN_SPEC_TYPE \
-                              QWEN_SPEC_DRAFT_N_MAX QWEN_SPEC_DRAFT_P_MIN \
-                              QWEN_SPEC_BACKEND_SAMPLING QWEN_BACKEND_SAMPLING \
+                              QWEN_INFERENCE_CPU \
+                              QWEN_BACKEND_SAMPLING \
                               QWEN_CACHE_TYPE_K QWEN_CACHE_TYPE_V \
                               QWEN_FLASH_ATTN \
                               QWEN_CACHE_OVERRIDE_CONTEXT_CEILING \
@@ -153,6 +160,16 @@ case $action in
                 forwarded_environment="$forwarded_environment $forwarded_name=$(shell_quote "$forwarded_value")"
             fi
         done
+        if [ "${QWEN_ROUTER:-0}" != 1 ]; then
+            for forwarded_name in QWEN_SPEC_TYPE QWEN_SPEC_DRAFT_N_MAX \
+                                  QWEN_SPEC_DRAFT_P_MIN \
+                                  QWEN_SPEC_BACKEND_SAMPLING; do
+                eval "forwarded_value=\${$forwarded_name:-}"
+                if [ -n "$forwarded_value" ]; then
+                    forwarded_environment="$forwarded_environment $forwarded_name=$(shell_quote "$forwarded_value")"
+                fi
+            done
+        fi
         for forwarded_name in GGML_VK_MAX_NODES_PER_SUBMIT \
                               GGML_VK_SERIALIZE_SUBMISSIONS \
                               GGML_VK_ALLOW_GRAPHICS_QUEUE \

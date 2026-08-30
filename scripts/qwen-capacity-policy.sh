@@ -21,6 +21,34 @@ case $router_enabled in
         ;;
 esac
 
+# server-models.cpp ends its per-child preset assembly with
+# preset.merge(base_preset), and common_preset::merge overwrites, so any
+# speculation argument on the router parent's own command line replaces that
+# key in every model section. QWEN_SPEC_TYPE=draft-mtp set globally forced
+# multi-token prediction onto checkpoints carrying no MTP layers, and each one
+# refused to load with "context type MTP requested but model doesn't contain
+# MTP layers". scripts/models.tsv now carries mtp_layers and
+# speculation_profile per row, and build-router-presets.sh emits the
+# speculation keys into each section, so router mode refuses the four
+# environment variables outright rather than building an argv that would
+# overwrite the registry's own per-checkpoint choice. Single-model mode leaves
+# them untouched below, where they remain the experimental path.
+if [ "$router_enabled" = 1 ]; then
+    router_speculation_override_names=''
+    for router_speculation_variable in QWEN_SPEC_TYPE QWEN_SPEC_DRAFT_N_MAX \
+        QWEN_SPEC_DRAFT_P_MIN QWEN_SPEC_BACKEND_SAMPLING; do
+        eval "router_speculation_value=\${$router_speculation_variable:-}"
+        if [ -n "$router_speculation_value" ]; then
+            router_speculation_override_names="$router_speculation_override_names $router_speculation_variable"
+        fi
+    done
+    if [ -n "$router_speculation_override_names" ]; then
+        printf 'router speculation is registry-owned:%s must stay unset in router mode\n' \
+            "$router_speculation_override_names" >&2
+        exit 2
+    fi
+fi
+
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 bind_host=${QWEN_BIND_HOST:-127.0.0.1}
 cors_origins=${QWEN_CORS_ORIGINS:-localhost}

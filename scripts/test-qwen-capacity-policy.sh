@@ -192,10 +192,10 @@ grep -F 'context size exceeds the admitted ceiling for this cache policy: 4097 >
 # A fabricated registry carries a triple the fallback never produces, so this
 # check separates the registry read from the built-in default.
 fabricated_registry=$temporary_directory/models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested candidate 256 64 4096 - \
-    unmeasured refused \
+    unmeasured refused - off \
     >"$fabricated_registry"
 registry_model=$temporary_directory/fabricated.gguf
 : >"$registry_model"
@@ -700,9 +700,10 @@ grep -F "router preset section fabricated carries LLAMA_ARG_MODEL $alternate_mod
 # tuple field still matches. Archive and rejected rows never reach a generated
 # router preset.
 archived_registry=$temporary_directory/archived-models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested archive 256 64 4096 - unmeasured refused \
+    - off \
     >"$archived_registry"
 if QWEN_MODEL_REGISTRY=$archived_registry QWEN_MODEL_ROOT=$router_model_root \
     QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_output \
@@ -719,9 +720,10 @@ grep -F 'router preset section fabricated has non-servable registry tier archive
 # A quarantine tier requires both the durable override and model-scope
 # router-child authority. The marker alone cannot manufacture that authority.
 quarantine_tier_registry=$temporary_directory/quarantine-tier-models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested quarantine 256 64 4096 - unmeasured refused \
+    - off \
     >"$quarantine_tier_registry"
 unowned_quarantine_preset=$temporary_directory/unowned-quarantine-tier.ini
 printf '%s\n' '# qwen_router_include_quarantine=1' \
@@ -784,6 +786,117 @@ for overridden_flag in --ctx-size --batch-size --ubatch-size --flash-attn \
             ;;
     esac
 done
+
+# server-models.cpp's preset.merge(base_preset) overwrites every model
+# section with a router-parent speculation argument the same way it overwrites
+# the six tuple flags above, so the four QWEN_SPEC_* variables are refused
+# outright in router mode rather than reaching the argv where they would
+# silently replace the registry's own per-checkpoint speculation_profile.
+router_speculation_output=$temporary_directory/router-speculation.out
+rm -f "$router_speculation_output"
+if QWEN_MODEL_REGISTRY=$fabricated_registry QWEN_MODEL_ROOT=$router_model_root \
+    QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_speculation_output \
+    QWEN_ROUTER=1 QWEN_ROUTER_PRESETS=$router_presets \
+    QWEN_SPEC_TYPE=draft-mtp \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/router-spec-type.stdout" \
+    2>"$temporary_directory/router-spec-type.stderr"; then
+    printf 'router mode accepted QWEN_SPEC_TYPE\n' >&2
+    exit 1
+fi
+grep -F 'router speculation is registry-owned' \
+    "$temporary_directory/router-spec-type.stderr" >/dev/null
+grep -F 'QWEN_SPEC_TYPE' "$temporary_directory/router-spec-type.stderr" >/dev/null
+if [ -e "$router_speculation_output" ]; then
+    printf 'fake server ran despite QWEN_SPEC_TYPE in router mode\n' >&2
+    exit 1
+fi
+
+rm -f "$router_speculation_output"
+if QWEN_MODEL_REGISTRY=$fabricated_registry QWEN_MODEL_ROOT=$router_model_root \
+    QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_speculation_output \
+    QWEN_ROUTER=1 QWEN_ROUTER_PRESETS=$router_presets \
+    QWEN_SPEC_DRAFT_N_MAX=4 \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/router-spec-n-max.stdout" \
+    2>"$temporary_directory/router-spec-n-max.stderr"; then
+    printf 'router mode accepted QWEN_SPEC_DRAFT_N_MAX\n' >&2
+    exit 1
+fi
+grep -F 'router speculation is registry-owned' \
+    "$temporary_directory/router-spec-n-max.stderr" >/dev/null
+grep -F 'QWEN_SPEC_DRAFT_N_MAX' "$temporary_directory/router-spec-n-max.stderr" \
+    >/dev/null
+if [ -e "$router_speculation_output" ]; then
+    printf 'fake server ran despite QWEN_SPEC_DRAFT_N_MAX in router mode\n' >&2
+    exit 1
+fi
+
+rm -f "$router_speculation_output"
+if QWEN_MODEL_REGISTRY=$fabricated_registry QWEN_MODEL_ROOT=$router_model_root \
+    QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_speculation_output \
+    QWEN_ROUTER=1 QWEN_ROUTER_PRESETS=$router_presets \
+    QWEN_SPEC_DRAFT_P_MIN=0.5 \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/router-spec-p-min.stdout" \
+    2>"$temporary_directory/router-spec-p-min.stderr"; then
+    printf 'router mode accepted QWEN_SPEC_DRAFT_P_MIN\n' >&2
+    exit 1
+fi
+grep -F 'router speculation is registry-owned' \
+    "$temporary_directory/router-spec-p-min.stderr" >/dev/null
+grep -F 'QWEN_SPEC_DRAFT_P_MIN' "$temporary_directory/router-spec-p-min.stderr" \
+    >/dev/null
+if [ -e "$router_speculation_output" ]; then
+    printf 'fake server ran despite QWEN_SPEC_DRAFT_P_MIN in router mode\n' >&2
+    exit 1
+fi
+
+rm -f "$router_speculation_output"
+if QWEN_MODEL_REGISTRY=$fabricated_registry QWEN_MODEL_ROOT=$router_model_root \
+    QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_speculation_output \
+    QWEN_ROUTER=1 QWEN_ROUTER_PRESETS=$router_presets \
+    QWEN_SPEC_BACKEND_SAMPLING=1 \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/router-spec-backend-sampling.stdout" \
+    2>"$temporary_directory/router-spec-backend-sampling.stderr"; then
+    printf 'router mode accepted QWEN_SPEC_BACKEND_SAMPLING\n' >&2
+    exit 1
+fi
+grep -F 'router speculation is registry-owned' \
+    "$temporary_directory/router-spec-backend-sampling.stderr" >/dev/null
+grep -F 'QWEN_SPEC_BACKEND_SAMPLING' \
+    "$temporary_directory/router-spec-backend-sampling.stderr" >/dev/null
+if [ -e "$router_speculation_output" ]; then
+    printf 'fake server ran despite QWEN_SPEC_BACKEND_SAMPLING in router mode\n' >&2
+    exit 1
+fi
+
+# A router launch naming none of the four variables is admitted, which is what
+# lets build-router-presets.sh keep emitting speculation into each section
+# without qwen-capacity-policy.sh standing in its way.
+rm -f "$router_speculation_output"
+QWEN_MODEL_REGISTRY=$fabricated_registry QWEN_MODEL_ROOT=$router_model_root \
+    QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_speculation_output \
+    QWEN_ROUTER=1 QWEN_ROUTER_PRESETS=$router_presets \
+    "$policy" "$fake_server" "$registry_model" 4096 18080
+grep -Fx "argument=$router_presets" "$router_speculation_output" >/dev/null
+
+# Single-model mode keeps the four variables as the experimental path: they
+# still reach the server argv unchanged.
+spec_single_output=$temporary_directory/spec-single.out
+QWEN_SPEC_TYPE=draft-mtp QWEN_VULKAN_ICD=$fake_icd \
+    QWEN_POLICY_TEST_OUTPUT=$spec_single_output \
+    "$policy" "$fake_server" "$model_path" 4096 18080
+spec_single_arguments=$(sed -n 's/^argument=//p' "$spec_single_output" | tr '\n' ' ')
+case $spec_single_arguments in
+    *'--spec-type draft-mtp '*) ;;
+    *)
+        printf 'single-model mode did not pass QWEN_SPEC_TYPE through: %s\n' \
+            "$spec_single_arguments" >&2
+        exit 1
+        ;;
+esac
 
 # An unreadable preset file is refused rather than starting a router with no
 # models, which would serve a picker listing nothing.
@@ -1044,10 +1157,10 @@ grep -F 'generated router presets omit quarantine provenance' \
 # the quarantined geometry reset the compute ring on a live desktop on the
 # prior host, which is why this is a refusal rather than a warning.
 quarantine_registry=$temporary_directory/quarantine-models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     quarantined research quarantined.gguf download-qwen38-4b-distill-q4km.sh \
     4096 16384 16384 q8_0 q4_0 on none - - - untested production 2048 512 4096 - \
-    unmeasured refused \
+    unmeasured refused - off \
     >"$quarantine_registry"
 quarantine_table=$temporary_directory/quarantine.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \

@@ -96,8 +96,25 @@ awk -F'\t' -v serving_backend="$serving_backend" '
         next
     }
     # The column-header comment in the registry states the field count, so a
-    # column added there does not make every row read as malformed here.
-    $0 ~ /^#[[:space:]]*id\t/ { model_field_count = NF - 0; next }
+    # column added there does not make every row read as malformed here. A
+    # second header redefines the count for every row below it and a trailing
+    # tab inflates it by an empty field, so both are refused at the header.
+    $0 ~ /^#[[:space:]]*id\t/ {
+        if (model_field_count) {
+            printf "the model registry states a second column header at row %d\n", \
+                FNR > "/dev/stderr"
+            malformed++
+            next
+        }
+        if ($NF == "") {
+            printf "the model registry column header ends on an empty field\n" \
+                > "/dev/stderr"
+            malformed++
+            next
+        }
+        model_field_count = NF - 0
+        next
+    }
     $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
     {
         model_rows++

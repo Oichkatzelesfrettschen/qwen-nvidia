@@ -246,8 +246,8 @@ emit_servable_rows() {
         }
         $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
         invalid { next }
-        NF != 22 {
-            printf "model row %d holds %d fields, expected 22\n", FNR, NF \
+        NF != 24 {
+            printf "model row %d holds %d fields, expected 24\n", FNR, NF \
                 > "/dev/stderr"
             invalid = 1
             next
@@ -512,6 +512,7 @@ if [ "$#" -ne 2 ] && [ "$#" -ne 3 ]; then
     printf '        quality tier batch\n' >&2
     printf '        ubatch validated_filled_depth validation_evidence\n' >&2
     printf '        raw_tool_selection guarded_tool_execution\n' >&2
+    printf '        mtp_layers speculation_profile\n' >&2
     printf 'omit FIELD to print the whole row as key=value lines\n' >&2
     exit 2
 fi
@@ -537,7 +538,7 @@ fi
 
 awk -F'\t' -v kind="$selector_kind" -v selector="$selector" -v field="$field" '
     /^#/ { next }
-    NF < 22 { next }
+    NF < 24 { next }
     {
         matched = 0
         if (kind == "id" && $1 == selector) {
@@ -555,11 +556,11 @@ awk -F'\t' -v kind="$selector_kind" -v selector="$selector" -v field="$field" '
               "context_target cache_type_k cache_type_v flash_attention projector " \
               "projector_fetch_script decode_tok_s prefill_tok_s quality tier batch ubatch " \
               "validated_filled_depth validation_evidence raw_tool_selection " \
-              "guarded_tool_execution", names, " ")
+              "guarded_tool_execution mtp_layers speculation_profile", names, " ")
         if (field == "") {
-            for (i = 1; i <= 22; i++) { printf "%s=%s\n", names[i], $i }
+            for (i = 1; i <= 24; i++) { printf "%s=%s\n", names[i], $i }
         } else {
-            for (i = 1; i <= 22; i++) {
+            for (i = 1; i <= 24; i++) {
                 if (names[i] == field) { printf "%s\n", $i; found = 1 }
             }
             if (!found) { exit 3 }

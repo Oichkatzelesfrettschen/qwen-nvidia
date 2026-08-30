@@ -179,7 +179,8 @@ for preset_key in $(sed -n 's/^\(LLAMA_ARG_[A-Z_]*\) *=.*/\1/p' "$presets" |
         LLAMA_ARG_MODEL | LLAMA_ARG_ALIAS | LLAMA_ARG_TAGS | \
         LLAMA_ARG_CTX_SIZE | LLAMA_ARG_CACHE_TYPE_K | LLAMA_ARG_CACHE_TYPE_V | \
         LLAMA_ARG_FLASH_ATTN | LLAMA_ARG_BATCH | LLAMA_ARG_UBATCH | \
-        LLAMA_ARG_MMPROJ) ;;
+        LLAMA_ARG_MMPROJ | LLAMA_ARG_SPEC_TYPE | LLAMA_ARG_SPEC_DRAFT_N_MAX | \
+        LLAMA_ARG_SPEC_DRAFT_P_MIN | LLAMA_ARG_SPEC_BACKEND_SAMPLING) ;;
         *)
             printf 'preset key is outside the llama-server vocabulary: %s\n' \
                 "$preset_key" >&2
@@ -239,6 +240,130 @@ section_key() {
         /^\[/ { in_section = ($2 == want); next }
         in_section && $0 ~ key { print $0 }' "$1" | sed 's/.*= *//'
 }
+
+# The speculation keys a section carries follow the row's own
+# speculation_profile selection rather than a global setting: an mtp1 row
+# carries exactly one LLAMA_ARG_SPEC_TYPE of draft-mtp and exactly one
+# LLAMA_ARG_SPEC_DRAFT_N_MAX of 1, and an off row carries neither key.
+speculation_key_failures=$work/speculation-key-failures
+: >"$speculation_key_failures"
+awk -F'\t' '!/^#/ && NF { print $1, $23, $24 }' "$registry" |
+    while read -r subject _mtp_layers speculation_profile; do
+        [ -n "$subject" ] || continue
+        case " $section_ids " in
+            *" $subject "*) ;;
+            *) continue ;;
+        esac
+        spec_type_lines=$(section_key "$presets" "$subject" LLAMA_ARG_SPEC_TYPE)
+        draft_n_max_lines=$(section_key "$presets" "$subject" LLAMA_ARG_SPEC_DRAFT_N_MAX)
+        spec_type_count=$(printf '%s\n' "$spec_type_lines" | grep -c .)
+        draft_n_max_count=$(printf '%s\n' "$draft_n_max_lines" | grep -c .)
+        if [ "$speculation_profile" = mtp1 ]; then
+            if [ "$spec_type_count" -ne 1 ] || [ "$spec_type_lines" != draft-mtp ] ||
+                [ "$draft_n_max_count" -ne 1 ] || [ "$draft_n_max_lines" != 1 ]; then
+                printf 'section %s selects mtp1 but the spec keys read type=%s(%s) n_max=%s(%s)\n' \
+                    "$subject" "$spec_type_lines" "$spec_type_count" \
+                    "$draft_n_max_lines" "$draft_n_max_count" >&2
+                echo fail >>"$speculation_key_failures"
+            fi
+        else
+            if [ "$spec_type_count" -ne 0 ] || [ "$draft_n_max_count" -ne 0 ]; then
+                printf 'section %s selects speculation profile %s but carries a spec key\n' \
+                    "$subject" "$speculation_profile" >&2
+                echo fail >>"$speculation_key_failures"
+            fi
+        fi
+    done
+if [ ! -s "$speculation_key_failures" ]; then
+    report speculation_keys_match_profile accepted
+else
+    report speculation_keys_match_profile rejected
+fi
+
+# A row selecting a non-none speculation profile without the mtp_layers claim
+# the multi-token-prediction context needs is refused before the generator
+# writes anything, on the same discipline the quarantine authority already
+# enforces. Each fixture is the shipped registry with one field mutated in a
+# copy under the work directory; the shipped scripts/models.tsv is never
+# opened for writing.
+mutate_speculation_profile() {
+    mutate_source=$1
+    mutate_target_id=$2
+    mutate_new_profile=$3
+    mutate_output=$4
+    awk -F'\t' -v OFS='\t' -v target="$mutate_target_id" \
+        -v profile="$mutate_new_profile" '
+        /^#/ || NF < 24 { print; next }
+        $1 == target { $24 = profile }
+        { print }
+    ' "$mutate_source" >"$mutate_output"
+}
+models_checksum_before=$(sha256sum "$registry")
+
+mtp_zero_registry=$work/mutant-mtp-zero-models.tsv
+mutate_speculation_profile "$registry" qwen35-2b-heretic mtp1 "$mtp_zero_registry"
+mtp_zero_preset=$work/mutant-mtp-zero-presets.ini
+set +e
+QWEN_MODEL_REGISTRY=$mtp_zero_registry QWEN_MODEL_ROOT=$model_root \
+QWEN_QUARANTINE_REGISTRY=$quarantine \
+QWEN_QUARANTINE_REASONS=$repository_root/evidence/quarantine \
+    "$builder" "$mtp_zero_preset" >"$work/mutant-mtp-zero.out" \
+    2>"$work/mutant-mtp-zero.err"
+mtp_zero_status=$?
+set -e
+if [ "$mtp_zero_status" -ne 0 ] && [ ! -e "$mtp_zero_preset" ] &&
+   grep -F 'mtp_layers=0' "$work/mutant-mtp-zero.err" >/dev/null; then
+    report speculation_refuses_mtp_layers_zero accepted
+else
+    report speculation_refuses_mtp_layers_zero rejected
+fi
+
+mtp_uninspected_registry=$work/mutant-mtp-uninspected-models.tsv
+mutate_speculation_profile "$registry" qwen35-4b-base mtp1 \
+    "$mtp_uninspected_registry"
+mtp_uninspected_preset=$work/mutant-mtp-uninspected-presets.ini
+set +e
+QWEN_MODEL_REGISTRY=$mtp_uninspected_registry QWEN_MODEL_ROOT=$model_root \
+QWEN_QUARANTINE_REGISTRY=$quarantine \
+QWEN_QUARANTINE_REASONS=$repository_root/evidence/quarantine \
+    "$builder" "$mtp_uninspected_preset" >"$work/mutant-mtp-uninspected.out" \
+    2>"$work/mutant-mtp-uninspected.err"
+mtp_uninspected_status=$?
+set -e
+if [ "$mtp_uninspected_status" -ne 0 ] && [ ! -e "$mtp_uninspected_preset" ] &&
+   grep -F 'mtp_layers uninspected (-)' \
+       "$work/mutant-mtp-uninspected.err" >/dev/null; then
+    report speculation_refuses_mtp_layers_uninspected accepted
+else
+    report speculation_refuses_mtp_layers_uninspected rejected
+fi
+
+unknown_profile_registry=$work/mutant-unknown-profile-models.tsv
+mutate_speculation_profile "$registry" qwen38-2b-distill bogus-profile \
+    "$unknown_profile_registry"
+unknown_profile_preset=$work/mutant-unknown-profile-presets.ini
+set +e
+QWEN_MODEL_REGISTRY=$unknown_profile_registry QWEN_MODEL_ROOT=$model_root \
+QWEN_QUARANTINE_REGISTRY=$quarantine \
+QWEN_QUARANTINE_REASONS=$repository_root/evidence/quarantine \
+    "$builder" "$unknown_profile_preset" >"$work/mutant-unknown-profile.out" \
+    2>"$work/mutant-unknown-profile.err"
+unknown_profile_status=$?
+set -e
+if [ "$unknown_profile_status" -ne 0 ] && [ ! -e "$unknown_profile_preset" ] &&
+   grep -F 'names speculation_profile bogus-profile, absent from' \
+       "$work/mutant-unknown-profile.err" >/dev/null; then
+    report speculation_refuses_unknown_profile accepted
+else
+    report speculation_refuses_unknown_profile rejected
+fi
+
+models_checksum_after=$(sha256sum "$registry")
+if [ "$models_checksum_before" = "$models_checksum_after" ]; then
+    report models_registry_untouched accepted
+else
+    report models_registry_untouched rejected
+fi
 
 # Counts the sections of a preset file that serve a quarantined tuple whole.
 # Printing the count rather than reporting lets the same detector run over the
@@ -351,8 +476,8 @@ mkdir -p "$runtime_filter_reasons" "$runtime_filter_root/Any" \
 : >"$runtime_filter_reasons/any-record.md"
 : >"$runtime_filter_reasons/child-record.md"
 printf '%s\n' \
-    'any-model	fixture	Any/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused' \
-    'child-model	fixture	Child/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused' \
+    'any-model	fixture	Any/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused	0	off' \
+    'child-model	fixture	Child/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused	0	off' \
     >"$runtime_filter_registry"
 printf '%s\n' \
     'any-record	model	any-model	device-lost	-	-	-	-	-	-	-	-	evidence/quarantine/any-record.md	any' \
@@ -422,9 +547,9 @@ mkdir -p "$fixture_reasons" "$fixture_model_root/Hidden" \
 : >"$fixture_reasons/profile-record.md"
 : >"$fixture_reasons/archived-record.md"
 printf '%s\n' \
-    'hidden-model	fixture	Hidden/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused' \
-    'profile-model	fixture	Profile/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused' \
-    'archived-model	fixture	Archived/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	archive	128	32	-	-	unmeasured	refused' \
+    'hidden-model	fixture	Hidden/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused	0	off' \
+    'profile-model	fixture	Profile/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	production	128	32	-	-	unmeasured	refused	0	off' \
+    'archived-model	fixture	Archived/model.gguf	fetch.sh	8192	8192	8192	q8_0	q4_0	on	none	-	-	-	untested	archive	128	32	-	-	unmeasured	refused	0	off' \
     >"$fixture_registry"
 printf '%s\n' \
     'hidden-record	model	hidden-model	device-lost	-	-	-	-	-	-	-	-	evidence/quarantine/hidden-record.md	any' \

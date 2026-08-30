@@ -44,6 +44,7 @@ fi
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 registry=${QWEN_MODEL_REGISTRY:-$script_directory/models.tsv}
+speculation_profiles_registry=${QWEN_SPECULATION_PROFILES:-$script_directory/speculation-profiles.tsv}
 model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
 reason_source=${QWEN_QUARANTINE_REASONS:-$script_directory/../evidence/quarantine}
 output_ini=${1:-"${HOME:?}/qwen-webui-state/router-presets.ini"}
@@ -65,6 +66,80 @@ if [ ! -r "$registry" ]; then
     printf 'model registry is unreadable: %s\n' "$registry" >&2
     exit 1
 fi
+
+# The speculation ledger is validated whole against every registry row before
+# any preset content is written, the same discipline emit_servable_rows
+# already applies to the quarantine authority: a malformed or duplicate ledger
+# row, an unresolved speculation_profile reference, or a row that selects a
+# non-none profile without a measured multi-token-prediction block
+# (mtp_layers of 0, or - for an uninspected artifact) fails the whole run
+# rather than serving a section built from a bad assumption.
+validate_speculation_ledger() {
+    if [ ! -r "$speculation_profiles_registry" ]; then
+        printf 'speculation profile ledger is unreadable: %s\n' \
+            "$speculation_profiles_registry" >&2
+        return 1
+    fi
+    awk -F'\t' -v ledger_path="$speculation_profiles_registry" '
+        FILENAME == ARGV[1] {
+            if ($0 ~ /^#/ || $0 ~ /^[[:space:]]*$/) { next }
+            if (NF != 6) {
+                printf "speculation profile row %d holds %d fields, expected 6\n", \
+                    FNR, NF > "/dev/stderr"
+                invalid = 1
+                next
+            }
+            if ($1 == "") {
+                printf "speculation profile row %d carries an empty id\n", FNR \
+                    > "/dev/stderr"
+                invalid = 1
+                next
+            }
+            if (seen_id[$1]++) {
+                printf "duplicate speculation profile id %s at row %d\n", \
+                    $1, FNR > "/dev/stderr"
+                invalid = 1
+                next
+            }
+            spec_type[$1] = $2
+            ledger_line[$1] = $0
+            ledger_order[++ledger_count] = $1
+            next
+        }
+        $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
+        {
+            if (NF < 24) { next }
+            id = $1
+            row_mtp_layers = $23
+            row_speculation_profile = $24
+            if (!(row_speculation_profile in spec_type)) {
+                printf "row %s names speculation_profile %s, absent from %s\n", \
+                    id, row_speculation_profile, ledger_path > "/dev/stderr"
+                invalid = 1
+                next
+            }
+            if (spec_type[row_speculation_profile] != "none" &&
+                row_mtp_layers == "0") {
+                printf "row %s selects speculation profile %s but carries mtp_layers=0\n", \
+                    id, row_speculation_profile > "/dev/stderr"
+                invalid = 1
+            }
+            if (spec_type[row_speculation_profile] != "none" &&
+                row_mtp_layers == "-") {
+                printf "row %s selects speculation profile %s with mtp_layers uninspected (-), which may only serve off\n", \
+                    id, row_speculation_profile > "/dev/stderr"
+                invalid = 1
+            }
+        }
+        END {
+            if (invalid) { exit 1 }
+            for (ledger_index = 1; ledger_index <= ledger_count; ledger_index++) {
+                print ledger_line[ledger_order[ledger_index]]
+            }
+        }
+    ' "$speculation_profiles_registry" "$registry"
+}
+speculation_ledger_rows=$(validate_speculation_ledger) || exit 1
 
 mkdir -p "$(dirname -- "$output_ini")"
 production_directory=$model_root/production
@@ -126,7 +201,8 @@ deploy_quarantine_reason() {
 while IFS='	' read -r id role model_file _fetch_script context_default \
     _context_ceiling _context_target cache_type_k cache_type_v flash_attention \
     projector _projector_fetch_script _decode_tok_s _prefill_tok_s _quality tier batch ubatch \
-    _validated_filled_depth _validation_evidence; do
+    _validated_filled_depth _validation_evidence _raw_tool_selection \
+    _guarded_tool_execution _mtp_layers speculation_profile; do
     case $id in
         '#'* | '') continue ;;
     esac
@@ -177,6 +253,22 @@ while IFS='	' read -r id role model_file _fetch_script context_default \
         quarantine_row=$profile_quarantine_row
     fi
 
+    # The speculation ledger was validated whole against every row before this
+    # loop began, so the lookup here reports the profile's own fields rather
+    # than repeating the admission check.
+    spec_type=$(printf '%s\n' "$speculation_ledger_rows" |
+        awk -F'\t' -v profile_id="$speculation_profile" \
+            '$1 == profile_id { print $2; exit }')
+    spec_draft_n_max=$(printf '%s\n' "$speculation_ledger_rows" |
+        awk -F'\t' -v profile_id="$speculation_profile" \
+            '$1 == profile_id { print $3; exit }')
+    spec_draft_p_min=$(printf '%s\n' "$speculation_ledger_rows" |
+        awk -F'\t' -v profile_id="$speculation_profile" \
+            '$1 == profile_id { print $4; exit }')
+    spec_backend_sampling=$(printf '%s\n' "$speculation_ledger_rows" |
+        awk -F'\t' -v profile_id="$speculation_profile" \
+            '$1 == profile_id { print $5; exit }')
+
     model_path=$model_root/$model_file
     if [ ! -f "$model_path" ]; then
         printf 'preset_skipped id=%s reason=weights_absent path=%s\n' \
@@ -224,6 +316,18 @@ while IFS='	' read -r id role model_file _fetch_script context_default \
         printf 'LLAMA_ARG_FLASH_ATTN = %s\n' "$flash_attention"
         printf 'LLAMA_ARG_BATCH = %s\n' "$batch"
         printf 'LLAMA_ARG_UBATCH = %s\n' "$ubatch"
+        if [ "$spec_type" != none ]; then
+            printf 'LLAMA_ARG_SPEC_TYPE = %s\n' "$spec_type"
+            if [ "$spec_draft_n_max" != '-' ]; then
+                printf 'LLAMA_ARG_SPEC_DRAFT_N_MAX = %s\n' "$spec_draft_n_max"
+            fi
+            if [ "$spec_draft_p_min" != '-' ]; then
+                printf 'LLAMA_ARG_SPEC_DRAFT_P_MIN = %s\n' "$spec_draft_p_min"
+            fi
+            if [ "$spec_backend_sampling" != 0 ]; then
+                printf 'LLAMA_ARG_SPEC_BACKEND_SAMPLING = %s\n' "$spec_backend_sampling"
+            fi
+        fi
     } >>"$output_ini"
 
     if [ "$projector" = required ]; then
