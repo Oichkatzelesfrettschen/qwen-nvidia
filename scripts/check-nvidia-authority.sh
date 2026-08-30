@@ -71,6 +71,25 @@ else
     done
 fi
 
+# CLAUDE.md keeps local absolute paths and private hostnames out of commits, and
+# ARTIFACTS.md states that Git copies carry `$HOME` in place of the home prefix.
+# A term list does not see a path shape, so the home prefix is matched directly:
+# a router `/v1/models` capture embeds every child's argv and preset, which is
+# where an unsanitized path reaches the tree without any banned term beside it.
+local_path_hits=''
+for candidate in $active_files; do
+    [ -f "$candidate" ] || continue
+    if grep -qI '^/home/[a-z_][a-z0-9_-]*/\|[^A-Za-z0-9_]/home/[a-z_][a-z0-9_-]*/' \
+        "$candidate" 2>/dev/null; then
+        local_path_hits="$local_path_hits $candidate"
+    fi
+done
+if [ -z "$local_path_hits" ]; then
+    report local_paths accepted
+else
+    report local_paths rejected "$local_path_hits"
+fi
+
 # Every performance row the registry serves names a rate this host measured.
 # scripts/models.tsv carries decode_tok_s and prefill_tok_s in fields 13 and 14,
 # and a row that states one names no evidence path of its own, so the check is
