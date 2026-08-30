@@ -255,9 +255,15 @@ without adding an arm.
 The clean boot opens against a ring baseline of zero and every arm here is an
 unprofiled `llama-bench`, which the runner follows with a ring check that halts
 rather than continues. A burst on any arm refutes the profiler as a necessary
-covariate on an unambiguous signal. Nine quiet arms implicate it with a control
-behind them. Either reading is available from the run the matrix already
-defines, so the falsifier is scheduled rather than unrun.
+covariate on an unambiguous signal, and that is the whole causal reach of this
+campaign. Nine quiet arms are consistent with three states this run separates
+none of: the profiler as the allocating party, accumulated pre-reboot driver
+state as the allocating party, and an interaction requiring both. The reboot
+changes two variables at once, so a quiet clean matrix reports that the
+unprofiled clean path is healthy and leaves the profiler a candidate. Only a
+same-boot pair -- one profiled arm and one unprofiled arm on the same driver
+state -- attributes the chain to a cause, and that arm runs last and is treated
+as terminal, since it may recreate the refusal it measures.
 
 `SUnreclaim` is the leading unmeasured candidate for the refused allocation. It
 read 2001204 kB at `evidence/ada/b789-path-audit/pre-reboot-state.txt`, RM
@@ -267,9 +273,11 @@ the chain removes it.
 
 ## What this record does not claim
 
-That the derived paths were observed. Every `expected_kernel_family` follows
-from source constants, and the forced-cuBLAS arms that would observe them are
-unrun.
+That `b9-q5k` was observed. Eight of the nine rows read `path_evidence=observed`
+off the launched symbol in `evidence/ada/b789-path-audit/`; `b9-q5k` alone still
+follows from the source constants, because the audit's ring guard halted the
+invocation that would have covered it and the protocol refuses a retry on that
+boot.
 
 That MMVQ and MMQ produce identical outputs. The logits comparison that would
 settle it is named above and unrun.
