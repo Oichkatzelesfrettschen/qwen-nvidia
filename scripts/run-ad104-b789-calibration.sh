@@ -18,25 +18,42 @@ set -eu
 
 usage() {
     cat >&2 <<'USAGE'
-usage: run-ad104-b789-calibration.sh MATRIX_TSV OUTPUT_DIRECTORY
+usage: run-ad104-b789-calibration.sh [--validate] MATRIX_TSV OUTPUT_DIRECTORY
+
+--validate checks the matrix against the registry, the artifacts, and the
+vocabulary without touching the device, and runs nothing.
 
 MATRIX_TSV carries one arm per row, tab separated, comments on lines opening
-with `#`:
+with `#`, and these sixteen columns:
 
-  arm_id  model_id  bench_binary  environment  note
+  arm_id                 unique in the file; the first row is also run last as
+                         the closing control.
+  model_id               a scripts/models.tsv id whose artifact is present.
+  quant_family           the ggml tensor type this arm is about. An artifact
+                         holds several, so this names the one the prediction is
+                         stated against rather than the file's label.
+  b_definition           what B means for this arm, spelled out rather than
+                         implied by the arm name.
+  ne11                   the value of B, passed as llama-bench's prompt length
+                         so one ubatch carries exactly that many columns.
+  bench_binary           the llama-bench this arm runs.
+  bench_sha256           its expected digest, or `-` to record what is found.
+  source_revision        the llama.cpp revision that binary was built from.
+  build_configuration    the build tree's distinguishing options.
+  environment            space separated NAME=VALUE pairs for this arm, or `-`.
+  expected_kernel_family MMVQ, MMQ, MMF, or CUBLAS.
+  expected_math_path     DP4A, INT8_MMA, FP16_MMA, or CUBLAS.
+  path_evidence          `observed` where a runtime marker names the kernel,
+                         `derived` where it follows from source constants alone.
+  prediction             what this arm is expected to show.
+  falsifier              what result refutes it.
+  note                   free text.
 
-  arm_id        a name unique in the file; the first row is also run last as
-                the closing control.
-  model_id      a scripts/models.tsv id whose artifact is present.
-  bench_binary  path to the llama-bench this arm runs, so a build-time arm
-                names its own tree.
-  environment   space separated NAME=VALUE pairs exported for this arm alone,
-                or `-`.
-  note          free text recorded beside the arm.
-
-  QWEN_CALIBRATION_PREFILL   prompt tokens, default 512
-  QWEN_CALIBRATION_GENERATE  generated tokens, default 128
+  QWEN_CALIBRATION_GENERATE  generated tokens per arm, default 128. Decode runs
+                             at ne11 of 1 on every arm, so the tg row is a
+                             within-arm control that should not move across B.
   QWEN_CALIBRATION_REPEATS   repetitions per arm, default 3
+  QWEN_CALIBRATION_LOCK      lock path, default /tmp/qwen-ad104-gpu-0.lock
 
 evidence/ada/b789-calibration-design.md states the preconditions, the stop
 conditions, and what the run does not claim.
@@ -44,6 +61,11 @@ USAGE
     exit 2
 }
 
+validate_only=0
+if [ "${1:-}" = --validate ]; then
+    validate_only=1
+    shift
+fi
 [ "$#" -eq 2 ] || usage
 matrix_file=$1
 output_directory=$2
@@ -55,7 +77,6 @@ sweep=$script_directory/run-cuda-baseline-sweep.sh
 latch=$script_directory/gpu-state-latch.sh
 model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
 nvidia_smi=${QWEN_NVIDIA_SMI:-nvidia-smi}
-prefill_tokens=${QWEN_CALIBRATION_PREFILL:-512}
 generate_tokens=${QWEN_CALIBRATION_GENERATE:-128}
 repeats=${QWEN_CALIBRATION_REPEATS:-3}
 
@@ -73,6 +94,103 @@ manifest=$output_directory/manifest.txt
 fail() {
     printf '%s\n' "$1" >&2
     exit 1
+}
+
+# Matrix validation runs without the device, so a matrix edit is checked before
+# the boot it would otherwise be discovered on. It reads the same fields the run
+# reads and refuses the same way.
+if [ "$validate_only" -eq 1 ]; then
+    validation_failures=0
+    validate_report() {
+        printf '%s=%s%s\n' "$1" "$2" "${3:+ $3}"
+        [ "$2" = accepted ] || validation_failures=$((validation_failures + 1))
+    }
+    seen_ids=$(mktemp)
+    row_count=0
+    field_failures=''
+    while IFS="$(printf '\t')" read -r arm_id model_id quant_family b_definition \
+        arm_ne11 bench_binary bench_sha256 source_revision build_configuration \
+        arm_environment expected_kernel_family expected_math_path path_evidence \
+        arm_prediction arm_falsifier arm_note; do
+        case $arm_id in
+            '' | \#*) continue ;;
+        esac
+        row_count=$((row_count + 1))
+        for required_field in "$model_id" "$quant_family" "$b_definition" \
+            "$arm_ne11" "$bench_binary" "$source_revision" \
+            "$build_configuration" "$expected_kernel_family" \
+            "$expected_math_path" "$path_evidence" "$arm_prediction" \
+            "$arm_falsifier"; do
+            [ -n "$required_field" ] ||
+                field_failures="$field_failures $arm_id:empty-field"
+        done
+        case $arm_ne11 in
+            '' | *[!0-9]*) field_failures="$field_failures $arm_id:ne11=$arm_ne11" ;;
+        esac
+        case $expected_kernel_family in
+            MMVQ | MMQ | MMF | CUBLAS | mixed) ;;
+            *) field_failures="$field_failures $arm_id:kernel=$expected_kernel_family" ;;
+        esac
+        case $expected_math_path in
+            DP4A | INT8_MMA | FP16_MMA | CUBLAS | mixed) ;;
+            *) field_failures="$field_failures $arm_id:math=$expected_math_path" ;;
+        esac
+        case $path_evidence in
+            observed | derived) ;;
+            *) field_failures="$field_failures $arm_id:evidence=$path_evidence" ;;
+        esac
+        if grep -qx "$arm_id" "$seen_ids" 2>/dev/null; then
+            field_failures="$field_failures $arm_id:duplicate"
+        fi
+        printf '%s\n' "$arm_id" >>"$seen_ids"
+        case $bench_binary in
+            '$HOME'/*) resolved_bench=${HOME:?}/${bench_binary#\$HOME/} ;;
+            *) resolved_bench=$bench_binary ;;
+        esac
+        [ -x "$resolved_bench" ] ||
+            field_failures="$field_failures $arm_id:bench-absent"
+        if [ -n "$bench_sha256" ] && [ "$bench_sha256" != '-' ] &&
+            [ -x "$resolved_bench" ]; then
+            observed_digest=$(sha256sum "$resolved_bench" | cut -d' ' -f1)
+            [ "$observed_digest" = "$bench_sha256" ] ||
+                field_failures="$field_failures $arm_id:digest"
+        fi
+        model_file=$("$registry_reader" id "$model_id" model_file 2>/dev/null) ||
+            model_file=''
+        if [ -z "$model_file" ]; then
+            field_failures="$field_failures $arm_id:no-registry-row"
+        elif [ ! -f "$model_root/$model_file" ]; then
+            field_failures="$field_failures $arm_id:artifact-absent"
+        fi
+    done <"$matrix_file"
+    rm -f "$seen_ids"
+    if [ "$row_count" -gt 0 ]; then
+        validate_report matrix_rows accepted "$row_count"
+    else
+        validate_report matrix_rows rejected 'the matrix carries no arm'
+    fi
+    if [ -z "$field_failures" ]; then
+        validate_report matrix_fields accepted
+    else
+        validate_report matrix_fields rejected "$field_failures"
+    fi
+    printf 'matrix_validation=%s failures=%s\n' \
+        "$([ "$validation_failures" -eq 0 ] && printf accepted || printf rejected)" \
+        "$validation_failures"
+    [ "$validation_failures" -eq 0 ]
+    exit $?
+fi
+
+# The lock excludes a second calibration rather than the device generally: a
+# lock only excludes what also takes it, and nothing else in this tree does. The
+# process and compute-client checks below are what exclude the appliance. The
+# descriptor is held for the whole campaign including the closing control and
+# the post-run health read, so it is opened here and never closed explicitly.
+calibration_lock=${QWEN_CALIBRATION_LOCK:-/tmp/qwen-ad104-gpu-0.lock}
+exec 9>"$calibration_lock"
+flock -n 9 || {
+    printf 'refused: the AD104 calibration lock is held: %s\n' "$calibration_lock" >&2
+    exit 75
 }
 
 # Preconditions. Each one is the confound the clean boot exists to remove, so a
@@ -97,6 +215,21 @@ if ! dmesg --color=never >/dev/null 2>&1; then
         fail 'the kernel ring is unreadable directly and through sudo -n, so no stop condition can be observed'
     fi
 fi
+bar1_field() {
+    "$nvidia_smi" -q -d MEMORY 2>/dev/null |
+        awk -v want="$1" '/BAR1 Memory Usage/ { inside = 1; next }
+             inside && $1 == want { print $3; exit }' || printf 'unavailable\n'
+}
+
+host_mapping_line() {
+    awk '$1 == "MemAvailable:" { a = $2 } $1 == "Mlocked:" { m = $2 }
+         $1 == "Unevictable:" { u = $2 } $1 == "PageTables:" { p = $2 }
+         $1 == "SUnreclaim:" { s = $2 }
+         END { printf "mem_available_kib=%s mlocked_kib=%s unevictable_kib=%s page_tables_kib=%s sunreclaim_kib=%s",
+                   a + 0, m + 0, u + 0, p + 0, s + 0 }' /proc/meminfo 2>/dev/null ||
+        printf 'unavailable'
+}
+
 ring_signatures() {
     # grep -c prints its count and still exits 1 when that count is zero, which
     # is the state a clean boot is in, so the status is discarded and the count
@@ -127,11 +260,16 @@ baseline_signatures=$(ring_signatures)
     printf 'compositor_occupancy_before_mib=%s\n' \
         "$("$nvidia_smi" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)"
     printf 'baseline_ring_signatures=%s\n' "$baseline_signatures"
-    printf 'prefill_tokens=%s generate_tokens=%s repeats=%s\n' \
-        "$prefill_tokens" "$generate_tokens" "$repeats"
+    printf 'calibration_lock=%s\n' "$calibration_lock"
+    printf 'bar1_total_mib=%s bar1_used_mib_before=%s\n' \
+        "$(bar1_field Total)" "$(bar1_field Used)"
+    printf 'host_mapping_before=%s\n' "$(host_mapping_line)"
+    printf 'generate_tokens=%s repeats=%s\n' "$generate_tokens" "$repeats"
 } >"$manifest"
 
 printf 'arm_id\tmodel_id\tposition\tstatus\tbench_sha256\tevidence\tnote\n' >"$summary"
+printf 'arm_id\tquant_family\tb_definition\tne11\texpected_kernel_family\texpected_math_path\tpath_evidence\tprediction\tfalsifier\n' \
+    >"$output_directory/expectations.tsv"
 
 arm_index=0
 opening_arm=''
@@ -144,18 +282,34 @@ run_arm() {
     arm_environment=$4
     arm_note=$5
     arm_position=$6
+    prefill_tokens=$7
+    expected_digest=$8
 
     model_file=$("$registry_reader" id "$model_id" model_file) ||
         fail "no registry row matches id $model_id"
     model_path=$model_root/$model_file
     [ -f "$model_path" ] ||
         fail "arm $arm_id names an absent artifact: $model_path"
+    # A checked-in matrix carries `$HOME` rather than a local absolute path,
+    # which CLAUDE.md keeps out of commits, so the one prefix is expanded here
+    # rather than by an eval over a field a file supplies.
+    case $bench_binary in
+        '$HOME'/*) bench_binary=${HOME:?}/${bench_binary#\$HOME/} ;;
+    esac
     [ -x "$bench_binary" ] ||
         fail "arm $arm_id names an unusable llama-bench: $bench_binary"
 
     arm_directory=$output_directory/$arm_position-$arm_id
     mkdir -p "$arm_directory"
     bench_digest=$(sha256sum "$bench_binary" | cut -d' ' -f1)
+    if [ "$expected_digest" != '-' ] && [ "$expected_digest" != "$bench_digest" ]; then
+        fail "arm $arm_id names bench_sha256 $expected_digest and the binary reads $bench_digest"
+    fi
+    {
+        printf 'phase=before utc=%s bar1_used_mib=%s bar1_free_mib=%s %s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(bar1_field Used)" \
+            "$(bar1_field Free)" "$(host_mapping_line)"
+    } >"$arm_directory/mapping.txt"
     {
         printf 'arm_id=%s model_id=%s position=%s\n' \
             "$arm_id" "$model_id" "$arm_position"
@@ -183,6 +337,10 @@ run_arm() {
             >"$arm_directory/sweep.stdout" 2>"$arm_directory/sweep.stderr" ||
             arm_status=failed
     fi
+
+    printf 'phase=after utc=%s bar1_used_mib=%s bar1_free_mib=%s %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(bar1_field Used)" \
+        "$(bar1_field Free)" "$(host_mapping_line)" >>"$arm_directory/mapping.txt"
 
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$arm_id" "$model_id" "$arm_position" "$arm_status" "$bench_digest" \
@@ -212,15 +370,32 @@ run_arm() {
     return 0
 }
 
-while IFS="$(printf '\t')" read -r arm_id model_id bench_binary arm_environment arm_note; do
+while IFS="$(printf '\t')" read -r arm_id model_id quant_family b_definition \
+    arm_ne11 bench_binary bench_sha256 source_revision build_configuration \
+    arm_environment expected_kernel_family expected_math_path path_evidence \
+    arm_prediction arm_falsifier arm_note; do
     case $arm_id in
         '' | \#*) continue ;;
     esac
+    case $arm_ne11 in
+        '' | *[!0-9]*) fail "arm $arm_id carries a non-numeric ne11: $arm_ne11" ;;
+    esac
     arm_index=$((arm_index + 1))
-    [ -n "$opening_arm" ] ||
-        opening_arm="$arm_id	$model_id	$bench_binary	$arm_environment	$arm_note"
+    if [ -z "$opening_arm" ]; then
+        opening_arm=$arm_id
+        opening_model=$model_id
+        opening_bench=$bench_binary
+        opening_environment=${arm_environment:--}
+        opening_ne11=$arm_ne11
+        opening_digest=${bench_sha256:--}
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$arm_id" "$quant_family" "$b_definition" "$arm_ne11" \
+        "$expected_kernel_family" "$expected_math_path" "$path_evidence" \
+        "$arm_prediction" "$arm_falsifier" >>"$output_directory/expectations.tsv"
     run_arm "$arm_id" "$model_id" "$bench_binary" "${arm_environment:--}" \
-        "${arm_note:--}" "$(printf '%02d' "$arm_index")" || break
+        "${arm_note:--}" "$(printf '%02d' "$arm_index")" "$arm_ne11" \
+        "${bench_sha256:--}" || break
 done <"$matrix_file"
 
 # The closing repeat of the opening arm. Agreement licenses reading the interior
@@ -228,22 +403,22 @@ done <"$matrix_file"
 # finding.
 if [ -z "$halted" ] && [ -n "$opening_arm" ] && [ "$arm_index" -gt 1 ]; then
     arm_index=$((arm_index + 1))
-    # The opening row is re-read from a file rather than through a pipe, because
-    # a pipeline runs its right side in a subshell and a stop condition the
-    # closing arm trips there would leave the manifest reading completed.
-    printf '%s\n' "$opening_arm" >"$output_directory/.closing-arm"
-    IFS="$(printf '\t')" read -r arm_id model_id bench_binary arm_environment arm_note \
-        <"$output_directory/.closing-arm"
-    rm -f "$output_directory/.closing-arm"
-    run_arm "closing-$arm_id" "$model_id" "$bench_binary" \
-        "${arm_environment:--}" 'closing control repeat of the opening arm' \
-        "$(printf '%02d' "$arm_index")" || :
+    # The opening arm's fields are held in scalars rather than re-read through a
+    # pipe, because a pipeline runs its right side in a subshell and a stop
+    # condition the closing arm trips there would leave the manifest reading
+    # completed.
+    run_arm "closing-$opening_arm" "$opening_model" "$opening_bench" \
+        "$opening_environment" 'closing control repeat of the opening arm' \
+        "$(printf '%02d' "$arm_index")" "$opening_ne11" "$opening_digest" || :
 fi
 
 {
     printf 'compositor_occupancy_after_mib=%s\n' \
         "$("$nvidia_smi" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)"
     printf 'closing_ring_signatures=%s\n' "$(ring_signatures)"
+    printf 'bar1_used_mib_after=%s bar1_free_mib_after=%s\n' \
+        "$(bar1_field Used)" "$(bar1_field Free)"
+    printf 'host_mapping_after=%s\n' "$(host_mapping_line)"
     printf 'arms_run=%s\n' "$arm_index"
     if [ -n "$halted" ]; then
         printf 'terminal_state=halted reason=%s\n' "$halted"

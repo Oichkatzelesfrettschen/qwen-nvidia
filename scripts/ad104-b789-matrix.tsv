@@ -1,0 +1,37 @@
+# The AD104 B7/B8/B9 calibration matrix. PROPOSED: B7, B8, and B9 are read out
+# of the llama.cpp source rather than supplied, and
+# evidence/ada/b789-calibration-design.md states the derivation, the confound,
+# and what confirming it would take.
+#
+# B is ne11: the number of columns of the second operand of a quantized
+# mat-mul, which for a prefill of N tokens inside one ubatch equals N. It is not
+# the logical batch, the ubatch size, or a compile-time constant.
+#
+# ggml_cuda_mul_mat consults ggml_cuda_should_use_mmvq before
+# ggml_cuda_should_use_mmq, and on GGML_CUDA_CC_ADA_LOVELACE (890, this device)
+# mmvq.cu:295-306 reads: Q2_K MMVQ at ne11 <= 4, Q3_K <= 6, Q4_K and Q5_K <= 7,
+# everything else <= MMVQ_MAX_BATCH_SIZE, which mmvq.cuh:3 sets to 8. Above its
+# threshold a type falls to ggml_cuda_should_use_mmq, which returns true at
+# mmq.cu:312 for every NVIDIA part at Turing or later. Seven, eight, and nine
+# therefore bracket the two thresholds this device carries: Q4_K and Q5_K leave
+# MMVQ between B7 and B8, Q6_K between B8 and B9.
+#
+# MMVQ multiplies through packed __dp4a; MMQ on a Turing-or-later part takes the
+# integer mma path. The math column names that consequence rather than a second
+# measurement.
+#
+# Arms are ordered by B rather than by artifact, so one artifact's three B
+# values sit maximally far apart in the sequence and a monotone drift across the
+# campaign cannot present as a B effect. The runner repeats the opening arm last
+# as the closing control.
+#
+# arm_id	model_id	quant_family	b_definition	ne11	bench_binary	bench_sha256	source_revision	build_configuration	environment	expected_kernel_family	expected_math_path	path_evidence	prediction	falsifier	note
+b7-q4k	qwen38-4b-distill	Q4_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	7	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMVQ	DP4A	derived	Q4_K at 61.11% of bytes and Q6_K at 38.36% both on MMVQ, so the artifact is about 99.5% MMVQ by byte	a rate matching b8-q4k rather than differing from it	Q4_K_M census: Q4_K 61.11%, Q6_K 38.36%, F32 0.14%
+b7-q5k	qwen38-4b-i1-q5km	Q5_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	7	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMVQ	DP4A	derived	Q5_K at 65.76% and Q6_K at 33.77% both on MMVQ, about 99.5% MMVQ by byte	a rate matching b8-q5k rather than differing from it	Q5_K_M census: Q5_K 65.76%, Q6_K 33.77%, F32 0.12%
+b7-q6k	qwen38-4b-i1-q6k	Q6_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	7	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMVQ	DP4A	derived	Q6_K at 99.58% of bytes on MMVQ; this is the one artifact carrying a single family	a rate differing from b8-q6k, which would refute the shared threshold	the discriminator arm: Q6_K census 99.58% single type
+b8-q4k	qwen38-4b-distill	Q4_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	8	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMQ	INT8_MMA	derived	Q4_K crosses to MMQ and Q6_K stays on MMVQ, so 61.11% of bytes change path and 38.36% do not	a rate equal to b7-q4k inside the sweep's own forward-to-reverse span	the artifact runs both paths in one forward pass at this B
+b8-q5k	qwen38-4b-i1-q5km	Q5_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	8	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMQ	INT8_MMA	derived	Q5_K crosses to MMQ and Q6_K stays on MMVQ, so 65.76% of bytes change path	a rate equal to b7-q5k inside the sweep's own span	the artifact runs both paths in one forward pass at this B
+b8-q6k	qwen38-4b-i1-q6k	Q6_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	8	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMVQ	DP4A	derived	no change from b7-q6k: Q6_K is still at or below MMVQ_MAX_BATCH_SIZE	a rate differing from b7-q6k beyond the sweep's span, which refutes the Q6_K threshold of 8	the null step; the reading rests on this arm showing no step
+b9-q4k	qwen38-4b-distill	Q4_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	9	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMQ	INT8_MMA	derived	Q6_K also crosses, so about 99.5% of bytes are on MMQ; the step from b8 is the Q6_K 38.36%	a rate equal to b8-q4k, which refutes the Q6_K threshold	second step, attributable to Q6_K alone
+b9-q5k	qwen38-4b-i1-q5km	Q5_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	9	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMQ	INT8_MMA	derived	Q6_K also crosses, so about 99.5% of bytes are on MMQ; the step from b8 is the Q6_K 33.77%	a rate equal to b8-q5k, which refutes the Q6_K threshold	second step, attributable to Q6_K alone
+b9-q6k	qwen38-4b-i1-q6k	Q6_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	9	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	MMQ	INT8_MMA	derived	the whole artifact crosses at once, so this is the largest single-arm step the matrix predicts	a rate equal to b8-q6k beyond doubt, which refutes the crossover on this device	the discriminator's step

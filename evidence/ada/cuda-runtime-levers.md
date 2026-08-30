@@ -34,19 +34,33 @@ Programmatic dependent launch is inert here: 230.62 against 230.15, 0.2% apart
 where the arm's own span is 0.2 and 0.3%. `GGML_CUDA_PDL` stays available and
 unset.
 
-The MMQ kernel policy is inert on this checkpoint: 231.85 against 230.15, 0.7%,
-inside the same band. `GGML_CUDA_FORCE_MMQ=ON` forces the quantized mat-mul
-kernels where the default lets cuBLAS take some shapes, and on Ada at Q4_K_M
-those two paths reach the same rate. The second build tree is retained at
-`build-qwen-cuda-sm89-mmq` because the arm is per-checkpoint: a different
-quantization or a different shape can separate them, and this measures one.
+The `GGML_CUDA_FORCE_MMQ` arm moves 0.7%, 231.85 against 230.15, inside the same
+band -- and the source says why, which is a stronger statement than the number.
+`GGML_CUDA_FORCE_MMQ` is read at one place, `ggml/src/ggml-cuda/mmq.cu:320`,
+inside `ggml_cuda_should_use_mmq`. Eight lines above it,
+`if (turing_mma_available(cc)) return true;` already returns for every NVIDIA
+part at Turing or later, and this device is compute capability 8.9. The
+preprocessor branch is therefore unreachable here at every batch size, and the
+mat-mul dispatcher consults `ggml_cuda_should_use_mmvq` before
+`ggml_cuda_should_use_mmq` in any case, with no `FORCE_MMQ` escape on that path.
+
+The arm measures two builds that dispatch identically, so 0.7% is this tree's
+build-to-build noise floor rather than a comparison of kernel policies. Nothing
+here says MMQ and cuBLAS tie on Ada; the flag that would have separated them
+does not reach the decision. The second build tree stays at
+`build-qwen-cuda-sm89-mmq` as that noise-floor reference.
+`GGML_CUDA_FORCE_CUBLAS` is the flag that does reach it --
+`mmq.cu:260` returns false ahead of everything -- and
+`evidence/ada/b789-calibration-design.md` preregisters it as the differential
+control that separates MMQ from MMVQ by behaviour rather than by assertion.
 
 ## What this decides
 
 The serving default is the `default` profile: graphs on, fusion on, PDL unset,
-cuBLAS free to take what it wins. Two of the four levers are refuted as
-performance knobs on this checkpoint and two are confirmed as defaults already
-in force.
+cuBLAS free to take what it wins. Two of the four levers are confirmed as defaults already in
+force, programmatic dependent launch is refuted as a performance knob on this
+checkpoint, and the MMQ kernel-policy flag is refuted as a lever at all on this
+device because the source never reads it here.
 
 ## What stays open
 

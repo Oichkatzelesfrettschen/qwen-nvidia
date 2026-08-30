@@ -92,7 +92,14 @@ without `-ot` is refused outright.
 Four runtime levers are measured on the 2B and two are refuted.
 `evidence/ada/cuda-runtime-levers.md`: CUDA graphs buy 7.6% of decode and cost
 6.1% of prefill, fusion buys 5.8% of decode, programmatic dependent launch
-moves 0.2% against a 0.3% span, and a `GGML_CUDA_FORCE_MMQ=ON` build moves 0.7%.
+moves 0.2% against a 0.3% span, and a `GGML_CUDA_FORCE_MMQ=ON` build moves 0.7%
+because the flag is unreachable on this device: `mmq.cu:320` reads it eight
+lines below a `turing_mma_available(cc)` return that already fires at compute
+capability 8.9, and the dispatcher consults `ggml_cuda_should_use_mmvq` first
+with no escape on that path. That 0.7% is the build-to-build noise floor.
+`ggml_cuda_should_use_mmvq` carries the crossover this device does obey, tuned
+on an RTX 4090: Q4_K and Q5_K leave MMVQ above seven columns, Q6_K above eight,
+Q2_K above four (`mmvq.cu:295-306`).
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
@@ -871,6 +878,8 @@ scripts/qwen-web-launch.sh [PROFILE]     # web presets, loopback only
 scripts/qwen-image-launch.sh [PROFILE]   # web presets with the image lane armed
 scripts/qwen-teardown.sh
 scripts/qwen-webui-control.sh status
+scripts/gpu-state-latch.sh status|require-clear|recover
+                                         # the latch between a driver failure and the next launch
 
 # Select a checkpoint, a listener, and the serving backend
 QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
@@ -884,6 +893,9 @@ scripts/run-speculation-sweep.sh OUT TARGET [DRAFT]
                                                 # baseline, external draft, MTP, n-gram
 scripts/sample-nvidia-clocks.sh OUT_TSV [SECONDS] # the state a rate ran at
 scripts/admit-cuda-router-serving.sh OUT        # the whole chain, two models, one teardown
+scripts/admit-router-speculation-roster.sh OUT # every servable row once, per-row speculation read from the child argv
+scripts/run-ad104-b789-calibration.sh [--validate] MATRIX_TSV OUT
+                                                # the MMVQ/MMQ crossover arms, one clean boot, one lock
 
 # Measurement harnesses, each of which owns its own launch and teardown
 scripts/compare-model-candidate.sh LABEL MODEL_PATH [PROFILE]
@@ -963,6 +975,7 @@ scripts/test-qwen-image-launch.sh
 scripts/test-admit-image-router.sh
 scripts/test-vulkan-workload-lease.sh
 scripts/test-exec-idle-priority.sh
+scripts/test-gpu-state-latch.sh
 scripts/test-fallback-webui-image-authorization.sh
 python3 scripts/test-image-protocol.py
 python3 scripts/test-image-service.py

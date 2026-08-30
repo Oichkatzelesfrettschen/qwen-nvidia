@@ -52,11 +52,20 @@ abort_utc=2026-08-30T05:14:23Z reason=swapin_rate_breached
 
 `monitor-qwen-runtime.sh` terminates the server when host swap-in exceeds
 67108864 bytes in a one-second sample. The sample that tripped it read 83075072
-bytes with `mem_available_kib=23617300` -- 23.6 GB free. This host swaps to zram
-at priority 100 ahead of a 72 GiB file, so a page-in here is a RAM-to-RAM
-decompression that loading fifteen checkpoints in sequence drives at rates a
-disk never reaches. The threshold was measuring a thrash signature that this
-host produces without thrashing.
+bytes with `mem_available_kib=23617300` -- 23.6 GB free.
+
+Two facts are measured. This host swaps to zram at priority 100 ahead of a 72
+GiB file, and 23.6 GB of memory was available at the abort. The rate is
+therefore consistent with predominantly zram decompression, which loading
+fifteen checkpoints in sequence drives at rates a disk never reaches; it does
+not prove it. `/proc/vmstat`'s `pswpin` is an aggregate across swap areas and
+names no source device, and swap priority decides where a page is written
+rather than where a later page-in reads from. Per-zram counters under
+`/sys/block/zram*/mm_stat` and the backing device's own diskstats are what
+would settle it, and no arm here reads them.
+
+The policy rests on the second fact alone: a swap-in rate with 23 GB available
+is not a thrash signature whichever device served the pages.
 
 That retires a longer-standing misreading. Several server stops this session
 were recorded as unexplained clean exits and attributed to the process tree

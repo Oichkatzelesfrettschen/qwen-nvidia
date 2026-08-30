@@ -1,0 +1,16 @@
+# Adjacent controls for the AD104 calibration. These are NOT part of the named
+# B7/B8/B9 matrix and the runner takes them as a separate invocation, because
+# the crossover statement the matrix tests centres Q4_K, Q5_K, and Q6_K and Q2_K
+# must not enter it by implication.
+#
+# Q2_K leaves MMVQ at ne11 above 4 (mmvq.cu:298), so every B here is already
+# past its own threshold. The artifact is four-family by byte -- Q2_K 38.35%,
+# Q6_K 26.62%, Q3_K 19.15%, Q4_K 15.13% -- and Q3_K crosses at 6, Q4_K at 7,
+# Q6_K at 8, so it steps at B8 and again at B9 for reasons that belong to types
+# other than the one the file is named for. It is retained as the arm that shows
+# what a mixed artifact does, not as a Q2_K measurement.
+#
+# arm_id	model_id	quant_family	b_definition	ne11	bench_binary	bench_sha256	source_revision	build_configuration	environment	expected_kernel_family	expected_math_path	path_evidence	prediction	falsifier	note
+b7-q2k-adjacent	qwen38-4b-i1-q2k	Q2_K+Q3_K+Q4_K+Q6_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	7	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	mixed	mixed	derived	Q2_K 38.35% and Q3_K 19.15% on MMQ, Q4_K 15.13% and Q6_K 26.62% on MMVQ: 57.5% MMQ by byte	a flat rate across all three arms, which refutes the per-type thresholds	four families, three different thresholds
+b8-q2k-adjacent	qwen38-4b-i1-q2k	Q2_K+Q3_K+Q4_K+Q6_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	8	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	mixed	mixed	derived	Q4_K crosses, so 72.63% MMQ by byte and Q6_K alone on MMVQ	a flat rate across all three arms, which refutes the per-type thresholds	four families, three different thresholds
+b9-q2k-adjacent	qwen38-4b-i1-q2k	Q2_K+Q3_K+Q4_K+Q6_K	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	9	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench	c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a	f280b2698	CMAKE_CUDA_ARCHITECTURES=89 GGML_CUDA_FA_ALL_QUANTS=ON g++-15	-	mixed	mixed	derived	Q6_K crosses, so about 99.3% MMQ by byte	a flat rate across all three arms, which refutes the per-type thresholds	four families, three different thresholds
