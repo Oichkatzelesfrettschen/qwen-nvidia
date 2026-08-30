@@ -1,14 +1,21 @@
 # What a 64K allocation costs on this device
 
 `scripts/models.tsv` admits 65536 tokens on every row whose native context
-reaches it, except the 9B distill. The figures below are what that costs,
-measured before the registry moved rather than after.
+reaches it, except the 4B distill at 32768 and the 9B distill at 16384. The
+figures below are what that costs, measured before the registry moved rather
+than after.
 
 Each arm starts one `llama-server` through `scripts/cuda-runtime-env.sh` at the
 served tuple -- `--device CUDA0`, `-ot .*=CUDA0`, `--fit off`, `-ctk q8_0`,
 `-ctv q4_0`, `-fa on`, `--parallel 1` -- waits for `/health`, and reads
 whole-device occupancy from `nvidia-smi`. The compositor holds 1239 MiB before
-any arm runs, and the resident column subtracts it.
+any arm runs, and the resident column subtracts it. Every figure below is
+framebuffer occupancy observed at the sampler's interval after `/health`
+answered, so it states what the loaded server settles at rather than the peak
+the load demanded: `nvidia-smi` reports the framebuffer counter alone, misses a
+spike shorter than its interval, and counts none of the driver-managed pinned
+system memory, page-table backing, or virtual-address state that
+`evidence/quarantine/qwen38-9b-distill-router-load.md` records a refusal in.
 
 | checkpoint | context | resident total | model and KV |
 | --- | ---: | ---: | ---: |
@@ -23,13 +30,19 @@ which is why that row stays at 16384.
 
 ## Why the 9B is the exception
 
-`QWEN_ROUTER_MAX` is 2, so the admitted depth has to hold for a pair rather than
-for one model alone. A 9B at 65536 beside a 4B at 65536 reaches about 11.0 GiB
+The router brings a child up before it releases the one it replaces, so the
+admitted depth has to hold for a pair rather than for one model alone whatever
+`QWEN_ROUTER_MAX` reads. A 9B at 65536 beside a 4B at 65536 reaches about 11.0 GiB
 against a 12282 MiB card that already carries the compositor, and a pair that
-overruns the carve-out is killed by the kernel while loading, which ends the
-router rather than the child: `evidence/ada/` records that failure with
-`server_status=137`. The 9B at 16384 beside a 4B at 65536 measures 11373 MiB
-with the compositor counted, which is the pair the registry admits.
+overruns the carve-out ends the router rather than the child. What the driver
+refuses at that point is an `NV01_MEMORY_SYSTEM` allocation rather than a
+framebuffer one, which
+`evidence/quarantine/qwen38-9b-distill-router-load.md` reads out of the kernel
+ring; the settled-occupancy arithmetic here bounds the pair without naming the
+pool. The 9B at 16384 beside a 4B at 65536 measures 11373 MiB with the compositor
+counted, and that pair refused on the switch rather than settling, which is why
+`scripts/quarantine.tsv` removes the 9B from the router path and the 4B row
+reads 32768.
 
 Two children at 65536 measured 7397 MiB together with the 4B distill and the
 2B heretic resident.
@@ -37,7 +50,8 @@ Two children at 65536 measured 7397 MiB together with the 4B distill and the
 ## What this does not establish
 
 A validated depth. Every arm here proves an allocation and a `/health`
-response; none fills the cache and decodes from it, so
+response -- every row above is allocated and health-checked rather than
+filled-depth validated. None fills the cache and decodes from it, so
 `validated_filled_depth` stays `-` on every row and the registry's two claims
 stay two claims. The depth campaign that would move that field needs a CUDA
 depth prober, which `docs/APU_UPSTREAM.md` records as absent.
