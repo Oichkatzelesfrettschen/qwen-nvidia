@@ -6,6 +6,7 @@ if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
     exit 2
 fi
 
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 server_pid=$1
 hazard_log=$2
 test_input=${3:-}
@@ -43,6 +44,9 @@ guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status
 # and 43 name a faulting channel, Xid 79 names a card that stopped answering,
 # and RmInitAdapter failure names a device that never came up.
 hazard_pattern='ring[^[:cntrl:]]*timeout|GPU reset|VM fault|device loss|device lost|out of memory|oom-kill|NVRM[^[:cntrl:]]*Xid|GPU has fallen off the bus|RmInitAdapter failed|nvidia[^[:cntrl:]]*GPU at PCI[^[:cntrl:]]*has fallen'
+# A hazard that names mapping, invalid state, partial progress, an Xid, or a
+# reset leaves the latch waiting for a boot rather than for the recovery gate.
+reboot_required_pattern='NV_ERR_INVALID_STATE|dmaAllocMapping|mapping_reuse|mmuWalkMap|NVRM[^[:cntrl:]]*Xid|GPU has fallen off the bus|RmInitAdapter failed|GPU reset|ring[^[:cntrl:]]*timeout|VM fault|device los[ts]'
 temporary_directory=$(mktemp -d)
 kernel_reader_pid=""
 
@@ -63,14 +67,37 @@ process_lines() {
     while IFS= read -r kernel_line; do
         printf '%s\n' "$kernel_line" >>"$hazard_log"
         if printf '%s\n' "$kernel_line" | grep -Eai "$hazard_pattern" >/dev/null; then
-            printf 'hazard_utc=%s action=SIGTERM server_pid=%s\n' \
-                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$server_pid" >>"$hazard_log"
+            # The severity decides whether the next launch can be gated back in
+            # by measurement or waits for a boot. A refused allocation leaves
+            # the device answering, so its own reclaim is what
+            # scripts/gpu-state-latch.sh waits on; a mapping failure, an
+            # invalid state, an Xid, or a reset names driver state this tree
+            # has no measurement for.
+            if printf '%s\n' "$kernel_line" |
+                grep -Eai "$reboot_required_pattern" >/dev/null; then
+                hazard_class=reboot-required
+            else
+                hazard_class=allocation-refusal
+            fi
+            printf 'hazard_utc=%s action=SIGTERM server_pid=%s class=%s\n' \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$server_pid" \
+                "$hazard_class" >>"$hazard_log"
+            "$script_directory/gpu-state-latch.sh" taint "$hazard_class" \
+                kernel-hazard >>"$hazard_log" 2>&1 || true
             kill -TERM "$server_pid" 2>/dev/null || true
             return 3
         fi
     done <"$input_path"
     return 0
 }
+
+# The watcher truncates its log at every start, so the run that ended the last
+# server would leave no record of which ring line it fired on. One generation is
+# retained beside it, which is what makes an unexplained stop readable after the
+# next launch has already happened.
+if [ -s "$hazard_log" ]; then
+    cp -- "$hazard_log" "$hazard_log.previous" 2>/dev/null || :
+fi
 
 {
     printf 'watch_start_utc=%s server_pid=%s guard_affinity=%s guard_nice=%s\n' \

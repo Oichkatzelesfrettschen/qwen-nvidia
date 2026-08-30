@@ -24,6 +24,14 @@ if pgrep -x llama-server >/dev/null 2>&1; then
     exit 2
 fi
 
+# A driver-level failure ends the server through the hazard watcher, and the
+# relaunch that follows it inside the same minute meets a device whose counters
+# read free while the driver has not finished reclaiming. The latch refuses that
+# launch rather than warning about it, and names which of the two recoveries the
+# recorded class admits.
+QWEN_WEBUI_STATE_DIRECTORY=$state_directory \
+    "$script_directory/gpu-state-latch.sh" require-clear
+
 model_path=${QWEN_MODEL_PATH:-"${HOME:?}/models/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf"}
 router_snapshot_owned=''
 control_start_entered=0
