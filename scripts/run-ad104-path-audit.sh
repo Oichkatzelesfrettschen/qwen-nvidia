@@ -110,10 +110,17 @@ if [ "$dry_run" -eq 0 ]; then
         fail 'the GPU state latch is set'
 fi
 
-if sudo -n dmesg --color=never >/dev/null 2>&1; then
+# kernel.dmesg_restrict is 1 on this host, so an unprivileged dmesg is refused
+# and a cold sudo timestamp refuses `sudo -n` with it. Falling back to a reader
+# that answers nothing would leave grep -Eac counting an empty stream as zero,
+# which is byte-identical to a clean ring and disarms the halt this audit rests
+# on, so an unreadable ring ends the run instead.
+if dmesg --color=never >/dev/null 2>&1; then
+    dmesg_command='dmesg'
+elif sudo -n dmesg --color=never >/dev/null 2>&1; then
     dmesg_command='sudo -n dmesg'
 else
-    dmesg_command='dmesg'
+    fail 'the kernel ring is unreadable directly and through sudo -n, so no stop condition can be observed'
 fi
 hazard_pattern='ring[^[:cntrl:]]*timeout|GPU reset|NVRM[^[:cntrl:]]*Xid|has fallen off the bus|RmInitAdapter failed|NV_ERR_NO_MEMORY'
 
