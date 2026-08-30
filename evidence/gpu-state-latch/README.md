@@ -45,7 +45,16 @@ itself:
   that window is what the latch exists to keep a launch out of.
 - `ring_quiet`: the hazard signature count in the ring is equal across a fifteen
   second interval. It is counted twice rather than tailed, because the reader
-  may be the `sudo -n dmesg` path and a follow would outlive the gate.
+  may be the `sudo -n dmesg` path and a follow would outlive the gate. An
+  unreadable ring is a refusal rather than a pass, since a blind gate clears
+  nothing, and the refusal names `sudo -v` as the unblock: an
+  `allocation-refusal` taint survives a boot by design and a fresh boot holds no
+  sudo timestamp.
+
+`grep -c` prints its count and still exits 1 when that count is zero, which is
+the state a clean boot is in, so both readers take the count from the output and
+discard the status. The `|| printf 0` that shape invites appends a second line
+to a record this tree is meant to read later.
 - `cooldown`: a bounded twenty seconds after every check passed.
 
 ## Falsifiers
@@ -58,9 +67,13 @@ itself:
 - A hazard line naming an Xid classified as `allocation-refusal` refutes the
   classifier.
 
-`scripts/test-gpu-state-latch.sh` runs each of those as an arm, and the
-classifier arms drive `watch-qwen-kernel-hazards.sh` itself against a ring
-fixture and a process the test owns.
+`scripts/test-gpu-state-latch.sh` runs each of those as an arm. The classifier
+arms drive `watch-qwen-kernel-hazards.sh` itself against a ring fixture and a
+process the test owns, and `launch_refuses_tainted_state` drives
+`scripts/qwen-launch.sh` rather than the latch alone, because a check wired into
+a launch that discards its status refuses nothing. The latch runs ahead of the
+already-running process check, so that arm holds while the appliance serves and
+the launch ends on the latch's own status.
 
 ## What is unrun
 

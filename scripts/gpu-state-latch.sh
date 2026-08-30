@@ -78,8 +78,15 @@ hazard_pattern='NV_ERR_NO_MEMORY|NV_ERR_INVALID_STATE|dmaAllocMapping|mapping_re
 kernel_signature_count() {
     resolve_dmesg_command
     [ -n "$dmesg_command" ] || { printf 'unavailable\n'; return 0; }
-    $dmesg_command --color=never 2>/dev/null |
-        grep -Eac "$hazard_pattern" 2>/dev/null || printf '0\n'
+    # grep -c prints its count and still exits 1 when that count is zero, which
+    # is the state a clean boot is in, so the status is discarded and the count
+    # is read from the output alone.
+    signature_count=$($dmesg_command --color=never 2>/dev/null |
+        grep -Eac "$hazard_pattern" 2>/dev/null || :)
+    case $signature_count in
+        '' | *[!0-9]*) printf '0\n' ;;
+        *) printf '%s\n' "$signature_count" ;;
+    esac
 }
 
 taint_field() {
@@ -271,7 +278,12 @@ signatures_before=$(kernel_signature_count)
 sleep "$quiet_seconds"
 signatures_after=$(kernel_signature_count)
 if [ "$signatures_before" = unavailable ]; then
+    # An allocation-refusal taint survives a boot by design and a fresh boot
+    # holds no sudo timestamp, so the gate names the unblock rather than
+    # leaving the appliance latched with no visible exit.
     report ring_quiet "rejected:unreadable"
+    printf 'the kernel ring answers neither directly nor through sudo -n\n' >&2
+    printf 'grant the timestamp with: sudo -v\n' >&2
 elif [ "$signatures_before" = "$signatures_after" ]; then
     report ring_quiet "accepted:$signatures_after"
 else

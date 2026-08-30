@@ -98,8 +98,16 @@ if ! dmesg --color=never >/dev/null 2>&1; then
     fi
 fi
 ring_signatures() {
-    $dmesg_command --color=never 2>/dev/null |
-        grep -Eac "$hazard_pattern" 2>/dev/null || printf '0\n'
+    # grep -c prints its count and still exits 1 when that count is zero, which
+    # is the state a clean boot is in, so the status is discarded and the count
+    # is read from the output alone. A trailing second line here would corrupt
+    # the manifest this run is read out of later.
+    signature_count=$($dmesg_command --color=never 2>/dev/null |
+        grep -Eac "$hazard_pattern" 2>/dev/null || :)
+    case $signature_count in
+        '' | *[!0-9]*) printf '0\n' ;;
+        *) printf '%s\n' "$signature_count" ;;
+    esac
 }
 baseline_signatures=$(ring_signatures)
 
@@ -220,12 +228,16 @@ done <"$matrix_file"
 # finding.
 if [ -z "$halted" ] && [ -n "$opening_arm" ] && [ "$arm_index" -gt 1 ]; then
     arm_index=$((arm_index + 1))
-    printf '%s\n' "$opening_arm" | {
-        IFS="$(printf '\t')" read -r arm_id model_id bench_binary arm_environment arm_note
-        run_arm "closing-$arm_id" "$model_id" "$bench_binary" \
-            "${arm_environment:--}" 'closing control repeat of the opening arm' \
-            "$(printf '%02d' "$arm_index")" || :
-    }
+    # The opening row is re-read from a file rather than through a pipe, because
+    # a pipeline runs its right side in a subshell and a stop condition the
+    # closing arm trips there would leave the manifest reading completed.
+    printf '%s\n' "$opening_arm" >"$output_directory/.closing-arm"
+    IFS="$(printf '\t')" read -r arm_id model_id bench_binary arm_environment arm_note \
+        <"$output_directory/.closing-arm"
+    rm -f "$output_directory/.closing-arm"
+    run_arm "closing-$arm_id" "$model_id" "$bench_binary" \
+        "${arm_environment:--}" 'closing control repeat of the opening arm' \
+        "$(printf '%02d' "$arm_index")" || :
 fi
 
 {

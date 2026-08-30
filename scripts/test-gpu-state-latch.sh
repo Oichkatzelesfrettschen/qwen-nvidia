@@ -110,6 +110,29 @@ else
 fi
 rm -f "$state/gpu-state-tainted"
 
+# The wiring rather than the latch alone: qwen-launch.sh has to refuse. The
+# latch check runs ahead of the already-running process check, so this arm holds
+# while the appliance serves, and the launch is expected to end on the latch's
+# own status rather than on anything further down the chain.
+launch=$script_directory/qwen-launch.sh
+launch_state=$work/launch-state
+mkdir -p "$launch_state"
+QWEN_WEBUI_STATE_DIRECTORY=$launch_state "$latch" taint reboot-required fixture \
+    >/dev/null
+if QWEN_WEBUI_STATE_DIRECTORY=$launch_state "$launch" default \
+    >"$work/launch.stdout" 2>"$work/launch.stderr"; then
+    report launch_refuses_tainted_state rejected
+else
+    launch_status=$?
+    if [ "$launch_status" -eq 4 ] &&
+        grep -q 'clears on a reboot alone' "$work/launch.stderr"; then
+        report launch_refuses_tainted_state accepted
+    else
+        report launch_refuses_tainted_state \
+            "status-$launch_status:$(head -1 "$work/launch.stderr" 2>/dev/null)"
+    fi
+fi
+
 # The hazard watcher classifies the ring line it fired on. A refused allocation
 # with no mapping or Xid signature beside it is recoverable; a line naming an
 # Xid is not. The watcher signals the pid it is given, so the arm runs against a

@@ -19,11 +19,6 @@ bind_host=${QWEN_BIND_HOST:-127.0.0.1}
 server_port=${QWEN_SERVER_PORT:-8080}
 ready_attempts=${QWEN_READY_ATTEMPTS:-3000}
 
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'llama-server is already running; run qwen-teardown.sh first\n' >&2
-    exit 2
-fi
-
 # A driver-level failure ends the server through the hazard watcher, and the
 # relaunch that follows it inside the same minute meets a device whose counters
 # read free while the driver has not finished reclaiming. The latch refuses that
@@ -31,6 +26,11 @@ fi
 # recorded class admits.
 QWEN_WEBUI_STATE_DIRECTORY=$state_directory \
     "$script_directory/gpu-state-latch.sh" require-clear
+
+if pgrep -x llama-server >/dev/null 2>&1; then
+    printf 'llama-server is already running; run qwen-teardown.sh first\n' >&2
+    exit 2
+fi
 
 model_path=${QWEN_MODEL_PATH:-"${HOME:?}/models/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf"}
 router_snapshot_owned=''
