@@ -14,6 +14,18 @@ copy step stands between the two. The directory keeps its name because the
 diff that renamed it would swamp the work it carries; read `scripts/` as "the
 scripts the appliance runs" rather than as a second machine.
 
+An edit takes effect on the next invocation only where it replaces the file
+rather than rewrites it. `sh` parses a script incrementally by byte offset, so a
+truncating in-place write reaches the interpreter of a process already running
+that file and it resumes parsing at an offset that now holds different text. A
+guard edited while the appliance serves has executed code no line of its own
+logic reached: editing `watch-qwen-kernel-hazards.sh` under a live session wrote
+a `reboot-required` taint with no hazard line in its log, no NVRM line in the
+ring, and the server it guards never signalled. Every edit to a script the
+running appliance owns is written to a temporary file and renamed over the
+target, which replaces the inode and leaves the running process on the one it
+opened.
+
 That host is a workstation rather than an appliance, so the desktop is a live
 consumer of the same device every measurement runs on. `nvidia-smi` reports the
 compositor holding about 2.5 GiB of the 12 GiB carve-out and issuing graphics

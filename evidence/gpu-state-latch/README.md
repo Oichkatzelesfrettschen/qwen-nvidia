@@ -83,3 +83,24 @@ exits 0 with `stopped_component=server` and no retained hazard line is the
 state this tree could not read on 2026-08-29, when a launch ran 57 seconds and
 ended through llama-server's own `cleaning up before exit` handler with no
 kernel signature in the same minute.
+
+## One spurious taint, and what wrote it
+
+The latch fired once against a session that had no hazard: the taint read
+`class=reboot-required reason=kernel-hazard` while `kernel-hazards.log` carried
+no `hazard_utc` line, the kernel ring carried no NVRM line in the preceding half
+hour, and the server the watcher guards was alive, unsignalled, and answering
+`/health`.
+
+`watch-qwen-kernel-hazards.sh` had been edited in place while that watcher was
+running it. `sh` parses a script incrementally by byte offset, so the running
+interpreter resumed at an offset the rewrite had moved and reached the taint
+call without the match that gates it. The device state was never in question;
+the guard's own text was.
+
+The fix is the write rather than the guard: an edit to a script the running
+appliance owns is written to a temporary file and renamed over the target, which
+replaces the inode and leaves the running process on the one it opened.
+CLAUDE.md carries that rule. The arm is retained here because a latch that can
+be set by an editor rather than by the device is a latch whose every reading has
+to be checkable, and the three observations above are what checked this one.
