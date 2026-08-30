@@ -23,13 +23,22 @@ set -eu
 # where the distribution's default is GCC 16, so the whole tree builds with
 # g++-15 rather than mixing two front ends across one link.
 #
-# GGML_CUDA_FORCE_MMQ is a compile-time option rather than an environment
-# variable, so the kernel-policy arm is a separate build tree.
+# GGML_CUDA_FORCE_MMQ and GGML_CUDA_FORCE_CUBLAS are compile-time options
+# rather than environment variables, so each kernel-policy arm is a separate
+# build tree. The two reach the dispatcher differently on this device:
+# ggml/src/ggml-cuda/mmq.cu:320 reads FORCE_MMQ eight lines below a
+# turing_mma_available(cc) return that already fires at compute capability 8.9,
+# while mmq.cu:260 reads FORCE_CUBLAS ahead of everything and makes
+# ggml_cuda_should_use_mmq return false. FORCE_CUBLAS is therefore the flag that
+# changes dispatch here, and it changes it only where MMVQ has already refused:
+# ggml_cuda_mul_mat consults ggml_cuda_should_use_mmvq first, so a width inside
+# the Ada MMVQ threshold reaches the same kernel in both builds.
 
 usage() {
     printf 'usage: %s [SOURCE_DIRECTORY]\n' "$0" >&2
     printf '  QWEN_CUDA_ARCHITECTURES  compute capability, default 89\n' >&2
     printf '  QWEN_FORCE_MMQ           ON builds the MMQ kernel-policy arm\n' >&2
+    printf '  QWEN_FORCE_CUBLAS        ON builds the cuBLAS differential arm\n' >&2
     printf '  QWEN_BUILD_VULKAN        OFF drops the fallback backend\n' >&2
     printf '  QWEN_HOST_COMPILER       C++ compiler, default g++-15\n' >&2
     printf '  QWEN_BUILD_DIRECTORY     build tree, defaults from the two above\n' >&2
@@ -43,6 +52,7 @@ usage() {
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89}
 force_mmq=${QWEN_FORCE_MMQ:-OFF}
+force_cublas=${QWEN_FORCE_CUBLAS:-OFF}
 build_vulkan=${QWEN_BUILD_VULKAN:-ON}
 host_cxx=${QWEN_HOST_COMPILER:-/usr/bin/g++-15}
 host_cc=${QWEN_HOST_C_COMPILER:-/usr/bin/gcc-15}
@@ -55,10 +65,25 @@ case $build_vulkan in
 esac
 
 case $force_mmq in
-    ON)  build_suffix=sm$cuda_architectures-mmq ;;
-    OFF) build_suffix=sm$cuda_architectures ;;
-    *)   printf 'QWEN_FORCE_MMQ takes ON or OFF: %s\n' "$force_mmq" >&2; exit 2 ;;
+    ON|OFF) ;;
+    *) printf 'QWEN_FORCE_MMQ takes ON or OFF: %s\n' "$force_mmq" >&2; exit 2 ;;
 esac
+
+case $force_cublas in
+    ON|OFF) ;;
+    *) printf 'QWEN_FORCE_CUBLAS takes ON or OFF: %s\n' "$force_cublas" >&2; exit 2 ;;
+esac
+
+# The dispatcher reads one policy, so a tree naming both states which one it
+# built and neither arm is the differential the design registers.
+if [ "$force_mmq" = ON ] && [ "$force_cublas" = ON ]; then
+    printf 'QWEN_FORCE_MMQ and QWEN_FORCE_CUBLAS are exclusive arms\n' >&2
+    exit 2
+fi
+
+build_suffix=sm$cuda_architectures
+[ "$force_mmq" = OFF ] || build_suffix=$build_suffix-mmq
+[ "$force_cublas" = OFF ] || build_suffix=$build_suffix-force-cublas
 build_directory=${QWEN_BUILD_DIRECTORY:-$source_directory/build-qwen-cuda-$build_suffix}
 
 [ -d "$source_directory/.git" ] || {
@@ -122,8 +147,9 @@ if [ "$build_vulkan" = ON ] && [ ! -d /usr/include/spirv ]; then
     exit 1
 fi
 
-printf 'cuda_build=starting architectures=%s vulkan=%s force_mmq=%s jobs=%s tree=%s\n' \
-    "$cuda_architectures" "$build_vulkan" "$force_mmq" "$build_jobs" "$build_directory"
+printf 'cuda_build=starting architectures=%s vulkan=%s force_mmq=%s force_cublas=%s jobs=%s tree=%s\n' \
+    "$cuda_architectures" "$build_vulkan" "$force_mmq" "$force_cublas" "$build_jobs" \
+    "$build_directory"
 
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -135,6 +161,7 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_CUDA_ARCHITECTURES="$cuda_architectures" \
     -DGGML_CUDA_FA_ALL_QUANTS=ON \
     -DGGML_CUDA_FORCE_MMQ="$force_mmq" \
+    -DGGML_CUDA_FORCE_CUBLAS="$force_cublas" \
     -DLLAMA_CURL=ON \
     -DLLAMA_BUILD_TESTS=OFF
 

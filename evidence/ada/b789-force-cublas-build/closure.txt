@@ -1,0 +1,20 @@
+build_tree=$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89-force-cublas
+source_revision=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
+patch_series_sha256=90abf5343cb60631d533a9e4b70bbc193ded25f93c29cd8308062aea6a3a4500
+patch_series_stat=3 files changed, 61 insertions(+), 1 deletion(-)
+nvcc_version=Cuda compilation tools, release 13.3, V13.3.73
+host_compiler_version=g++-15 (GCC) 15.3.0
+
+75d7f7302308c24b61263fbd0088e7e4568772336948f30751d562a698bb1623  bin/llama-bench
+6a52369d2388468c5ebb63e586bfcc505da8d3ed2bf9048ae632082a2be6b1b2  bin/llama-server
+357850820fa7475b86b45e9ef0a03b53178d202b5514a3b1b1ef2326cec2eb4e  bin/libggml-cuda.so.0.21.0
+780ac1049b449e6f63351aae60911916bdfc707b9ac9ff0aa9e81c950a56ca3f  bin/libggml.so.0.21.0
+38875d06c18c04f7264275be88cbc45ef542cd84dc295b4aa9c1e7226eb259b7  CMakeCache.txt
+7d02a825c488406f017f565b342866f1e3f7e7c544b0598e7bd328569fc25056  bin/libllama.so.0.2.0
+ecaac92c5307ad5f8bbbb3f5273970ab3d34d8beb3eef119f2b2ab8cb6b1a5ec  bin/libggml-base.so.0.21.0
+
+# The primary tree, for the differential
+primary_tree=$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89
+c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a  primary:bin/llama-bench
+5d3a7ac5d6e852ce212346157e6cfab16db08d5a93439b9db73586651635bb1f  primary:bin/libggml-cuda.so.0.21.0
+5e16ca6f281c6cf020b9f6020101e42c698145acad1e87d891a953e9b9471c9f  primary:CMakeCache.txt
