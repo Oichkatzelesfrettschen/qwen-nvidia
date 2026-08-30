@@ -77,6 +77,24 @@ record, and no `NV_ERR_GPU_IS_LOST` across the same window.
 Host memory was not short: `MemAvailable` sat near 20 GB at rest and at
 sampling after the refusals.
 
+## The same chain fires without a switch
+
+`evidence/ada/b789-path-audit/` records the identical three-line chain from a
+single-process `llama-bench` holding one model, twice, with no router and no
+second child. `MemAvailable` read 21649564 kB and the framebuffer 1429 MiB of
+12282 at the time, and both arms completed and returned their rates. Three of
+the candidates above are therefore not what those two instances refused: host
+memory was not short, the locked-pages limit was not approached, and the
+framebuffer was about 88% free. The chain is not specific to an overlapping
+load and it is not always fatal.
+
+That leaves this record's verdict where it was and moves its trigger section.
+The 9B router switch reproduced the chain fatally, twice, and no measured 9B
+router geometry is safe, which is what the quarantine states. What the switch
+adds to a refusal the device also produces at rest is unmeasured, and the
+switch-time instrumentation campaign in the re-entry gate is what would separate
+them.
+
 ## Arithmetic that makes the switch unsafe without naming the pool
 
 The 9B carries 5.37 GiB of weights and reaches about 6.3 GiB with its

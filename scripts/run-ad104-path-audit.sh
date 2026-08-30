@@ -52,6 +52,7 @@ script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 registry_reader=$script_directory/model-registry.sh
 sweep_wrapper=$script_directory/cuda-runtime-env.sh
 latch=$script_directory/gpu-state-latch.sh
+kernel_reader=$script_directory/read-nsys-mat-mul-kernels.py
 model_root=${QWEN_MODEL_ROOT:-${HOME:?}/models}
 nsys=${QWEN_AUDIT_NSYS:-nsys}
 generate_tokens=${QWEN_AUDIT_GENERATE:-1}
@@ -64,33 +65,10 @@ fail() {
 [ -f "$matrix" ] || fail "the matrix is absent: $matrix"
 [ -x "$registry_reader" ] || fail "the registry reader is absent: $registry_reader"
 [ -x "$sweep_wrapper" ] || fail "the CUDA runtime wrapper is absent: $sweep_wrapper"
+[ -x "$kernel_reader" ] || fail "the kernel reader is absent: $kernel_reader"
 command -v "$nsys" >/dev/null 2>&1 || fail "nsys is absent: $nsys"
 
 mkdir -p "$output_directory"
-
-# ggml_type numbers read out of ggml/include/ggml.h. The audit maps a symbol's
-# numeric template argument through this table, so a type the matrix names and
-# the device never launched is visible as an absent row rather than as silence.
-ggml_type_name() {
-    case $1 in
-        0) printf 'F32\n' ;;
-        1) printf 'F16\n' ;;
-        2) printf 'Q4_0\n' ;;
-        3) printf 'Q4_1\n' ;;
-        6) printf 'Q5_0\n' ;;
-        7) printf 'Q5_1\n' ;;
-        8) printf 'Q8_0\n' ;;
-        9) printf 'Q8_1\n' ;;
-        10) printf 'Q2_K\n' ;;
-        11) printf 'Q3_K\n' ;;
-        12) printf 'Q4_K\n' ;;
-        13) printf 'Q5_K\n' ;;
-        14) printf 'Q6_K\n' ;;
-        15) printf 'Q8_K\n' ;;
-        30) printf 'BF16\n' ;;
-        *) printf 'type%s\n' "$1" ;;
-    esac
-}
 
 selected_arms=$*
 
@@ -214,121 +192,62 @@ do
         continue
     }
 
-    "$nsys" stats --report cuda_gpu_kern_sum --format csv \
-        "$arm_directory/profile.nsys-rep" \
-        >"$arm_directory/kern_sum.csv" 2>"$arm_directory/kern_sum.stderr" || {
-        printf 'arm=%s position=%s status=stats-failed\n' "$arm_id" "$arm_position"
+    # nsys stats --report cuda_gpu_kern_sum returns a header and no rows
+    # against this capture under Nsight Systems 2026.1.3 while
+    # CUPTI_ACTIVITY_KIND_KERNEL holds every launch, so the audit exports the
+    # SQLite and reads the activity table rather than the report.
+    "$nsys" export --type sqlite --force-overwrite true \
+        --output "$arm_directory/profile.sqlite" "$arm_directory/profile.nsys-rep" \
+        >"$arm_directory/export.stdout" 2>"$arm_directory/export.stderr" || {
+        printf 'arm=%s position=%s status=export-failed\n' "$arm_id" "$arm_position"
         printf '%s\t%s\t%s\t%s\t%s\n' "$arm_id" "$ne11" \
-            "$expected_kernel_family" '-' 'stats-failed' >>"$summary"
+            "$expected_kernel_family" '-' 'export-failed' >>"$summary"
         continue
     }
 
-    observed_families=$(
-        awk -v arm="$arm_id" -v quant="$quant_family" -v b="$ne11" \
-            -v observations="$observations" '
-            function csv_field(line, index_wanted,   i, c, in_quotes, field, count) {
-                in_quotes = 0; count = 1; field = ""
-                for (i = 1; i <= length(line); i++) {
-                    c = substr(line, i, 1)
-                    if (c == "\"") { in_quotes = !in_quotes; continue }
-                    if (c == "," && !in_quotes) {
-                        if (count == index_wanted) return field
-                        count++; field = ""; continue
-                    }
-                    field = field c
-                }
-                if (count == index_wanted) return field
-                return ""
-            }
-            # nsys names its own columns and the set moves between releases, so
-            # the header is read for the three this audit uses rather than
-            # assuming a position.
-            NR == 1 {
-                for (i = 1; i <= 32; i++) {
-                    header = csv_field($0, i)
-                    if (header == "") continue
-                    if (header ~ /^Name$/) name_column = i
-                    else if (header ~ /Total Time/) total_column = i
-                    else if (header ~ /^(Instances|Count|Num Calls)$/) count_column = i
-                }
-                if (name_column == 0) {
-                    print "the kernel summary carries no Name column" > "/dev/stderr"
-                    exit 1
-                }
-                next
-            }
-            {
-                name = csv_field($0, name_column)
-                total_ns = total_column ? csv_field($0, total_column) : "-"
-                launches = count_column ? csv_field($0, count_column) : "-"
-                family = ""
-                observed_type = "-"
-                observed_ncols = "-"
-                if (name ~ /mul_mat_vec_q</) {
-                    family = "MMVQ"
-                    if (match(name, /mul_mat_vec_q<\(ggml_type\)[0-9]+, *[0-9]+/)) {
-                        spec = substr(name, RSTART, RLENGTH)
-                        sub(/.*\(ggml_type\)/, "", spec)
-                        split(spec, parts, /, */)
-                        observed_type = parts[1]
-                        observed_ncols = parts[2]
-                    }
-                } else if (name ~ /mul_mat_q</) {
-                    family = "MMQ"
-                    if (match(name, /mul_mat_q<\(ggml_type\)[0-9]+/)) {
-                        spec = substr(name, RSTART, RLENGTH)
-                        sub(/.*\(ggml_type\)/, "", spec)
-                        observed_type = spec
-                    }
-                } else if (name ~ /mul_mat_f</ || name ~ /mul_mat_vec_f</) {
-                    family = "MMF"
-                } else if (name ~ /gemm|xmma|cutlass|_tn_|_nn_|_nt_/) {
-                    family = "CUBLAS"
-                }
-                if (family == "") next
-                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
-                    arm, quant, b, name, family, observed_type, observed_ncols, \
-                    launches, total_ns, "observed" >> observations
-                seen[family] = 1
-            }
-            END {
-                out = ""
-                for (f in seen) out = (out == "" ? f : out "," f)
-                print out
-            }
-        ' "$arm_directory/kern_sum.csv"
-    )
+    arm_observations=$arm_directory/kernels.tsv
+    "$kernel_reader" "$arm_directory/profile.sqlite" \
+        --arm-id "$arm_id" --quant-family "$quant_family" --ne11 "$ne11" \
+        >"$arm_observations" 2>"$arm_directory/kernels.stderr" || {
+        printf 'arm=%s position=%s status=no-mat-mul-kernel\n' "$arm_id" "$arm_position"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$arm_id" "$ne11" \
+            "$expected_kernel_family" '-' 'no-mat-mul-kernel' >>"$summary"
+        continue
+    }
+    cat "$arm_observations" >>"$observations"
+
+    observed_families=$(cut -f5 "$arm_observations" | sort -u | paste -sd, -)
 
     # The claim an arm makes is about one quantization type rather than about
     # the artifact, since a Q4_K_M file also carries Q6_K and both families
-    # launch in one forward pass at B8. The verdict therefore asks whether the
-    # arm's own named type ran under the expected family, and an MMVQ arm also
-    # requires the symbol's ncols_dst template argument to equal ne11, which is
-    # what makes `B is ne11` an observation rather than a reading of the source.
+    # launch in one forward pass at B8. A prefill of ne11 tokens and the
+    # decode step that follows it share one capture, so an MMVQ row is read as
+    # this arm's own only where its ncols_dst template argument equals ne11 --
+    # which is also what makes "B is ne11" an observation rather than a reading
+    # of the source. MMQ's second template parameter is the tile width, so an
+    # MMQ row is read for its type and the arm requires the contradicting MMVQ
+    # row at ne11 to be absent.
     verdict=$(
-        awk -F'\t' -v arm="$arm_id" -v quant="$quant_family" -v b="$ne11" \
+        awk -F'\t' -v quant="$quant_family" -v b="$ne11" \
             -v expected="$expected_kernel_family" '
-            BEGIN {
-                type_number["Q2_K"] = 10; type_number["Q3_K"] = 11
-                type_number["Q4_K"] = 12; type_number["Q5_K"] = 13
-                type_number["Q6_K"] = 14; type_number["Q8_0"] = 8
-                wanted = type_number[quant]
-            }
-            NR == 1 { next }
-            $1 != arm { next }
-            $6 == wanted && $5 == expected {
-                matched = 1
-                if ($5 == "MMVQ" && $7 != "-" && $7 != b) width_disagrees = 1
-            }
-            $6 == wanted { seen_type = 1 }
+            $6 == quant && $5 == "MMVQ" && $7 == b { mmvq_at_b = 1 }
+            $6 == quant && $5 == "MMQ" { mmq_present = 1 }
+            $6 == quant { type_present = 1 }
             END {
-                if (wanted == "") { print "type-unmapped"; exit }
-                if (!seen_type) { print "type-absent"; exit }
-                if (!matched) { print "differs"; exit }
-                if (width_disagrees) { print "width-differs"; exit }
-                print "agrees"
+                if (!type_present) { print "type-absent"; exit }
+                if (expected == "MMVQ") {
+                    if (mmq_present) { print "differs-mmq-present"; exit }
+                    if (!mmvq_at_b) { print "differs-no-mmvq-at-b"; exit }
+                    print "agrees"; exit
+                }
+                if (expected == "MMQ") {
+                    if (mmvq_at_b) { print "differs-mmvq-at-b"; exit }
+                    if (!mmq_present) { print "differs-no-mmq"; exit }
+                    print "agrees"; exit
+                }
+                print "expectation-unhandled"
             }
-        ' "$observations"
+        ' "$arm_observations"
     )
     printf '%s\t%s\t%s\t%s\t%s\n' "$arm_id" "$ne11" \
         "$expected_kernel_family" "${observed_families:--}" "$verdict" >>"$summary"

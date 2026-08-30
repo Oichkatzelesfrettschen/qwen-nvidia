@@ -99,7 +99,18 @@ capability 8.9, and the dispatcher consults `ggml_cuda_should_use_mmvq` first
 with no escape on that path. That 0.7% is the build-to-build noise floor.
 `ggml_cuda_should_use_mmvq` carries the crossover this device does obey, tuned
 on an RTX 4090: Q4_K and Q5_K leave MMVQ above seven columns, Q6_K above eight,
-Q2_K above four (`mmvq.cu:295-306`).
+Q2_K above four (`mmvq.cu:295-306`). That crossover is observed rather than
+derived. `mmvq.cu:544` declares `template <ggml_type type, int ncols_dst, ...>
+__global__ void mul_mat_vec_q`, so an MMVQ launch demangles to
+`mul_mat_vec_q<(ggml_type)12, (int)7, ...>` and names the quantization type and
+the column count of the mat-mul second operand in the symbol itself.
+`scripts/run-ad104-path-audit.sh` profiles one prefill per arm under Nsight
+Systems, reads the launches out of `CUPTI_ACTIVITY_KIND_KERNEL`, and refuses an
+arm whose executed family differs from the matrix expectation;
+`evidence/ada/b789-path-audit/` carries seven arms that agree, including the
+mixed forward pass where Q4_K runs MMQ beside Q6_K on MMVQ.
+`GGML_CUDA_FORCE_CUBLAS` is the one build-time flag that reaches the same
+decision, at `mmq.cu:260`, and `QWEN_FORCE_CUBLAS=ON` builds that tree.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
@@ -896,6 +907,10 @@ scripts/admit-cuda-router-serving.sh OUT        # the whole chain, two models, o
 scripts/admit-router-speculation-roster.sh OUT # every servable row once, per-row speculation read from the child argv
 scripts/run-ad104-b789-calibration.sh [--validate] MATRIX_TSV OUT
                                                 # the MMVQ/MMQ crossover arms, one clean boot, one lock
+scripts/run-ad104-path-audit.sh [--dry-run] MATRIX_TSV OUT [ARM_ID...]
+                                                # which mat-mul kernel each arm launched, read from the symbol
+scripts/read-nsys-mat-mul-kernels.py CAPTURE.sqlite
+                                                # the quantized mat-mul launches one Nsight Systems capture holds
 
 # Measurement harnesses, each of which owns its own launch and teardown
 scripts/compare-model-candidate.sh LABEL MODEL_PATH [PROFILE]
