@@ -87,6 +87,11 @@ if [ "$#" -ge 1 ] && [ "$#" -le 2 ]; then
                         row_number, $2 > "/dev/stderr"
                     invalid = row_invalid = 1
                 }
+                if ($4 !~ /^(ring-timeout-only|gfxhub-page-fault|vm-protection-fault|device-lost|post-reset-control-failure|no-validated-safe-tuple|graph-assert-abort|nvrm-allocation-refusal|nvrm-system-memory-allocation-refusal)$/) {
+                    printf "quarantine row %d carries failure class %s outside the vocabulary\n", \
+                        row_number, $4 > "/dev/stderr"
+                    invalid = row_invalid = 1
+                }
                 if ($14 != "any" && $14 != "router-child" &&
                     $14 != "standalone") {
                     printf "quarantine row %d carries invalid runtime mode %s\n", \
@@ -189,6 +194,11 @@ emit_servable_rows() {
                     row_number, $2 > "/dev/stderr"
                 invalid = row_invalid = 1
             }
+            if ($4 !~ /^(ring-timeout-only|gfxhub-page-fault|vm-protection-fault|device-lost|post-reset-control-failure|no-validated-safe-tuple|graph-assert-abort|nvrm-allocation-refusal|nvrm-system-memory-allocation-refusal)$/) {
+                printf "quarantine row %d carries failure class %s outside the vocabulary\n", \
+                    row_number, $4 > "/dev/stderr"
+                invalid = row_invalid = 1
+            }
             if ($14 != "any" && $14 != "router-child" &&
                 $14 != "standalone") {
                 printf "quarantine row %d carries invalid runtime mode %s\n", \
@@ -246,8 +256,8 @@ emit_servable_rows() {
         }
         $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
         invalid { next }
-        NF != 24 {
-            printf "model row %d holds %d fields, expected 24\n", FNR, NF \
+        NF != 25 {
+            printf "model row %d holds %d fields, expected 25\n", FNR, NF \
                 > "/dev/stderr"
             invalid = 1
             next
@@ -538,7 +548,7 @@ fi
 
 awk -F'\t' -v kind="$selector_kind" -v selector="$selector" -v field="$field" '
     /^#/ { next }
-    NF < 24 { next }
+    NF < 25 { next }
     {
         matched = 0
         if (kind == "id" && $1 == selector) {
@@ -556,11 +566,12 @@ awk -F'\t' -v kind="$selector_kind" -v selector="$selector" -v field="$field" '
               "context_target cache_type_k cache_type_v flash_attention projector " \
               "projector_fetch_script decode_tok_s prefill_tok_s quality tier batch ubatch " \
               "validated_filled_depth validation_evidence raw_tool_selection " \
-              "guarded_tool_execution mtp_layers speculation_profile", names, " ")
+              "guarded_tool_execution mtp_layers speculation_profile " \
+              "speculation_evidence", names, " ")
         if (field == "") {
-            for (i = 1; i <= 24; i++) { printf "%s=%s\n", names[i], $i }
+            for (i = 1; i <= 25; i++) { printf "%s=%s\n", names[i], $i }
         } else {
-            for (i = 1; i <= 24; i++) {
+            for (i = 1; i <= 25; i++) {
                 if (names[i] == field) { printf "%s\n", $i; found = 1 }
             }
             if (!found) { exit 3 }

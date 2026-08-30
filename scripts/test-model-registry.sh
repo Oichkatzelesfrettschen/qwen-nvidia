@@ -34,7 +34,7 @@ check_rows() {
         /^[[:space:]]*$/ { next }
         {
             rows++
-            if (NF != 24) {
+            if (NF != 25) {
                 printf "row %d holds %d fields\n", NR, NF
                 bad++
                 next
@@ -157,7 +157,7 @@ else
     report cache_type_vocabulary rejected
 fi
 
-expected_header=$(printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile')
+expected_header=$(printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile\tspeculation_evidence')
 actual_header=$(grep '^# id' "$registry" || true)
 if [ "$actual_header" = "$expected_header" ]; then
     report schema_header accepted
@@ -252,15 +252,15 @@ fi
 fixture_registry=$work_directory/models.tsv
 fixture_quarantine=$work_directory/quarantine.tsv
 printf '%b\n' \
-    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
-    'model-blocked\ttext\tmodels/model-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
-    'profile-blocked\ttext\tmodels/profile-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
-    'profile-neighbour\ttext\tmodels/profile-neighbour.gguf\tfetch.sh\t4096\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
+    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
+    'model-blocked\ttext\tmodels/model-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
+    'profile-blocked\ttext\tmodels/profile-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
+    'profile-neighbour\ttext\tmodels/profile-neighbour.gguf\tfetch.sh\t4096\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
     >"$fixture_registry"
 printf '%b\n' \
     'model-record\tmodel\tmodel-blocked\tdevice-lost\t-\t-\t-\t-\t-\t-\t-\t-\tevidence/model.md\tany' \
-    'profile-record\tprofile\tprofile-blocked\tring-timeout\t8192\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/profile.md\trouter-child' \
-    'neighbour-record\tprofile\tprofile-neighbour\tring-timeout\t8192\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/neighbour.md\trouter-child' \
+    'profile-record\tprofile\tprofile-blocked\tring-timeout-only\t8192\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/profile.md\trouter-child' \
+    'neighbour-record\tprofile\tprofile-neighbour\tring-timeout-only\t8192\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/neighbour.md\trouter-child' \
     >"$fixture_quarantine"
 
 servable_ids=$(QWEN_MODEL_REGISTRY=$fixture_registry \
@@ -317,7 +317,7 @@ fi
 # stale preset and a stale production tier.
 invalid_profile_quarantine=$work_directory/invalid-profile-quarantine.tsv
 printf '%b\n' \
-    'invalid-profile\tprofile\tprofile-blocked\tring-timeout\tnot-a-depth\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/profile.md\trouter-child' \
+    'invalid-profile\tprofile\tprofile-blocked\tring-timeout-only\tnot-a-depth\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/profile.md\trouter-child' \
     >"$invalid_profile_quarantine"
 set +e
 QWEN_MODEL_REGISTRY=$fixture_registry \
@@ -348,7 +348,7 @@ fi
 zero_padded_quarantine=$work_directory/zero-padded-quarantine.tsv
 printf '%b\n' \
     'model-record\tmodel\tmodel-blocked\tdevice-lost\t-\t-\t-\t-\t-\t-\t-\t-\tevidence/model.md\tany' \
-    'zero-padded\tprofile\tprofile-blocked\tring-timeout\t08192\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/profile.md\trouter-child' \
+    'zero-padded\tprofile\tprofile-blocked\tring-timeout-only\t08192\t128\t32\tq8_0\tq4_0\ton\t-\t-\tevidence/profile.md\trouter-child' \
     >"$zero_padded_quarantine"
 set +e
 QWEN_MODEL_REGISTRY=$fixture_registry \
@@ -411,7 +411,7 @@ fi
 # validator names.
 tuple_fixture_models=$work_directory/tuple-models.tsv
 printf '%b\n' \
-    'tuple-model\ttext\tmodels/tuple-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff' \
+    'tuple-model\ttext\tmodels/tuple-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
     >"$tuple_fixture_models"
 
 # The validator resolves an evidence path against the repository root, the
@@ -570,7 +570,7 @@ check_validated_tuples=$script_directory/check-validated-tuples.sh
 check_tuple_models=$work_directory/check-tuple-models.tsv
 printf '%b\n' \
     "$expected_header" \
-    'check-model\ttext\tmodels/check-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/check-model.md\tunmeasured\trefused\t0\toff' \
+    'check-model\ttext\tmodels/check-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/check-model.md\tunmeasured\trefused\t0\toff\t-' \
     >"$check_tuple_models"
 matching_check_tuples=$work_directory/matching-check-tuples.tsv
 printf '%b\n' \
@@ -625,7 +625,7 @@ fi
 projector_check_models=$work_directory/projector-check-models.tsv
 printf '%b\n' \
     "$expected_header" \
-    'vision-model\tvision\tmodels/vision-model.gguf\tfetch.sh\t4096\t4096\t4096\tq8_0\tq4_0\ton\trequired\tfetch-projector.sh\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/vision.md\tunmeasured\trefused\t0\toff' \
+    'vision-model\tvision\tmodels/vision-model.gguf\tfetch.sh\t4096\t4096\t4096\tq8_0\tq4_0\ton\trequired\tfetch-projector.sh\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/vision.md\tunmeasured\trefused\t0\toff\t-' \
     >"$projector_check_models"
 projector_none_tuples=$work_directory/projector-none-tuples.tsv
 printf '%b\n' \

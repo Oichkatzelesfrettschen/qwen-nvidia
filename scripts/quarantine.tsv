@@ -16,7 +16,14 @@
 # one mechanism where two are observed. `ring-timeout-only` is a compute-ring
 # timeout with no fault record. `gfxhub-page-fault` adds a page fault in the
 # coredump. `vm-protection-fault` names a protection fault. `device-lost` is a
-# VK_ERROR_DEVICE_LOST with no kernel record. `post-reset-control-failure` is a
+# VK_ERROR_DEVICE_LOST, a CUDA device-loss result, an Xid or reset, or a
+# fallen-off-bus record: the device itself stops answering. An allocation the
+# driver refuses while the device keeps answering is a different observation, so
+# `nvrm-system-memory-allocation-refusal` names an NVRM refusal whose kernel
+# chain reaches `system_mem.c` and the `NV01_MEMORY_SYSTEM` branch of
+# `nv_gpu_ops.c`, which is RM-managed system memory through UVM rather than the
+# framebuffer. `nvrm-allocation-refusal` covers an NVRM refusal whose pool the
+# chain leaves unnamed. `post-reset-control-failure` is a
 # control that fails after a reset, which is persistent corruption rather than
 # one rejected graph. `no-validated-safe-tuple` carries no device failure and
 # states that no depth has been filled and decoded on this subject.
@@ -37,7 +44,7 @@
 # directly. The tier stays quarantine either way, since the picker reaches a
 # checkpoint only as a router child.
 #
-# The one row here carries prior-host evidence. A graph assertion abort belongs
+# The `ministral3-3b` row carries prior-host evidence. A graph assertion abort belongs
 # to llama.cpp's own graph construction rather than to a driver, so the row
 # holds until an arm on this device either reproduces it or clears it; the
 # quarantine keeps a checkpoint with a recorded abort out of the picker while
@@ -45,4 +52,4 @@
 #
 # id	scope	subject	failure_class	depth	batch	ubatch	cache_type_k	cache_type_v	flash_attention	first_evidence	latest_evidence	reason_record	runtime_mode
 ministral3-3b	model	ministral3-3b	graph-assert-abort	-	-	-	-	-	-	evidence/legacy/raven2/universal-candidate-ladder.md	evidence/legacy/raven2/universal-candidate-ladder.md	evidence/quarantine/ministral3-3b.md	router-child
-qwen38-9b-distill-router-load	profile	qwen38-9b-distill	device-lost	16384	2048	512	q8_0	q4_0	on	evidence/quarantine/qwen38-9b-distill-router-load.md	evidence/quarantine/qwen38-9b-distill-router-load.md	evidence/quarantine/qwen38-9b-distill-router-load.md	router-child
+qwen38-9b-distill-router-load	model	qwen38-9b-distill	nvrm-system-memory-allocation-refusal	-	-	-	-	-	-	evidence/quarantine/qwen38-9b-distill-router-load.md	evidence/quarantine/qwen38-9b-distill-router-load.md	evidence/quarantine/qwen38-9b-distill-router-load.md	router-child

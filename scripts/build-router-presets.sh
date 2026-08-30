@@ -108,7 +108,7 @@ validate_speculation_ledger() {
         }
         $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
         {
-            if (NF < 24) { next }
+            if (NF < 25) { next }
             id = $1
             row_mtp_layers = $23
             row_speculation_profile = $24
@@ -130,6 +130,25 @@ validate_speculation_ledger() {
                     id, row_speculation_profile > "/dev/stderr"
                 invalid = 1
             }
+            # The evidence class is what the policy rests on. An `off` row
+            # claims nothing and reads `-`; every other row states either the
+            # arm that measured this checkpoint as a speculation target or
+            # `capability-only`, which says the block loads and no rate was
+            # taken. A silent path admits a prediction as a measurement.
+            row_speculation_evidence = $25
+            if (spec_type[row_speculation_profile] == "none") {
+                if (row_speculation_evidence != "-") {
+                    printf "row %s serves speculation profile %s and carries speculation_evidence %s, expected -\n", \
+                        id, row_speculation_profile, \
+                        row_speculation_evidence > "/dev/stderr"
+                    invalid = 1
+                }
+            } else if (row_speculation_evidence == "-" ||
+                row_speculation_evidence == "") {
+                printf "row %s selects speculation profile %s and states no speculation_evidence\n", \
+                    id, row_speculation_profile > "/dev/stderr"
+                invalid = 1
+            }
         }
         END {
             if (invalid) { exit 1 }
@@ -140,6 +159,21 @@ validate_speculation_ledger() {
     ' "$speculation_profiles_registry" "$registry"
 }
 speculation_ledger_rows=$(validate_speculation_ledger) || exit 1
+
+# A speculation_evidence path names a retained arm, so the file has to be in the
+# tree for the row to make its claim. `capability-only` names no arm by
+# construction and is the one non-path value a serving row may carry.
+speculation_evidence_missing=''
+for speculation_claim in $(awk -F'\t' '!/^#/ && NF >= 25 && $25 != "-" && $25 != "capability-only" { print $25 }' \
+    "$registry" | sort -u); do
+    [ -r "$script_directory/../$speculation_claim" ] && continue
+    speculation_evidence_missing="$speculation_evidence_missing $speculation_claim"
+done
+if [ -n "$speculation_evidence_missing" ]; then
+    printf 'speculation_evidence names absent records:%s\n' \
+        "$speculation_evidence_missing" >&2
+    exit 1
+fi
 
 mkdir -p "$(dirname -- "$output_ini")"
 production_directory=$model_root/production
@@ -202,7 +236,8 @@ while IFS='	' read -r id role model_file _fetch_script context_default \
     _context_ceiling _context_target cache_type_k cache_type_v flash_attention \
     projector _projector_fetch_script _decode_tok_s _prefill_tok_s _quality tier batch ubatch \
     _validated_filled_depth _validation_evidence _raw_tool_selection \
-    _guarded_tool_execution _mtp_layers speculation_profile; do
+    _guarded_tool_execution _mtp_layers speculation_profile \
+    _speculation_evidence; do
     case $id in
         '#'* | '') continue ;;
     esac

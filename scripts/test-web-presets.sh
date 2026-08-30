@@ -45,11 +45,11 @@ export QWEN_IMAGE_PROFILES
 model_registry=$work/models.tsv
 cat >"$model_registry" <<'EOF'
 # id	role	model_file	fetch_script	context_default	context_ceiling	context_target	cache_type_k	cache_type_v	flash_attention	projector	projector_fetch_script	decode_tok_s	prefill_tok_s	quality	tier	batch	ubatch	validated_filled_depth	validation_evidence	raw_tool_selection	guarded_tool_execution	mtp_layers	speculation_profile
-fixture-production	fixture-role	Fixture-GGUF/production.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	production	128	32	8192	evidence/fixture.md	9/10	refused	0	off
-fixture-candidate-validated	fixture-role	Fixture-GGUF/candidate-validated.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	candidate	128	32	8192	evidence/fixture.md	9/10	refused	0	off
-fixture-candidate-unknown	fixture-role	Fixture-GGUF/candidate-unknown.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	candidate	128	32	-	-	9/10	refused	0	off
-fixture-archive	fixture-role	Fixture-GGUF/archive.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	archive	128	32	-	-	9/10	refused	0	off
-fixture-vision	fixture-role	Fixture-Vision-GGUF/vision.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	required	download-fixture-mmproj.sh	1.00	1.00	untested	production	128	32	8192	evidence/fixture.md	9/10	refused	0	off
+fixture-production	fixture-role	Fixture-GGUF/production.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	production	128	32	8192	evidence/fixture.md	9/10	refused	0	off	-
+fixture-candidate-validated	fixture-role	Fixture-GGUF/candidate-validated.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	candidate	128	32	8192	evidence/fixture.md	9/10	refused	0	off	-
+fixture-candidate-unknown	fixture-role	Fixture-GGUF/candidate-unknown.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	candidate	128	32	-	-	9/10	refused	0	off	-
+fixture-archive	fixture-role	Fixture-GGUF/archive.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	none	-	1.00	1.00	untested	archive	128	32	-	-	9/10	refused	0	off	-
+fixture-vision	fixture-role	Fixture-Vision-GGUF/vision.gguf	download-fixture.sh	8192	16384	32768	q8_0	q4_0	on	required	download-fixture-mmproj.sh	1.00	1.00	untested	production	128	32	8192	evidence/fixture.md	9/10	refused	0	off	-
 EOF
 
 web_profiles_ok=$work/web-profiles-ok.tsv

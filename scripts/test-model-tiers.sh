@@ -15,6 +15,7 @@ script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 registry=$script_directory/models.tsv
 quarantine=$script_directory/quarantine.tsv
+speculation_profiles=$script_directory/speculation-profiles.tsv
 builder=$script_directory/build-router-presets.sh
 reader=$script_directory/model-registry.sh
 failures=0
@@ -67,6 +68,46 @@ else
     report tier_vocabulary rejected
 fi
 
+# Speculation is a per-section setting, so the emitted geometry rather than the
+# registry field is what proves the policy reached the child. A section whose
+# row names a profile carries that profile's spec_type; a section whose row
+# names `off` carries no speculation key at all, since an empty
+# `LLAMA_ARG_SPEC_TYPE` reaches llama-server as an argument rather than as an
+# absence.
+speculation_emission_failures=0
+for spec_row in $(awk -F'\t' '!/^#/ && NF >= 25 { print $1 ":" $24 }' "$registry"); do
+    spec_section=${spec_row%%:*}
+    spec_profile=${spec_row##*:}
+    case $section_ids in
+        *"$spec_section"*) ;;
+        *) continue ;;
+    esac
+    emitted_spec=$(awk -v want="[$spec_section]" '
+        $0 == want { inside = 1; next }
+        /^\[/ { inside = 0 }
+        inside && /^LLAMA_ARG_SPEC_TYPE/ { print $NF }
+    ' "$presets")
+    if [ "$spec_profile" = off ]; then
+        [ -z "$emitted_spec" ] && continue
+        printf 'section %s names speculation profile off and emits spec type %s\n' \
+            "$spec_section" "$emitted_spec" >&2
+        speculation_emission_failures=$((speculation_emission_failures + 1))
+        continue
+    fi
+    expected_spec=$(awk -F'\t' -v id="$spec_profile" \
+        '!/^#/ && $1 == id { print $2 }' "$speculation_profiles")
+    if [ "$emitted_spec" != "$expected_spec" ] || [ -z "$emitted_spec" ]; then
+        printf 'section %s names profile %s expecting spec type %s and emits %s\n' \
+            "$spec_section" "$spec_profile" "$expected_spec" "$emitted_spec" >&2
+        speculation_emission_failures=$((speculation_emission_failures + 1))
+    fi
+done
+if [ "$speculation_emission_failures" -eq 0 ]; then
+    report speculation_emission accepted
+else
+    report speculation_emission rejected
+fi
+
 # A quarantined subject reaching production/ or candidates/ is the failure the
 # tier tree exists to prevent, and it is checked against the link tree rather
 # than against the registry, because the link is what the router scans.
@@ -116,10 +157,17 @@ fi
 # A quarantine without a reason record is an unexplained exclusion, and a reason
 # record naming evidence that is absent is an unsupported one.
 reason_failures=0
+# The builder deploys a record under the row's own id rather than under its
+# subject, because one subject can carry several rows and a by-subject name
+# would let the second overwrite the first.
 for reason_id in $(awk -F'\t' '!/^#/ && NF { print $1 }' "$quarantine"); do
     reason_record=$repository_root/evidence/quarantine/$reason_id.md
     if [ ! -r "$reason_record" ]; then
         printf 'quarantine %s carries no reason record\n' "$reason_id" >&2
+        reason_failures=$((reason_failures + 1))
+    fi
+    if [ ! -r "$model_root/quarantine-reasons/$reason_id.md" ]; then
+        printf 'quarantine %s has no deployed reason record\n' "$reason_id" >&2
         reason_failures=$((reason_failures + 1))
     fi
 done
@@ -128,11 +176,6 @@ for subject in $("$reader" quarantine-subjects); do
     model_directory=$(basename -- "$(dirname -- "$model_file")")
     if [ ! -L "$model_root/quarantine/$model_directory" ]; then
         printf 'quarantined subject %s is not linked into quarantine/\n' \
-            "$subject" >&2
-        reason_failures=$((reason_failures + 1))
-    fi
-    if [ ! -r "$model_root/quarantine-reasons/$subject.md" ]; then
-        printf 'quarantine link for %s has no deployed reason record\n' \
             "$subject" >&2
         reason_failures=$((reason_failures + 1))
     fi
