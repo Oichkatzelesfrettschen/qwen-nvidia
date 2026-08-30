@@ -3,7 +3,7 @@ set -eu
 
 # The repository Web UI is the fallback when the separately built llama-ui is
 # absent. Router mode exposes only preset ids, so the fallback must derive its
-# request model from /v1/models and never send the single-model qwen-apu alias.
+# request model from /v1/models and never send a single-model alias.
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 fallback_ui=$script_directory/../webui/index.html
@@ -22,17 +22,31 @@ grep -F "if (!selectedModel) throw new Error('no routable model is selected')" \
 # cannot set the default: the page probes `GET /tools` per roster row and
 # prefers the first one that answers 200 over sort position, while a still-
 # valid stored choice from browser storage stays authoritative over the probe.
+#
+# The probe passes autoload=false. The router loads a model on demand by
+# default, so a probe that autoloads makes the page load every roster row at
+# boot, and a row larger than the device carve-out is killed by the kernel
+# while loading, which ends the server the page is talking to.
 grep -F 'async function probeToolOffering(modelId)' "$fallback_ui" >/dev/null
-grep -F './tools?model=${encodeURIComponent(modelId)}&autoload=true' \
+grep -F './tools?model=${encodeURIComponent(modelId)}&autoload=false' \
     "$fallback_ui" >/dev/null
+if grep -F './tools?model=${encodeURIComponent(modelId)}&autoload=true' \
+    "$fallback_ui" >/dev/null; then
+    printf 'the roster probe autoloads, which loads every roster row at boot\n' >&2
+    exit 1
+fi
 grep -F 'modelIds.includes(storedModel)' "$fallback_ui" >/dev/null
 grep -F 'modelIds.find(modelId => toolOffering[modelId] === true) ?? modelIds[0]' \
     "$fallback_ui" >/dev/null
-grep -F "toolOffering[modelId] === false ? \`\${modelId} (review)\` : modelId" \
+# The option label reads the section's own tags. Absent tools mean an ordinary
+# model, which is every row while each execution lane reads refused, so a label
+# keyed on the tool listing marks the whole roster as review-only.
+grep -F "rowTags.includes('review-only')" "$fallback_ui" >/dev/null
+grep -F "modelTags[model.id] = Array.isArray(model.tags) ? model.tags : []" \
     "$fallback_ui" >/dev/null
-grep -F "readBrowserStorage('localStorage', 'qwen-apu-model-id')" \
+grep -F "readBrowserStorage('localStorage', 'qwen-model-id')" \
     "$fallback_ui" >/dev/null
-grep -F "writeBrowserStorage('localStorage', 'qwen-apu-model-id', selectedModel)" \
+grep -F "writeBrowserStorage('localStorage', 'qwen-model-id', selectedModel)" \
     "$fallback_ui" >/dev/null
 grep -F 'const generation = ++modelStateGeneration' "$fallback_ui" >/dev/null
 grep -F 'return requestModel === selectedModel && modelStateGeneration === generation' \
@@ -54,7 +68,7 @@ if grep -E '(localStorage|sessionStorage)\.(getItem|setItem|removeItem)' \
     exit 1
 fi
 
-if grep -E "model: ['\"]qwen-apu['\"]" "$fallback_ui" >/dev/null; then
+if grep -E "model: ['\"]qwen-(apu|nvidia)['\"]" "$fallback_ui" >/dev/null; then
     printf 'fallback Web UI still sends the single-model compatibility alias\n' >&2
     exit 1
 fi

@@ -181,12 +181,12 @@ await flushPromises();
 // review-only row), so the props request below being for model A is this
 // rule choosing it rather than modelIds[0] happening to agree with it.
 const toolsProbeA = takeRequest(
-  request => request.url === './tools?model=model-A&autoload=true',
+  request => request.url === './tools?model=model-A&autoload=false',
   'model A tool probe');
 toolsProbeA.resolve(jsonResponse([], 200));
 await flushPromises();
 const toolsProbeB = takeRequest(
-  request => request.url === './tools?model=model%20B%2F8k&autoload=true',
+  request => request.url === './tools?model=model%20B%2F8k&autoload=false',
   'model B tool probe');
 toolsProbeB.resolve(jsonResponse({ error: 'feature_disabled' }, 403));
 await flushPromises();

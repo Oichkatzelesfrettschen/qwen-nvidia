@@ -1162,6 +1162,26 @@ workload_lease_state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-web
 export QWEN_VULKAN_WORKLOAD_LOCK="$workload_lease_state_directory/vulkan-workload.lock"
 printf 'vulkan_workload_lease path=%s\n' "$QWEN_VULKAN_WORKLOAD_LOCK"
 
+# The registry decides what the picker offers, so the roster carries the preset
+# and nothing else. server-models.cpp calls load_from_cache() and cascades its
+# result into the roster beside the preset sections, which puts any model
+# llama-server has ever cached in front of a user regardless of tier: three
+# archived 27B rows reached the picker that way. A row larger than the device
+# carve-out is killed by the kernel as it loads, and the kill takes the router
+# with it, so an unadmitted row is a crash rather than a slow answer. Pointing
+# LLAMA_CACHE at a directory this session owns leaves that scan with nothing to
+# find. common/common.cpp's fs_get_cache_directory reads the variable ahead of
+# XDG_CACHE_HOME and HOME, and neither wrapper scrubs it.
+roster_cache_directory=$workload_lease_state_directory/router-model-cache
+mkdir -p "$roster_cache_directory" || {
+    printf 'router model cache directory is not creatable: %s\n' \
+        "$roster_cache_directory" >&2
+    exit 1
+}
+export LLAMA_CACHE="$roster_cache_directory"
+printf 'roster_cache path=%s entries=%s\n' "$LLAMA_CACHE" \
+    "$(find "$roster_cache_directory" -mindepth 1 -maxdepth 1 | wc -l)"
+
 # The launcher hashes its immutable-per-session snapshot before preflight. The
 # exec boundary revalidates both mutable registry authorities and measures the
 # preset again, so a quarantine or model-registry replacement invalidates the

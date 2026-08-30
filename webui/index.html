@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>qwen-apu</title>
+<title>qwen-nvidia</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <!--
   The approval broker binds a loopback port of its own, so its origin is a
@@ -112,7 +112,7 @@
 <body>
 
 <header>
-  <b>qwen-apu</b>
+  <b>qwen-nvidia</b>
   <span id="model">connecting</span>
   <select class="model-picker" id="model-picker" aria-label="Model" hidden></select>
   <span id="ctx">context pending</span>
@@ -219,16 +219,16 @@ function writeBrowserStorage(storageName, key, value) {
   } catch { /* storage denial leaves the live page state authoritative */ }
 }
 
-let apiKey = readBrowserStorage('sessionStorage', 'qwen-apu-api-key') || '';
+let apiKey = readBrowserStorage('sessionStorage', 'qwen-api-key') || '';
 $('#api-key').value = apiKey;
 
 // Reasoning costs decode tokens at about one per second on this APU, so the
 // choice persists across reloads rather than resetting to on each visit.
 $('#reasoning').checked =
-  readBrowserStorage('localStorage', 'qwen-apu-reasoning') === 'on';
+  readBrowserStorage('localStorage', 'qwen-reasoning') === 'on';
 $('#reasoning').addEventListener('change', () => {
   writeBrowserStorage(
-    'localStorage', 'qwen-apu-reasoning',
+    'localStorage', 'qwen-reasoning',
     $('#reasoning').checked ? 'on' : 'off');
 });
 
@@ -241,7 +241,7 @@ function authHeaders(additional = {}) {
 $('#set-key').onclick = () => {
   apiKey = $('#api-key').value.trim();
   writeBrowserStorage(
-    'sessionStorage', 'qwen-apu-api-key', apiKey || null);
+    'sessionStorage', 'qwen-api-key', apiKey || null);
   $('#model').textContent = apiKey ? 'key set; connecting' : 'connecting';
   void boot();
 };
@@ -314,7 +314,7 @@ function selectRequestModel(selectedModel) {
     attachment.tokens = null;
     attachment.tokenModel = null;
   });
-  writeBrowserStorage('localStorage', 'qwen-apu-model-id', selectedModel);
+  writeBrowserStorage('localStorage', 'qwen-model-id', selectedModel);
   $('#ctx').textContent = 'context pending for selected model';
   renderAttached();
   void refreshModelContext(selectedModel, generation);
@@ -827,12 +827,12 @@ let brokerSessionSecret = null;
 let brokerSessionOrigin = null;
 
 $('#broker-origin').value =
-  readBrowserStorage('localStorage', 'qwen-apu-broker-origin') || BROKER_ORIGIN_DEFAULT;
+  readBrowserStorage('localStorage', 'qwen-broker-origin') || BROKER_ORIGIN_DEFAULT;
 $('#broker-origin').addEventListener('change', () => {
   brokerSessionSecret = null;
   brokerSessionOrigin = null;
   writeBrowserStorage(
-    'localStorage', 'qwen-apu-broker-origin', $('#broker-origin').value.trim() || null);
+    'localStorage', 'qwen-broker-origin', $('#broker-origin').value.trim() || null);
 });
 
 // The web surface is a per-turn choice rather than a remembered one. The
@@ -1733,10 +1733,14 @@ async function probeToolOffering(modelId) {
      same request `resolveWebTools` makes once a model is already selected --
      so `boot()` reads it per roster row to pick a default that can act on the
      per-turn Web or image toggle rather than one that can only sit idle
-     behind it. */
+     behind it. The probe passes `autoload=false`, because the router loads on
+     demand by default and a roster row larger than the device carve-out is
+     killed by the kernel while loading, which ends the server the probe was
+     asking. A row whose child is not resident answers without its tool list,
+     and the per-turn resolve reads the list again once a model is selected. */
   try {
     const response = await fetch(
-      `./tools?model=${encodeURIComponent(modelId)}&autoload=true`,
+      `./tools?model=${encodeURIComponent(modelId)}&autoload=false`,
       { headers: authHeaders() });
     if (response.status === 200) return true;
     if (response.status === 403) return false;
@@ -1747,7 +1751,7 @@ async function probeToolOffering(modelId) {
 }
 
 async function boot() {
-  // The router creates no qwen-apu compatibility alias. Its roster is the
+  // The router creates no compatibility alias. Its roster is the
   // authority for request ids, so the fallback page selects only a model that
   // the listener reports instead of assuming the single-model alias exists.
   const generation = ++modelStateGeneration;
@@ -1784,6 +1788,14 @@ async function boot() {
     const modelIds = [...new Set(rosterModels
       .map(model => model?.id)
       .filter(modelId => typeof modelId === 'string' && modelId.length > 0))];
+    /* `/v1/models` returns the tags the preset section carries, which is what
+       distinguishes a review-only vision row from an ordinary one. */
+    const modelTags = {};
+    for (const model of rosterModels) {
+      if (model && typeof model.id === 'string') {
+        modelTags[model.id] = Array.isArray(model.tags) ? model.tags : [];
+      }
+    }
     if (!modelIds.length) {
       $('#model').textContent = 'server reports no routable model';
       return;
@@ -1804,7 +1816,7 @@ async function boot() {
       }
       if (generation !== modelStateGeneration) return;
     }
-    const storedModel = readBrowserStorage('localStorage', 'qwen-apu-model-id');
+    const storedModel = readBrowserStorage('localStorage', 'qwen-model-id');
     const selectedModel = modelIds.includes(storedModel)
       ? storedModel
       : (modelIds.find(modelId => toolOffering[modelId] === true) ?? modelIds[0]);
@@ -1812,7 +1824,12 @@ async function boot() {
     for (const modelId of modelIds) {
       const option = document.createElement('option');
       option.value = modelId;
-      option.textContent = toolOffering[modelId] === false ? `${modelId} (review)` : modelId;
+      /* A review-only section carries `review-only` in its tags. Absent tools
+         mean an ordinary model, which is every row while each lane reads
+         refused, so the label follows the tag rather than the tool listing. */
+      const rowTags = modelTags[modelId] || [];
+      option.textContent = rowTags.includes('review-only')
+        ? `${modelId} (review)` : modelId;
       modelPicker.append(option);
     }
     modelPicker.value = selectedModel;
