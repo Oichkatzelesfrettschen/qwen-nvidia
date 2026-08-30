@@ -147,8 +147,10 @@ classify() {
     printf '%s\n' "$ring_line" >"$arm_directory/ring"
     sh -c 'while :; do :; done' &
     victim_pid=$!
-    QWEN_WEBUI_STATE_DIRECTORY=$arm_directory \
-        "$watcher" "$victim_pid" "$arm_directory/hazard.log" \
+    # No state directory is exported here: the watcher derives the latch from
+    # the hazard log's own directory, which is what keeps a test run out of the
+    # running appliance's latch.
+    "$watcher" "$victim_pid" "$arm_directory/hazard.log" \
         "$arm_directory/ring" >/dev/null 2>&1 || :
     kill -KILL "$victim_pid" 2>/dev/null || :
     wait "$victim_pid" 2>/dev/null || :

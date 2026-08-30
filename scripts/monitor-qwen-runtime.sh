@@ -79,6 +79,15 @@ guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status
 sample_seconds=1
 minimum_mem_available_kib=4194304
 maximum_swapin_bytes_per_sample=67108864
+# A swap-in rate is a thrash signature only where the host is short of memory.
+# This host swaps to zram at priority 100 ahead of a 72 GiB file, so a page-in
+# is a RAM-to-RAM decompression that a model load drives at rates a disk never
+# reaches: loading fifteen checkpoints in sequence read 83 MiB in one second
+# with 23.6 GB available and ended the server on the rate alone
+# (evidence/ada/router-speculation-roster/). The rate therefore terminates only
+# where free memory has also fallen under this headroom, which is well above the
+# reserve that terminates on its own.
+swapin_headroom_mem_available_kib=${QWEN_SWAPIN_HEADROOM_KIB:-8388608}
 # The SMU throttles the DPM clock ladder as junction temperature rises and the
 # hardware carries its own shutdown well above anything this sampler observes,
 # so silicon protection does not depend on a one-second shell poll. Terminating
@@ -102,6 +111,7 @@ expected_nice=${QWEN_SERVING_NICE:-0}
 page_size=$(getconf PAGESIZE)
 previous_pswpin=$(awk '$1 == "pswpin" { print $2 }' /proc/vmstat)
 temperature_reported=0
+swapin_reported=0
 
 server_is_original_process() {
     if [ ! -r "/proc/$server_pid/stat" ]; then
@@ -139,8 +149,9 @@ terminate_server() {
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$server_pid" "$sample_seconds" \
         "$runtime_profile" "$latency_watchdog_pid" "$kernel_hazard_watchdog_pid" \
         "$guard_affinity" "$guard_nice"
-    printf 'threshold_mem_available_kib=%s threshold_swapin_bytes_per_sample=%s report_temperature_millicelsius=%s\n' \
+    printf 'threshold_mem_available_kib=%s threshold_swapin_bytes_per_sample=%s swapin_headroom_mem_available_kib=%s report_temperature_millicelsius=%s\n' \
         "$minimum_mem_available_kib" "$maximum_swapin_bytes_per_sample" \
+        "$swapin_headroom_mem_available_kib" \
         "$report_temperature_millicelsius"
     printf 'threshold_maximum_gpu_busy_percent=%s enforcement=terminate_on_sample_above_threshold\n' \
         "$maximum_gpu_busy_percent"
@@ -209,7 +220,15 @@ while server_is_original_process; do
         terminate_server memory_reserve_breached
     fi
     if [ "$swapin_bytes" -gt "$maximum_swapin_bytes_per_sample" ]; then
-        terminate_server swapin_rate_breached
+        if [ "$mem_available_kib" -lt "$swapin_headroom_mem_available_kib" ]; then
+            terminate_server swapin_rate_breached
+        elif [ "$swapin_reported" -eq 0 ]; then
+            swapin_reported=1
+            printf 'swapin_report_utc=%s swapin_bytes=%s threshold_bytes=%s mem_available_kib=%s headroom_kib=%s action=observe\n' \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$swapin_bytes" \
+                "$maximum_swapin_bytes_per_sample" "$mem_available_kib" \
+                "$swapin_headroom_mem_available_kib" >>"$telemetry_log"
+        fi
     fi
     if [ "$maximum_observed_temperature" -ge "$report_temperature_millicelsius" ] && \
        [ "$temperature_reported" -eq 0 ]; then

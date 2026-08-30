@@ -82,7 +82,12 @@ process_lines() {
             printf 'hazard_utc=%s action=SIGTERM server_pid=%s class=%s\n' \
                 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$server_pid" \
                 "$hazard_class" >>"$hazard_log"
-            "$script_directory/gpu-state-latch.sh" taint "$hazard_class" \
+            # The latch belongs to the session whose log this watcher writes,
+            # so the state directory is derived from that path rather than from
+            # HOME. A guard driven by a test against a fixture ring would
+            # otherwise taint the running appliance's own latch.
+            QWEN_WEBUI_STATE_DIRECTORY=$(dirname -- "$hazard_log") \
+                "$script_directory/gpu-state-latch.sh" taint "$hazard_class" \
                 kernel-hazard >>"$hazard_log" 2>&1 || true
             kill -TERM "$server_pid" 2>/dev/null || true
             return 3
