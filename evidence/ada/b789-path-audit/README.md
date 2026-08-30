@@ -40,6 +40,8 @@ the ones whose `ncols` equals its B or whose family is MMQ.
 | b8-q5k | 8 | Q5_K | MMQ | - | 168 + 48 |
 | b8-q5k | 8 | Q6_K | MMVQ | 8 | 32 |
 | b8-q6k | 8 | Q6_K | MMVQ | 8 | 248 |
+| b9-q4k | 9 | Q4_K | MMQ | - | 168 + 48 |
+| b9-q4k | 9 | Q6_K | MMQ | - | 32 |
 | b9-q6k | 9 | Q6_K | MMQ | - | 200 + 48 |
 
 Every prediction the matrix stated holds. Q4_K and Q5_K leave MMVQ between B7
@@ -48,13 +50,17 @@ and the two families appear in one capture. Q6_K leaves MMVQ between B8 and
 B9, and `b8-q6k` is the null step the reading rests on: 248 MMVQ launches at
 `ncols_dst` of 8 and no MMQ launch at all.
 
-`b9-q4k` and `b9-q5k` remain `derived`. The ring guard halted the run that
-would have covered them, and the protocol forbids a retry on the boot a
-signature appeared on.
+`b9-q4k` closes the second step directly: Q4_K and Q6_K are both on MMQ, and
+the 32 Q6_K launches that ran MMVQ at `ncols_dst` of 8 in `b8-q4k` are MMQ
+launches here. `b9-q5k` remains `derived`, because the ring guard halted the
+invocation that would have covered it and the protocol forbids a retry on the
+boot a signature appeared on.
 
-The MMQ launch count splits across two symbols differing in `mmq_x`, the tile
-width its second template parameter carries, which is why an MMQ row reads its
-type from the symbol and its B from the arm.
+The MMQ launch count splits across two symbols carrying the same `mmq_x` of 16
+and differing in `need_check`, the bounds-guard flag its third template
+parameter holds, rather than across two tile widths. An MMQ symbol's second
+parameter is `mmq_x` in every case and never `ne11`, which is why an MMQ row
+reads its type from the symbol and its B from the arm.
 
 ## The report is not the authority
 
@@ -78,7 +84,15 @@ router, no second child, and no switch:
 ```text
 23:34:04  during 01-b7-q4k of the first invocation, four lines
 23:38:32  during 01-b7-q6k of the third invocation, three lines
+23:43:18  during 01-b9-q4k of the fourth invocation, three lines
 ```
+
+Three of the four invocations emitted a burst, each on its own first arm, and
+no arm after the first emitted one. The second invocation ran six arms and
+emitted nothing. That places the event at the opening of a profiled session
+rather than at a model, a quantization, or a value of B: the four opening arms
+span Q4_K_M twice, Q6_K once at B7 and Q4_K_M once at B9, and the quiet
+invocation opened on the same artifact and B as one that fired.
 
 The conditions separate this from every candidate the quarantine record lists.
 `MemAvailable` read 21649564 kB and `Mlocked` 1032 kB immediately afterward, so
@@ -89,19 +103,34 @@ alone, so the framebuffer was about 88% free. Both arms **completed**:
 pp7 at 348.97 and tg1 at 57.35, and each produced the kernel observation the
 table above carries.
 
-Three statements follow and one does not. The chain is not specific to a router
-switch, it is not a report of framebuffer exhaustion, and it is not always
-fatal. What allocation the RM refused stays unresolved, and the six arms of the
-second invocation emitted nothing under the same shape, so a first-touch or
-warm-state explanation is available and unmeasured. The profiler is a covariate
-of both bursts and cannot be separated from them by this run, since every arm
-here ran under Nsight Systems.
+What these instances establish is a shared code path rather than a shared
+cause. `system_mem.c:353` names the RM's system-memory allocator, and two
+callers can both reach it while refusing entirely different resources, so a
+profiler-side host allocation and a router-overlap allocation printing the same
+three lines are consistent with two unrelated phenomena. The asymmetry that
+separates them is in the data: Nsight Systems is present in both instances
+here and absent in both router instances, and every arm of this audit ran under
+it, so the profiler cannot be excluded as the allocating party.
 
-What this changes for the quarantine record is the reading of its trigger
-section rather than its verdict: the 9B router switch reproduced the chain
-fatally and no measured router geometry is safe, and the same chain is now
-observed non-fatally without a switch. `scripts/quarantine.tsv` keeps the 9B at
-model scope against the router path.
+What each set of instances does establish separately is narrower. Here: the
+chain fires with host memory and framebuffer both far from short, and it does
+not end the workload. There: a 9B router switch ends the server, twice. Neither
+set licenses reading the other's cause, and `scripts/quarantine.tsv` keeps the
+9B at model scope against the router path on the router evidence alone.
+
+The unprofiled control is already scheduled rather than unrun. The clean boot
+opens the primary matrix with an unprofiled `llama-bench` arm against a ring
+baseline of zero, and `scripts/run-ad104-b789-calibration.sh` checks the ring
+after every arm. A burst there refutes the profiler as a necessary covariate on
+an unambiguous signal; nine quiet unprofiled arms implicate it with a control
+behind them. The matrix run carries that control, so no arm is added for it.
+
+The leading unmeasured candidate is kernel slab. `SUnreclaim` read 2001204 kB
+at the state capture, and RM mapping and page-table metadata live in
+unreclaimable slab, which is the one counter among those recorded that both
+plausibly holds the refused allocation and was never sampled during a burst.
+The clean boot's own value is its falsifier: a boot whose `SUnreclaim` sits far
+lower and still produces the chain removes it.
 
 ## Falsifiers
 

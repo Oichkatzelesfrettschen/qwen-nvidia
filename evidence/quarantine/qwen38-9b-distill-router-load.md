@@ -80,20 +80,27 @@ sampling after the refusals.
 ## The same chain fires without a switch
 
 `evidence/ada/b789-path-audit/` records the identical three-line chain from a
-single-process `llama-bench` holding one model, twice, with no router and no
-second child. `MemAvailable` read 21649564 kB and the framebuffer 1429 MiB of
-12282 at the time, and both arms completed and returned their rates. Three of
-the candidates above are therefore not what those two instances refused: host
-memory was not short, the locked-pages limit was not approached, and the
-framebuffer was about 88% free. The chain is not specific to an overlapping
-load and it is not always fatal.
+single-process `llama-bench` holding one model, three times, with no router and
+no second child. `MemAvailable` read 21649564 kB and the framebuffer 1429 MiB
+of 12282 at the time, and every one of those arms completed and returned its
+rates.
 
-That leaves this record's verdict where it was and moves its trigger section.
-The 9B router switch reproduced the chain fatally, twice, and no measured 9B
-router geometry is safe, which is what the quarantine states. What the switch
-adds to a refusal the device also produces at rest is unmeasured, and the
-switch-time instrumentation campaign in the re-entry gate is what would separate
-them.
+The chain is a code path rather than a cause. `system_mem.c:353` names the RM's
+system-memory allocator, and two callers reaching it while refusing different
+resources print the same three lines, so those instances and these are
+consistent with two unrelated phenomena. One asymmetry separates them: Nsight
+Systems is present in all three of the new instances and absent in both router
+instances, and every arm of that audit ran under it, so the profiler is a
+candidate allocating party there and no candidate at all here.
+
+This record's verdict therefore stands on the router evidence alone. What the
+new instances add is a bound on the reading rather than a narrowing of it: the
+same chain can fire with host memory and framebuffer both far from short and
+without ending the workload, so its appearance in the ring is not by itself
+evidence that a resource this record lists ran out. The switch-time
+instrumentation campaign in the re-entry gate is still what would name the pool,
+and the clean boot's first unprofiled arm is what separates the profiler from
+the device.
 
 ## Arithmetic that makes the switch unsafe without naming the pool
 

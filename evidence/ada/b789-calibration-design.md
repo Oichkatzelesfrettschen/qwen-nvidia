@@ -77,12 +77,22 @@ A single-family artifact for Q4_K or Q5_K would settle the rest directly. This
 tree holds none, and that is a limit rather than something the analysis can
 subtract.
 
-## The kernel path is derived, and one differential control can observe it
+## The kernel path is observed, and one differential control corroborates it
 
-`path_evidence` reads `derived` on every row. The selection is a pure function of
-`(type, cc, ne11)` with no runtime state, and neither `GGML_CUDA_DEBUG` site in
-`ggml-cuda.cu` logs a mat-mul dispatch -- both log fusion -- so no marker names
-the kernel without patching the backend.
+`path_evidence` reads `observed` on eight of the nine rows. The selection is a
+pure function of `(type, cc, ne11)` with no runtime state, and neither
+`GGML_CUDA_DEBUG` site in `ggml-cuda.cu` logs a mat-mul dispatch -- both log
+fusion -- so the backend names no kernel of its own. The launched symbol does.
+`mmvq.cu:544` declares `template <ggml_type type, int ncols_dst, bool
+has_fusion, bool small_k, bool halve_iters> __global__ void mul_mat_vec_q`, so
+an MMVQ launch demangles to `mul_mat_vec_q<(ggml_type)12, (int)7, ...>` and
+carries the quantization type and the column count of the mat-mul second
+operand. `scripts/run-ad104-path-audit.sh` reads those launches out of a
+Nsight Systems capture and `evidence/ada/b789-path-audit/` retains them; every
+prefill MMVQ symbol carries `ncols_dst` equal to its arm's B, so `B is ne11` is
+an observation rather than a reading of the source. `b9-q5k` stays `derived`,
+because the audit's ring guard halted the invocation that would have covered
+it.
 
 `GGML_CUDA_FORCE_MMQ` cannot serve as the differential control, and finding out
 why corrected a standing claim in this tree. The flag is read once, at
@@ -105,8 +115,12 @@ forced-cuBLAS B9 != default B9    the same, for Q6_K
 ```
 
 An equal pair at B8 refutes the claim that B8 left MMVQ. The arms are named here
-and unrun; the matrix keeps `derived` until they run, and the runner refuses an
-arm on an observed mismatch rather than on an unobserved path.
+and unrun, and the tree they run in is built:
+`evidence/ada/b789-force-cublas-build/` carries its closure and the one build
+option that separates it from the primary tree. The differential is
+corroboration rather than the observation now, since the audit already read the
+kernel families off the device, and it runs after the primary matrix completes
+so no cuBLAS rate enters the comparison the matrix is read from.
 
 ## What the clean boot is for
 
@@ -227,6 +241,29 @@ that is the state the clean boot exists to exclude.
   counters returned to the compositor-only baseline.
 - The router is restored afterward and its `/health` and roster are recorded, so
   the calibration ends with the appliance in the state it started from.
+
+
+## The matrix carries the profiler control
+
+`evidence/ada/b789-path-audit/` observed the kernel family of eight of the nine
+arms and recorded the NVRM system-memory refusal chain firing three times under
+Nsight Systems, on the opening arm of three profiled invocations, with host
+memory and framebuffer both far from short and every arm completing. Whether
+the profiler is the allocating party is open, and this campaign answers it
+without adding an arm.
+
+The clean boot opens against a ring baseline of zero and every arm here is an
+unprofiled `llama-bench`, which the runner follows with a ring check that halts
+rather than continues. A burst on any arm refutes the profiler as a necessary
+covariate on an unambiguous signal. Nine quiet arms implicate it with a control
+behind them. Either reading is available from the run the matrix already
+defines, so the falsifier is scheduled rather than unrun.
+
+`SUnreclaim` is the leading unmeasured candidate for the refused allocation. It
+read 2001204 kB at `evidence/ada/b789-path-audit/pre-reboot-state.txt`, RM
+mapping and page-table metadata live in unreclaimable slab, and no sample was
+taken during a burst. A clean boot whose value sits far lower and still produces
+the chain removes it.
 
 ## What this record does not claim
 
