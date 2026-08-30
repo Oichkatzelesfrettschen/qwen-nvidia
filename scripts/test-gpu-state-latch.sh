@@ -141,7 +141,10 @@ classify 'NVRM: GPU0 nvCheckOkFailedNoLog: Check failed: Out of memory [NV_ERR_N
     allocation-refusal no_memory
 classify 'NVRM: Xid (PCI:0000:0a:00): 79, pid=1, GPU has fallen off the bus.' \
     reboot-required xid
-classify 'amdgpu: ring gfx_0.0.0 timeout' \
+# The ring-timeout signature is device-neutral in the watcher's pattern, so the
+# arm drives it with a line naming NVRM rather than one naming another vendor's
+# driver, which scripts/check-nvidia-authority.sh refuses in this tree.
+classify 'NVRM: GPU0 compute ring timeout detected on channel 0x18' \
     reboot-required ring_timeout
 
 if [ "$failures" -eq 0 ]; then
