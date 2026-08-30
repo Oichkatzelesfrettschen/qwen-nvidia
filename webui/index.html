@@ -1321,6 +1321,7 @@ function approveImageGeneration(fields, proposalModel, correctionNote = '') {
 // approval bound, and opens the same approval dialog; two corrections per
 // original request are the whole allowance, and the counter travels on the
 // card so a correction's own review inherits it.
+const REPLY_MAX_TOKENS = 4096;
 const REVIEW_MAX_TOKENS = 400;
 const REVIEW_TIMEOUT_MS = 300000;
 const IMAGE_CORRECTION_CAP = 2;
@@ -1933,9 +1934,13 @@ $('#input').addEventListener('keydown', e => {
 $('#send').onclick = send;
 
 async function buildRequestBody(messages, webPermission, imagePermission) {
+  /* A reasoning model emits its <think> block inside the same budget the answer
+     is drawn from, so a budget that fits an answer alone ends the turn on
+     `length` with an empty message and the reasoning discarded. The budget is
+     sized to hold a reasoning span and the answer that follows it. */
   const body = { model: requestModel, stream: true, temperature: 0.7,
                  stream_options: { include_usage: true },
-                 max_tokens: 512, messages };
+                 max_tokens: REPLY_MAX_TOKENS, messages };
   const reasoningOn = $('#reasoning').checked;
   // Qwen3 emits its <think> block from the chat template, so the switch is a
   // template argument. reasoning_budget 0 ends the block immediately on builds
