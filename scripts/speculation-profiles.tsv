@@ -1,0 +1,22 @@
+# The named speculation policies a models.tsv row selects through its
+# speculation_profile field. A named profile keeps the model registry from
+# growing one column per speculative-decoding option: a later admitted
+# mechanism adds a row here and reaches every checkpoint that names it.
+#
+# id names the profile. spec_type is the llama-server --spec-type value, and
+# `none` emits no speculation argument at all rather than an explicit off,
+# because an absent key is what leaves a child on the ordinary decode path.
+# draft_n_max and draft_p_min are the --spec-draft-n-max and --spec-draft-p-min
+# values, `-` where the profile states none. backend_sampling is the
+# --spec-backend-sampling value. evidence is the repository-relative record
+# that admitted the profile, `-` for the profile that runs nothing.
+#
+# A profile naming a spec_type other than `none` requires the row selecting it
+# to carry mtp_layers of 1 or more, because the multi-token-prediction context
+# is built against the target model's own appended block: a checkpoint without
+# one refuses to load rather than falling back, which is what took every
+# fine-tune out of the roster while speculation was set globally.
+#
+# id	spec_type	draft_n_max	draft_p_min	backend_sampling	evidence
+off	none	-	-	0	-
+mtp1	draft-mtp	1	-	0	evidence/ada/speculation-runtime-classes.md

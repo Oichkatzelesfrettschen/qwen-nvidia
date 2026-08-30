@@ -95,12 +95,20 @@ awk -F'\t' -v serving_backend="$serving_backend" '
         validated_tuples[key] = 1
         next
     }
+    # The column-header comment in the registry states the field count, so a
+    # column added there does not make every row read as malformed here.
+    $0 ~ /^#[[:space:]]*id\t/ { model_field_count = NF - 0; next }
     $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
     {
         model_rows++
-        if (NF != 22) {
-            printf "model row %d holds %d fields, expected 22\n", \
-                FNR, NF > "/dev/stderr"
+        if (!model_field_count) {
+            printf "the model registry states no column header\n" > "/dev/stderr"
+            malformed++
+            next
+        }
+        if (NF != model_field_count) {
+            printf "model row %d holds %d fields, expected %d\n", \
+                FNR, NF, model_field_count > "/dev/stderr"
             malformed++
             next
         }
