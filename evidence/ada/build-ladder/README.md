@@ -39,7 +39,30 @@ CUDA_MODULE_LOADING=LAZY loads the 0.8B to one token in 1.34 s at 1.21 GB
 maximum RSS; EAGER takes 1.79 s at 1.87 GB, paying 434 MB of kernel preload
 visible even on a bare context. The unset default measures identical to LAZY,
 so production keeps the default and sets nothing. A loader-thread-count arm
-is not run: no environment variable naming it exists at driver 610.57.04.
+was not exercised in this ladder; the CUDA 13.3 programming guide documents
+CUDA_BINARY_LOADER_THREAD_COUNT (0 maps to the default single thread), so
+the earlier reading that no such variable exists is corrected to
+not-previously-exercised. loader-thread-count.tsv carries the arm: three
+one-token 0.8B loads each at unset, 1, 2, and 4 on the promoted binary
+read 1.28 to 1.30 s wall at 1238.1 to 1238.7 MB maximum RSS with no
+ordering by setting, because the default LAZY module loading leaves the
+loader threads nearly nothing to parallelize at this model size. The
+variable stays unset.
+
+## Dependency trimming
+
+trim-ladder-summary.tsv holds seven one-variable arms over the schema-2
+89-real CUDA-only baseline 1613a1c3ef06 at thresholds 10/12: the embedded
+Web UI, LLAMAFILE, CPU repacking, OpenMP, OpenSSL, and peer copy, each
+toggled alone. Every arm passes the strict CUDA0 one-token placement check.
+The trims buy 4 KB (peer copy) to 3.13 MB (embedded UI) of the 80.6 MB bin
+tree, and one-repetition pp512/tg64 reads on the 2B sit inside this host's
+ambient span: tg64 spans 230.9 to 236.4 across all seven arms with no arm
+outside 2.4% of baseline, and the largest prefill deviation is openmp-off
+at -6.2% on a single repetition. Nothing clears the drift floor against a
+named capability loss -- the pinned browser UI, HTTPS, the CPU SGEMM and
+repack paths llama-quantize and CPU research consume, and host threading --
+so every lever keeps its default.
 
 ## Standing verdicts
 
