@@ -38,15 +38,22 @@ exit 1
 SERVER
 chmod +x "$build_directory/bin/llama-server"
 # The placement gate reads the owner of the model buffer line rather than the
-# word CPU, so the fixture emits the line a strict Vulkan load prints.
+# word CPU, so the fixture answers with the owner the --device argument named,
+# which is what a healthy strict load prints for CUDA0 and Vulkan0 alike.
 # QWEN_TEST_STRICT_PLACEMENT_OWNER moves the weights to another owner, which is
 # what lets the gate be shown to fire rather than merely to stay silent.
 cat >"$build_directory/bin/llama-cli" <<'CLIENT'
 #!/bin/sh
 : >"${QWEN_TEST_STRICT_SMOKE_MARKER:?}"
+device=CUDA0
+previous_argument=''
+for argument; do
+    [ "$previous_argument" = --device ] && device=$argument
+    previous_argument=$argument
+done
 printf 'load_tensors: %s model buffer size = 1205.21 MiB\n' \
-    "${QWEN_TEST_STRICT_PLACEMENT_OWNER:-Vulkan0}"
-printf 'fixture Vulkan output\n'
+    "${QWEN_TEST_STRICT_PLACEMENT_OWNER:-$device}"
+printf 'fixture device output\n'
 CLIENT
 cat >"$build_directory/bin/llama-mtmd-cli" <<'MULTIMODAL'
 #!/bin/sh
@@ -99,7 +106,7 @@ promotion_output=$("$promoter" "$preset" "$work_directory" 2>&1)
 promotion_status=$?
 set -e
 case $promotion_status:$promotion_output in
-    0:*strict_vulkan=passed*multimodal=passed*)
+    0:*strict_cuda=passed*multimodal_cuda=passed*fallback_vulkan=passed*)
         report clean_manifest_promotes accepted ;;
     *) report clean_manifest_promotes rejected
        printf '%s\n' "$promotion_output" >&2 ;;

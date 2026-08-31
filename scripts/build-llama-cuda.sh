@@ -112,28 +112,7 @@ if [ "$force_mmq" = ON ] && [ "$force_cublas" = ON ]; then
     exit 2
 fi
 
-# The configuration digest names the tree, so any lever change produces a new
-# directory and the retained TSV states what the digest hashes.
-configuration_tsv="arch	$cuda_architectures
-vulkan	$build_vulkan
-graphs	$cuda_graphs
-fa	$cuda_fa
-fa_all_quants	$cuda_fa_all_quants
-nccl	$cuda_nccl
-no_vmm	$cuda_no_vmm
-compression	$cuda_compression
-native	$ggml_native
-lto	$ggml_lto
-openmp	$ggml_openmp
-mmvq_q6k_max	$mmvq_q6k_max
-mmvq_q8_0_max	$mmvq_q8_0_max
-force_mmq	$force_mmq
-force_cublas	$force_cublas
-host_cxx	$host_cxx
-commit	$expected_commit"
-configuration_sha256=$(printf '%s\n' "$configuration_tsv" | sha256sum | cut -d ' ' -f 1)
-configuration_id=$(printf '%s' "$configuration_sha256" | cut -c 1-12)
-build_directory=${QWEN_BUILD_DIRECTORY:-$source_directory/build-qwen-cuda-$configuration_id}
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 [ -d "$source_directory/.git" ] || {
     printf 'llama.cpp checkout is missing: %s\n' "$source_directory" >&2
@@ -148,12 +127,27 @@ if [ "$actual_commit" != "$expected_commit" ] && [ "${QWEN_ALLOW_ANY_COMMIT:-0}"
     exit 1
 fi
 
+# Source identity enters the digest as measured facts rather than as the
+# expectation: the resolved commit, its tree object, the applied diff, and the
+# patch-series and builder identities. QWEN_ALLOW_ANY_COMMIT therefore changes
+# the configuration ID whenever it changes the source, and a modified local
+# patch carrying the same threshold values names a different tree.
+actual_tree=$(git -C "$source_directory" rev-parse 'HEAD^{tree}')
+untracked_source=$(git -C "$source_directory" ls-files --others --exclude-standard)
+if [ -n "$untracked_source" ]; then
+    printf 'untracked source files refuse the build:\n%s\n' "$untracked_source" >&2
+    exit 1
+fi
+source_diff_sha256=$(git -C "$source_directory" diff --binary HEAD -- |
+    sha256sum | cut -d ' ' -f 1)
+patch_series_sha256=$(sha256sum "$script_directory"/../patches/*.patch |
+    LC_ALL=C sort | sha256sum | cut -d ' ' -f 1)
+builder_sha256=$(sha256sum "$0" | cut -d ' ' -f 1)
+
 worktree_state=clean
 if [ -n "$(git -C "$source_directory" status --porcelain)" ]; then
     worktree_state=dirty
 fi
-printf 'source_commit=%s worktree=%s\n' "$actual_commit" "$worktree_state"
-git -C "$source_directory" diff --stat | tail -1
 
 for compiler in "$host_cc" "$host_cxx"; do
     [ -x "$compiler" ] || {
@@ -170,6 +164,58 @@ if ! command -v nvcc >/dev/null 2>&1; then
     PATH=/opt/cuda/bin:$PATH
     export PATH
 fi
+
+host_cc_version=$("$host_cc" -dumpfullversion)
+host_cxx_version=$("$host_cxx" -dumpfullversion)
+nvcc_version=$(nvcc --version | awk '/release/ { print $NF }')
+cmake_version=$(cmake --version | awk 'NR == 1 { print $NF }')
+ninja_version=$(ninja --version)
+
+# The configuration digest names the tree, so any change to a lever, the
+# source, the patch series, this script, or a toolchain version produces a new
+# directory and the retained TSV states what the digest hashes. Fixed CMake
+# choices are in the digest so an upstream default change cannot silently
+# alter a closure that reuses a directory name.
+configuration_tsv="configuration_schema	2
+actual_commit	$actual_commit
+actual_tree	$actual_tree
+source_diff_sha256	$source_diff_sha256
+patch_series_sha256	$patch_series_sha256
+builder_sha256	$builder_sha256
+host_cc	$host_cc
+host_cc_version	$host_cc_version
+host_cxx_version	$host_cxx_version
+nvcc_version	$nvcc_version
+cmake_version	$cmake_version
+ninja_version	$ninja_version
+shared_libs	ON
+ccache	ON
+blas	OFF
+rpc	OFF
+no_peer_copy	OFF
+build_tests	OFF
+arch	$cuda_architectures
+vulkan	$build_vulkan
+graphs	$cuda_graphs
+fa	$cuda_fa
+fa_all_quants	$cuda_fa_all_quants
+nccl	$cuda_nccl
+no_vmm	$cuda_no_vmm
+compression	$cuda_compression
+native	$ggml_native
+lto	$ggml_lto
+openmp	$ggml_openmp
+mmvq_q6k_max	$mmvq_q6k_max
+mmvq_q8_0_max	$mmvq_q8_0_max
+force_mmq	$force_mmq
+force_cublas	$force_cublas
+host_cxx	$host_cxx"
+configuration_sha256=$(printf '%s\n' "$configuration_tsv" | sha256sum | cut -d ' ' -f 1)
+configuration_id=$(printf '%s' "$configuration_sha256" | cut -c 1-12)
+build_directory=${QWEN_BUILD_DIRECTORY:-$source_directory/build-qwen-cuda-$configuration_id}
+
+printf 'source_commit=%s worktree=%s\n' "$actual_commit" "$worktree_state"
+git -C "$source_directory" diff --stat | tail -1
 
 # ggml builds its Vulkan shader compiler as a nested ExternalProject whose
 # CMakeCache.txt records the absolute path it was created under, so a tree

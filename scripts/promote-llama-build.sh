@@ -8,8 +8,11 @@ set -eu
 #
 # Promotion is a gate rather than a rename. The manifest must exist and name the
 # preset, the executable must report its own version, and it must complete one
-# token entirely on Vulkan, because a binary that loads and then falls back to
-# the CPU backend serves at a third of the rate while looking healthy.
+# token entirely on CUDA0, because a binary that loads and then falls back to
+# the CPU backend serves at a third of the rate while looking healthy. CUDA is
+# the serving backend, so CUDA admission decides promotion; a build that also
+# carries libggml-vulkan.so takes an additional Vulkan fallback admission, and
+# a CUDA-only build reports fallback_vulkan=not-built rather than failing.
 #
 # The gate reads an image through llama-mtmd-cli for the same reason it decodes
 # a token through llama-cli: the projector path fails by answering wrongly. A
@@ -181,52 +184,78 @@ fi
     exit 1
 }
 
-# One token, all layers on Vulkan, no CPU fallback admitted. The model is
-# required because the check is that the device path completes, not that the
-# binary runs.
-#
-# -v is required: llama-cli prints no loader line at the default verbosity, so
-# the placement test would read an empty log and pass whatever it is given.
-strict_output=$(nice -n 19 "$client_path" \
-    --model "$promotion_model" --device Vulkan0 --n-gpu-layers all \
-    --override-tensor '.*=Vulkan0' --no-warmup --ctx-size 256 \
-    --n-predict 1 --temp 0 --prompt 'ok' --single-turn -v 2>&1) || {
-        printf 'strict Vulkan one-token check failed:\n%s\n' "$strict_output" >&2
-        exit 1
-    }
-# The owner of the model buffer is the discriminating fact. At -ngl 0 this build
-# reports `Vulkan_Host model buffer size` and reserves output, KV, and recurrent
-# buffers on CPU, so matching the word CPU catches those three and misses the
-# 1205 MiB of weights that left the device.
-case $strict_output in
-    *"load_tensors:"*"model buffer size"*) ;;
-    *)
-        printf 'strict Vulkan check produced no model buffer line: placement is unproven\n' >&2
-        exit 1
-        ;;
-esac
-misplaced_weights=$(printf '%s\n' "$strict_output" |
-    awk '/load_tensors:.*model buffer size/ {
-            size = $(NF - 1) + 0
-            if (size <= 0) { next }
-            owner = ""
-            for (field = 1; field <= NF; field++) {
-                if ($field == "model") { owner = $(field - 1) }
-            }
-            if (owner != "Vulkan0") {
-                printf "%s holds %s MiB of weights\n", owner, size
-            }
-        }')
-if [ -n "$misplaced_weights" ]; then
-    printf 'strict Vulkan check placed weights off the device:\n%s\n' \
-        "$misplaced_weights" >&2
-    exit 1
-fi
-strict_state=passed
-
 "$multimodal_path" --version >/dev/null 2>&1 || {
     printf 'llama-mtmd-cli does not report a version: %s\n' "$multimodal_path" >&2
     exit 1
+}
+
+# The Vulkan backend library decides the fallback fact: a build that carries
+# libggml-vulkan.so takes the Vulkan fallback admission, a CUDA-only build
+# reports not-built. A manifest that names either backend field must agree
+# with the build, so a manifest copied from another closure is caught here.
+fallback_backend=none
+if [ -e "$build_directory/bin/libggml-vulkan.so" ]; then
+    fallback_backend=Vulkan0
+fi
+manifest_serving=$(awk -F'\t' '$1 == "serving_backend" { print $2; exit }' "$manifest_path")
+manifest_fallback=$(awk -F'\t' '$1 == "fallback_backend" { print $2; exit }' "$manifest_path")
+if [ -n "$manifest_serving" ] && [ "$manifest_serving" != CUDA0 ]; then
+    printf 'manifest names a serving backend other than CUDA0: %s\n' \
+        "$manifest_serving" >&2
+    exit 1
+fi
+if [ -n "$manifest_fallback" ] && [ "$manifest_fallback" != "$fallback_backend" ]; then
+    printf 'manifest fallback_backend %s disagrees with the build: %s\n' \
+        "$manifest_fallback" "$fallback_backend" >&2
+    exit 1
+fi
+
+# One token, all layers on one named device, no CPU fallback admitted. The
+# model is required because the check is that the device path completes, not
+# that the binary runs.
+#
+# -v is required: llama-cli prints no loader line at the default verbosity, so
+# the placement test would read an empty log and pass whatever it is given.
+#
+# The owner of the model buffer is the discriminating fact. At -ngl 0 this
+# build reports a host model buffer and reserves output, KV, and recurrent
+# buffers on CPU, so matching the word CPU would catch those three and miss
+# the weights that left the device.
+run_strict_smoke() {
+    smoke_device=$1
+    strict_output=$(LLAMA_NO_CPU_FALLBACK=1 nice -n 19 "$client_path" \
+        --model "$promotion_model" --device "$smoke_device" --n-gpu-layers all \
+        --override-tensor ".*=$smoke_device" --no-warmup --ctx-size 256 \
+        --n-predict 1 --temp 0 --prompt 'ok' --single-turn -v 2>&1) || {
+            printf 'strict %s one-token check failed:\n%s\n' \
+                "$smoke_device" "$strict_output" >&2
+            exit 1
+        }
+    case $strict_output in
+        *"load_tensors:"*"model buffer size"*) ;;
+        *)
+            printf 'strict %s check produced no model buffer line: placement is unproven\n' \
+                "$smoke_device" >&2
+            exit 1
+            ;;
+    esac
+    misplaced_weights=$(printf '%s\n' "$strict_output" |
+        awk -v device="$smoke_device" '/load_tensors:.*model buffer size/ {
+                size = $(NF - 1) + 0
+                if (size <= 0) { next }
+                owner = ""
+                for (field = 1; field <= NF; field++) {
+                    if ($field == "model") { owner = $(field - 1) }
+                }
+                if (owner != device) {
+                    printf "%s holds %s MiB of weights\n", owner, size
+                }
+            }')
+    if [ -n "$misplaced_weights" ]; then
+        printf 'strict %s check placed weights off the device:\n%s\n' \
+            "$smoke_device" "$misplaced_weights" >&2
+        exit 1
+    fi
 }
 
 # The projector path carries a failure the text path cannot show: a projector
@@ -238,31 +267,47 @@ strict_state=passed
 # distill, which the registry lists as `projector: none`, so wiring the image
 # smoke to that variable would either fail on a text-only checkpoint or skip
 # without saying so.
-multimodal_output=$(nice -n 19 "$multimodal_path" \
-    --model "$promotion_vision_model" --mmproj "$promotion_projector" \
-    --image "$promotion_image" --device Vulkan0 --n-gpu-layers all \
-    --ctx-size 4096 --batch-size 128 --ubatch-size 32 --threads 1 \
-    --n-predict 64 --temp 0 --seed 1 \
-    --prompt 'Name the colours of the shapes in this image.' 2>&1) || {
-        printf 'multimodal one-image check failed:\n%s\n' "$multimodal_output" >&2
-        exit 1
-    }
+#
 # scripts/generate-quality-images.py draws shapes.png as a red square, a green
 # circle, and a blue triangle. Two of the three names is the threshold: it
 # refuses a reply that carries no image content while leaving room for a model
 # that describes the image in fewer words than it holds shapes.
-named_colours=0
-for colour in red green blue; do
-    case $(printf '%s' "$multimodal_output" | tr 'A-Z' 'a-z') in
-        *"$colour"*) named_colours=$((named_colours + 1)) ;;
-    esac
-done
-if [ "$named_colours" -lt 2 ]; then
-    printf 'multimodal check named %s of 3 declared colours:\n%s\n' \
-        "$named_colours" "$multimodal_output" >&2
-    exit 1
+run_multimodal_smoke() {
+    smoke_device=$1
+    multimodal_output=$(nice -n 19 "$multimodal_path" \
+        --model "$promotion_vision_model" --mmproj "$promotion_projector" \
+        --image "$promotion_image" --device "$smoke_device" --n-gpu-layers all \
+        --ctx-size 4096 --batch-size 128 --ubatch-size 32 --threads 1 \
+        --n-predict 64 --temp 0 --seed 1 \
+        --prompt 'Name the colours of the shapes in this image.' 2>&1) || {
+            printf 'multimodal %s one-image check failed:\n%s\n' \
+                "$smoke_device" "$multimodal_output" >&2
+            exit 1
+        }
+    named_colours=0
+    for colour in red green blue; do
+        case $(printf '%s' "$multimodal_output" | tr 'A-Z' 'a-z') in
+            *"$colour"*) named_colours=$((named_colours + 1)) ;;
+        esac
+    done
+    if [ "$named_colours" -lt 2 ]; then
+        printf 'multimodal %s check named %s of 3 declared colours:\n%s\n' \
+            "$smoke_device" "$named_colours" "$multimodal_output" >&2
+        exit 1
+    fi
+}
+
+run_strict_smoke CUDA0
+strict_cuda_state=passed
+run_multimodal_smoke CUDA0
+multimodal_cuda_state=passed
+
+fallback_vulkan_state=not-built
+if [ "$fallback_backend" = Vulkan0 ]; then
+    run_strict_smoke Vulkan0
+    run_multimodal_smoke Vulkan0
+    fallback_vulkan_state=passed
 fi
-multimodal_state=passed
 
 if [ -L "$current_link" ]; then
     ln -sfn "$(readlink "$current_link")" "$previous_link.new"
@@ -272,6 +317,7 @@ fi
 ln -sfn "$build_directory" "$current_link.new"
 mv -T "$current_link.new" "$current_link"
 
-printf 'promotion=accepted preset=%s target=%s strict_vulkan=%s multimodal=%s previous=%s\n' \
-    "$preset" "$build_directory" "$strict_state" "$multimodal_state" \
+printf 'promotion=accepted preset=%s target=%s strict_cuda=%s multimodal_cuda=%s fallback_vulkan=%s previous=%s\n' \
+    "$preset" "$build_directory" "$strict_cuda_state" "$multimodal_cuda_state" \
+    "$fallback_vulkan_state" \
     "$([ -L "$previous_link" ] && readlink "$previous_link" || printf none)"
