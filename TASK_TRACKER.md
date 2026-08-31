@@ -8,11 +8,13 @@ lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
 
 ## Depth validation
 
-No depth-validation campaign has run on this host. Every `scripts/models.tsv`
-row reads `-` in `validated_filled_depth`, and `scripts/validated-tuples.tsv`
-holds no row. The prior host's depth prober was removed as driver-pinned, so
-a CUDA depth prober does not exist yet; one must be written for this device's
-CUDA and Vulkan backends before a 32K validation campaign can run.
+`scripts/probe-filled-depth.sh` fills and decodes on the CUDA path, and
+`evidence/depth-validation-cuda/` carries the first campaign: all four
+runtime classes validated at their registry ceilings (2B and 0.8B at 65536,
+4B at 32768, 9B at 24576) with needle retrieval from the head of the fill,
+the ledger rows in `scripts/validated-tuples.tsv`, and the registry claims
+checked by `scripts/check-validated-tuples.sh`. Open extensions: a second
+submission geometry per class, and the Vulkan-backend arms.
 
 ## Graded quality suite
 
