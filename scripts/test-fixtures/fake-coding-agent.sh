@@ -15,6 +15,17 @@ edit)
     [ "$mode" = plan ] && { echo "plan: edit hello.txt"; exit 0; }
     printf 'hello from the fixture agent\n' >hello.txt
     ;;
+declared-value)
+    # The deterministic admission fixture: change one declared value and the
+    # one assertion that reads it, so the run's test profile validates the
+    # edit rather than echoing.
+    [ "$mode" = plan ] && {
+        echo "plan: set VALUE to 42 in declared-value.txt and update check-value.sh"
+        exit 0
+    }
+    sed -i 's/^VALUE=41$/VALUE=42/' declared-value.txt
+    sed -i 's/expected=41/expected=42/' check-value.sh
+    ;;
 tracked-edit)
     # A tracked-file-only modification: the defect this behavior guards
     # against reported the base tree because nothing was staged before

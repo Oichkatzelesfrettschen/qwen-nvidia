@@ -222,14 +222,11 @@ for capture_file in "$output_directory"/http/*; do
 done
 
 # The checked-in ledger is the authority the run copies from and never edits.
-# The row's `execution_policy` is field 12 and `validated_evidence` is field 13,
-# so both are read by column: the shipped row carries the served turn of
-# evidence/image-appliance/served-turn-admission/, and a harness run that writes
-# its own ledger under OUTPUT_DIR leaves those two fields where they are.
-if ! awk -F'	' '$1 == "image-sdxs-512-a" && $12 == "validator-gated" &&
-                 $13 == "evidence/image-appliance/served-turn-admission/README.md" { found = 1 }
-                 END { exit found ? 0 : 1 }' \
-        "$script_directory/image-profiles.tsv"; then
+# The check reads Git rather than pinning field values, because the shipped
+# row's policy legitimately moves with the lane -- the CUDA retarget moved it
+# to refused -- while a harness edit is a working-tree change Git reports.
+if ! git -C "$script_directory/.." diff --quiet -- \
+    scripts/image-profiles.tsv; then
     printf 'test-admit-image-router: the harness edited the checked-in image ledger\n' >&2
     exit 1
 fi

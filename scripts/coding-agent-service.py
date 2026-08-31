@@ -55,6 +55,7 @@ APPLY_GRANT_FIELDS = [
 TEST_PROFILES = {
     "repository-quality-gates": ["sh", "scripts/repository-quality-gates.sh"],
     "fixture-echo": ["sh", "-c", "echo test-profile-ran"],
+    "fixture-declared-value": ["sh", "check-value.sh"],
 }
 
 # Model-visible byte ceilings. The fast coding profile carries a

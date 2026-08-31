@@ -1577,13 +1577,13 @@ function renderCodeJobCard(job) {
   const tests = document.createElement('div');
   tests.className = 'meta';
   const status = document.createElement('div');
-  status.className = 'meta';
+  status.className = 'meta code-status';
   status.textContent = 'plan approved; the edit phase needs its own approval';
   const finishButton = document.createElement('button');
-  finishButton.className = 'act';
+  finishButton.className = 'act code-finish';
   finishButton.textContent = 'finish job';
   const cancelButton = document.createElement('button');
-  cancelButton.className = 'act';
+  cancelButton.className = 'act code-cancel';
   cancelButton.textContent = 'cancel job';
   finishButton.onclick = () => { void finishCodeJob(job); };
   cancelButton.onclick = () => { void cancelCodeJob(job, 'cancelled from the job card'); };

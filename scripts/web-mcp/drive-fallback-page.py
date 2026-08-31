@@ -277,7 +277,7 @@ def main():
     # per-turn toggle, a dialog the proposal opens, and one approval. Naming
     # the lane rather than each selector keeps a driver invocation readable
     # and keeps the page's element names in one place.
-    parser.add_argument("--lane", choices=("web", "image"), default="web",
+    parser.add_argument("--lane", choices=("web", "image", "code"), default="web",
                         help="which per-turn lane's toggle and approval dialog to drive")
     parser.add_argument("--model", default="",
                         help="select this roster id in the page's own picker before sending "
@@ -324,6 +324,8 @@ def main():
         page = None
         selected_model = None
         dialog = None
+        apply_dialog = None
+        code_card = None
         review = None
         error = None
         try:
@@ -414,6 +416,10 @@ def main():
                 toggle, dialog_id = "#image-tools", "#image-approval"
                 approve, args_list = "#image-approve-once", "#image-approval-args"
                 note_id = "#image-approval-note"
+            elif arguments.lane == "code":
+                toggle, dialog_id = "#code-tools", "#code-approval"
+                approve, args_list = "#code-approve-once", "#code-approval-args"
+                note_id = "#code-approval-note"
             else:
                 toggle, dialog_id = "#web-tools", "#web-approval"
                 approve, args_list = "#approve-once", "#approval-args"
@@ -428,16 +434,55 @@ def main():
             )
             wait_for(page, "document.querySelector('" + dialog_id + "').open", arguments.dialog_timeout,
                      "the approval dialog")
-            dialog = page.evaluate(
-                "(() => { const args = {}; document.querySelectorAll('" + args_list + " dt').forEach(dt => {"
-                " args[dt.textContent.trim()] = (dt.nextElementSibling || {}).textContent; });"
-                " return { heading: document.querySelector('" + dialog_id + " h2').textContent,"
-                " note: document.querySelector('" + note_id + "').textContent, args }; })()"
-            )
+            def read_dialog():
+                return page.evaluate(
+                    "(() => { const args = {}; document.querySelectorAll('" + args_list + " dt').forEach(dt => {"
+                    " args[dt.textContent.trim()] = (dt.nextElementSibling || {}).textContent; });"
+                    " return { heading: document.querySelector('" + dialog_id + " h2').textContent,"
+                    " note: document.querySelector('" + note_id + "').textContent, args }; })()"
+                )
+
+            dialog = read_dialog()
             page.evaluate(
                 "(() => { document.querySelector('" + approve + "').click(); return true; })()"
             )
+            if arguments.lane == "code":
+                # The coding turn spends two approvals: the plan dialog just
+                # approved, then the apply dialog the edit-phase proposal
+                # opens. The title separates them, so the wait reads the
+                # second rather than a still-open first.
+                wait_for(
+                    page,
+                    "document.querySelector('#code-approval').open && "
+                    "document.querySelector('#code-approval-title')"
+                    ".textContent.indexOf('edit phase') !== -1",
+                    arguments.dialog_timeout, "the apply approval dialog")
+                apply_dialog = read_dialog()
+                page.evaluate(
+                    "(() => { document.querySelector('" + approve + "').click(); return true; })()"
+                )
             wait_for(page, "busy === false", arguments.turn_timeout, "the turn to end")
+            if arguments.lane == "code":
+                # finish is a browser-session control: the driver clicks the
+                # job card's own button the way a human does, and the settled
+                # status names the export identity rather than a path.
+                wait_for(page,
+                         "Boolean(document.querySelector('.code-job button.code-finish'))",
+                         30, "the job card")
+                page.evaluate(
+                    "(() => { document.querySelector('.code-job button.code-finish').click(); return true; })()"
+                )
+                wait_for(
+                    page,
+                    "/finished: export|refused|did not reach/.test("
+                    "document.querySelector('.code-job .code-status').textContent)",
+                    120, "the finish to settle")
+                code_card = page.evaluate(
+                    "(() => { const card = document.querySelector('.code-job');"
+                    " return { head: card.querySelector('.meta').textContent,"
+                    " status: card.querySelector('.code-status').textContent,"
+                    " diff: (card.querySelectorAll('pre')[1] || {}).textContent || '' }; })()"
+                )
             if arguments.lane == "image":
                 # executeImageGeneration() awaits the artifact before it answers
                 # the call, so a turn that ended carries either a card holding a
@@ -476,6 +521,8 @@ def main():
         report.setdefault("requests", [])
         report["selected_model_at_load"] = selected_model
         report["dialog"] = dialog
+        report["apply_dialog"] = apply_dialog
+        report["code_card"] = code_card
         report["review"] = review
         report["error"] = error
         json.dump(report, sys.stdout, indent=1)

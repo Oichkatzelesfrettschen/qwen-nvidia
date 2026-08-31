@@ -471,6 +471,54 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         self.send_error_object(404, f"no route: {parsed.path}", "not_found_error")
 
+    def coding_calls(self, body, offered):
+        """Return this round's coding proposals, or None outside the lane.
+
+        The turn shape scripts the chain the way the image branch scripts one
+        proposal: with code tools offered and no code tool message yet, the
+        model proposes `code_plan` over the fixture instruction; with a plan
+        answered, it proposes the apply; with the apply answered, it proposes
+        the tests and the diff review together in one round, which is what
+        keeps the whole chain inside the page's continuation cap; and with
+        all four answered it closes the turn in prose. The job id is read
+        back out of the plan's own tool message, so the fixture stands in
+        for a model that read its results rather than one that guessed.
+        """
+        code_offered = any(
+            isinstance(name, str) and name.startswith("code_")
+            for name in offered
+        )
+        tool_messages = [
+            message for message in body.get("messages") or []
+            if message.get("role") == "tool"
+            and str(message.get("name", "")).startswith("code_")
+        ]
+        if not code_offered and not tool_messages:
+            return None
+        instruction = os.environ.get(
+            "QWEN_FAKE_ROUTER_CODE_INSTRUCTION",
+            "set VALUE to 42 in declared-value.txt and update check-value.sh",
+        )
+        answered = [str(message.get("name")) for message in tool_messages]
+        if not answered:
+            return [("code_plan", json.dumps({"instruction": instruction}))]
+        job_match = re.search(
+            r"job (job-\d+-[0-9a-f]+)",
+            "".join(str(message.get("content", ""))
+                    for message in tool_messages),
+        )
+        if job_match is None:
+            return []
+        job_id = job_match.group(1)
+        if "code_apply_patch" not in answered:
+            return [("code_apply_patch", json.dumps({"job_id": job_id}))]
+        if "code_run_tests" not in answered:
+            return [
+                ("code_run_tests", json.dumps({"job_id": job_id})),
+                ("code_review_diff", json.dumps({"job_id": job_id})),
+            ]
+        return []
+
     def chat_completion(self, body):
         """Answer one turn, proposing the image call while no tool message exists.
 
@@ -521,6 +569,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for tool in body.get("tools") or []
             if isinstance(tool, dict)
         }
+        coding = self.coding_calls(body, offered)
+        if coding is not None:
+            if coding:
+                calls = [{
+                    "index": position,
+                    "id": f"call_code_admission_{position}",
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments_text},
+                } for position, (name, arguments_text) in enumerate(coding)]
+                chunks = [
+                    {"choices": [{"index": 0,
+                                  "delta": {"tool_calls": calls}}]},
+                    {"choices": [{"index": 0, "delta": {},
+                                  "finish_reason": "tool_calls"}]},
+                ]
+                message = {"role": "assistant", "content": "",
+                           "tool_calls": calls}
+                finish = "tool_calls"
+            else:
+                closing = "The change is applied and the tests pass."
+                chunks = [
+                    {"choices": [{"index": 0,
+                                  "delta": {"content": closing}}]},
+                    {"choices": [{"index": 0, "delta": {},
+                                  "finish_reason": "stop"}]},
+                ]
+                message = {"role": "assistant", "content": closing}
+                finish = "stop"
+            self.send_completion(body, chunks, message, finish)
+            return
         image_tool = served_tool_name(IMAGE_MCP_SERVER_NAME, IMAGE_MCP_TOOL_NAME)
         answer_prose = continuation or image_tool not in offered
         if not continuation and image_tool in offered:
@@ -552,6 +630,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ]
             message = {"role": "assistant", "content": "", "tool_calls": [call]}
             finish = "tool_calls"
+        self.send_completion(body, chunks, message, finish)
+
+    def send_completion(self, body, chunks, message, finish):
         if body.get("stream"):
             payload = b""
             for chunk in chunks:
