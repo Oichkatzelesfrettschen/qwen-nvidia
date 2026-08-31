@@ -195,7 +195,7 @@ fabricated_registry=$temporary_directory/models.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested candidate 256 64 4096 - \
-    unmeasured refused - off- \
+    unmeasured refused - off - \
     >"$fabricated_registry"
 registry_model=$temporary_directory/fabricated.gguf
 : >"$registry_model"
@@ -703,7 +703,7 @@ archived_registry=$temporary_directory/archived-models.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested archive 256 64 4096 - unmeasured refused \
-    - off- \
+    - off - \
     >"$archived_registry"
 if QWEN_MODEL_REGISTRY=$archived_registry QWEN_MODEL_ROOT=$router_model_root \
     QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_output \
@@ -723,7 +723,7 @@ quarantine_tier_registry=$temporary_directory/quarantine-tier-models.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested quarantine 256 64 4096 - unmeasured refused \
-    - off- \
+    - off - \
     >"$quarantine_tier_registry"
 unowned_quarantine_preset=$temporary_directory/unowned-quarantine-tier.ini
 printf '%s\n' '# qwen_router_include_quarantine=1' \
@@ -1160,7 +1160,7 @@ quarantine_registry=$temporary_directory/quarantine-models.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     quarantined research quarantined.gguf download-qwen38-4b-distill-q4km.sh \
     4096 16384 16384 q8_0 q4_0 on none - - - untested production 2048 512 4096 - \
-    unmeasured refused - off- \
+    unmeasured refused - off - \
     >"$quarantine_registry"
 quarantine_table=$temporary_directory/quarantine.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \

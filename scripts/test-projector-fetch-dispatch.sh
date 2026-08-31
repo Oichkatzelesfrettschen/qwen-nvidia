@@ -20,6 +20,10 @@ state_directory=$temporary_directory/state
 mkdir -p "$fixture_scripts" "$fixture_bin" "$model_directory" "$state_directory"
 cp "$script_directory/qwen-launch.sh" "$fixture_scripts/qwen-launch.sh"
 chmod +x "$fixture_scripts/qwen-launch.sh"
+# qwen-launch.sh runs gpu-state-latch.sh require-clear from its own directory
+# before anything else, so the fixture carries the latch beside it; a fresh
+# state directory holds no recorded failure, so the check admits the launch.
+cp "$script_directory/gpu-state-latch.sh" "$fixture_scripts/gpu-state-latch.sh"
 
 model_path=$model_directory/model.gguf
 : >"$model_path"

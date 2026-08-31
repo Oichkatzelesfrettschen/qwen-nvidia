@@ -26,6 +26,10 @@ fixture_bin=$temporary_directory/bin
 mkdir -p "$fixture_scripts" "$fixture_bin"
 cp "$script_directory/qwen-launch.sh" "$fixture_scripts/qwen-launch.sh"
 cp "$script_directory/qwen-teardown.sh" "$fixture_scripts/qwen-teardown.sh"
+# qwen-launch.sh runs gpu-state-latch.sh require-clear from its own directory
+# before anything else, so the fixture carries the latch beside it; a fresh
+# state directory holds no recorded failure, so the check admits the launch.
+cp "$script_directory/gpu-state-latch.sh" "$fixture_scripts/gpu-state-latch.sh"
 # The teardown proves the image lane left no service, runtime, partial
 # artifact, or held Vulkan workload lease, and it reads that proof from its own
 # directory, so the fixture carries the prover beside it. A fixture without it

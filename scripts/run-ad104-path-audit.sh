@@ -48,7 +48,7 @@ matrix=$1
 output_directory=$2
 shift 2
 
-script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 registry_reader=$script_directory/model-registry.sh
 sweep_wrapper=$script_directory/cuda-runtime-env.sh
 latch=$script_directory/gpu-state-latch.sh

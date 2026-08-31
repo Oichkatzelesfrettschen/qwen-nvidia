@@ -31,7 +31,7 @@ report() {
 
 registry=$temporary_directory/models.tsv
 {
-    printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile\n'
+    printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile\tspeculation_evidence\n'
     printf 'fake-vision\tvision\tFake-Vision-GGUF/fake-vision.gguf\tdownload-fake-vision.sh\t8192\t8192\t32768\tq8_0\tq4_0\ton\trequired\tdownload-fake-vision-mmproj.sh\t1.00\t1.00\t1/55\tcandidate\t128\t32\t-\t-\t1/10\trefused\t0\toff\t-\n'
     printf 'fake-text\tfast-text\tFake-Text-GGUF/fake-text.gguf\tdownload-fake-text.sh\t8192\t8192\t32768\tq8_0\tq4_0\ton\tnone\t-\t1.00\t1.00\t1/55\tcandidate\t128\t32\t-\t-\t1/10\trefused\t0\toff\t-\n'
 } >"$registry"
