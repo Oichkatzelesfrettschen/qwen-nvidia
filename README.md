@@ -45,13 +45,37 @@ draft is refuted on every target class in the same sweep, at 0.42, 0.61, and
 `evidence/ada/speculation-runtime-classes.md`
 carries the sweep.
 
+`scripts/models.tsv` carries the capability and the policy as two columns per
+row: `mtp_layers` is what the GGUF header declares -- `0` for no prediction
+block, `-` for an unread row -- and `speculation_profile` is what the appliance
+does with it, naming a row of `scripts/speculation-profiles.tsv` that
+`build-router-presets.sh` emits into that row's own router section. The 2B,
+4B, and 9B distills each carry `mtp_layers=1` and `speculation_profile=mtp1`;
+`speculation_evidence` points every one of them at
+`evidence/ada/speculation-runtime-classes.md`, since that sweep measured all
+three as targets. The 0.8B and `qwenseer-2b` rows read `capability-only`: the
+block loads on both but only the 0.8B has run as a draft, and neither has run
+as an MTP target.
+
 ## Runtime classes
 
 The 2B class is the appliance's primary performance target and the 0.8B class
 its secondary fast target; the 4B class is the quality-heavy fallback and the
 9B class the deep-text option. A general runtime experiment runs the 2B first,
 the 0.8B second, and the 4B third, and becomes a repository-wide default only
-where the classes agree.
+where the classes agree. The 4B distill's registry row admits `context_default`
+and `context_ceiling` both at 32768, so the balanced-text class runs the same
+depth interactively and at its policy limit rather than the larger allocation
+its 131072 `context_target` names.
+
+`scripts/quarantine.tsv` excludes the 9B distill from router service:
+`qwen38-9b-distill-router-load` names a `router-child` scope over an
+`nvrm-system-memory-allocation-refusal` fault, where a switch into the 9B while
+another child stays resident twice ended the server on an NV01_MEMORY_SYSTEM
+allocation refusal
+(`evidence/quarantine/qwen38-9b-distill-router-load.md`). The checkpoint still
+serves standalone at its measured baseline rate; the quarantine binds the
+overlapping router-switch load alone, and no re-entry gate has run.
 
 ## Measured baseline
 
@@ -70,6 +94,27 @@ carries. Every performance number taken before this host belongs to the
 `qwen-apu` upstream tree, with the conclusions that still bear on a decision
 here retained under `evidence/legacy/raven2/`; `docs/APU_UPSTREAM.md` states
 the evidence-class rule that keeps those numbers out of a CUDA prediction.
+
+## Kernel crossover calibration
+
+`evidence/ada/b789-clean-calibration/` closes the B7/B8/B9 matrix on a clean
+boot for Q4_K, Q5_K, and Q6_K: the Q4_K and Q5_K MMVQ-to-MMQ crossovers at seven
+columns are correctly placed on AD104, rate-neutral against the run's own
+drift floor. The Q6_K move to MMQ at nine columns costs 22% per token instead,
+four times that floor, so the RTX 4090-tuned crossover abandons MMVQ at the
+point it is still the faster family on this device.
+`evidence/ada/b789-cublas-differential/` rules out forced cuBLAS as the fix:
+dequant+GEMM runs at roughly half the MMQ rate past the crossover. Whether
+Q6_K MMVQ extended past eight columns beats MMQ's post-crossover rate is
+unmeasured, since the crossover is a compiled constant
+(`mmvq.cu:295-306`) and answering it needs a threshold-shifted build.
+
+## Roadmap
+
+A bounded coding-agent service is planned direction: a dedicated security
+principal distinct from the serving user, and worktree isolation per task, so
+an agent granted execution never shares the appliance's own credentials or
+working tree.
 
 ## Lifecycle
 

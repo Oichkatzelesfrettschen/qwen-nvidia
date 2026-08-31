@@ -398,12 +398,15 @@ source over one GET of the canonical URL its Result ID was signed over, and
 `evidence/web-provider-contract.md` carries the flags, the profile columns, and
 what a run against a live instance still leaves unmeasured.
 
-Whether this device's CUDA and Vulkan backends accelerate the packed-integer
-dot path a K-quant mat-vec kernel can take is unmeasured here.
+The CUDA backend runs the packed-integer dot path on this device: the
+Nsight-read kernel audits in `evidence/ada/b789-path-audit/` and
+`evidence/ada/b789-nsys-causality/` observe the DP4A MMVQ family in the
+executed symbols, and `evidence/ada/b789-clean-calibration/` carries the
+per-quant crossover rates that dispatch produces. The Vulkan fallback's
+packed-integer capability stays unmeasured here;
 `evidence/legacy/raven2/comparative-findings.tsv` retains the prior host's
-unaccelerated-path finding, keyed to a Vulkan driver capability report specific
-to that silicon, as comparison; it carries no authority on this device until a
-CUDA-side kernel audit re-measures it.
+unaccelerated-path finding, keyed to that silicon's own driver capability
+report, as comparison alone.
 
 Both publishers of this tree's small checkpoints ship BF16 as their only
 16-bit artifact, so `scripts/build-llama-cuda.sh` builds `llama-quantize` and
