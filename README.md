@@ -18,8 +18,10 @@ conclusions that still bear on a decision here.
 
 `scripts/build-llama-cuda.sh` builds one `llama-server` carrying both the CUDA
 and Vulkan backends, so `llama-bench --device` selects between them and two
-rows differ by the backend alone. `CMAKE_CUDA_ARCHITECTURES=89` emits one SASS
-variant for this device, `GGML_CUDA_FA_ALL_QUANTS=ON` compiles flash-attention
+rows differ by the backend alone. `CMAKE_CUDA_ARCHITECTURES=89` emits one SM89
+SASS variant plus compute_89 PTX for driver JIT and `cuobjdump`. The compact
+local-serving arm selects `89-real` explicitly and emits SASS alone.
+`GGML_CUDA_FA_ALL_QUANTS=ON` compiles flash-attention
 kernels for the served `cache_type_k=q8_0`/`cache_type_v=q4_0` pair rather than
 leaving it off the flash-attention path, and the build runs through `g++-15`
 because nvcc refuses a host compiler newer than GCC 15.

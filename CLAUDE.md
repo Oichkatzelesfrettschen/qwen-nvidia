@@ -55,7 +55,9 @@ bandwidth. A 12 GiB carve-out with 2.5 GiB already resident holds one 9B Q4_K_M
 trunk, a 0.8B draft, and two KV caches with little room over, so every paired
 serving arm states its resident total before it runs.
 
-`CMAKE_CUDA_ARCHITECTURES=89` emits one SASS variant for this device.
+`CMAKE_CUDA_ARCHITECTURES=89` emits one SM89 SASS variant plus compute_89 PTX
+for driver JIT and `cuobjdump`. The compact local-serving arm selects `89-real`
+explicitly and emits SASS alone.
 `GGML_CUDA_FA_ALL_QUANTS=ON` is required rather than optional: `scripts/models.tsv`
 serves every row at `cache_type_k=q8_0` with `cache_type_v=q4_0`, and the
 default CUDA build compiles flash-attention kernels for a subset of KV type

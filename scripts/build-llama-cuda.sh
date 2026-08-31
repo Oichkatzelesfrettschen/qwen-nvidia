@@ -7,11 +7,10 @@ set -eu
 # longer hide 89 against 89-real, a backend, NCCL, a compression mode, LTO, a
 # CPU target, or an MMVQ threshold behind one suffix.
 #
-# CMAKE_CUDA_ARCHITECTURES defaults to 89-real because the installed device is
-# AD104 at compute capability 8.9 and the fleet is this one machine: the
-# unsuffixed 89 embeds compute_89 PTX beside the sm_89 SASS, and PTX that no
-# JIT ever consumes buys closure size for nothing. 89 remains available for
-# the frozen comparison control and for a binary meant to move.
+# CMAKE_CUDA_ARCHITECTURES defaults to 89 because the build closure includes
+# both native SM89 execution and inspectable compute_89 PTX. 89-real remains
+# available for a compact, SASS-only binary whose consumer contract names an
+# SM89 device and excludes PTX inspection and forward JIT.
 #
 # GGML_CUDA_FA_ALL_QUANTS is required rather than optional: scripts/models.tsv
 # serves every row at cache_type_k=q8_0 with cache_type_v=q4_0, and the
@@ -29,7 +28,7 @@ set -eu
 
 usage() {
     printf 'usage: %s [SOURCE_DIRECTORY]\n' "$0" >&2
-    printf '  QWEN_CUDA_ARCHITECTURES    89-real (default) or 89\n' >&2
+    printf '  QWEN_CUDA_ARCHITECTURES    89 (default, SASS and PTX) or 89-real (SASS only)\n' >&2
     printf '  QWEN_BUILD_VULKAN          ON adds the Vulkan diagnostic backend, default OFF\n' >&2
     printf '  QWEN_CUDA_GRAPHS           default ON\n' >&2
     printf '  QWEN_CUDA_FA               default ON\n' >&2
@@ -54,7 +53,7 @@ usage() {
 [ "$#" -le 1 ] || usage
 
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
-cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89-real}
+cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89}
 build_vulkan=${QWEN_BUILD_VULKAN:-OFF}
 cuda_graphs=${QWEN_CUDA_GRAPHS:-ON}
 cuda_fa=${QWEN_CUDA_FA:-ON}
@@ -202,6 +201,7 @@ printf '%s  build-configuration.tsv\n' "$configuration_sha256" \
     > "$build_directory/build-configuration.sha256"
 
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
+    -U LLAMA_CURL \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$host_cc" \
     -DCMAKE_CXX_COMPILER="$host_cxx" \
@@ -227,8 +227,7 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DGGML_CUDA_COMPRESSION_MODE="$cuda_compression" \
     -DGGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE="$mmvq_q6k_max" \
     -DGGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE="$mmvq_q8_0_max" \
-    -DLLAMA_BUILD_TESTS=OFF \
-    -DLLAMA_CURL=ON
+    -DLLAMA_BUILD_TESTS=OFF
 
 cmake --build "$build_directory" --parallel "$build_jobs" \
     --target llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
@@ -239,6 +238,55 @@ for artifact in llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
         exit 1
     }
 done
+
+cuobjdump_command=$(command -v cuobjdump 2>/dev/null || true)
+if [ -z "$cuobjdump_command" ] && [ -x /opt/cuda/bin/cuobjdump ]; then
+    cuobjdump_command=/opt/cuda/bin/cuobjdump
+fi
+[ -n "$cuobjdump_command" ] || {
+    printf 'cuobjdump is absent from PATH and /opt/cuda/bin\n' >&2
+    exit 1
+}
+
+cuda_library=$build_directory/bin/libggml-cuda.so
+[ -e "$cuda_library" ] || {
+    printf 'the build produced no CUDA backend library: %s\n' "$cuda_library" >&2
+    exit 1
+}
+cubin_listing=$($cuobjdump_command --list-elf "$cuda_library" 2>&1) || {
+    printf '%s\n' "$cubin_listing" >&2
+    exit 1
+}
+ptx_listing=$($cuobjdump_command --list-ptx "$cuda_library" 2>&1) || {
+    printf '%s\n' "$ptx_listing" >&2
+    exit 1
+}
+cubin_count=$(printf '%s\n' "$cubin_listing" |
+    awk '$1 == "ELF" && $2 == "file" { count++ } END { print count + 0 }')
+ptx_count=$(printf '%s\n' "$ptx_listing" |
+    awk '$1 == "PTX" && $2 == "file" { count++ } END { print count + 0 }')
+
+[ "$cubin_count" -gt 0 ] || {
+    printf 'the CUDA backend carries zero native cubins: %s\n' "$cuda_library" >&2
+    exit 1
+}
+case $cuda_architectures in
+    89-real)
+        [ "$ptx_count" -eq 0 ] || {
+            printf '89-real unexpectedly carries %s PTX payloads: %s\n' \
+                "$ptx_count" "$cuda_library" >&2
+            exit 1
+        }
+        ;;
+    89)
+        [ "$ptx_count" -gt 0 ] || {
+            printf '89 carries zero PTX payloads: %s\n' "$cuda_library" >&2
+            exit 1
+        }
+        ;;
+esac
+printf 'cuda_payload=verified arch=%s cubin=%s ptx=%s library=%s\n' \
+    "$cuda_architectures" "$cubin_count" "$ptx_count" "$cuda_library"
 
 printf 'cuda_build=complete configuration=%s tree=%s\n' \
     "$configuration_id" "$build_directory"
