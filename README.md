@@ -106,10 +106,26 @@ drift floor. The Q6_K move to MMQ at nine columns costs 22% per token instead,
 four times that floor, so the RTX 4090-tuned crossover abandons MMVQ at the
 point it is still the faster family on this device.
 `evidence/ada/b789-cublas-differential/` rules out forced cuBLAS as the fix:
-dequant+GEMM runs at roughly half the MMQ rate past the crossover. Whether
-Q6_K MMVQ extended past eight columns beats MMQ's post-crossover rate is
-unmeasured, since the crossover is a compiled constant
-(`mmvq.cu:295-306`) and answering it needs a threshold-shifted build.
+dequant+GEMM runs at roughly half the MMQ rate past the crossover.
+`evidence/ada/mmvq-crossover-ad104/` answers the extension question:
+`patches/llama-cuda-mmvq-crossover-ad104.patch` parameterizes the Ada Q6_K
+and Q8_0 ceilings as named CMake thresholds and instantiates the kernel
+through twelve columns, and the paired sweep places Q6_K at ten -- the
+largest tested column count whose MMVQ advantage clears the registered
+drift floor -- and Q8_0 at twelve as a lower bound with its true crossover
+above the tested range. The serving build carries both thresholds.
+
+## Promotion is CUDA-authoritative
+
+`scripts/promote-llama-build.sh` decides promotion on CUDA0: a strict
+one-token placement check and a multimodal smoke both run with
+`LLAMA_NO_CPU_FALLBACK=1` and require every weight buffer to name CUDA0. A
+build that also carries `libggml-vulkan.so` takes the same two smokes on
+Vulkan0 as a separate fallback admission, and a CUDA-only build reports
+`fallback_vulkan=not-built`. The served closure is the 89-real CUDA-only
+tree (`evidence/ada/promotion-31d0775c5bc6/`); the PTX-bearing dual-backend
+sibling 572951d25562 is retained as the rollback target and the diagnostic
+closure for CUDA/Vulkan comparison and PTX inspection.
 
 ## Roadmap
 

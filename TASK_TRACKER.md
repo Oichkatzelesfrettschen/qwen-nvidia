@@ -16,10 +16,13 @@ CUDA and Vulkan backends before a 32K validation campaign can run.
 
 ## Graded quality suite
 
-`scripts/run-quality-suite.py` and `scripts/run-quality-roster.sh` exist and
-have not been run against a server on this host. No graded reasoning, code,
-tool-selection, or termination result exists in `evidence/` for any
-checkpoint served here.
+`evidence/quality-roster-cuda/` grades all twenty-three servable rows in one
+withheld-image sweep on this host's CUDA serving path, with
+`lfm25-12b-thinking` re-run at a 4096-token budget as its own condition. The
+code category places `qwenseer-2b` at 9 of 10 near 232 tok/s, which moved
+the fast-coding role to it; the 4B Q5_K_M and Q6_K rungs hold 10 of 10 in
+the deeper tier. Open work here is incremental: a new registry row takes
+one graded arm inside its own sweep rather than a roster rerun.
 
 ## Image lane
 
