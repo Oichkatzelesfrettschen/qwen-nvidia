@@ -19,14 +19,19 @@ def run_checker(target_repo):
     return res.returncode, res.stdout, res.stderr
 
 def copy_repo(src_root, dst_dir):
-    # Copy essential repository files needed for consistency checks
-    for item in ["README.md", "CLAUDE.md", "TASK_TRACKER.md", "scripts", "evidence"]:
-        src_item = src_root / item
-        dst_item = dst_dir / item
-        if src_item.is_dir():
-            shutil.copytree(src_item, dst_item)
-        elif src_item.is_file():
-            shutil.copy2(src_item, dst_item)
+    # The fixture is the tracked authority surface, so enumeration goes
+    # through git ls-files: a copytree would also carry ignored local
+    # evidence directories, and tracking those in the fixture repository
+    # fails check-nvidia-authority.sh on terms the real tree never commits.
+    tracked = subprocess.run(
+        ["git", "-C", str(src_root), "ls-files", "-z", "--",
+         "README.md", "CLAUDE.md", "TASK_TRACKER.md", "scripts", "evidence"],
+        capture_output=True, text=True, check=True).stdout
+    for relative in filter(None, tracked.split("\0")):
+        src_item = src_root / relative
+        dst_item = dst_dir / relative
+        dst_item.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_item, dst_item)
 
     # Initialize a git repo in dst_dir so scripts that query git work properly
     subprocess.run(["git", "init", "-q"], cwd=str(dst_dir), check=True)
