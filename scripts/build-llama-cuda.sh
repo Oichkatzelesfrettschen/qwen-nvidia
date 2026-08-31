@@ -53,7 +53,7 @@ usage() {
 [ "$#" -le 1 ] || usage
 
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
-cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89}
+cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89-real}
 build_vulkan=${QWEN_BUILD_VULKAN:-OFF}
 cuda_graphs=${QWEN_CUDA_GRAPHS:-ON}
 cuda_fa=${QWEN_CUDA_FA:-ON}
