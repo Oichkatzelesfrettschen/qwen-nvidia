@@ -133,3 +133,17 @@ Any one of these admits it back:
 - a smaller quantization of the 9B whose overlap fits with headroom.
 
 The first two are unrun.
+
+## Re-entry
+
+The first gate condition is met and the row is lifted.
+`evidence/ada/evict-first-9b-readmission/` carries two runs of
+`scripts/admit-evict-first-transition.sh` on the pinned tree at
+`--models-max 1`: the roster poll reads the 2B unloaded about 2.2 seconds
+before the 9B enters loading, the 100 ms framebuffer trace shows the
+trough between plateaus at 1227-1228 MiB against a 1199 MiB desktop rest,
+and the peak reaches 7579 MiB of the 12282 carve-out. The overlap this
+record names as the trigger did not occur, and the transition windows
+carry no NVRM line. `scripts/models.tsv` pins the row at
+`switch_policy=evict-first`, which `qwen-capacity-policy.sh` enforces by
+refusing any router launch wider than one resident.
