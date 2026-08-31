@@ -27,6 +27,13 @@ build inside 1%, the cross-build control. MMVQ wins 12.5% at nine columns on
 Q6_K and 25-31% at nine and ten on Q8_0, and it loses nowhere in the range,
 ending in a tie at twelve on Q6_K while still ahead 14% on Q8_0.
 
+Against the 5.1% closing-control drift floor the calibration registered, the
+Q6_K advantage clears the floor through ten columns and sits inside it at
+eleven and twelve, so ten is the largest defensible Q6_K threshold and the
+eleven-to-twelve span stays unresolved. The Q8_0 advantage clears the floor at
+every measured point, so twelve is a floor rather than an optimum and the
+crossover past twelve stays open.
+
 ## Verdict
 
 The upstream Ada branch of ggml_cuda_should_use_mmvq keeps Q4_K and Q5_K on
@@ -37,3 +44,20 @@ crossover past twelve. The Q4_K and Q5_K pins stay correct
 decode at one column, so the seven-to-twelve window pays in speculative
 verification batches and small parallel slots rather than in the served
 headline rates.
+
+## Production candidate
+
+`patches/llama-cuda-mmvq-crossover-ad104.patch` carries the production shape.
+MMVQ_MAX_BATCH_SIZE stays 8, so every other architecture and the mul_mat_id
+static assert keep stock behavior; a kernel-side MMVQ_KERNEL_MAX_NCOLS of 12
+carries the instantiations; and the Ada dispatch reads two cache settings,
+GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE and
+GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE, both defaulting to the upstream
+eight, so a control and a subject differ by one named threshold and a
+static_assert bounds each by the kernel ceiling. The measured production
+values are ten for Q6_K and twelve for Q8_0. The verification build at those
+values runs Q6_K on MMVQ at nine (72.2 per token), on MMQ at eleven (64.6,
+the stock rate), and Q8_0 on MMVQ at twelve (206.7), so each knob reaches its
+own type alone. `QWEN_LLAMA_CANDIDATE_PATCHES=1
+scripts/verify-llama-patch-series.sh` accepts the series with the candidate
+applied third.
