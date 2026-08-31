@@ -9,9 +9,13 @@ template-overhead probe, and a decode that must retrieve a passphrase
 planted at the head of the fill, so the arm proves execution and long-range
 attention rather than allocation alone.
 
-Four arms, one per runtime class, each at its registry ceiling under
-`q8_0`/`q4_0` cache, Flash Attention on, batch 2048, ubatch 512, on the
-promoted 88681bf4d161 binary:
+Six arms, each at its registry ceiling under `q8_0`/`q4_0` cache, Flash
+Attention on, batch 2048, ubatch 512, on the promoted 88681bf4d161 binary.
+The qwenseer-2b arm gates the coding lane: the WebUI coding default
+requires 32768 or deeper, and its validated 65536 covers that floor. The
+qwen25-coder-7b arm ran through the same probe inside its own admission
+chain (`evidence/quality-roster-cuda/qwen25-coder-7b-arm/`), so the deep
+coder serves at 8192 until a deeper arm passes:
 
 | model | depth | prompt_n | needle | health |
 | --- | ---: | ---: | --- | --- |
@@ -19,12 +23,14 @@ promoted 88681bf4d161 binary:
 | qwen35-08b | 65536 | 65197 | retrieved | healthy |
 | qwen38-4b-distill | 32768 | 32577 | retrieved | healthy |
 | qwen38-9b-distill | 24576 | 24415 | retrieved | healthy |
+| qwenseer-2b | 65536 | 65197 | retrieved | healthy |
+| qwen25-coder-7b | 8192 | 8067 | retrieved | healthy |
 
 Each arm's directory holds its summary, its emitted ledger row, its raw
 result fields, and the server log. The rows joined
-`scripts/validated-tuples.tsv` as `validated` and the four `models.tsv`
-rows now claim these depths in `validated_filled_depth`, which is the first
-state `scripts/check-validated-tuples.sh` has had rows to check on this
-host (`checked=4`). The prior host's geometry-versus-depth finding remains
+`scripts/validated-tuples.tsv` as `validated` and the six `models.tsv`
+rows now claim these depths in `validated_filled_depth`, which
+`scripts/check-validated-tuples.sh` checks on every gate run
+(`checked=6`). The prior host's geometry-versus-depth finding remains
 prior-host comparison; only the 2048/512 geometry is measured here, so a
 second geometry per class is the open extension.
