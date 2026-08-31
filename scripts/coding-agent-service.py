@@ -320,7 +320,9 @@ class Service:
         }
         if extra_env:
             environment.update(extra_env)
-        (job.worktree / ".job-tmp").mkdir(exist_ok=True)
+        # The worktree belongs to the principal, so its interior state is
+        # created by the principal rather than by the service user.
+        self.principal_run(["mkdir", "-p", str(job.worktree / ".job-tmp")])
 
         def limits():
             os.setsid()
@@ -329,9 +331,13 @@ class Service:
             resource.setrlimit(resource.RLIMIT_FSIZE,
                                (1 << 30, 1 << 30))
 
+        # env --chdir enters the worktree after the identity switch, so
+        # the service user needs no traversal right into the principal's
+        # 0700 home.
         process = subprocess.Popen(
-            self.principal_prefix() + command,
-            cwd=str(job.worktree), env=environment,
+            self.principal_prefix()
+            + ["env", "--chdir", str(job.worktree)] + command,
+            env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, preexec_fn=limits)
         with job.lock:
@@ -420,17 +426,35 @@ class Service:
         job = self.get_job(request)
         target = self.contain_path(job.worktree,
                                    str(request.get("path", ".")))
-        if target.is_dir():
-            listing = sorted(
-                str(p.relative_to(job.worktree))
-                for p in target.iterdir() if p.name != ".job-tmp")
-            return {"kind": "directory", "entries": listing}
-        if not target.is_file():
+        # Reads go through the principal, whose 0700 home the service user
+        # cannot traverse. The service-side resolve cannot follow links it
+        # cannot read, so the principal re-resolves the path and the
+        # containment bound is applied to what the read would actually
+        # open.
+        principal_resolved = self.principal_run(
+            ["realpath", "-m", str(target)]).stdout.strip()
+        root_resolved = self.principal_run(
+            ["realpath", "-m", str(job.worktree)]).stdout.strip()
+        if principal_resolved != root_resolved and not                 principal_resolved.startswith(root_resolved + "/"):
+            raise Refusal("path_escapes_worktree",
+                          str(request.get("path")))
+        kind = self.principal_run(
+            ["sh", "-c", 'if [ -d "$1" ]; then echo directory; '
+             'elif [ -f "$1" ]; then echo file; else echo absent; fi',
+             "inspect", str(target)]).stdout.strip()
+        if kind == "directory":
+            listed = self.principal_run(["ls", "-A", str(target)])
+            entries = sorted(name for name in listed.stdout.splitlines()
+                             if name != ".job-tmp")
+            return {"kind": "directory", "entries": entries}
+        if kind != "file":
             raise Refusal("path_absent", str(request.get("path")))
-        data = target.read_bytes()[:INSPECT_BYTE_CEILING]
-        return {"kind": "file",
-                "content": data.decode("utf-8", "replace"),
-                "bytes": target.stat().st_size}
+        content = self.principal_run(
+            ["head", "-c", str(INSPECT_BYTE_CEILING), str(target)]).stdout
+        size = self.principal_run(
+            ["stat", "-c", "%s", str(target)]).stdout.strip()
+        return {"kind": "file", "content": content,
+                "bytes": int(size or 0)}
 
     def agent_command(self, job, mode):
         override = self.arguments.agent_command

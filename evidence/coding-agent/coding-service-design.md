@@ -61,9 +61,18 @@ the listing states the profile's own bounds, the six tools run one full
 chain, and unknown tools, unknown arguments, and ungranted opens are
 refused as isError results.
 
-Three checks are reported not-run here and belong to the on-appliance
-admission: uid separation, sudo denial for the principal, and the
-uid-scoped network egress rule. Every `scripts/coding-profiles.tsv` row
-reads `execution_policy=refused`, so the lane executes nothing until those
-gates and the full-chain admission pass and a reviewed edit moves a row to
-`validator-gated`.
+The three checks the unit suite reports not-run are admitted on the
+appliance by `scripts/test-coding-principal-path.sh` (5 checks, accepted
+2026-08-31): one job through the real qwen-coder principal leaves its
+worktree owned by qwen-coder and finishes clean, `sudo -n` from that
+account dies at the policy, and with `scripts/setup-coding-egress.sh
+apply` in force the nftables output hook drops the principal's external
+traffic by socket uid while loopback passes -- the rule binds the account,
+so a double-forked child that left the process group is still contained.
+Prompt injection in repository text is contained by the same bounds every
+job runs under: the injected instruction can steer only what the grant
+already authorized, inside the worktree, under the profile's file, byte,
+and time ceilings, with no shell tool offered to the browser. Every
+`scripts/coding-profiles.tsv` row reads `execution_policy=refused`, so the
+lane executes nothing until the full-chain admission passes and a reviewed
+edit moves a row to `validator-gated`.
