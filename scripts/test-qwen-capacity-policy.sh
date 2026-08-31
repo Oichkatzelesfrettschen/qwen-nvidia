@@ -192,10 +192,10 @@ grep -F 'context size exceeds the admitted ceiling for this cache policy: 4097 >
 # A fabricated registry carries a triple the fallback never produces, so this
 # check separates the registry read from the built-in default.
 fabricated_registry=$temporary_directory/models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested candidate 256 64 4096 - \
-    unmeasured refused - off - \
+    unmeasured refused - off - lru\
     >"$fabricated_registry"
 registry_model=$temporary_directory/fabricated.gguf
 : >"$registry_model"
@@ -479,6 +479,45 @@ fi
 grep -F 'router preset section fabricated is excluded by profile quarantine' \
     "$temporary_directory/router-profile-quarantine.stderr" >/dev/null
 
+# switch_policy is enforced against the registry row as it stands at launch,
+# because a preset persists across a registry edit. evict-first requires a
+# roster of one, and standalone-only never enters router service at all.
+evict_first_registry=$temporary_directory/evict-first-models.tsv
+sed 's/	lru$/	evict-first/' "$fabricated_registry" >"$evict_first_registry"
+if QWEN_MODEL_REGISTRY=$evict_first_registry \
+    QWEN_MODEL_ROOT=$router_model_root QWEN_VULKAN_ICD=$fake_icd \
+    QWEN_POLICY_TEST_OUTPUT=$router_output QWEN_ROUTER=1 \
+    QWEN_ROUTER_PRESETS=$router_presets QWEN_ROUTER_MAX=2 \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/evict-first.stdout" \
+    2>"$temporary_directory/evict-first.stderr"; then
+    printf 'router served an evict-first row beside a second resident slot\n' >&2
+    exit 1
+fi
+grep -F 'switch_policy evict-first, which requires QWEN_ROUTER_MAX=1, found 2' \
+    "$temporary_directory/evict-first.stderr" >/dev/null
+QWEN_MODEL_REGISTRY=$evict_first_registry \
+QWEN_MODEL_ROOT=$router_model_root QWEN_VULKAN_ICD=$fake_icd \
+    QWEN_POLICY_TEST_OUTPUT=$router_output QWEN_ROUTER=1 \
+    QWEN_ROUTER_PRESETS=$router_presets QWEN_ROUTER_MAX=1 \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/evict-first-single.stdout" 2>&1
+standalone_only_registry=$temporary_directory/standalone-only-models.tsv
+sed 's/	lru$/	standalone-only/' "$fabricated_registry" \
+    >"$standalone_only_registry"
+if QWEN_MODEL_REGISTRY=$standalone_only_registry \
+    QWEN_MODEL_ROOT=$router_model_root QWEN_VULKAN_ICD=$fake_icd \
+    QWEN_POLICY_TEST_OUTPUT=$router_output QWEN_ROUTER=1 \
+    QWEN_ROUTER_PRESETS=$router_presets QWEN_ROUTER_MAX=1 \
+    "$policy" "$fake_server" "$registry_model" 4096 18080 \
+    >"$temporary_directory/standalone-only.stdout" \
+    2>"$temporary_directory/standalone-only.stderr"; then
+    printf 'router served a standalone-only row\n' >&2
+    exit 1
+fi
+grep -F 'switch_policy standalone-only, which the router never serves' \
+    "$temporary_directory/standalone-only.stderr" >/dev/null
+
 # An ambient research override cannot bless a preset that records no override.
 # The persisted marker governs both section admission and later loopback policy.
 marker_zero_router_presets=$temporary_directory/marker-zero-router-presets.ini
@@ -700,10 +739,10 @@ grep -F "router preset section fabricated carries LLAMA_ARG_MODEL $alternate_mod
 # tuple field still matches. Archive and rejected rows never reach a generated
 # router preset.
 archived_registry=$temporary_directory/archived-models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested archive 256 64 4096 - unmeasured refused \
-    - off - \
+    - off - lru\
     >"$archived_registry"
 if QWEN_MODEL_REGISTRY=$archived_registry QWEN_MODEL_ROOT=$router_model_root \
     QWEN_VULKAN_ICD=$fake_icd QWEN_POLICY_TEST_OUTPUT=$router_output \
@@ -720,10 +759,10 @@ grep -F 'router preset section fabricated has non-servable registry tier archive
 # A quarantine tier requires both the durable override and model-scope
 # router-child authority. The marker alone cannot manufacture that authority.
 quarantine_tier_registry=$temporary_directory/quarantine-tier-models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     fabricated research fabricated.gguf download-qwen38-4b-distill-q4km.sh \
     4096 8192 8192 q5_1 iq4_nl auto none - - - untested quarantine 256 64 4096 - unmeasured refused \
-    - off - \
+    - off - lru\
     >"$quarantine_tier_registry"
 unowned_quarantine_preset=$temporary_directory/unowned-quarantine-tier.ini
 printf '%s\n' '# qwen_router_include_quarantine=1' \
@@ -1157,10 +1196,10 @@ grep -F 'generated router presets omit quarantine provenance' \
 # the quarantined geometry reset the compute ring on a live desktop on the
 # prior host, which is why this is a refusal rather than a warning.
 quarantine_registry=$temporary_directory/quarantine-models.tsv
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     quarantined research quarantined.gguf download-qwen38-4b-distill-q4km.sh \
     4096 16384 16384 q8_0 q4_0 on none - - - untested production 2048 512 4096 - \
-    unmeasured refused - off - \
+    unmeasured refused - off - lru\
     >"$quarantine_registry"
 quarantine_table=$temporary_directory/quarantine.tsv
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \

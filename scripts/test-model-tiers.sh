@@ -75,7 +75,7 @@ fi
 # `LLAMA_ARG_SPEC_TYPE` reaches llama-server as an argument rather than as an
 # absence.
 speculation_emission_failures=0
-for spec_row in $(awk -F'\t' '!/^#/ && NF >= 25 { print $1 ":" $24 }' "$registry"); do
+for spec_row in $(awk -F'\t' '!/^#/ && NF >= 26 { print $1 ":" $24 }' "$registry"); do
     spec_section=${spec_row%%:*}
     spec_profile=${spec_row##*:}
     case $section_ids in
@@ -342,6 +342,24 @@ mutate_speculation_profile() {
     ' "$mutate_source" >"$mutate_output"
 }
 models_checksum_before=$(sha256sum "$registry")
+
+# A standalone-only row is generated into no preset section and no picker
+# entry, because the standalone launch path is the one that serves it.
+standalone_registry=$work/mutant-standalone-models.tsv
+awk -F'\t' 'BEGIN { OFS = "\t" }
+    !/^#/ && $1 == "qwen35-2b-heretic" { $26 = "standalone-only" }
+    { print }' "$registry" >"$standalone_registry"
+standalone_preset=$work/mutant-standalone-presets.ini
+QWEN_MODEL_REGISTRY=$standalone_registry QWEN_MODEL_ROOT=$model_root \
+QWEN_QUARANTINE_REGISTRY=$quarantine \
+QWEN_QUARANTINE_REASONS=$repository_root/evidence/quarantine \
+    "$builder" "$standalone_preset" >"$work/mutant-standalone.out" \
+    2>"$work/mutant-standalone.err"
+if grep -q '^\[qwen35-2b-heretic\]' "$standalone_preset"; then
+    report standalone_only_excluded_from_preset rejected
+else
+    report standalone_only_excluded_from_preset accepted
+fi
 
 mtp_zero_registry=$work/mutant-mtp-zero-models.tsv
 mutate_speculation_profile "$registry" qwen35-2b-heretic mtp1 "$mtp_zero_registry"

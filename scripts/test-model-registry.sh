@@ -34,7 +34,7 @@ check_rows() {
         /^[[:space:]]*$/ { next }
         {
             rows++
-            if (NF != 25) {
+            if (NF != 26) {
                 printf "row %d holds %d fields\n", NR, NF
                 bad++
                 next
@@ -157,7 +157,7 @@ else
     report cache_type_vocabulary rejected
 fi
 
-expected_header=$(printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile\tspeculation_evidence')
+expected_header=$(printf '# id\trole\tmodel_file\tfetch_script\tcontext_default\tcontext_ceiling\tcontext_target\tcache_type_k\tcache_type_v\tflash_attention\tprojector\tprojector_fetch_script\tdecode_tok_s\tprefill_tok_s\tquality\ttier\tbatch\tubatch\tvalidated_filled_depth\tvalidation_evidence\traw_tool_selection\tguarded_tool_execution\tmtp_layers\tspeculation_profile\tspeculation_evidence\tswitch_policy')
 actual_header=$(grep '^# id' "$registry" || true)
 if [ "$actual_header" = "$expected_header" ]; then
     report schema_header accepted
@@ -252,10 +252,10 @@ fi
 fixture_registry=$work_directory/models.tsv
 fixture_quarantine=$work_directory/quarantine.tsv
 printf '%b\n' \
-    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
-    'model-blocked\ttext\tmodels/model-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
-    'profile-blocked\ttext\tmodels/profile-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
-    'profile-neighbour\ttext\tmodels/profile-neighbour.gguf\tfetch.sh\t4096\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
+    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-\tlru' \
+    'model-blocked\ttext\tmodels/model-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-\tlru' \
+    'profile-blocked\ttext\tmodels/profile-blocked.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-\tlru' \
+    'profile-neighbour\ttext\tmodels/profile-neighbour.gguf\tfetch.sh\t4096\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tcandidate\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-\tlru' \
     >"$fixture_registry"
 printf '%b\n' \
     'model-record\tmodel\tmodel-blocked\tdevice-lost\t-\t-\t-\t-\t-\t-\t-\t-\tevidence/model.md\tany' \
@@ -282,6 +282,37 @@ if [ "$servable_files" = "$(printf '%s\n' \
 else
     report quarantine_filtered_files rejected
     printf 'unexpected servable files:\n%s\n' "$servable_files" >&2
+fi
+
+# switch_policy carries a fixed vocabulary and the validator refuses a row
+# outside it, because a silent fallback would serve an unstated residency
+# policy. The field also resolves by lookup so consumers read the value the
+# registry states rather than defaulting one.
+bad_switch_registry=$work_directory/bad-switch-models.tsv
+printf '%b\n' \
+    'safe\ttext\tmodels/safe.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-\tresident' \
+    >"$bad_switch_registry"
+set +e
+QWEN_MODEL_REGISTRY=$bad_switch_registry \
+QWEN_QUARANTINE_REGISTRY=$fixture_quarantine \
+    "$reader" servable-ids >/dev/null 2>"$work_directory/bad-switch.err"
+bad_switch_status=$?
+set -e
+if [ "$bad_switch_status" -ne 0 ] &&
+    grep -q 'switch_policy resident' "$work_directory/bad-switch.err"; then
+    report switch_policy_vocabulary accepted
+else
+    report switch_policy_vocabulary rejected
+    cat "$work_directory/bad-switch.err" >&2
+fi
+
+switch_policy_value=$(QWEN_MODEL_REGISTRY=$fixture_registry \
+    "$reader" id safe switch_policy)
+if [ "$switch_policy_value" = lru ]; then
+    report switch_policy_lookup accepted
+else
+    report switch_policy_lookup rejected
+    printf 'switch_policy lookup returned %s\n' "$switch_policy_value" >&2
 fi
 
 # An absent safety authority is an invocation failure. Treating it as an empty
@@ -411,7 +442,7 @@ fi
 # validator names.
 tuple_fixture_models=$work_directory/tuple-models.tsv
 printf '%b\n' \
-    'tuple-model\ttext\tmodels/tuple-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-' \
+    'tuple-model\ttext\tmodels/tuple-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t-\t-\tunmeasured\trefused\t0\toff\t-\tlru' \
     >"$tuple_fixture_models"
 
 # The validator resolves an evidence path against the repository root, the
@@ -570,7 +601,7 @@ check_validated_tuples=$script_directory/check-validated-tuples.sh
 check_tuple_models=$work_directory/check-tuple-models.tsv
 printf '%b\n' \
     "$expected_header" \
-    'check-model\ttext\tmodels/check-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/check-model.md\tunmeasured\trefused\t0\toff\t-' \
+    'check-model\ttext\tmodels/check-model.gguf\tfetch.sh\t8192\t8192\t8192\tq8_0\tq4_0\ton\tnone\t-\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/check-model.md\tunmeasured\trefused\t0\toff\t-\tlru' \
     >"$check_tuple_models"
 matching_check_tuples=$work_directory/matching-check-tuples.tsv
 printf '%b\n' \
@@ -625,7 +656,7 @@ fi
 projector_check_models=$work_directory/projector-check-models.tsv
 printf '%b\n' \
     "$expected_header" \
-    'vision-model\tvision\tmodels/vision-model.gguf\tfetch.sh\t4096\t4096\t4096\tq8_0\tq4_0\ton\trequired\tfetch-projector.sh\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/vision.md\tunmeasured\trefused\t0\toff\t-' \
+    'vision-model\tvision\tmodels/vision-model.gguf\tfetch.sh\t4096\t4096\t4096\tq8_0\tq4_0\ton\trequired\tfetch-projector.sh\t-\t-\tuntested\tproduction\t128\t32\t4096\tevidence/vision.md\tunmeasured\trefused\t0\toff\t-\tlru' \
     >"$projector_check_models"
 projector_none_tuples=$work_directory/projector-none-tuples.tsv
 printf '%b\n' \

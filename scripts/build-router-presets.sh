@@ -108,7 +108,7 @@ validate_speculation_ledger() {
         }
         $0 ~ /^#/ || $0 ~ /^[[:space:]]*$/ { next }
         {
-            if (NF < 25) { next }
+            if (NF < 26) { next }
             id = $1
             row_mtp_layers = $23
             row_speculation_profile = $24
@@ -164,7 +164,7 @@ speculation_ledger_rows=$(validate_speculation_ledger) || exit 1
 # tree for the row to make its claim. `capability-only` names no arm by
 # construction and is the one non-path value a serving row may carry.
 speculation_evidence_missing=''
-for speculation_claim in $(awk -F'\t' '!/^#/ && NF >= 25 && $25 != "-" && $25 != "capability-only" { print $25 }' \
+for speculation_claim in $(awk -F'\t' '!/^#/ && NF >= 26 && $25 != "-" && $25 != "capability-only" { print $25 }' \
     "$registry" | sort -u); do
     [ -r "$script_directory/../$speculation_claim" ] && continue
     speculation_evidence_missing="$speculation_evidence_missing $speculation_claim"
@@ -237,7 +237,7 @@ while IFS='	' read -r id role model_file _fetch_script context_default \
     projector _projector_fetch_script _decode_tok_s _prefill_tok_s _quality tier batch ubatch \
     _validated_filled_depth _validation_evidence _raw_tool_selection \
     _guarded_tool_execution _mtp_layers speculation_profile \
-    _speculation_evidence; do
+    _speculation_evidence switch_policy; do
     case $id in
         '#'* | '') continue ;;
     esac
@@ -258,6 +258,14 @@ while IFS='	' read -r id role model_file _fetch_script context_default \
             continue
             ;;
     esac
+
+    # A standalone-only row never enters a router preset: the standalone launch
+    # path is the one that serves it, so the picker cannot select a checkpoint
+    # whose residency model the router roster breaks.
+    if [ "$switch_policy" = standalone-only ]; then
+        skipped_unlisted=$((skipped_unlisted + 1))
+        continue
+    fi
 
     model_quarantine_row=$(printf '%s\n' "$quarantine_rows" |
         awk -F'\t' -v subject="$id" '$2 == "model" && $3 == subject { print; exit }')

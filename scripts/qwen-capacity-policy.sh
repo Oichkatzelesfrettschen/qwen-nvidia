@@ -65,6 +65,7 @@ cors_origins=${QWEN_CORS_ORIGINS:-localhost}
 validate_router_preset_tuples() {
     printf '%s\n' "$4" | awk -F'\t' -v model_root="$3" \
         -v include_quarantine="$5" -v web_profile_sections="${6:-0}" \
+        -v router_max="$router_max" \
         -v web_depth_override="${7:-0}" '
         function reset_tuple() {
             model_count = 0
@@ -180,6 +181,23 @@ validate_router_preset_tuples() {
                 (include_quarantine != 1 || !quarantined_models[registry_key])) {
                 printf "router preset section %s lacks an admitted model quarantine override\n", \
                     section > "/dev/stderr"
+                rejected = 1
+            }
+            # A preset persists across a registry edit, so switch_policy is
+            # enforced against the row as it stands at launch. standalone-only
+            # belongs to the standalone path alone, and evict-first requires a
+            # roster of one because server-models.cpp gates eviction on a model
+            # count rather than on bytes: a second resident beside such a row
+            # is the memory peak the field exists to refuse.
+            if (registry_switch_policy[registry_key] == "standalone-only") {
+                printf "router preset section %s carries switch_policy standalone-only, which the router never serves\n", \
+                    section > "/dev/stderr"
+                rejected = 1
+            }
+            if (registry_switch_policy[registry_key] == "evict-first" &&
+                router_max + 0 != 1) {
+                printf "router preset section %s carries switch_policy evict-first, which requires QWEN_ROUTER_MAX=1, found %s\n", \
+                    section, router_max > "/dev/stderr"
                 rejected = 1
             }
             expected_model = model_root "/" registry_model[registry_key]
@@ -312,6 +330,7 @@ validate_router_preset_tuples() {
             registry_batch[$1] = $17
             registry_ubatch[$1] = $18
             registry_filled_depth[$1] = $19
+            registry_switch_policy[$1] = $26
             next
         }
         /^[[:space:]]*($|[#;])/ { next }

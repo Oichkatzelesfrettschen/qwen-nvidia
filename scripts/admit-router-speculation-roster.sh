@@ -271,13 +271,13 @@ mkdir -p "$mutation_directory"
 mutation_registry=$mutation_directory/models.tsv
 awk -F'\t' -v OFS='\t' '
     /^#/ { print; next }
-    NF < 25 { print; next }
+    NF < 26 { print; next }
     !mutated && $23 == "0" && $24 == "off" {
         $24 = "mtp1"; $25 = "capability-only"; mutated = 1
     }
     { print }
 ' "$registry" >"$mutation_registry"
-mutated_row=$(awk -F'\t' '!/^#/ && NF >= 25 && $23 == "0" && $24 == "mtp1" { print $1; exit }' \
+mutated_row=$(awk -F'\t' '!/^#/ && NF >= 26 && $23 == "0" && $24 == "mtp1" { print $1; exit }' \
     "$mutation_registry")
 if QWEN_MODEL_REGISTRY=$mutation_registry \
     "$script_directory/build-router-presets.sh" "$mutation_directory/presets.ini" \
