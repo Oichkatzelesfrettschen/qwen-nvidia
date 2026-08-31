@@ -62,6 +62,7 @@ scripts/test-exec-idle-priority.sh
 scripts/check-validated-tuples.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-authority-consistency.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-authority-consistency.py
+scripts/test-qwen-code-pin.sh
 scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh
 scripts/test-probe-depth-projector.sh

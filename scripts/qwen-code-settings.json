@@ -1,0 +1,52 @@
+{
+  "$version": 4,
+  "general": {
+    "enableAutoUpdate": false,
+    "chatRecording": false,
+    "preventSystemSleep": false,
+    "gitCoAuthor": {
+      "commit": false,
+      "pr": false
+    }
+  },
+  "output": {
+    "format": "stream-json"
+  },
+  "modelProviders": {
+    "qwen-nvidia": [
+      {
+        "id": "qwenseer-2b",
+        "name": "Qwen NVIDIA Fast Coder",
+        "envKey": "QWEN_NVIDIA_LOCAL_API_KEY",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "generationConfig": {
+          "contextWindowSize": 32768,
+          "timeout": 300000,
+          "maxRetries": 0,
+          "samplingParams": {
+            "temperature": 0,
+            "max_tokens": 8192
+          }
+        }
+      },
+      {
+        "id": "qwen25-coder-7b",
+        "name": "Qwen NVIDIA Deep Coder",
+        "envKey": "QWEN_NVIDIA_LOCAL_API_KEY",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "generationConfig": {
+          "contextWindowSize": 8192,
+          "timeout": 600000,
+          "maxRetries": 0,
+          "samplingParams": {
+            "temperature": 0,
+            "max_tokens": 4096
+          }
+        }
+      }
+    ]
+  },
+  "providerProtocol": {
+    "qwen-nvidia": "openai"
+  }
+}
