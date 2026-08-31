@@ -39,7 +39,7 @@ def main():
     repo_root = pathlib.Path(__file__).parent.parent.resolve()
     failures = 0
 
-    def test_case(name, mutator_fn, expect_pass=False):
+    def test_case(name, mutator_fn, expect_pass=False, expect_error=None):
         nonlocal failures
         with tempfile.TemporaryDirectory(prefix="test_auth_consist_") as tmp_dir:
             tmp_path = pathlib.Path(tmp_dir)
@@ -54,8 +54,11 @@ def main():
                     print(f"FAIL: {name} (expected pass, got exit code {code})\nstderr: {stderr}\nstdout: {stdout}", file=sys.stderr)
                     failures += 1
             else:
-                if code != 0:
+                if code != 0 and (expect_error is None or expect_error in stderr):
                     print(f"PASS: {name} (failed as expected)")
+                elif code != 0:
+                    print(f"FAIL: {name} (failed without the expected error {expect_error!r})\nstderr: {stderr}", file=sys.stderr)
+                    failures += 1
                 else:
                     print(f"FAIL: {name} (expected failure, got exit code 0)", file=sys.stderr)
                     failures += 1
@@ -158,20 +161,89 @@ def main():
 
     test_case("malformed_authority_input_propagates_failure", mut_malformed_validated_tuples, expect_pass=False)
 
-    # 11. Completion of previously open depth-validation condition makes stale TASK_TRACKER claim fail
+    # 11. Completion of the open depth-validation conditions for every class
+    # makes the stale TASK_TRACKER claim fail. Coverage is per expected model,
+    # so every row claiming a validated_filled_depth gains both a second CUDA
+    # geometry and a Vulkan tuple.
+    def depth_rows(tmp_path):
+        models = tmp_path / "scripts" / "models.tsv"
+        rows = []
+        for line in models.read_text(encoding="utf-8").splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.split("\t")
+            if parts[18].isdigit():
+                rows.append((parts[0], parts[18]))
+        return rows
+
+    def tuple_row(model_id, depth, batch, ubatch, backend):
+        return ("%s-d%s-b%s-ub%s-%s\t%s\tstandalone\t%s\t%s\t%s\tq8_0\tq4_0\ton\t1\t1\tnone\t%s\tvalidated\tevidence/depth-validation-cuda/%s/\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\t054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd\t7.2.2-1-cachyos\t-\t610.57.04\t2026-08-31"
+                % (model_id, depth, batch, ubatch, backend, model_id, depth,
+                   batch, ubatch, backend, model_id))
+
     def mut_completed_open_depth_work(tmp_path):
         vt = tmp_path / "scripts" / "validated-tuples.tsv"
-        text = vt.read_text(encoding="utf-8")
-        new_rows = [
-            "qwen38-2b-distill-d65536-b1024-ub256\tqwen38-2b-distill\tstandalone\t65536\t1024\t256\tq8_0\tq4_0\ton\t1\t1\tnone\tcuda\tvalidated\tevidence/depth-validation-cuda/qwen38-2b-distill/\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\t054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd\t7.2.2-1-cachyos\t-\t610.57.04\t2026-08-31",
-            "qwen35-08b-d65536-b1024-ub256\tqwen35-08b\tstandalone\t65536\t1024\t256\tq8_0\tq4_0\ton\t1\t1\tnone\tcuda\tvalidated\tevidence/depth-validation-cuda/qwen35-08b/\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\t054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd\t7.2.2-1-cachyos\t-\t610.57.04\t2026-08-31",
-            "qwen38-4b-distill-d32768-b1024-ub256\tqwen38-4b-distill\tstandalone\t32768\t1024\t256\tq8_0\tq4_0\ton\t1\t1\tnone\tcuda\tvalidated\tevidence/depth-validation-cuda/qwen38-4b-distill/\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\t054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd\t7.2.2-1-cachyos\t-\t610.57.04\t2026-08-31",
-            "qwen38-9b-distill-d24576-b1024-ub256\tqwen38-9b-distill\tstandalone\t24576\t1024\t256\tq8_0\tq4_0\ton\t1\t1\tnone\tcuda\tvalidated\tevidence/depth-validation-cuda/qwen38-9b-distill/\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\t054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd\t7.2.2-1-cachyos\t-\t610.57.04\t2026-08-31",
-            "qwen38-2b-distill-d65536-vulkan\tqwen38-2b-distill\tstandalone\t65536\t2048\t512\tq8_0\tq4_0\ton\t1\t1\tnone\tvulkan\tvalidated\tevidence/depth-validation-cuda/qwen38-2b-distill/\tf280b26983ad0fdb705a0d9ebf0503e76f2899b0\t054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd\t7.2.2-1-cachyos\t-\t610.57.04\t2026-08-31"
-        ]
-        vt.write_text(text + "\n" + "\n".join(new_rows) + "\n", encoding="utf-8")
+        rows = []
+        for model_id, depth in depth_rows(tmp_path):
+            rows.append(tuple_row(model_id, depth, "1024", "256", "cuda"))
+            rows.append(tuple_row(model_id, depth, "2048", "512", "vulkan"))
+        vt.write_text(vt.read_text(encoding="utf-8") + "\n".join(rows) + "\n",
+                      encoding="utf-8")
 
-    test_case("completed_open_depth_work_makes_stale_task_tracker_fail", mut_completed_open_depth_work, expect_pass=False)
+    # The backend gate in check-nvidia-authority.sh also rejects the Vulkan
+    # rows, so the assertion binds to the stale-tracker message itself.
+    test_case("completed_open_depth_work_makes_stale_task_tracker_fail", mut_completed_open_depth_work, expect_pass=False, expect_error="stale open depth work")
+
+    # 12. Second CUDA geometries alone leave the Vulkan arms open for every
+    # class, so the tracker's open statement remains accurate and the tree
+    # passes.
+    def mut_second_geometry_without_vulkan(tmp_path):
+        vt = tmp_path / "scripts" / "validated-tuples.tsv"
+        rows = [tuple_row(model_id, depth, "1024", "256", "cuda")
+                for model_id, depth in depth_rows(tmp_path)]
+        vt.write_text(vt.read_text(encoding="utf-8") + "\n".join(rows) + "\n",
+                      encoding="utf-8")
+
+    test_case("second_geometry_without_vulkan_keeps_open_statement_valid", mut_second_geometry_without_vulkan, expect_pass=True)
+
+    # 13. A quarantine row whose id differs from its subject still removes the
+    # subject, so README text claiming readmission fails.
+    def mut_quarantine_id_differs_from_subject(tmp_path):
+        q = tmp_path / "scripts" / "quarantine.tsv"
+        q.write_text(q.read_text(encoding="utf-8")
+                     + "qwen38-9b-distill-router-load\tmodel\tqwen38-9b-distill\tdevice-lost\t-\t-\t-\t-\t-\t-\tevidence/quarantine/qwen38-9b-distill-router-load.md\tevidence/quarantine/qwen38-9b-distill-router-load.md\tevidence/quarantine/qwen38-9b-distill-router-load.md\trouter-child\n",
+                     encoding="utf-8")
+
+    test_case("quarantine_subject_differs_from_row_id_fails", mut_quarantine_id_differs_from_subject, expect_pass=False)
+
+    # 14. TASK_TRACKER.md is a required surface; its absence fails closed.
+    def mut_remove_task_tracker(tmp_path):
+        (tmp_path / "TASK_TRACKER.md").unlink()
+
+    test_case("removed_task_tracker_fails_closed", mut_remove_task_tracker, expect_pass=False)
+
+    # 15. The served-closure statement is role-qualified: relabeling the
+    # rollback digest as the served closure fails even though 88681bf4d161
+    # remains present elsewhere in README.md.
+    def mut_relabel_served_closure(tmp_path):
+        readme = tmp_path / "README.md"
+        text = readme.read_text(encoding="utf-8")
+        text = text.replace("served closure is configuration `88681bf4d161`",
+                            "served closure is configuration `31d0775c5bc6`")
+        readme.write_text(text, encoding="utf-8")
+
+    test_case("relabeled_served_closure_fails", mut_relabel_served_closure, expect_pass=False)
+
+    # 16. A threshold clause changed to twelve fails even while the
+    # promotion evidence path keeps the digit sixteen nearby.
+    def mut_stale_q80_threshold(tmp_path):
+        readme = tmp_path / "README.md"
+        text = readme.read_text(encoding="utf-8")
+        text = text.replace("Q8_0 at sixteen", "Q8_0 at twelve")
+        text = text.replace("Q8_0 MMVQ threshold 16", "Q8_0 MMVQ threshold 12")
+        readme.write_text(text, encoding="utf-8")
+
+    test_case("stale_q80_threshold_clause_fails", mut_stale_q80_threshold, expect_pass=False)
 
     if failures:
         print(f"test_authority_consistency: REJECTED ({failures} failures)", file=sys.stderr)

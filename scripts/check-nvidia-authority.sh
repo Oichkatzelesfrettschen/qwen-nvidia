@@ -24,7 +24,9 @@ usage() {
 
 [ "$#" -le 1 ] || usage
 repository_root=${1:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}
-[ -d "$repository_root/.git" ] || {
+# A linked worktree carries .git as a gitdir pointer file, so existence
+# rather than directoryness identifies a repository root.
+[ -e "$repository_root/.git" ] || {
     printf 'not a repository root: %s\n' "$repository_root" >&2
     exit 2
 }
