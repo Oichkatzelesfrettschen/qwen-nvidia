@@ -106,6 +106,12 @@
   .image-review li.fail { color:var(--bad); }
   .image-review-note { font-size:12px; }
   .image-review-note.bad { color:var(--bad); }
+  .code-job { margin:.4rem 0; padding:.5rem .7rem; border:1px solid var(--line);
+             border-radius:.5rem; }
+  .code-job pre { max-height:16rem; overflow:auto; font-size:12px;
+             white-space:pre-wrap; word-break:break-word; margin:.3rem 0; }
+  .code-job .meta { margin-top:.3rem; }
+  .code-job button.act { margin-top:.4rem; margin-right:.4rem; }
 </style>
 </head>
 
@@ -123,6 +129,7 @@
   <label class="chip"><input type="checkbox" id="tools"> offer a demo tool</label>
   <label class="chip"><input type="checkbox" id="web-tools"> web</label>
   <label class="chip"><input type="checkbox" id="image-tools"> image</label>
+  <label class="chip"><input type="checkbox" id="code-tools"> code</label>
   <input class="key" type="text" id="broker-origin" placeholder="approval broker origin" autocomplete="off">
   <input class="key" type="text" id="artifact-origin" placeholder="image artifact origin" autocomplete="off">
   <button class="act" id="clear">clear</button>
@@ -174,6 +181,26 @@
   </div>
 </dialog>
 <!-- end image generation dialog -->
+
+<!--
+  Code mode approval dialog. One dialog serves both coding approvals with the
+  same exact-argument discipline as the search and image dialogs: the plan
+  approval binds the instruction, the registered workspace, and the
+  server-resolved base commit, and the apply approval binds the job and the
+  hash of the plan the human just read, so the edit phase cannot depart from
+  the reviewed plan.
+-->
+<dialog class="approval" id="code-approval">
+  <h2 id="code-approval-title">Authorize one coding action</h2>
+  <p class="why" id="code-approval-why"></p>
+  <p class="approval-note" id="code-approval-note" hidden></p>
+  <dl class="args" id="code-approval-args"></dl>
+  <div class="approval-actions">
+    <button class="act" id="code-approve-deny">deny</button>
+    <button class="act" id="code-approve-once">approve once</button>
+  </div>
+</dialog>
+<!-- end code mode dialog -->
 
 <footer>
   <div id="attached"></div>
@@ -309,7 +336,12 @@ function selectRequestModel(selectedModel) {
   nctxModel = null;
   forgetWebTools();
   forgetImageTools();
+  forgetCodeTools();
   forgetVisionModel();
+  if (codeJob && codeJob.modelId !== selectedModel) {
+    invalidateCodeJob(
+      `cancelled: the model changed from ${codeJob.modelId} to ${selectedModel}`);
+  }
   attachments.forEach(attachment => {
     attachment.tokens = null;
     attachment.tokenModel = null;
@@ -847,6 +879,18 @@ $('#web-tools').checked = false;
 // intent.
 $('#image-tools').checked = false;
 
+// Code mode is exclusive: one authority surface at a time. Turning Code on
+// clears and disables the demo, Web, and Image toggles, so a turn carries
+// either the coding tools or the others, never a mixed set.
+$('#code-tools').checked = false;
+$('#code-tools').addEventListener('change', () => {
+  const codeOn = $('#code-tools').checked;
+  for (const id of ['#tools', '#web-tools', '#image-tools']) {
+    if (codeOn) $(id).checked = false;
+    $(id).disabled = codeOn;
+  }
+});
+
 function brokerOrigin() {
   return ($('#broker-origin').value.trim() || BROKER_ORIGIN_DEFAULT).replace(/\/+$/, '');
 }
@@ -1301,6 +1345,511 @@ function approveImageGeneration(fields, proposalModel, correctionNote = '') {
   });
 }
 // ==== end image generation: proposal parsing and grant ======================
+
+// ==== Code mode: tool discovery, approvals, and job state ===================
+// The coding MCP server sits under the section's `code` key, so llama-server
+// composes `code_plan` through `code_workspace` the way it composes
+// `image_generate_image`. Five names are the model-facing surface; `finish`,
+// `cancel`, and `workspace` are browser-session controls this page invokes
+// directly and never places in the model's tool array, so the model holds no
+// way to remove its worktree before the user has seen the diff and test
+// result, and Clear reaches the service's cancellation.
+const CODE_MCP_SERVER_NAME = 'code';
+const codeToolName = bare => `${CODE_MCP_SERVER_NAME}_${bare}`;
+const CODE_PLAN_TOOL_NAME = codeToolName('plan');
+const CODE_INSPECT_TOOL_NAME = codeToolName('inspect');
+const CODE_APPLY_TOOL_NAME = codeToolName('apply_patch');
+const CODE_TESTS_TOOL_NAME = codeToolName('run_tests');
+const CODE_REVIEW_TOOL_NAME = codeToolName('review_diff');
+const CODE_FINISH_TOOL_NAME = codeToolName('finish');
+const CODE_CANCEL_TOOL_NAME = codeToolName('cancel');
+const CODE_WORKSPACE_TOOL_NAME = codeToolName('workspace');
+const CODE_MODEL_TOOL_NAMES = [
+  CODE_PLAN_TOOL_NAME, CODE_INSPECT_TOOL_NAME, CODE_APPLY_TOOL_NAME,
+  CODE_TESTS_TOOL_NAME, CODE_REVIEW_TOOL_NAME];
+const CODE_SESSION_CONTROL_NAMES = [
+  CODE_FINISH_TOOL_NAME, CODE_CANCEL_TOOL_NAME, CODE_WORKSPACE_TOOL_NAME];
+
+let codeToolListing = null;
+let codeToolsModel = null;
+let codeToolsGeneration = -1;
+
+// One coding job at a time. The binding snapshot carries everything a later
+// event can invalidate: a model change, a Clear, or a workspace change
+// cancels the job and discards late results rather than continuing under
+// state the approvals were not signed over.
+let codeJob = null;
+
+async function resolveCodeTools(selectedModel, generation) {
+  if (codeToolsModel === selectedModel && codeToolsGeneration === generation) {
+    return codeToolListing || {};
+  }
+  let listed = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      listed = await fetchWebToolListing(selectedModel);
+      break;
+    } catch {
+      if (attempt === 0) await sleep(TOOLS_LISTING_RETRY_DELAY_MS);
+    }
+  }
+  if (listed === null) return {};
+  const byName = {};
+  for (const entry of listed) {
+    if (entry && typeof entry.tool === 'string'
+        && entry.tool.startsWith(`${CODE_MCP_SERVER_NAME}_`)) {
+      byName[entry.tool] = entry;
+    }
+  }
+  if (modelStateMatches(selectedModel, generation)) {
+    codeToolListing = byName;
+    codeToolsModel = selectedModel;
+    codeToolsGeneration = generation;
+  }
+  return byName;
+}
+
+function forgetCodeTools() {
+  codeToolListing = null;
+  codeToolsModel = null;
+  codeToolsGeneration = -1;
+}
+
+function codeToolsForRequest(listing) {
+  /* Return the model-facing code tool array for the current job state.
+
+     Before a job exists only the plan tool is offered, stripped to the one
+     argument the model owns: the instruction. Every other plan field --
+     workspace, repository identity, base commit, profile, model,
+     conversation generation, authorization -- is browser-owned and injected
+     after approval, so the model never selects a base commit. With a job
+     open, the four job tools are offered and the apply grant stays out of
+     the advertised schema the way the web tools' `authorization` does. */
+  const tools = [];
+  if (!codeJob) {
+    const entry = listing[CODE_PLAN_TOOL_NAME];
+    if (entry && entry.definition && entry.definition.function) {
+      tools.push({ type: 'function', function: {
+        name: CODE_PLAN_TOOL_NAME,
+        description: entry.definition.function.description ||
+          'Propose one coding instruction for human approval.',
+        parameters: {
+          type: 'object',
+          properties: { instruction: { type: 'string', description:
+            'the exact coding instruction to plan and, once approved, apply' } },
+          required: ['instruction'],
+          additionalProperties: false
+        }
+      } });
+    }
+    return tools;
+  }
+  for (const name of [CODE_INSPECT_TOOL_NAME, CODE_APPLY_TOOL_NAME,
+                      CODE_TESTS_TOOL_NAME, CODE_REVIEW_TOOL_NAME]) {
+    const composed = webToolDefinition(listing[name]);
+    if (composed) tools.push(composed);
+  }
+  return tools;
+}
+
+async function requestCodeGrant(path, fields, signal) {
+  // Mirrors requestImageGrant() with one difference: the coding grant is the
+  // {claim, signature} object the coding-agent service verifies, so the
+  // authorization here is an object rather than a token string.
+  const secret = await brokerSession(signal);
+  const post = async currentSecret => {
+    const response = await fetch(`${brokerOrigin()}${path}`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json',
+                 [BROKER_SESSION_HEADER]: currentSecret },
+      body: JSON.stringify(fields),
+      signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { response, payload };
+  };
+  let { response, payload } = await post(secret);
+  if (response.status === 403 && payload.code === STALE_SESSION_SECRET_CODE) {
+    brokerSessionSecret = null;
+    brokerSessionOrigin = null;
+    ({ response, payload } = await post(await brokerSession(signal)));
+  }
+  if (!response.ok || typeof payload.authorization !== 'object'
+      || payload.authorization === null) {
+    throw new Error(payload.error || `the approval broker refused: HTTP ${response.status}`);
+  }
+  return payload.authorization;
+}
+
+async function executeCodeTool(toolName, params, model) {
+  /* Run one code tool through POST /tools and return {ok, payload, text}.
+
+     A refusal arrives as an `error` key at HTTP 200, so it is read from the
+     body; a success carries the MCP child's JSON object as
+     plain_text_response, parsed here so the caller reads fields rather than
+     re-parsing text. */
+  let response;
+  try {
+    response = await fetch('./tools', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ model, tool: toolName, params, stream: false })
+    });
+  } catch (error) {
+    return { ok: false, text: `The ${toolName} call did not reach the server: ${error.message || error}` };
+  }
+  let payload = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (payload && typeof payload.error === 'string') {
+    return { ok: false, text: `The ${toolName} call was refused: ${payload.error}` };
+  }
+  if (!response.ok || !payload || typeof payload.plain_text_response !== 'string') {
+    return { ok: false, text: `The ${toolName} call returned HTTP ${response.status} with no result text.` };
+  }
+  let parsed = null;
+  try { parsed = JSON.parse(payload.plain_text_response); } catch { parsed = null; }
+  return { ok: true, payload: parsed, text: payload.plain_text_response };
+}
+
+function approveCodeAction(title, why, rows, buildGrant) {
+  // Mirrors approveImageGeneration(): one approval or a refusal over the
+  // exact fields shown, an aborted grant request on denial or dismissal, and
+  // a `failed` outcome that ends the dialog so the model reads the reason
+  // instead of the page holding `busy` on a dialog nothing will close.
+  return new Promise(resolve => {
+    const dialog = $('#code-approval');
+    $('#code-approval-title').textContent = title;
+    $('#code-approval-why').textContent = why;
+    const note = $('#code-approval-note');
+    note.hidden = true;
+    note.textContent = '';
+    const list = $('#code-approval-args');
+    list.textContent = '';
+    for (const [label, value] of rows) {
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const detail = document.createElement('dd');
+      detail.textContent = value;
+      list.append(term, detail);
+    }
+    const once = $('#code-approve-once');
+    const deny = $('#code-approve-deny');
+    let settled = false;
+    const controller = new AbortController();
+    const finish = outcome => {
+      if (settled) return;
+      settled = true;
+      once.onclick = null;
+      deny.onclick = null;
+      dialog.onclose = null;
+      once.disabled = false;
+      dialog.close();
+      resolve(outcome);
+    };
+    once.onclick = async () => {
+      once.disabled = true;
+      try {
+        const authorization = await buildGrant(controller.signal);
+        finish({ decision: 'once', authorization });
+      } catch (error) {
+        finish({ decision: 'failed', reason: String(error.message || error) });
+      }
+    };
+    deny.onclick = () => { controller.abort(); finish({ decision: 'deny' }); };
+    dialog.onclose = () => { controller.abort(); finish({ decision: 'deny' }); };
+    dialog.showModal();
+  });
+}
+
+function renderCodeJobCard(job) {
+  const t = turn('code job');
+  const card = document.createElement('div');
+  card.className = 'code-job';
+  const head = document.createElement('div');
+  head.className = 'meta';
+  head.textContent = `job ${job.jobId} | ${job.profileId} on ${job.modelId} | ` +
+    `base ${job.baseCommit.slice(0, 12)} (${job.baseSubject})`;
+  const plan = document.createElement('pre');
+  plan.textContent = job.planText;
+  const diff = document.createElement('pre');
+  diff.hidden = true;
+  const tests = document.createElement('div');
+  tests.className = 'meta';
+  const status = document.createElement('div');
+  status.className = 'meta';
+  status.textContent = 'plan approved; the edit phase needs its own approval';
+  const finishButton = document.createElement('button');
+  finishButton.className = 'act';
+  finishButton.textContent = 'finish job';
+  const cancelButton = document.createElement('button');
+  cancelButton.className = 'act';
+  cancelButton.textContent = 'cancel job';
+  finishButton.onclick = () => { void finishCodeJob(job); };
+  cancelButton.onclick = () => { void cancelCodeJob(job, 'cancelled from the job card'); };
+  card.append(head, plan, diff, tests, status, finishButton, cancelButton);
+  t.body.append(card);
+  job.card = { root: card, diff, tests, status, finishButton, cancelButton };
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function closeCodeJobCard(job, text) {
+  if (!job.card) return;
+  job.card.status.textContent = text;
+  job.card.finishButton.disabled = true;
+  job.card.cancelButton.disabled = true;
+}
+
+async function finishCodeJob(job) {
+  if (codeJob !== job) return;
+  job.card.finishButton.disabled = true;
+  job.card.cancelButton.disabled = true;
+  const finished = await executeCodeTool(CODE_FINISH_TOOL_NAME,
+    { job_id: job.jobId }, job.modelId);
+  if (codeJob === job) codeJob = null;
+  if (finished.ok && finished.payload) {
+    closeCodeJobCard(job,
+      `finished: export ${finished.payload.export_id} | ` +
+      `result tree ${String(finished.payload.result_tree).slice(0, 12)} | ` +
+      `patch sha256 ${String(finished.payload.patch_sha256).slice(0, 12)}`);
+  } else {
+    closeCodeJobCard(job, finished.text);
+  }
+}
+
+async function cancelCodeJob(job, reason) {
+  if (codeJob === job) codeJob = null;
+  closeCodeJobCard(job, reason);
+  await executeCodeTool(CODE_CANCEL_TOOL_NAME, { job_id: job.jobId },
+    job.modelId);
+}
+
+function invalidateCodeJob(reason) {
+  // A changed model, a Clear, or a new key attempt invalidates the binding
+  // every approval was signed over: the job is cancelled service-side and
+  // any late result is discarded by the generation checks.
+  if (!codeJob) return;
+  void cancelCodeJob(codeJob, reason);
+}
+
+function parseProposedInstruction(argumentText) {
+  const parsed = JSON.parse(argumentText);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('the proposed arguments are not an object');
+  }
+  if (typeof parsed.instruction !== 'string' || !parsed.instruction.trim()) {
+    throw new Error('instruction must be a nonempty string');
+  }
+  return parsed.instruction;
+}
+
+async function handleCodePlanCall(callId, argumentText, turnGeneration, proposalModel) {
+  if (codeJob) {
+    answerCall(callId, CODE_PLAN_TOOL_NAME,
+      `A coding job (${codeJob.jobId}) is already open; finish or cancel it before planning another.`,
+      turnGeneration);
+    return false;
+  }
+  let instruction;
+  try {
+    instruction = parseProposedInstruction(argumentText);
+  } catch (error) {
+    answerCall(callId, CODE_PLAN_TOOL_NAME,
+      `The plan did not run: ${error.message || error}`, turnGeneration);
+    return false;
+  }
+  // The base commit is server-resolved from the registered workspace
+  // immediately before the dialog opens; the model's proposal carries the
+  // instruction alone.
+  const resolved = await executeCodeTool(CODE_WORKSPACE_TOOL_NAME, {}, proposalModel);
+  if (!resolved.ok || !resolved.payload) {
+    answerCall(callId, CODE_PLAN_TOOL_NAME,
+      `The plan did not run: the workspace did not resolve (${resolved.text})`,
+      turnGeneration);
+    return false;
+  }
+  const ws = resolved.payload;
+  const grantGeneration = String(conversationGeneration);
+  const approval = await approveCodeAction(
+    'Authorize one coding plan',
+    'The plan phase is read-only: the agent reads an ephemeral worktree of ' +
+    'the base commit below and proposes a plan. Applying any edit needs a ' +
+    'second approval over the plan you will see.',
+    [
+      ['instruction', instruction],
+      ['workspace', `${ws.workspace_id} (${ws.repository_identity})`],
+      ['base commit', `${ws.base_commit.slice(0, 12)} -- ${ws.base_subject}`],
+      ['model / profile', `${ws.model_id} / ${ws.profile_id}`],
+      ['bounds', `${ws.maximum_files_changed} files, ` +
+        `${ws.maximum_patch_bytes} patch bytes, ${ws.maximum_job_seconds} s`],
+      ['test profile', ws.allowed_test_profile],
+    ],
+    async signal => requestCodeGrant('/grant-code-plan', {
+      workspace_id: ws.workspace_id,
+      repository_identity: ws.repository_identity,
+      base_commit: ws.base_commit,
+      model_id: ws.model_id,
+      profile_id: ws.profile_id,
+      instruction_sha256: await sha256Hex(instruction),
+      allowed_test_profile: ws.allowed_test_profile,
+      maximum_files_changed: ws.maximum_files_changed,
+      maximum_patch_bytes: ws.maximum_patch_bytes,
+      maximum_job_seconds: ws.maximum_job_seconds,
+      conversation_generation: grantGeneration
+    }, signal));
+  if (approval.decision !== 'once') {
+    answerCall(callId, CODE_PLAN_TOOL_NAME, approval.reason
+      ? `The plan did not run: ${approval.reason}.`
+      : 'The user refused this coding plan. It did not run.', turnGeneration);
+    return false;
+  }
+  if (requestModel !== proposalModel) {
+    answerCall(callId, CODE_PLAN_TOOL_NAME,
+      `The plan did not run: it was proposed by model ${proposalModel}, ` +
+      `the current model is ${requestModel}.`, turnGeneration);
+    return false;
+  }
+  const planned = await executeCodeTool(CODE_PLAN_TOOL_NAME, {
+    instruction,
+    workspace_id: ws.workspace_id,
+    repository_identity: ws.repository_identity,
+    profile_id: ws.profile_id,
+    model_id: ws.model_id,
+    base_commit: ws.base_commit,
+    conversation_generation: grantGeneration,
+    authorization: approval.authorization
+  }, proposalModel);
+  if (!planned.ok || !planned.payload) {
+    answerCall(callId, CODE_PLAN_TOOL_NAME, planned.text, turnGeneration);
+    return false;
+  }
+  const job = {
+    jobId: planned.payload.job_id,
+    planSha256: planned.payload.plan_sha256,
+    planText: planned.payload.plan,
+    instruction,
+    workspaceId: ws.workspace_id,
+    repositoryIdentity: ws.repository_identity,
+    baseCommit: ws.base_commit,
+    baseSubject: ws.base_subject,
+    profileId: ws.profile_id,
+    modelId: ws.model_id,
+    conversationGeneration: grantGeneration,
+    card: null
+  };
+  if (turnGeneration !== conversationGeneration) {
+    // A Clear landed while the plan ran; the job is already invalid.
+    void cancelCodeJob(job, 'cancelled: the conversation was cleared during planning');
+    return false;
+  }
+  codeJob = job;
+  renderCodeJobCard(job);
+  answerCall(callId, CODE_PLAN_TOOL_NAME,
+    `Plan created for job ${job.jobId} over base ${job.baseCommit.slice(0, 12)}:\n` +
+    job.planText +
+    '\nThe user must approve the apply phase; call ' + CODE_APPLY_TOOL_NAME +
+    ' with this job_id to request it, then ' + CODE_TESTS_TOOL_NAME + ' and ' +
+    CODE_REVIEW_TOOL_NAME + '.', turnGeneration);
+  return true;
+}
+
+async function handleCodeJobCall(toolName, callId, argumentText, turnGeneration, proposalModel) {
+  let parsed;
+  try {
+    parsed = JSON.parse(argumentText || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('the proposed arguments are not an object');
+    }
+  } catch (error) {
+    answerCall(callId, toolName,
+      `The call did not run: ${error.message || error}`, turnGeneration);
+    return false;
+  }
+  if (!codeJob) {
+    answerCall(callId, toolName,
+      'No coding job is open; propose ' + CODE_PLAN_TOOL_NAME + ' first.',
+      turnGeneration);
+    return false;
+  }
+  if (parsed.job_id !== codeJob.jobId) {
+    answerCall(callId, toolName,
+      `The call named job ${parsed.job_id}; the open job is ${codeJob.jobId}.`,
+      turnGeneration);
+    return false;
+  }
+  const job = codeJob;
+  if (toolName === CODE_APPLY_TOOL_NAME) {
+    const approval = await approveCodeAction(
+      'Authorize the edit phase',
+      'This admits one automatic edit run inside the contained worktree, ' +
+      'over exactly the plan shown when the job opened. The authoritative ' +
+      'checkout changes only when you apply the exported patch.',
+      [
+        ['job', job.jobId],
+        ['instruction', job.instruction],
+        ['plan sha256', job.planSha256],
+        ['model / profile', `${job.modelId} / ${job.profileId}`],
+        ['base commit', job.baseCommit.slice(0, 12)],
+      ],
+      async signal => requestCodeGrant('/grant-code-apply', {
+        job_id: job.jobId,
+        plan_sha256: job.planSha256,
+        instruction_sha256: await sha256Hex(job.instruction),
+        model_id: job.modelId,
+        profile_id: job.profileId,
+        conversation_generation: job.conversationGeneration
+      }, signal));
+    if (approval.decision !== 'once') {
+      answerCall(callId, toolName, approval.reason
+        ? `The edit phase did not run: ${approval.reason}.`
+        : 'The user refused the edit phase. It did not run.', turnGeneration);
+      return false;
+    }
+    if (requestModel !== proposalModel || codeJob !== job) {
+      answerCall(callId, toolName,
+        'The edit phase did not run: the model or job changed after approval.',
+        turnGeneration);
+      return false;
+    }
+    if (job.card) job.card.status.textContent = 'edit phase running';
+    const applied = await executeCodeTool(toolName,
+      { job_id: job.jobId, authorization: approval.authorization }, proposalModel);
+    if (applied.ok && applied.payload && job.card) {
+      job.card.status.textContent = 'edit phase complete';
+      job.card.diff.hidden = false;
+      job.card.diff.textContent =
+        `changed files:\n${(applied.payload.changed_files || []).join('\n')}\n\n` +
+        (applied.payload.diffstat || '');
+    } else if (job.card) {
+      job.card.status.textContent = applied.text;
+    }
+    answerCall(callId, toolName, applied.text, turnGeneration);
+    return applied.ok;
+  }
+  const executed = await executeCodeTool(toolName,
+    toolName === CODE_INSPECT_TOOL_NAME
+      ? { job_id: job.jobId,
+          ...(typeof parsed.path === 'string' ? { path: parsed.path } : {}),
+          ...(Number.isInteger(parsed.offset) && parsed.offset >= 0
+              ? { offset: parsed.offset } : {}) }
+      : { job_id: job.jobId },
+    proposalModel);
+  if (executed.ok && executed.payload && job.card) {
+    if (toolName === CODE_TESTS_TOOL_NAME) {
+      job.card.tests.textContent =
+        `tests exited ${executed.payload.returncode}` +
+        (executed.payload.log_truncated ? ' (log tail shown to the model)' : '');
+    }
+    if (toolName === CODE_REVIEW_TOOL_NAME) {
+      job.card.diff.hidden = false;
+      job.card.diff.textContent = executed.payload.patch ||
+        '(the worktree matches the base commit)';
+    }
+  }
+  answerCall(callId, toolName, executed.text, turnGeneration);
+  return executed.ok;
+}
+// ==== end code mode =========================================================
 
 // ==== Image review (PR F, UI half) ==========================================
 // A completed generation ends at an artifact card, and a review is the next
@@ -1762,7 +2311,9 @@ async function boot() {
   nctxModel = null;
   forgetWebTools();
   forgetImageTools();
+  forgetCodeTools();
   forgetVisionModel();
+  invalidateCodeJob('cancelled: the model roster was re-resolved');
   attachments.forEach(attachment => {
     attachment.tokens = null;
     attachment.tokenModel = null;
@@ -1925,6 +2476,10 @@ function turn(who, cls) {
 
 $('#clear').onclick = () => {
   conversationGeneration++;
+  // Clear during a coding job cancels it service-side: the process group
+  // dies, the worktree is removed, and any late result is discarded by the
+  // generation checks above.
+  invalidateCodeJob('cancelled: the conversation was cleared');
   history = []; toolCallSequence = 0; logEl.textContent = '';
 };
 
@@ -1933,7 +2488,7 @@ $('#input').addEventListener('keydown', e => {
 });
 $('#send').onclick = send;
 
-async function buildRequestBody(messages, webPermission, imagePermission) {
+async function buildRequestBody(messages, webPermission, imagePermission, codePermission) {
   /* A reasoning model emits its <think> block inside the same budget the answer
      is drawn from, so a budget that fits an answer alone ends the turn on
      `length` with an empty message and the reasoning discarded. The budget is
@@ -1949,6 +2504,16 @@ async function buildRequestBody(messages, webPermission, imagePermission) {
   body.chat_template_kwargs = { enable_thinking: reasoningOn };
   if (!reasoningOn) body.reasoning_budget = 0;
   const tools = [];
+  // Code mode offers its own surface alone: before a job exists, the plan
+  // tool stripped to the instruction; with a job open, the four job tools.
+  // The toggle handler already keeps the other surfaces off while Code is
+  // on, and this branch keeps the request body consistent with that.
+  if (codePermission) {
+    const listing = await resolveCodeTools(requestModel, modelStateGeneration);
+    tools.push(...codeToolsForRequest(listing));
+    if (tools.length) body.tools = tools;
+    return body;
+  }
   if ($('#tools').checked) tools.push(...DEMO_TOOL);
   // `send` snapshots and resets the Web toggle at the turn boundary. A
   // permission snapshot carries the tool through continuation rounds;
@@ -1967,14 +2532,14 @@ async function buildRequestBody(messages, webPermission, imagePermission) {
   return body;
 }
 
-async function streamCompletion(messages, view, webPermission, imagePermission) {
+async function streamCompletion(messages, view, webPermission, imagePermission, codePermission) {
   const t0 = performance.now();
   let first = null, streamChunks = 0, completionTokens = null;
   let serverTimings = null, answer = '', reasoning = '', finish = null;
   const toolCalls = {};
   const resp = await fetch('./v1/chat/completions', {
     method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(await buildRequestBody(messages, webPermission, imagePermission))
+    body: JSON.stringify(await buildRequestBody(messages, webPermission, imagePermission, codePermission))
   });
   if (!resp.ok) {
     const detail = await resp.text();
@@ -2429,7 +2994,8 @@ function answerCall(callId, toolName, content, turnGeneration) {
 
 async function runProposedTools(calls, callIds, view, roundBudgetExhausted, fetchBudget,
                                  searchBudget, turnGeneration, proposalModel,
-                                 webPermission, imagePermission, imageBudget, imageCancelToolName, imageBounds) {
+                                 webPermission, imagePermission, imageBudget, imageCancelToolName, imageBounds,
+                                 codePermission) {
   /* Execute this round's proposed calls and answer each one.
 
      A proposed `web_search_exa` is shown to a human with the arguments it
@@ -2472,6 +3038,44 @@ async function runProposedTools(calls, callIds, view, roundBudgetExhausted, fetc
         `the current model is ${requestModel}.`, turnGeneration);
       continue;
     }
+    // ==== Code mode: dispatch ==============================================
+    if (CODE_SESSION_CONTROL_NAMES.includes(toolName)) {
+      // finish, cancel, and workspace are browser-session controls; a model
+      // proposing one is answered rather than executed.
+      refused = true;
+      answerCall(callId, toolName,
+        `${toolName} is a browser-session control; the page invokes it, not the model.`,
+        turnGeneration);
+      continue;
+    }
+    if (CODE_MODEL_TOOL_NAMES.includes(toolName)) {
+      if (!codePermission) {
+        refused = true;
+        answerCall(callId, toolName,
+          `Code mode is off for this turn; ${toolName} did not run.`, turnGeneration);
+        continue;
+      }
+      if (roundBudgetExhausted) {
+        refused = true;
+        answerCall(callId, toolName,
+          `The round budget is exhausted; ${toolName} did not run.`, turnGeneration);
+        continue;
+      }
+      if (requestModel !== proposalModel) {
+        refused = true;
+        answerCall(callId, toolName,
+          `The ${toolName} call did not run: it was proposed by model ${proposalModel}, ` +
+          `the current model is ${requestModel}.`, turnGeneration);
+        continue;
+      }
+      const codeOutcome = toolName === CODE_PLAN_TOOL_NAME
+        ? await handleCodePlanCall(callId, calls[index].args, turnGeneration, proposalModel)
+        : await handleCodeJobCall(toolName, callId, calls[index].args,
+                                  turnGeneration, proposalModel);
+      if (!codeOutcome) refused = true;
+      continue;
+    }
+    // ==== end code mode: dispatch ==========================================
     // ==== Image generation (PR D, UI half): dispatch =======================
     if (toolName === IMAGE_TOOL_NAME) {
       if (!imagePermission) {
@@ -2665,6 +3269,10 @@ async function send() {
   // one user turn owns it, and the visible toggle already names the next.
   const imagePermission = $('#image-tools').checked;
   $('#image-tools').checked = false;
+  // Code mode stays selected across turns: a coding job outlives one turn,
+  // and resetting the toggle would strand an open worktree with no surface
+  // to continue it. The snapshot still governs this turn alone.
+  const codePermission = $('#code-tools').checked;
 
   const shown = text + (attachments.length
     ? '\n' + attachments.map(a => `[${a.name}]`).join(' ') : '');
@@ -2697,7 +3305,7 @@ async function send() {
       const proposalModel = requestModel;
       let outcome;
       try {
-        outcome = await streamCompletion(history, view, webPermission, imagePermission);
+        outcome = await streamCompletion(history, view, webPermission, imagePermission, codePermission);
       } catch (err) {
         view.meta.className = 'meta bad';
         view.meta.textContent = String(err.message || err);
@@ -2727,7 +3335,8 @@ async function send() {
       await runProposedTools(
         outcome.calls, callIds, view, round === CONTINUATION_CAP - 1, fetchBudget,
         searchBudget, turnGeneration, proposalModel, webPermission,
-        imagePermission, imageBudget, imageCancelToolName, imageBounds);
+        imagePermission, imageBudget, imageCancelToolName, imageBounds,
+        codePermission);
       if (turnGeneration !== conversationGeneration) return;
       if (requestModel !== proposalModel) {
         // The picker stays enabled while a tool request is in flight, so

@@ -40,6 +40,15 @@ GRANT_FIELDS = [
     "conversation_generation", "expiry_epoch", "nonce",
 ]
 
+# The second approval: an apply grant admits the one edit phase over the
+# exact plan hash the human reviewed, so the edit cannot silently depart
+# from the reviewed plan. It is job-scoped rather than repository-scoped,
+# and the same spent-nonce ledger spends it once.
+APPLY_GRANT_FIELDS = [
+    "action", "job_id", "plan_sha256", "instruction_sha256", "model_id",
+    "profile_id", "conversation_generation", "expiry_epoch", "nonce",
+]
+
 # The one command set each allowed_test_profile resolves to. The mapping
 # lives here rather than in a request, so run_tests executes what the
 # profile names and nothing a caller composes.
@@ -189,8 +198,11 @@ class Job:
         self.mirror = None
         self.process_group = None
         self.events = []
+        self.conversation_generation = str(
+            request.get("conversation_generation"))
         self.test_log = ""
         self.patch = None
+        self.plan_sha256 = None
         self.lock = threading.Lock()
         # One state-touching operation runs on a job at a time; a second
         # arriving while the first executes is answered job_busy rather
@@ -252,13 +264,14 @@ class Service:
                               capture_output=True, input=input_bytes)
 
     # -- grants ---------------------------------------------------------
-    def grant_signature(self, claim):
+    def grant_signature(self, claim, grant_fields=GRANT_FIELDS):
         message = "\n".join("%s=%s" % (field, claim[field])
-                            for field in GRANT_FIELDS)
+                            for field in grant_fields)
         return hmac.new(self.grant_key, message.encode(),
                         hashlib.sha256).hexdigest()
 
-    def verify_grant(self, request, workspace):
+    def open_grant_envelope(self, request, grant_fields):
+        """Return the verified, unexpired claim one grant envelope carries."""
         grant = request.get("grant")
         if not isinstance(grant, dict):
             raise Refusal("grant_missing")
@@ -266,14 +279,27 @@ class Service:
         signature = grant.get("signature", "")
         if not isinstance(claim, dict):
             raise Refusal("grant_missing_claim")
-        missing = [f for f in GRANT_FIELDS if f not in claim]
+        missing = [f for f in grant_fields if f not in claim]
         if missing:
             raise Refusal("grant_incomplete", ",".join(missing))
-        if not hmac.compare_digest(self.grant_signature(claim),
-                                   str(signature)):
+        if not hmac.compare_digest(
+                self.grant_signature(claim, grant_fields), str(signature)):
             raise Refusal("grant_signature_invalid")
         if float(claim["expiry_epoch"]) < time.time():
             raise Refusal("grant_expired")
+        return claim
+
+    def spend_nonce(self, claim):
+        nonce = str(claim["nonce"])
+        with self.jobs_lock:
+            spent = self.spent_nonces.read_text().split()
+            if nonce in spent:
+                raise Refusal("grant_replayed")
+            with self.spent_nonces.open("a") as handle:
+                handle.write(nonce + "\n")
+
+    def verify_grant(self, request, workspace):
+        claim = self.open_grant_envelope(request, GRANT_FIELDS)
         # A changed model, workspace, repository, base commit, instruction,
         # conversation generation, or test profile invalidates the grant:
         # every signed field is compared against live request and workspace
@@ -294,13 +320,28 @@ class Service:
         for field, expected in bindings.items():
             if claim[field] != expected:
                 raise Refusal("grant_binding_mismatch", field)
-        nonce = str(claim["nonce"])
-        with self.jobs_lock:
-            spent = self.spent_nonces.read_text().split()
-            if nonce in spent:
-                raise Refusal("grant_replayed")
-            with self.spent_nonces.open("a") as handle:
-                handle.write(nonce + "\n")
+        self.spend_nonce(claim)
+        return claim
+
+    def verify_apply_grant(self, request, job):
+        """Admit the one edit phase over the plan hash the human reviewed."""
+        if job.plan_sha256 is None:
+            raise Refusal("plan_not_run")
+        claim = self.open_grant_envelope(request, APPLY_GRANT_FIELDS)
+        bindings = {
+            "action": "apply_patch",
+            "job_id": job.job_id,
+            "plan_sha256": job.plan_sha256,
+            "instruction_sha256": hashlib.sha256(
+                job.instruction.encode()).hexdigest(),
+            "model_id": job.model_id,
+            "profile_id": job.profile["profile_id"],
+            "conversation_generation": job.conversation_generation,
+        }
+        for field, expected in bindings.items():
+            if claim[field] != expected:
+                raise Refusal("grant_binding_mismatch", field)
+        self.spend_nonce(claim)
         return claim
 
     # -- worktree lifecycle --------------------------------------------
@@ -594,12 +635,18 @@ class Service:
     def action_plan(self, request):
         job = self.get_job(request)
         returncode, output = self.run_agent(job, "plan")
+        # The apply grant is signed over this hash, so the edit phase runs
+        # over exactly the plan the human reviewed; a rerun replaces it and
+        # a grant over the earlier hash dies on the binding.
+        job.plan_sha256 = hashlib.sha256(output.encode()).hexdigest()
         view = output[-PLAN_BYTE_CEILING:]
         return {"returncode": returncode, "plan": view,
+                "plan_sha256": job.plan_sha256,
                 "plan_truncated": len(view) < len(output)}
 
     def action_apply_patch(self, request):
         job = self.get_job(request)
+        self.verify_apply_grant(request, job)
         returncode, output = self.run_agent(job, "apply")
         diff = self.job_diff(job)
         changed = [line[2:] for line in diff["name_status"].splitlines()
@@ -737,6 +784,45 @@ class Service:
                 "patch_sha256": patch_sha256,
                 "test_log_sha256": test_log_sha256}
 
+    def action_workspace_state(self, request):
+        """Answer the browser's pre-approval resolution.
+
+        The base commit is server-resolved from the registered workspace
+        immediately ahead of the approval dialog, so the model never
+        selects it; the reply carries the hash and its subject for the
+        dialog to display, beside the profile bounds the grant is signed
+        over.
+        """
+        authorities = Authorities(self.arguments)
+        profile = authorities.profiles.get(str(request.get("profile_id")))
+        if profile is None:
+            raise Refusal("unknown_profile", str(request.get("profile_id")))
+        workspace = authorities.workspaces.get(profile["workspace_id"])
+        if workspace is None:
+            raise Refusal("unknown_workspace", profile["workspace_id"])
+        repository = os.path.expandvars(workspace["repository_path"])
+        head = subprocess.run(
+            ["git", "-C", repository, "rev-parse", "HEAD"],
+            capture_output=True, text=True)
+        if head.returncode != 0:
+            raise Refusal("workspace_head_unavailable",
+                          head.stderr.strip())
+        subject = subprocess.run(
+            ["git", "-C", repository, "log", "-1", "--format=%s", "HEAD"],
+            capture_output=True, text=True).stdout.strip()
+        return {
+            "workspace_id": workspace["workspace_id"],
+            "repository_identity": workspace["repository_identity"],
+            "base_commit": head.stdout.strip(),
+            "base_subject": subject,
+            "model_id": profile["model_id"],
+            "profile_id": profile["profile_id"],
+            "allowed_test_profile": profile["allowed_test_profile"],
+            "maximum_files_changed": profile["maximum_files_changed"],
+            "maximum_patch_bytes": profile["maximum_patch_bytes"],
+            "maximum_job_seconds": profile["maximum_job_seconds"],
+        }
+
     def action_cancel(self, request):
         job = self.get_job(request, states=("open", "expired"),
                            check_deadline=False)
@@ -767,6 +853,7 @@ class Service:
             "review_diff": self.action_review_diff,
             "finish": self.action_finish,
             "cancel": self.action_cancel,
+            "workspace_state": self.action_workspace_state,
             "health": lambda _: {"state": "listening",
                                  "principal": self.principal,
                                  "pid": os.getpid()},

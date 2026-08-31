@@ -51,6 +51,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-web-mcp.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-authorize-broker.py
 scripts/test-fallback-webui-model-selection.sh
 scripts/test-fallback-webui-web-authorization.sh
+scripts/test-fallback-webui-code-authorization.sh
 scripts/test-web-tools-roundtrip.sh
 node scripts/test-fallback-webui-model-state.mjs
 scripts/test-one-token-admission.sh

@@ -66,7 +66,7 @@ grep -F "'The user refused this web search. It did not run.'" \
 
 # The grant enters one request body. A transcript message, a stored value, or a
 # completion body carrying it would present a single-use token twice.
-grep -F 'outcome = await streamCompletion(history, view, webPermission, imagePermission);' \
+grep -F 'outcome = await streamCompletion(history, view, webPermission, imagePermission, codePermission);' \
     "$fallback_ui" >/dev/null
 if grep -E 'answerCall\([^)]*authorization' "$fallback_ui" >/dev/null; then
     printf 'fallback Web UI writes a grant into the transcript\n' >&2

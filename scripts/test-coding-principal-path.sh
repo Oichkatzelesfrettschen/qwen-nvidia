@@ -171,7 +171,24 @@ if not opened.get("ok"):
     raise SystemExit(1)
 job_id = opened["result"]["job_id"]
 worktree = opened["result"]["worktree"]
-applied = ask({"action": "apply_patch", "job_id": job_id})
+planned = ask({"action": "plan", "job_id": job_id})
+apply_fields = ["action", "job_id", "plan_sha256", "instruction_sha256",
+                "model_id", "profile_id", "conversation_generation",
+                "expiry_epoch", "nonce"]
+apply_claim = {"action": "apply_patch", "job_id": job_id,
+               "plan_sha256": planned["result"]["plan_sha256"],
+               "instruction_sha256": claim["instruction_sha256"],
+               "model_id": "qwenseer-2b", "profile_id": "code-test",
+               "conversation_generation": "1",
+               "expiry_epoch": str(time.time() + 300),
+               "nonce": os.urandom(8).hex()}
+apply_message = "\n".join("%s=%s" % (f, apply_claim[f])
+                          for f in apply_fields)
+apply_signature = hmac.new(b"principal-path-key", apply_message.encode(),
+                           hashlib.sha256).hexdigest()
+applied = ask({"action": "apply_patch", "job_id": job_id,
+               "grant": {"claim": apply_claim,
+                         "signature": apply_signature}})
 import subprocess
 owner = subprocess.run(["sudo", "-n", "stat", "-c", "%U", worktree],
                        capture_output=True, text=True).stdout.strip()

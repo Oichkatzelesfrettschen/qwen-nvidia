@@ -64,6 +64,7 @@ if BROKER_DIRECTORY not in sys.path:
     sys.path.insert(0, BROKER_DIRECTORY)
 
 import server  # noqa: E402
+import coding_grant  # noqa: E402
 import image_grant  # noqa: E402
 
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
@@ -76,6 +77,8 @@ REQUEST_READ_TIMEOUT_MAX_SECONDS = 30.0
 AUTHORIZE_PER_MINUTE_DEFAULT = 6
 GRANT_PATH = "/grant"
 IMAGE_GRANT_PATH = "/grant-image"
+CODE_PLAN_GRANT_PATH = "/grant-code-plan"
+CODE_APPLY_GRANT_PATH = "/grant-code-apply"
 SESSION_PATH = "/session"
 HEALTH_PATH = "/health"
 KEY_MODE_FORBIDDEN_BITS = 0o077
@@ -232,6 +235,7 @@ class BrokerSettings:
         self.provider = arguments.provider
         self.profile = arguments.profile
         self.image_profile = arguments.image_profile
+        self.coding_profile = arguments.coding_profile
         self.lifetime = arguments.lifetime
         self.origins = tuple(arguments.origin)
         self.per_minute = arguments.per_minute
@@ -432,6 +436,74 @@ def issue_image_for_request(settings, fields):
             f"{fields['image_profile']!r}"
         )
     return image_grant.issue_image_grant(
+        settings.token_key_file, fields, settings.lifetime
+    )
+
+
+def coding_audit_row(settings, fields, status, started_at, operation):
+    """Return the audit row one coding grant request writes.
+
+    `query_sha256` carries the instruction digest the claim itself binds,
+    and `domains` joins the subject to the coding profile -- the workspace
+    for a plan grant, the job for an apply grant -- so a reader separates
+    the two coding contexts by `operation` while the trail holds neither
+    the instruction nor the token.
+    """
+    instruction_sha256 = ""
+    subject = ""
+    if fields is not None:
+        instruction_sha256 = fields["instruction_sha256"]
+        subject = "%s>%s" % (fields.get("workspace_id")
+                             or fields.get("job_id", ""),
+                             fields["profile_id"])
+    now = time.time()
+    return {
+        "recorded_at": server.utc_timestamp(now),
+        "profile": settings.profile,
+        "operation": operation,
+        "query_sha256": instruction_sha256,
+        "domains": subject,
+        "result_count": 0,
+        "fetched_host": "",
+        "provider_bytes": 0,
+        "returned_characters": 0,
+        "latency_ms": int((now - started_at) * 1000),
+        "status": status,
+        "recorded_epoch": int(now),
+    }
+
+
+def require_coding_profile(settings, fields):
+    """Refuse a coding grant outside the one armed coding profile.
+
+    An empty `--coding-profile` is a launch that armed no coding lane, so
+    every coding grant is refused rather than signed for a profile no
+    ledger row admitted, the way an empty `--image-profile` refuses
+    generation grants.
+    """
+    if not settings.coding_profile:
+        raise server.InvalidArgument(
+            "this broker serves no coding profile, so it signs no coding "
+            "grant"
+        )
+    if fields["profile_id"] != settings.coding_profile:
+        raise server.InvalidArgument(
+            f"the broker process serves coding profile "
+            f"{settings.coding_profile!r}; the request named "
+            f"{fields['profile_id']!r}"
+        )
+
+
+def issue_code_plan_for_request(settings, fields):
+    require_coding_profile(settings, fields)
+    return coding_grant.issue_plan_grant(
+        settings.token_key_file, fields, settings.lifetime
+    )
+
+
+def issue_code_apply_for_request(settings, fields):
+    require_coding_profile(settings, fields)
+    return coding_grant.issue_apply_grant(
         settings.token_key_file, fields, settings.lifetime
     )
 
@@ -721,6 +793,10 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
                 # route it reads the language profile from. An empty value
                 # states that no image lane is armed.
                 "image_profile": self.settings.image_profile,
+                # The coding profile reports what this broker signs plan and
+                # apply grants for; an empty value states that no coding
+                # lane is armed.
+                "coding_profile": self.settings.coding_profile,
                 "provider": self.settings.provider,
                 "pid": os.getpid(),
                 "start_time": self.settings.start_time,
@@ -746,17 +822,31 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
         started_at = time.time()
         origin = self.allowed_origin()
         path = self.path.split("?", 1)[0]
-        if path not in (GRANT_PATH, IMAGE_GRANT_PATH):
+        # The endpoints share every gate ahead of the body, so an image or
+        # coding grant charges the same meter and presents the same session
+        # authority a search grant does. The context they sign under is what
+        # differs -- a query, a generation, a plan over one base commit, an
+        # apply over one plan hash -- and each claim carries its own action
+        # and field set, so no token verifies as another.
+        contexts = {
+            GRANT_PATH: (parse_request_arguments, issue_for_request,
+                         audit_row),
+            IMAGE_GRANT_PATH: (image_grant.parse_image_request,
+                               issue_image_for_request, image_audit_row),
+            CODE_PLAN_GRANT_PATH: (
+                coding_grant.parse_plan_request, issue_code_plan_for_request,
+                lambda settings, fields, status, at: coding_audit_row(
+                    settings, fields, status, at, "authorize-code-plan")),
+            CODE_APPLY_GRANT_PATH: (
+                coding_grant.parse_apply_request,
+                issue_code_apply_for_request,
+                lambda settings, fields, status, at: coding_audit_row(
+                    settings, fields, status, at, "authorize-code-apply")),
+        }
+        if path not in contexts:
             self.send_json(404, {"error": "no such endpoint"}, origin)
             return
-        # The two endpoints share every gate ahead of the body, so an image
-        # grant charges the same meter and presents the same session authority
-        # a search grant does. The context they sign under is what differs:
-        # `search-authorization` names a query and `qwen-image-generate-v1`
-        # names a generation, and `sign_claim` covers the context string, so
-        # neither token verifies as the other.
-        image = path == IMAGE_GRANT_PATH
-        row_for = image_audit_row if image else audit_row
+        parse_fields, issue_token, row_for = contexts[path]
         ledger = None
         fields = None
         try:
@@ -774,12 +864,8 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
                 )
             self.require_session_secret()
             payload = self.read_body()
-            if image:
-                fields = image_grant.parse_image_request(payload)
-                token = issue_image_for_request(self.settings, fields)
-            else:
-                fields = parse_request_arguments(payload)
-                token = issue_for_request(self.settings, fields)
+            fields = parse_fields(payload)
+            token = issue_token(self.settings, fields)
             ledger.record(row_for(self.settings, fields, "success", started_at))
         except server.ToolError as error:
             if ledger is not None:
@@ -861,6 +947,14 @@ def build_parser():
         help="the image profile this broker signs generation grants for; "
         "POST /grant-image requires the request body's image_profile to equal "
         "this value, and an empty value refuses every generation grant",
+    )
+    parser.add_argument(
+        "--coding-profile",
+        default=os.environ.get("QWEN_CODING_PROFILE", ""),
+        help="the coding profile this broker signs plan and apply grants "
+        "for; POST /grant-code-plan and /grant-code-apply require the "
+        "request body's profile_id to equal this value, and an empty value "
+        "refuses every coding grant",
     )
     parser.add_argument(
         "--lifetime", type=int, default=server.TOKEN_LIFETIME_DEFAULT_SECONDS

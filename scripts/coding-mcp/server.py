@@ -6,14 +6,18 @@ it, one JSON-RPC request per line, the way it drives `web-mcp/server.py`
 and `image-mcp/server.py`. `server_mcp_tool` serves each wrapped tool as
 `<server>_<tool>`, so the bare names here compose with the section's
 `code` key into `code_plan`, `code_inspect`, `code_apply_patch`,
-`code_run_tests`, `code_review_diff`, `code_finish`, and `code_cancel` on
-the router port. Five of those are the model-facing surface: `plan` opens
-a job under the single-use grant a human approved and returns the agent's
-plan, and `inspect`, `apply_patch`, `run_tests`, and `review_diff` operate
-on that job by id. `finish` and `cancel` are browser-session controls the
-page calls directly and keeps out of the model's tool array: the model
-holds no way to remove its worktree before the user has seen the diff and
-test result, and the Clear button reaches the service's cancellation. The
+`code_run_tests`, `code_review_diff`, `code_finish`, `code_cancel`, and
+`code_workspace` on the router port. Five of those are the model-facing
+surface: `plan` opens a job under the single-use plan grant a human
+approved and returns the agent's plan, and `inspect`, `apply_patch`,
+`run_tests`, and `review_diff` operate on that job by id, `apply_patch`
+carrying the second single-use grant signed over the reviewed plan hash.
+`finish`, `cancel`, and `workspace` are browser-session controls the page
+calls directly and keeps out of the model's tool array: the model holds
+no way to remove its worktree before the user has seen the diff and test
+result, the Clear button reaches the service's cancellation, and
+`workspace` resolves the base commit server-side so the model never
+selects it. The
 generic shell the agent runtime uses stays inside the coding-agent
 service's contained worktree. Every refusal reaches the model as an
 `isError` result at JSON-RPC success, so the router's
@@ -149,10 +153,15 @@ def tool_definitions(bounds):
         {
             "name": "apply_patch",
             "description": "Run the agent on the approved instruction and "
-                           "report the bounded diff.",
-            "inputSchema": {"type": "object", "properties": job_argument,
-                            "required": ["job_id"],
-                            "additionalProperties": False},
+                           "report the bounded diff; the browser attaches "
+                           "the apply grant signed over the reviewed plan.",
+            "inputSchema": {
+                "type": "object",
+                "properties": dict(job_argument,
+                                   authorization={"type": "object"}),
+                "required": ["job_id"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "run_tests",
@@ -185,6 +194,15 @@ def tool_definitions(bounds):
                            "process group and remove its worktree.",
             "inputSchema": {"type": "object", "properties": job_argument,
                             "required": ["job_id"],
+                            "additionalProperties": False},
+        },
+        {
+            "name": "workspace",
+            "description": "Browser-session control: report the registered "
+                           "workspace, the server-resolved base commit and "
+                           "subject, and the profile bounds.",
+            "inputSchema": {"type": "object", "properties": {},
+                            "required": [],
                             "additionalProperties": False},
         },
     ]
@@ -233,6 +251,7 @@ def call_plan(settings, arguments):
     return json.dumps({"job_id": opened["job_id"],
                        "base_commit": opened["base_commit"],
                        "plan": planned["plan"],
+                       "plan_sha256": planned.get("plan_sha256"),
                        "plan_truncated": planned.get("plan_truncated")},
                       sort_keys=True)
 
@@ -247,13 +266,31 @@ def job_action(action, result_keys):
     return call
 
 
+def call_apply(settings, arguments):
+    payload = {"action": "apply_patch", "job_id": arguments["job_id"]}
+    if "authorization" in arguments:
+        payload["grant"] = arguments["authorization"]
+    result = service_request(settings, payload)
+    return json.dumps({key: result.get(key)
+                       for key in ["returncode", "diffstat",
+                                   "changed_files"]}, sort_keys=True)
+
+
+def call_workspace(settings, arguments):
+    if not settings["profile"]:
+        raise web_server.InvalidArgument(
+            "QWEN_CODING_PROFILE is unconfigured, so no workspace resolves")
+    result = service_request(settings, {"action": "workspace_state",
+                                        "profile_id": settings["profile"]})
+    return json.dumps(result, sort_keys=True)
+
+
 TOOL_HANDLERS = {
     "plan": call_plan,
     "inspect": job_action("inspect",
                           ["kind", "entries", "content", "bytes",
                            "offset", "truncated"]),
-    "apply_patch": job_action("apply_patch",
-                              ["returncode", "diffstat", "changed_files"]),
+    "apply_patch": call_apply,
     "run_tests": job_action("run_tests",
                             ["returncode", "log", "log_truncated"]),
     "review_diff": job_action("review_diff",
@@ -263,6 +300,7 @@ TOOL_HANDLERS = {
                          ["export_id", "result_tree", "patch_sha256",
                           "test_log_sha256"]),
     "cancel": job_action("cancel", ["state"]),
+    "workspace": call_workspace,
 }
 
 

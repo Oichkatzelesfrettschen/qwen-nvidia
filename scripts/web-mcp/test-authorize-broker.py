@@ -850,6 +850,7 @@ class BrokerTest(unittest.TestCase):
                 "protocol",
                 "profile",
                 "image_profile",
+                "coding_profile",
                 "provider",
                 "pid",
                 "start_time",
@@ -911,6 +912,99 @@ class BrokerTest(unittest.TestCase):
             readme_text = readme_file.read()
         self.assertIn("profile_id", readme_text)
         self.assertIn("requires `profile_id`", readme_text)
+
+    # ---- coding grants ----------------------------------------------------
+
+    def coding_plan_payload(self, **overrides):
+        payload = {
+            "workspace_id": "qwen-nvidia",
+            "repository_identity": "qwen-nvidia",
+            "base_commit": "a" * 40,
+            "model_id": "qwenseer-2b",
+            "profile_id": "code-fast-a",
+            "instruction_sha256": "b" * 64,
+            "allowed_test_profile": "repository-quality-gates",
+            "maximum_files_changed": "16",
+            "maximum_patch_bytes": "262144",
+            "maximum_job_seconds": "600",
+            "conversation_generation": "1",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_a_coding_plan_grant_signs_the_service_message(self):
+        broker = self.launch(**{"--coding-profile": "code-fast-a"})
+        status, _, body = broker.request(
+            "POST", "/grant-code-plan",
+            json.dumps(self.coding_plan_payload()), self.grant_headers())
+        self.assertEqual(status, 200, body)
+        token = json.loads(body)["authorization"]
+        claim = token["claim"]
+        self.assertEqual(claim["action"], "open_job")
+        # The signature is the exact HMAC the coding-agent service
+        # verifies: the stripped key bytes over the field=value join.
+        import coding_grant
+        expected = coding_grant.sign_claim(
+            self.token_key_path, claim, coding_grant.PLAN_GRANT_FIELDS)
+        self.assertEqual(token["signature"], expected)
+        rows = self.audit_rows()
+        self.assertIn("authorize-code-plan", [row[1] for row in rows])
+        self.assertNotIn(TOKEN_SECRET, body.replace(token["signature"], ""))
+
+    def test_a_coding_apply_grant_binds_the_plan_hash(self):
+        broker = self.launch(**{"--coding-profile": "code-fast-a"})
+        payload = {
+            "job_id": "job-1-abcd",
+            "plan_sha256": "c" * 64,
+            "instruction_sha256": "b" * 64,
+            "model_id": "qwenseer-2b",
+            "profile_id": "code-fast-a",
+            "conversation_generation": "1",
+        }
+        status, _, body = broker.request(
+            "POST", "/grant-code-apply", json.dumps(payload),
+            self.grant_headers())
+        self.assertEqual(status, 200, body)
+        token = json.loads(body)["authorization"]
+        self.assertEqual(token["claim"]["action"], "apply_patch")
+        self.assertEqual(token["claim"]["plan_sha256"], "c" * 64)
+        import coding_grant
+        expected = coding_grant.sign_claim(
+            self.token_key_path, token["claim"],
+            coding_grant.APPLY_GRANT_FIELDS)
+        self.assertEqual(token["signature"], expected)
+
+    def test_an_unarmed_coding_lane_refuses_every_coding_grant(self):
+        broker = self.launch()
+        status, _, body = broker.request(
+            "POST", "/grant-code-plan",
+            json.dumps(self.coding_plan_payload()), self.grant_headers())
+        self.assertEqual(status, 400)
+        self.assertIn("no coding profile", json.loads(body)["error"])
+
+    def test_a_coding_grant_outside_the_armed_profile_is_refused(self):
+        broker = self.launch(**{"--coding-profile": "code-fast-a"})
+        status, _, body = broker.request(
+            "POST", "/grant-code-plan",
+            json.dumps(self.coding_plan_payload(profile_id="code-deep-a")),
+            self.grant_headers())
+        self.assertEqual(status, 400)
+        self.assertIn("code-fast-a", json.loads(body)["error"])
+
+    def test_a_malformed_coding_field_is_refused(self):
+        broker = self.launch(**{"--coding-profile": "code-fast-a"})
+        status, _, body = broker.request(
+            "POST", "/grant-code-plan",
+            json.dumps(self.coding_plan_payload(base_commit="short")),
+            self.grant_headers())
+        self.assertEqual(status, 400)
+        self.assertIn("base_commit", json.loads(body)["error"])
+
+    def test_health_reports_the_coding_profile(self):
+        broker = self.launch(**{"--coding-profile": "code-fast-a"})
+        status, _, body = broker.request("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["coding_profile"], "code-fast-a")
 
 
 def query_digest(query):

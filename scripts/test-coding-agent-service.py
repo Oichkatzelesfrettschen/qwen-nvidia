@@ -28,6 +28,10 @@ GRANT_FIELDS = [
     "maximum_files_changed", "maximum_patch_bytes", "maximum_job_seconds",
     "conversation_generation", "expiry_epoch", "nonce",
 ]
+APPLY_GRANT_FIELDS = [
+    "action", "job_id", "plan_sha256", "instruction_sha256", "model_id",
+    "profile_id", "conversation_generation", "expiry_epoch", "nonce",
+]
 
 failures = []
 checks = 0
@@ -193,6 +197,32 @@ class Harness:
                              hashlib.sha256).hexdigest()
         return {"claim": claim, "signature": signature}
 
+    def apply_grant(self, job_id, plan_sha256, instruction, **overrides):
+        claim = {
+            "action": "apply_patch", "job_id": job_id,
+            "plan_sha256": plan_sha256,
+            "instruction_sha256": hashlib.sha256(
+                instruction.encode()).hexdigest(),
+            "model_id": "qwenseer-2b", "profile_id": "code-test",
+            "conversation_generation": "1",
+            "expiry_epoch": str(time.time() + 300),
+            "nonce": os.urandom(8).hex(),
+        }
+        claim.update(overrides)
+        message = "\n".join("%s=%s" % (field, claim[field])
+                            for field in APPLY_GRANT_FIELDS)
+        signature = hmac.new(b"test-grant-key", message.encode(),
+                             hashlib.sha256).hexdigest()
+        return {"claim": claim, "signature": signature}
+
+    def plan_then_apply(self, job_id, behavior, **overrides):
+        planned = self.request({"action": "plan", "job_id": job_id})
+        grant = self.apply_grant(
+            job_id, planned["result"]["plan_sha256"],
+            "perform the %s behavior" % behavior, **overrides)
+        return self.request({"action": "apply_patch", "job_id": job_id,
+                             "grant": grant})
+
     def open_job(self, behavior, profile_id="code-test",
                  request_overrides=None, **grant_overrides):
         request = {
@@ -259,8 +289,28 @@ def run_suite(harness):
     plan = harness.request({"action": "plan", "job_id": job_id})
     check("plan_runs_agent", plan.get("ok")
           and "plan:" in plan["result"]["plan"], json.dumps(plan))
+    plan_sha256 = plan["result"]["plan_sha256"]
+    check("plan_returns_hash", isinstance(plan_sha256, str)
+          and len(plan_sha256) == 64)
 
-    applied = harness.request({"action": "apply_patch", "job_id": job_id})
+    # The apply grant is the second approval: without it the edit phase is
+    # refused, and with a foreign plan hash the binding dies.
+    ungranted = harness.request({"action": "apply_patch",
+                                 "job_id": job_id})
+    check("apply_without_grant_refused", not ungranted.get("ok")
+          and ungranted["error"] == "grant_missing", json.dumps(ungranted))
+    wrong_plan = harness.request({
+        "action": "apply_patch", "job_id": job_id,
+        "grant": harness.apply_grant(job_id, "0" * 64,
+                                     "perform the edit behavior")})
+    check("apply_foreign_plan_hash_refused", not wrong_plan.get("ok")
+          and wrong_plan["error"] == "grant_binding_mismatch",
+          json.dumps(wrong_plan))
+
+    applied = harness.request({
+        "action": "apply_patch", "job_id": job_id,
+        "grant": harness.apply_grant(job_id, plan_sha256,
+                                     "perform the edit behavior")})
     check("apply_patch_within_bounds", applied.get("ok")
           and "hello.txt" in applied["result"]["changed_files"],
           json.dumps(applied))
@@ -379,7 +429,7 @@ def run_suite(harness):
     # Path containment: traversal, absolute, and symlink escape.
     opened = harness.open_job("symlink")
     job_id = opened["result"]["job_id"]
-    harness.request({"action": "apply_patch", "job_id": job_id})
+    harness.plan_then_apply(job_id, "symlink")
     traversal = harness.request({"action": "inspect", "job_id": job_id,
                                  "path": "../../../etc/passwd"})
     check("traversal_refused", not traversal.get("ok")
@@ -398,8 +448,7 @@ def run_suite(harness):
     # Bound enforcement: file count and patch bytes reset the worktree.
     opened = harness.open_job("many-files")
     job_id = opened["result"]["job_id"]
-    over_files = harness.request({"action": "apply_patch",
-                                  "job_id": job_id})
+    over_files = harness.plan_then_apply(job_id, "many-files")
     check("files_over_bound_refused", not over_files.get("ok")
           and over_files["error"] == "files_changed_over_bound")
     review = harness.request({"action": "review_diff", "job_id": job_id})
@@ -409,8 +458,7 @@ def run_suite(harness):
 
     opened = harness.open_job("big-patch")
     job_id = opened["result"]["job_id"]
-    over_bytes = harness.request({"action": "apply_patch",
-                                  "job_id": job_id})
+    over_bytes = harness.plan_then_apply(job_id, "big-patch")
     check("patch_bytes_over_bound_refused", not over_bytes.get("ok")
           and over_bytes["error"] == "patch_bytes_over_bound")
     harness.request({"action": "cancel", "job_id": job_id})
@@ -449,7 +497,7 @@ def run_suite(harness):
     # credentials, and the authoritative repository stays clean.
     opened = harness.open_job("push")
     job_id = opened["result"]["job_id"]
-    harness.request({"action": "apply_patch", "job_id": job_id})
+    harness.plan_then_apply(job_id, "push")
     pushed = harness.request({"action": "inspect", "job_id": job_id,
                               "path": "push.txt"})
     check("git_push_refused_no_destination", pushed.get("ok")
@@ -463,7 +511,7 @@ def run_suite(harness):
     # its resolution path even before uid separation.
     opened = harness.open_job("home-probe")
     job_id = opened["result"]["job_id"]
-    harness.request({"action": "apply_patch", "job_id": job_id})
+    harness.plan_then_apply(job_id, "home-probe")
     home = harness.request({"action": "inspect", "job_id": job_id,
                             "path": "home.txt"})
     check("agent_home_is_worktree", home.get("ok")
@@ -482,7 +530,7 @@ def run_suite(harness):
     # check reads the departure.
     opened = harness.open_job("tracked-edit")
     job_id = opened["result"]["job_id"]
-    harness.request({"action": "apply_patch", "job_id": job_id})
+    harness.plan_then_apply(job_id, "tracked-edit")
     finished = harness.request({"action": "finish", "job_id": job_id})
     base_tree = git(harness.repo, "rev-parse",
                     harness.behaviors["tracked-edit"] + "^{tree}")
@@ -510,6 +558,18 @@ def run_suite(harness):
           and busy["error"] == "job_busy", json.dumps(busy))
     harness.request({"action": "cancel", "job_id": job_id})
     busy_thread.join(timeout=20)
+
+    # The browser resolves the base commit server-side ahead of the
+    # approval dialog, so the model never selects it.
+    state = harness.request({"action": "workspace_state",
+                             "profile_id": "code-test"})
+    check("workspace_state_resolves_head", state.get("ok")
+          and state["result"]["base_commit"]
+          == harness.behaviors["symlink"]
+          and state["result"]["repository_identity"] == "test-repo"
+          and state["result"]["maximum_files_changed"] == "8"
+          and state["result"]["base_subject"] == "behavior symlink",
+          json.dumps(state))
 
     # Residue: after every job above ends, the worktree root is empty.
     time.sleep(0.5)

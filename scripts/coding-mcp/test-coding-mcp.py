@@ -101,9 +101,9 @@ def run_suite(harness, child):
     tools = {t["name"]: t for t in listing["result"]["tools"]}
     # Bare names compose with the section's `code` key into code_plan and
     # so on at the router; finish and cancel are browser-session controls.
-    check("seven_bare_tools_listed", sorted(tools) == [
+    check("eight_bare_tools_listed", sorted(tools) == [
         "apply_patch", "cancel", "finish", "inspect", "plan",
-        "review_diff", "run_tests"], sorted(tools))
+        "review_diff", "run_tests", "workspace"], sorted(tools))
     check("listing_states_profile_bounds",
           "at most 8 changed files, 65536 patch bytes"
           in tools["plan"]["description"],
@@ -117,7 +117,17 @@ def run_suite(harness, child):
               "authorization"})
     check("session_controls_marked",
           tools["finish"]["description"].startswith("Browser-session")
-          and tools["cancel"]["description"].startswith("Browser-session"))
+          and tools["cancel"]["description"].startswith("Browser-session")
+          and tools["workspace"]["description"].startswith(
+              "Browser-session"))
+
+    resolved = child.call("workspace", {})
+    workspace_state = json.loads(result_text(resolved))
+    check("workspace_resolves_base_commit", not is_error(resolved)
+          and workspace_state["base_commit"]
+          == harness.behaviors["symlink"]
+          and workspace_state["repository_identity"] == "test-repo",
+          json.dumps(resolved)[:200])
 
     request = {
         "instruction": "perform the edit behavior",
@@ -153,10 +163,19 @@ def run_suite(harness, child):
           and json.loads(result_text(paged))["content"] == "edit\n",
           json.dumps(paged)[:200])
 
-    applied = child.call("apply_patch", {"job_id": job_id})
+    bare_apply = child.call("apply_patch", {"job_id": job_id})
+    check("apply_without_grant_refused", is_error(bare_apply)
+          and "grant_missing" in result_text(bare_apply),
+          json.dumps(bare_apply)[:200])
+
+    apply_grant = harness.apply_grant(job_id, payload["plan_sha256"],
+                                      request["instruction"])
+    applied = child.call("apply_patch", {"job_id": job_id,
+                                         "authorization": apply_grant})
     check("apply_patch", not is_error(applied)
           and "hello.txt" in json.loads(
-              result_text(applied))["changed_files"])
+              result_text(applied))["changed_files"],
+          json.dumps(applied)[:200])
 
     tested = child.call("run_tests", {"job_id": job_id})
     check("run_tests", not is_error(tested)

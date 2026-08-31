@@ -81,6 +81,39 @@ the lock for cleanup. Model-visible results are bounded to 16 KiB of plan,
 tail, and a 64 KiB diff view, each beside a truncation flag, while the
 full outputs remain in the events and the finish export.
 
+## The browser surface and the two approvals
+
+`webui/index.html` carries a Code mode behind an exclusive per-session
+toggle: turning Code on clears and disables the demo, Web, and Image
+toggles, so one turn offers one authority surface. Before a job exists the
+model is offered `code_plan` alone, stripped to the one argument it owns
+-- the instruction -- and with a job open it is offered `code_inspect`,
+`code_apply_patch`, `code_run_tests`, and `code_review_diff`; `code_finish`,
+`code_cancel`, and `code_workspace` are browser-session controls the page
+invokes directly, and a model proposing one is answered rather than
+executed. The base commit is server-resolved: the page calls
+`code_workspace` immediately ahead of the approval dialog, the
+coding-agent service answers with the registered workspace, HEAD, its
+subject, and the profile bounds, and the dialog displays them beside the
+instruction, so the model never selects a base commit.
+
+Two single-use grants separate reading from editing.
+`authorize-broker.py` gains `POST /grant-code-plan` and
+`POST /grant-code-apply` behind `--coding-profile`, refused whole while the
+lane is unarmed, and `scripts/web-mcp/coding_grant.py` signs each claim
+with the broker token key over the exact `field=value` join the service
+verifies, so one key file serves both sides. The plan grant opens one job
+over the instruction hash, repository identity, base commit, model,
+profile, bounds, test profile, and conversation generation; the service's
+`action_plan` hashes the full plan output and the apply grant is signed
+over that `plan_sha256`, so the edit phase runs over exactly the plan the
+human reviewed and a rerun plan or a foreign hash dies on the binding. A
+Clear, a model change, or a roster re-resolution cancels the open job
+service-side and the conversation-generation checks discard late results;
+the job card renders the plan, the diff, the test result, and on finish
+the export identity, result tree, and patch digest rather than a
+machine-local path.
+
 ## What the suites prove and what remains
 
 `scripts/test-coding-agent-service.py` (47 checks) runs the service as the
