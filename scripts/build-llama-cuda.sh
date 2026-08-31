@@ -1,90 +1,140 @@
 #!/bin/sh
 set -eu
 
-# Configure llama.cpp with the CUDA and Vulkan backends in one build tree.
+# Build llama.cpp for the RTX 4070 Ti with every material CMake choice named
+# in one variable, validated, and folded into a configuration digest, so two
+# trees differing in any lever carry different names and a directory can no
+# longer hide 89 against 89-real, a backend, NCCL, a compression mode, LTO, a
+# CPU target, or an MMVQ threshold behind one suffix.
 #
-# One binary carrying both backends makes `llama-bench --device` a backend
-# selector, so a CUDA row and a Vulkan row differ by the backend alone where
-# two builds also differ by compiler, flags, and source state. CUDA is the
-# serving backend on this host and Vulkan is the fallback the same binary
-# reaches when the CUDA runtime is unavailable.
+# CMAKE_CUDA_ARCHITECTURES defaults to 89-real because the installed device is
+# AD104 at compute capability 8.9 and the fleet is this one machine: the
+# unsuffixed 89 embeds compute_89 PTX beside the sm_89 SASS, and PTX that no
+# JIT ever consumes buys closure size for nothing. 89 remains available for
+# the frozen comparison control and for a binary meant to move.
 #
-# CMAKE_CUDA_ARCHITECTURES is 89 because the installed device is AD104, the
-# GeForce RTX 4070 Ti, whose compute capability is 8.9. A build for that
-# architecture alone emits one SASS variant rather than a fat binary.
+# GGML_CUDA_FA_ALL_QUANTS is required rather than optional: scripts/models.tsv
+# serves every row at cache_type_k=q8_0 with cache_type_v=q4_0, and the
+# default flash-attention set excludes that mixed pair.
 #
-# GGML_CUDA_FA_ALL_QUANTS is ON because scripts/models.tsv serves every row at
-# cache_type_k=q8_0 with cache_type_v=q4_0, and the default CUDA build compiles
-# flash-attention kernels for a subset of KV type combinations that excludes a
-# mixed pair. Without the option the served cache triple leaves the flash
-# attention path at run time.
+# GGML_CUDA_FORCE_MMQ and GGML_CUDA_FORCE_CUBLAS build kernel-policy arms in a
+# separate tree. mmq.cu:320 reads FORCE_MMQ below a turing_mma_available(cc)
+# return that already fires at 8.9, while mmq.cu:260 reads FORCE_CUBLAS ahead
+# of everything, so FORCE_CUBLAS is the flag that changes dispatch here and
+# only where MMVQ has already refused.
 #
-# nvcc reads crt/host_config.h and refuses a host compiler newer than GCC 15,
-# where the distribution's default is GCC 16, so the whole tree builds with
-# g++-15 rather than mixing two front ends across one link.
-#
-# GGML_CUDA_FORCE_MMQ and GGML_CUDA_FORCE_CUBLAS are compile-time options
-# rather than environment variables, so each kernel-policy arm is a separate
-# build tree. The two reach the dispatcher differently on this device:
-# ggml/src/ggml-cuda/mmq.cu:320 reads FORCE_MMQ eight lines below a
-# turing_mma_available(cc) return that already fires at compute capability 8.9,
-# while mmq.cu:260 reads FORCE_CUBLAS ahead of everything and makes
-# ggml_cuda_should_use_mmq return false. FORCE_CUBLAS is therefore the flag that
-# changes dispatch here, and it changes it only where MMVQ has already refused:
-# ggml_cuda_mul_mat consults ggml_cuda_should_use_mmvq first, so a width inside
-# the Ada MMVQ threshold reaches the same kernel in both builds.
+# The two ADA MMVQ thresholds reach the source through the candidate patch
+# llama-cuda-mmvq-crossover-ad104.patch; against an unpatched tree they rest
+# as unused cache entries and the build reproduces upstream dispatch.
 
 usage() {
     printf 'usage: %s [SOURCE_DIRECTORY]\n' "$0" >&2
-    printf '  QWEN_CUDA_ARCHITECTURES  compute capability, default 89\n' >&2
-    printf '  QWEN_FORCE_MMQ           ON builds the MMQ kernel-policy arm\n' >&2
-    printf '  QWEN_FORCE_CUBLAS        ON builds the cuBLAS differential arm\n' >&2
-    printf '  QWEN_BUILD_VULKAN        OFF drops the fallback backend\n' >&2
-    printf '  QWEN_HOST_COMPILER       C++ compiler, default g++-15\n' >&2
-    printf '  QWEN_BUILD_DIRECTORY     build tree, defaults from the two above\n' >&2
-    printf '  QWEN_BUILD_JOBS          parallel jobs, defaults to nproc\n' >&2
-    printf '  QWEN_ALLOW_ANY_COMMIT    1 builds a tree off the pinned commit\n' >&2
+    printf '  QWEN_CUDA_ARCHITECTURES    89-real (default) or 89\n' >&2
+    printf '  QWEN_BUILD_VULKAN          ON adds the Vulkan diagnostic backend, default OFF\n' >&2
+    printf '  QWEN_CUDA_GRAPHS           default ON\n' >&2
+    printf '  QWEN_CUDA_FA               default ON\n' >&2
+    printf '  QWEN_CUDA_FA_ALL_QUANTS    default ON\n' >&2
+    printf '  QWEN_CUDA_NCCL             default OFF, single GPU links no collective\n' >&2
+    printf '  QWEN_CUDA_NO_VMM           default OFF, VMM stays on\n' >&2
+    printf '  QWEN_CUDA_COMPRESSION_MODE size (default), speed, balance, or none\n' >&2
+    printf '  QWEN_GGML_NATIVE           default ON, Zen 3 host\n' >&2
+    printf '  QWEN_GGML_LTO              default OFF\n' >&2
+    printf '  QWEN_GGML_OPENMP           default ON\n' >&2
+    printf '  QWEN_CUDA_MMVQ_Q6K_MAX     Ada Q6_K MMVQ ceiling, default 8, patched trees only\n' >&2
+    printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, default 8, patched trees only\n' >&2
+    printf '  QWEN_FORCE_MMQ             ON builds the MMQ kernel-policy arm\n' >&2
+    printf '  QWEN_FORCE_CUBLAS          ON builds the cuBLAS differential arm\n' >&2
+    printf '  QWEN_HOST_COMPILER         C++ compiler, default g++-15\n' >&2
+    printf '  QWEN_BUILD_DIRECTORY       build tree, defaults from the configuration digest\n' >&2
+    printf '  QWEN_BUILD_JOBS            parallel jobs, defaults to nproc\n' >&2
+    printf '  QWEN_ALLOW_ANY_COMMIT      1 builds a tree off the pinned commit\n' >&2
     exit 2
 }
 
 [ "$#" -le 1 ] || usage
 
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
-cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89}
+cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89-real}
+build_vulkan=${QWEN_BUILD_VULKAN:-OFF}
+cuda_graphs=${QWEN_CUDA_GRAPHS:-ON}
+cuda_fa=${QWEN_CUDA_FA:-ON}
+cuda_fa_all_quants=${QWEN_CUDA_FA_ALL_QUANTS:-ON}
+cuda_nccl=${QWEN_CUDA_NCCL:-OFF}
+cuda_no_vmm=${QWEN_CUDA_NO_VMM:-OFF}
+cuda_compression=${QWEN_CUDA_COMPRESSION_MODE:-size}
+ggml_native=${QWEN_GGML_NATIVE:-ON}
+ggml_lto=${QWEN_GGML_LTO:-OFF}
+ggml_openmp=${QWEN_GGML_OPENMP:-ON}
+mmvq_q6k_max=${QWEN_CUDA_MMVQ_Q6K_MAX:-8}
+mmvq_q8_0_max=${QWEN_CUDA_MMVQ_Q8_0_MAX:-8}
 force_mmq=${QWEN_FORCE_MMQ:-OFF}
 force_cublas=${QWEN_FORCE_CUBLAS:-OFF}
-build_vulkan=${QWEN_BUILD_VULKAN:-ON}
 host_cxx=${QWEN_HOST_COMPILER:-/usr/bin/g++-15}
 host_cc=${QWEN_HOST_C_COMPILER:-/usr/bin/gcc-15}
 build_jobs=${QWEN_BUILD_JOBS:-$(nproc 2>/dev/null || echo 1)}
 expected_commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
 
-case $build_vulkan in
-    ON|OFF) ;;
-    *) printf 'QWEN_BUILD_VULKAN takes ON or OFF: %s\n' "$build_vulkan" >&2; exit 2 ;;
+case $cuda_architectures in
+    89|89-real) ;;
+    *) printf 'QWEN_CUDA_ARCHITECTURES takes 89 or 89-real: %s\n' \
+        "$cuda_architectures" >&2; exit 2 ;;
 esac
-
-case $force_mmq in
-    ON|OFF) ;;
-    *) printf 'QWEN_FORCE_MMQ takes ON or OFF: %s\n' "$force_mmq" >&2; exit 2 ;;
+for pair in \
+    "QWEN_BUILD_VULKAN=$build_vulkan" \
+    "QWEN_CUDA_GRAPHS=$cuda_graphs" \
+    "QWEN_CUDA_FA=$cuda_fa" \
+    "QWEN_CUDA_FA_ALL_QUANTS=$cuda_fa_all_quants" \
+    "QWEN_CUDA_NCCL=$cuda_nccl" \
+    "QWEN_CUDA_NO_VMM=$cuda_no_vmm" \
+    "QWEN_GGML_NATIVE=$ggml_native" \
+    "QWEN_GGML_LTO=$ggml_lto" \
+    "QWEN_GGML_OPENMP=$ggml_openmp" \
+    "QWEN_FORCE_MMQ=$force_mmq" \
+    "QWEN_FORCE_CUBLAS=$force_cublas"; do
+    case ${pair#*=} in
+        ON|OFF) ;;
+        *) printf '%s takes ON or OFF\n' "${pair%%=*}" >&2; exit 2 ;;
+    esac
+done
+case $cuda_compression in
+    size|speed|balance|none) ;;
+    *) printf 'QWEN_CUDA_COMPRESSION_MODE takes size, speed, balance, or none: %s\n' \
+        "$cuda_compression" >&2; exit 2 ;;
 esac
-
-case $force_cublas in
-    ON|OFF) ;;
-    *) printf 'QWEN_FORCE_CUBLAS takes ON or OFF: %s\n' "$force_cublas" >&2; exit 2 ;;
-esac
-
-# The dispatcher reads one policy, so a tree naming both states which one it
-# built and neither arm is the differential the design registers.
+for threshold in "$mmvq_q6k_max" "$mmvq_q8_0_max"; do
+    case $threshold in
+        [1-9]|1[0-2]) ;;
+        *) printf 'an MMVQ threshold takes an integer from 1 to 12: %s\n' \
+            "$threshold" >&2; exit 2 ;;
+    esac
+done
 if [ "$force_mmq" = ON ] && [ "$force_cublas" = ON ]; then
     printf 'QWEN_FORCE_MMQ and QWEN_FORCE_CUBLAS are exclusive arms\n' >&2
     exit 2
 fi
 
-build_suffix=sm$cuda_architectures
-[ "$force_mmq" = OFF ] || build_suffix=$build_suffix-mmq
-[ "$force_cublas" = OFF ] || build_suffix=$build_suffix-force-cublas
-build_directory=${QWEN_BUILD_DIRECTORY:-$source_directory/build-qwen-cuda-$build_suffix}
+# The configuration digest names the tree, so any lever change produces a new
+# directory and the retained TSV states what the digest hashes.
+configuration_tsv="arch	$cuda_architectures
+vulkan	$build_vulkan
+graphs	$cuda_graphs
+fa	$cuda_fa
+fa_all_quants	$cuda_fa_all_quants
+nccl	$cuda_nccl
+no_vmm	$cuda_no_vmm
+compression	$cuda_compression
+native	$ggml_native
+lto	$ggml_lto
+openmp	$ggml_openmp
+mmvq_q6k_max	$mmvq_q6k_max
+mmvq_q8_0_max	$mmvq_q8_0_max
+force_mmq	$force_mmq
+force_cublas	$force_cublas
+host_cxx	$host_cxx
+commit	$expected_commit"
+configuration_sha256=$(printf '%s\n' "$configuration_tsv" | sha256sum | cut -d ' ' -f 1)
+configuration_id=$(printf '%s' "$configuration_sha256" | cut -c 1-12)
+build_directory=${QWEN_BUILD_DIRECTORY:-$source_directory/build-qwen-cuda-$configuration_id}
 
 [ -d "$source_directory/.git" ] || {
     printf 'llama.cpp checkout is missing: %s\n' "$source_directory" >&2
@@ -99,8 +149,6 @@ if [ "$actual_commit" != "$expected_commit" ] && [ "${QWEN_ALLOW_ANY_COMMIT:-0}"
     exit 1
 fi
 
-# The tree that produces a measurement is the commit plus the applied patch
-# series, so the state is printed rather than assumed clean.
 worktree_state=clean
 if [ -n "$(git -C "$source_directory" status --porcelain)" ]; then
     worktree_state=dirty
@@ -137,33 +185,50 @@ then
     rm -rf "$shader_generator_prefix"
 fi
 
-# The Vulkan backend compiles its shaders through a nested generator that
-# includes the SPIR-V headers, which the distribution ships in a package
-# separate from the Vulkan headers themselves.
 if [ "$build_vulkan" = ON ] && [ ! -d /usr/include/spirv ]; then
     printf 'the SPIR-V headers are absent from /usr/include/spirv\n' >&2
     printf 'install them with: sudo pacman -S --needed spirv-headers\n' >&2
-    printf 'or set QWEN_BUILD_VULKAN=OFF to build the CUDA backend alone\n' >&2
+    printf 'or leave QWEN_BUILD_VULKAN=OFF for the CUDA closure alone\n' >&2
     exit 1
 fi
 
-printf 'cuda_build=starting architectures=%s vulkan=%s force_mmq=%s force_cublas=%s jobs=%s tree=%s\n' \
-    "$cuda_architectures" "$build_vulkan" "$force_mmq" "$force_cublas" "$build_jobs" \
-    "$build_directory"
+printf 'cuda_build=starting configuration=%s tree=%s\n' \
+    "$configuration_id" "$build_directory"
+printf '%s\n' "$configuration_tsv"
+
+mkdir -p "$build_directory"
+printf '%s\n' "$configuration_tsv" > "$build_directory/build-configuration.tsv"
+printf '%s  build-configuration.tsv\n' "$configuration_sha256" \
+    > "$build_directory/build-configuration.sha256"
 
 cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$host_cc" \
     -DCMAKE_CXX_COMPILER="$host_cxx" \
     -DCMAKE_CUDA_HOST_COMPILER="$host_cxx" \
+    -DCMAKE_CUDA_ARCHITECTURES="$cuda_architectures" \
+    -DBUILD_SHARED_LIBS=ON \
+    -DGGML_NATIVE="$ggml_native" \
+    -DGGML_LTO="$ggml_lto" \
+    -DGGML_CCACHE=ON \
+    -DGGML_BLAS=OFF \
+    -DGGML_OPENMP="$ggml_openmp" \
+    -DGGML_RPC=OFF \
     -DGGML_CUDA=ON \
     -DGGML_VULKAN="$build_vulkan" \
-    -DCMAKE_CUDA_ARCHITECTURES="$cuda_architectures" \
-    -DGGML_CUDA_FA_ALL_QUANTS=ON \
+    -DGGML_CUDA_FA="$cuda_fa" \
+    -DGGML_CUDA_FA_ALL_QUANTS="$cuda_fa_all_quants" \
+    -DGGML_CUDA_GRAPHS="$cuda_graphs" \
+    -DGGML_CUDA_NCCL="$cuda_nccl" \
+    -DGGML_CUDA_NO_VMM="$cuda_no_vmm" \
+    -DGGML_CUDA_NO_PEER_COPY=OFF \
     -DGGML_CUDA_FORCE_MMQ="$force_mmq" \
     -DGGML_CUDA_FORCE_CUBLAS="$force_cublas" \
-    -DLLAMA_CURL=ON \
-    -DLLAMA_BUILD_TESTS=OFF
+    -DGGML_CUDA_COMPRESSION_MODE="$cuda_compression" \
+    -DGGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE="$mmvq_q6k_max" \
+    -DGGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE="$mmvq_q8_0_max" \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_CURL=ON
 
 cmake --build "$build_directory" --parallel "$build_jobs" \
     --target llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
@@ -175,5 +240,6 @@ for artifact in llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
     }
 done
 
-printf 'cuda_build=complete tree=%s\n' "$build_directory"
+printf 'cuda_build=complete configuration=%s tree=%s\n' \
+    "$configuration_id" "$build_directory"
 "$build_directory/bin/llama-bench" --version 2>&1 | head -2
