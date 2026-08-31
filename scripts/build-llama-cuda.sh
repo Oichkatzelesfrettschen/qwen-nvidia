@@ -115,10 +115,14 @@ case $cuda_compression in
     *) printf 'QWEN_CUDA_COMPRESSION_MODE takes size, speed, balance, or none: %s\n' \
         "$cuda_compression" >&2; exit 2 ;;
 esac
+# The applied tree's MMVQ_KERNEL_MAX_NCOLS static_assert is the binding
+# ceiling: a threshold above the instantiated column count fails the compile
+# by name. This range admits the experimental 16-column tree beside the
+# production 12-column series.
 for threshold in "$mmvq_q6k_max" "$mmvq_q8_0_max"; do
     case $threshold in
-        [1-9]|1[0-2]) ;;
-        *) printf 'an MMVQ threshold takes an integer from 1 to 12: %s\n' \
+        [1-9]|1[0-6]) ;;
+        *) printf 'an MMVQ threshold takes an integer from 1 to 16: %s\n' \
             "$threshold" >&2; exit 2 ;;
     esac
 done

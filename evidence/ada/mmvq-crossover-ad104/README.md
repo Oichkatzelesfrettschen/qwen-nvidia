@@ -45,9 +45,38 @@ decode at one column, so the seven-to-twelve window pays in speculative
 verification batches and small parallel slots rather than in the served
 headline rates.
 
+## Q8_0 past twelve: sixteen is the new floor
+
+mmvq16-experimental.patch raises MMVQ_KERNEL_MAX_NCOLS to 16 over the
+applied series and instantiates ncols_dst 13 through 16 with the same
+launch parameters, leaving Q4_K, Q5_K, and Q6_K dispatch untouched. Control
+is the promoted threshold-12 binary; subject is configuration 88681bf4d161
+at Q8_0 threshold 16. Both ran the 0.8B Q8_0 at ne11 12 through 16,
+mirrored forward and reverse, three repetitions per point, served flags,
+with a closing control at twelve (mmvq16-*.csv).
+
+| ne11 | Q8_0 stock (MMQ from 13) | Q8_0 MMVQ-16 | advantage |
+| ---: | ---: | ---: | ---: |
+| 12 | 2268.4 | 2494.8 | tie by dispatch |
+| 13 | 2288.8 | 2737.8 | +19.6% |
+| 14 | 2510.7 | 2785.8 | +11.0% |
+| 15 | 2761.8 | 2990.7 | +8.3% |
+| 16 | 2756.8 | 3138.3 | +13.8% |
+
+The closing control at twelve (2548.2) agrees with the opening forward run
+(2510.4) inside 1.5%, licensing the paired reads; the control-pp12 reverse
+run alone dipped 20% below its forward twin, a one-off excursion the paired
+means at 13 through 16 do not depend on. Both binaries dispatch MMVQ at
+twelve, and the 12-row difference sits inside that excursion. MMVQ clears
+the 5.1% floor at every extended point, so sixteen is the largest tested
+threshold under the promotion rule and the true crossover remains above the
+instantiated range.
+
 ## Production candidate
 
-`patches/llama-cuda-mmvq-crossover-ad104.patch` carries the production shape.
+`patches/llama-cuda-mmvq-crossover-ad104.patch` carries the production
+shape: kernel ceiling sixteen, per-type defaults still eight, serving
+thresholds Q6_K ten and Q8_0 sixteen selected at build time.
 MMVQ_MAX_BATCH_SIZE stays 8, so every other architecture and the mul_mat_id
 static assert keep stock behavior; a kernel-side MMVQ_KERNEL_MAX_NCOLS of 12
 carries the instantiations; and the Ada dispatch reads two cache settings,
