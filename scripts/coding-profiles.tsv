@@ -1,0 +1,17 @@
+# A coding profile binds one model, one runtime, and one workspace to the
+# bounds a job runs under, the way scripts/web-profiles.tsv binds a serving
+# profile to its fetch budgets. maximum_context comes from and may not
+# exceed the model's validated_filled_depth; maximum_files_changed and
+# maximum_patch_bytes bound what code.apply_patch may export;
+# maximum_job_seconds bounds the whole job wall clock and the service kills
+# the job's process group past it. allowed_test_profile names the one
+# command set code.run_tests resolves; network_policy is `loopback-llama`
+# for every row because the contained task environment reaches exactly the
+# local llama-server. execution_policy decides whether the service accepts
+# a job at all: every checked-in row reads `refused`, and the lane opens
+# through a reviewed edit to `validator-gated` only after the model-depth,
+# switch-policy, containment, and full-chain admission gates pass.
+#
+# profile_id	model_id	runtime_id	workspace_id	maximum_context	maximum_reply_tokens	maximum_files_changed	maximum_patch_bytes	maximum_job_seconds	allowed_test_profile	network_policy	execution_policy
+code-fast-a	qwenseer-2b	qwen-code	qwen-nvidia	32768	8192	16	262144	600	repository-quality-gates	loopback-llama	refused
+code-deep-a	qwen25-coder-7b	qwen-code	qwen-nvidia	8192	4096	8	131072	900	repository-quality-gates	loopback-llama	refused

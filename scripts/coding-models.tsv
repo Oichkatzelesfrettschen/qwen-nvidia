@@ -1,0 +1,11 @@
+# Coding models are the registry rows the coding lane may name, each joined
+# to scripts/models.tsv by model_id and bounded by that row's own validated
+# depth. role separates the interactive fast coder from the deep reviewer;
+# minimum_validated_depth is the floor the lane requires of the row's
+# validated_filled_depth before the model may serve a coding job, so a
+# registry edit that lowers the validated depth below the floor removes the
+# model from the lane rather than serving it thinner.
+#
+# model_id	role	minimum_validated_depth	max_reply_tokens
+qwenseer-2b	fast-coder	32768	8192
+qwen25-coder-7b	deep-coder	8192	4096

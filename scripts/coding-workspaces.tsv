@@ -1,0 +1,10 @@
+# A coding workspace names one repository the coding lane may operate on:
+# the mirror the service imports approved base revisions into, and the
+# ephemeral worktrees a job edits. repository_path is the authoritative
+# checkout the import bundle is read from; mirror names the bare repository
+# under the qwen-coder principal's repos root; test_profile names the one
+# command set code.run_tests may execute inside the worktree, resolved in
+# scripts/coding-profiles.tsv rather than taken from a request.
+#
+# workspace_id	repository_path	mirror	test_profile
+qwen-nvidia	$HOME/Github/qwen-nvidia	qwen-nvidia.git	repository-quality-gates
