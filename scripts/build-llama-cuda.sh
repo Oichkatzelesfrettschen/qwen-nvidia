@@ -39,6 +39,11 @@ usage() {
     printf '  QWEN_GGML_NATIVE           default ON, Zen 3 host\n' >&2
     printf '  QWEN_GGML_LTO              default OFF\n' >&2
     printf '  QWEN_GGML_OPENMP           default ON\n' >&2
+    printf '  QWEN_GGML_LLAMAFILE        default ON, CPU SGEMM path\n' >&2
+    printf '  QWEN_GGML_CPU_REPACK       default ON, CPU Q4_0 runtime repacking\n' >&2
+    printf '  QWEN_BUILD_UI              default ON, embedded server Web UI\n' >&2
+    printf '  QWEN_LLAMA_OPENSSL         default ON, HTTPS support in the server\n' >&2
+    printf '  QWEN_CUDA_NO_PEER_COPY     default OFF, single-GPU hygiene arm\n' >&2
     printf '  QWEN_CUDA_MMVQ_Q6K_MAX     Ada Q6_K MMVQ ceiling, default 8, patched trees only\n' >&2
     printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, default 8, patched trees only\n' >&2
     printf '  QWEN_FORCE_MMQ             ON builds the MMQ kernel-policy arm\n' >&2
@@ -64,6 +69,11 @@ cuda_compression=${QWEN_CUDA_COMPRESSION_MODE:-size}
 ggml_native=${QWEN_GGML_NATIVE:-ON}
 ggml_lto=${QWEN_GGML_LTO:-OFF}
 ggml_openmp=${QWEN_GGML_OPENMP:-ON}
+ggml_llamafile=${QWEN_GGML_LLAMAFILE:-ON}
+ggml_cpu_repack=${QWEN_GGML_CPU_REPACK:-ON}
+build_ui=${QWEN_BUILD_UI:-ON}
+llama_openssl=${QWEN_LLAMA_OPENSSL:-ON}
+cuda_no_peer_copy=${QWEN_CUDA_NO_PEER_COPY:-OFF}
 mmvq_q6k_max=${QWEN_CUDA_MMVQ_Q6K_MAX:-8}
 mmvq_q8_0_max=${QWEN_CUDA_MMVQ_Q8_0_MAX:-8}
 force_mmq=${QWEN_FORCE_MMQ:-OFF}
@@ -88,6 +98,11 @@ for pair in \
     "QWEN_GGML_NATIVE=$ggml_native" \
     "QWEN_GGML_LTO=$ggml_lto" \
     "QWEN_GGML_OPENMP=$ggml_openmp" \
+    "QWEN_GGML_LLAMAFILE=$ggml_llamafile" \
+    "QWEN_GGML_CPU_REPACK=$ggml_cpu_repack" \
+    "QWEN_BUILD_UI=$build_ui" \
+    "QWEN_LLAMA_OPENSSL=$llama_openssl" \
+    "QWEN_CUDA_NO_PEER_COPY=$cuda_no_peer_copy" \
     "QWEN_FORCE_MMQ=$force_mmq" \
     "QWEN_FORCE_CUBLAS=$force_cublas"; do
     case ${pair#*=} in
@@ -189,11 +204,21 @@ nvcc_version	$nvcc_version
 cmake_version	$cmake_version
 ninja_version	$ninja_version
 shared_libs	ON
+static	OFF
+backend_dl	OFF
+cpu	ON
+cpu_all_variants	OFF
 ccache	ON
 blas	OFF
 rpc	OFF
-no_peer_copy	OFF
+build_common	ON
+build_tools	ON
+build_server	ON
+build_app	OFF
+build_examples	OFF
 build_tests	OFF
+subprocess	ON
+llguidance	OFF
 arch	$cuda_architectures
 vulkan	$build_vulkan
 graphs	$cuda_graphs
@@ -205,6 +230,11 @@ compression	$cuda_compression
 native	$ggml_native
 lto	$ggml_lto
 openmp	$ggml_openmp
+llamafile	$ggml_llamafile
+cpu_repack	$ggml_cpu_repack
+build_ui	$build_ui
+openssl	$llama_openssl
+no_peer_copy	$cuda_no_peer_copy
 mmvq_q6k_max	$mmvq_q6k_max
 mmvq_q8_0_max	$mmvq_q8_0_max
 force_mmq	$force_mmq
@@ -254,6 +284,12 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_CUDA_HOST_COMPILER="$host_cxx" \
     -DCMAKE_CUDA_ARCHITECTURES="$cuda_architectures" \
     -DBUILD_SHARED_LIBS=ON \
+    -DGGML_STATIC=OFF \
+    -DGGML_BACKEND_DL=OFF \
+    -DGGML_CPU=ON \
+    -DGGML_CPU_ALL_VARIANTS=OFF \
+    -DGGML_CPU_REPACK="$ggml_cpu_repack" \
+    -DGGML_LLAMAFILE="$ggml_llamafile" \
     -DGGML_NATIVE="$ggml_native" \
     -DGGML_LTO="$ggml_lto" \
     -DGGML_CCACHE=ON \
@@ -267,13 +303,23 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DGGML_CUDA_GRAPHS="$cuda_graphs" \
     -DGGML_CUDA_NCCL="$cuda_nccl" \
     -DGGML_CUDA_NO_VMM="$cuda_no_vmm" \
-    -DGGML_CUDA_NO_PEER_COPY=OFF \
+    -DGGML_CUDA_NO_PEER_COPY="$cuda_no_peer_copy" \
     -DGGML_CUDA_FORCE_MMQ="$force_mmq" \
     -DGGML_CUDA_FORCE_CUBLAS="$force_cublas" \
     -DGGML_CUDA_COMPRESSION_MODE="$cuda_compression" \
     -DGGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE="$mmvq_q6k_max" \
     -DGGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE="$mmvq_q8_0_max" \
-    -DLLAMA_BUILD_TESTS=OFF
+    -DLLAMA_BUILD_COMMON=ON \
+    -DLLAMA_BUILD_TOOLS=ON \
+    -DLLAMA_BUILD_SERVER=ON \
+    -DLLAMA_BUILD_APP=OFF \
+    -DLLAMA_BUILD_EXAMPLES=OFF \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_BUILD_UI="$build_ui" \
+    -DLLAMA_USE_PREBUILT_UI="$build_ui" \
+    -DLLAMA_SUBPROCESS=ON \
+    -DLLAMA_LLGUIDANCE=OFF \
+    -DLLAMA_OPENSSL="$llama_openssl"
 
 cmake --build "$build_directory" --parallel "$build_jobs" \
     --target llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
