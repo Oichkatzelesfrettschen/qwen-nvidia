@@ -199,9 +199,20 @@ flock -n 9 || {
 if pgrep -x llama-server >/dev/null 2>&1; then
     fail 'llama-server holds the device; run qwen-teardown.sh first'
 fi
-compute_clients=$("$nvidia_smi" --query-compute-apps=pid --format=csv,noheader \
-    2>/dev/null | tr -d ' \n' || :)
-[ -z "$compute_clients" ] || fail "a CUDA compute client holds the device: $compute_clients"
+# The desktop is a live consumer of the same device and its clients are the
+# covariate every recorded rate carries, so the compositor and its graphics
+# peers are recorded rather than excluded. A project workload is the confound
+# the clean boot exists to remove, so a client whose name matches one ends the
+# run.
+compute_client_rows=$("$nvidia_smi" \
+    --query-compute-apps=pid,process_name,used_memory --format=csv,noheader \
+    2>/dev/null || :)
+project_clients=$(printf '%s\n' "$compute_client_rows" |
+    grep -E 'llama|nsys|ncu|python|image-service' || :)
+[ -z "$project_clients" ] ||
+    fail "a project CUDA workload holds the device: $project_clients"
+printf '# pid, process_name, used_memory\n%s\n' "$compute_client_rows" \
+    >"$output_directory/resident-compute-clients.txt"
 "$nvidia_smi" -q >/dev/null 2>&1 || fail 'nvidia-smi does not answer'
 
 # The ring signature count is the between-arm health check, so it is read once
