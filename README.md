@@ -70,14 +70,13 @@ and `context_ceiling` both at 32768, so the balanced-text class runs the same
 depth interactively and at its policy limit rather than the larger allocation
 its 131072 `context_target` names.
 
-`scripts/quarantine.tsv` excludes the 9B distill from router service:
-`qwen38-9b-distill-router-load` names a `router-child` scope over an
-`nvrm-system-memory-allocation-refusal` fault, where a switch into the 9B while
-another child stays resident twice ended the server on an NV01_MEMORY_SYSTEM
-allocation refusal
-(`evidence/quarantine/qwen38-9b-distill-router-load.md`). The checkpoint still
-serves standalone at its measured baseline rate; the quarantine binds the
-overlapping router-switch load alone, and no re-entry gate has run.
+The Qwen3.8 9B distill left its former router quarantine after the retained
+evict-before-load admission run
+(`evidence/ada/evict-first-9b-readmission/`) proved sequential child
+teardown returns memory before the 9B allocates. It now serves under
+`switch_policy=evict-first`, which constrains router construction and launch
+to `QWEN_ROUTER_MAX=1`. The active model quarantine set in
+`scripts/quarantine.tsv` consists of `ministral3-3b`.
 
 ## Measured baseline
 
@@ -110,10 +109,8 @@ dequant+GEMM runs at roughly half the MMQ rate past the crossover.
 `evidence/ada/mmvq-crossover-ad104/` answers the extension question:
 `patches/llama-cuda-mmvq-crossover-ad104.patch` parameterizes the Ada Q6_K
 and Q8_0 ceilings as named CMake thresholds and instantiates the kernel
-through twelve columns, and the paired sweep places Q6_K at ten -- the
-largest tested column count whose MMVQ advantage clears the registered
-drift floor -- and Q8_0 at twelve as a lower bound with its true crossover
-above the tested range. The serving build carries both thresholds.
+through sixteen columns. The promoted serving closure places Q6_K at ten and
+Q8_0 at sixteen (`evidence/ada/promotion-88681bf4d161/`).
 
 ## Promotion is CUDA-authoritative
 
@@ -122,10 +119,11 @@ one-token placement check and a multimodal smoke both run with
 `LLAMA_NO_CPU_FALLBACK=1` and require every weight buffer to name CUDA0. A
 build that also carries `libggml-vulkan.so` takes the same two smokes on
 Vulkan0 as a separate fallback admission, and a CUDA-only build reports
-`fallback_vulkan=not-built`. The served closure is the 89-real CUDA-only
-tree (`evidence/ada/promotion-31d0775c5bc6/`); the PTX-bearing dual-backend
-sibling 572951d25562 is retained as the rollback target and the diagnostic
-closure for CUDA/Vulkan comparison and PTX inspection.
+`fallback_vulkan=not-built`. The served closure is configuration `88681bf4d161`
+(`evidence/ada/promotion-88681bf4d161/`), using 89-real, CUDA only, Q6_K MMVQ
+threshold 10, and Q8_0 MMVQ threshold 16. Configuration `31d0775c5bc6` is
+retained as the rollback target and `572951d25562` as the PTX-bearing
+dual-backend diagnostic closure.
 
 ## Roadmap
 
