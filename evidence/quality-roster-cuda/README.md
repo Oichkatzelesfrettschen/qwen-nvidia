@@ -28,3 +28,16 @@ its sweep grade is a budget fault. thinking-4096/ carries the escalated
 condition: truncation falls to 1.2% and the arm grades 54 of 84 at 218
 seconds of wall time against the 4B distill's 24.5, its own labeled
 condition rather than a row in the sweep.
+
+## The code category and the fast-coding role
+
+Ten code rows per arm inside the same sweep. minicpm5-1b grades 6 of 10 at a
+401 tok/s decode, and the fast-coding role it was fetched for belongs to
+qwenseer-2b on these numbers: 9 of 10 at 232 tok/s and 1.6 seconds of
+category wall time, with stock qwen35-2b matching the grade at 212. The
+perfect scores sit in the slow tier -- nanbeige42-3b and the 4B Q5_K_M and
+Q6_K rungs at 10 of 10 between 80 and 100 tok/s -- and the 2B heretic leads
+its uncensored siblings at 8. Ten rows is a small category, so a one-row
+difference reports position inside one sweep rather than capability; the
+three-row gap between qwenseer-2b and minicpm5-1b is the decision-bearing
+margin.
