@@ -24,12 +24,12 @@ import hmac
 import json
 import os
 import pathlib
-import resource
 import secrets
 import signal
 import socketserver
 import stat
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -41,14 +41,35 @@ GRANT_FIELDS = [
 ]
 
 # The one command set each allowed_test_profile resolves to. The mapping
-# lives here rather than in a request, so code.run_tests executes what the
+# lives here rather than in a request, so run_tests executes what the
 # profile names and nothing a caller composes.
 TEST_PROFILES = {
     "repository-quality-gates": ["sh", "scripts/repository-quality-gates.sh"],
     "fixture-echo": ["sh", "-c", "echo test-profile-ran"],
 }
 
-INSPECT_BYTE_CEILING = 262144
+# Model-visible byte ceilings. The fast coding profile carries a
+# 32768-token context, so a result near the old 262144-byte ceiling could
+# consume the whole window by itself; the model reads a bounded view with
+# a truncation flag and pages through inspect's offset argument, while the
+# full output is retained in the job events and the finish export.
+PLAN_BYTE_CEILING = 16384
+INSPECT_BYTE_CEILING = 32768
+TEST_LOG_TAIL_BYTES = 32768
+DIFF_VIEW_BYTE_CEILING = 65536
+RETAINED_OUTPUT_BYTES = 262144
+
+# Resource limits applied inside the contained child through prlimit, so
+# the values take effect in the executed process path rather than through a
+# post-fork callback: preexec_fn is unsafe under this threaded server, the
+# hazard image-service.py already removed.
+CHILD_PRLIMIT = [
+    "/usr/bin/prlimit", "--cpu=600:600", "--nofile=1024:1024",
+    "--fsize=1073741824:1073741824", "--",
+]
+
+JOB_ACTIONS = ("inspect", "plan", "apply_patch", "run_tests",
+               "review_diff", "finish")
 
 
 def parse_tsv(path):
@@ -112,6 +133,12 @@ class Authorities:
         runtime = self.runtimes.get(profile["runtime_id"])
         if runtime is None:
             raise Refusal("unknown_runtime", profile["runtime_id"])
+        # The runtime ledger is its own execution authority: a profile
+        # copy moved to validator-gated cannot execute a runtime whose own
+        # row still reads refused.
+        if runtime["execution_policy"] != "validator-gated":
+            raise Refusal("runtime_execution_refused",
+                          runtime["execution_policy"])
         for scope, subject in (("profile", profile_id), ("model", model_id),
                                ("workspace", workspace_id),
                                ("runtime", profile["runtime_id"])):
@@ -134,6 +161,12 @@ class Authorities:
         workspace = self.workspaces.get(workspace_id)
         if workspace is None:
             raise Refusal("unknown_workspace", workspace_id)
+        # The workspace names its approved test profile; a profile may not
+        # substitute another command set against the same repository.
+        if profile["allowed_test_profile"] != workspace["test_profile"]:
+            raise Refusal("test_profile_outside_workspace",
+                          "%s vs %s" % (profile["allowed_test_profile"],
+                                        workspace["test_profile"]))
         if profile["allowed_test_profile"] not in TEST_PROFILES:
             raise Refusal("unknown_test_profile",
                           profile["allowed_test_profile"])
@@ -159,6 +192,10 @@ class Job:
         self.test_log = ""
         self.patch = None
         self.lock = threading.Lock()
+        # One state-touching operation runs on a job at a time; a second
+        # arriving while the first executes is answered job_busy rather
+        # than interleaved on the same worktree.
+        self.operation_lock = threading.Lock()
 
 
 class Service:
@@ -184,6 +221,21 @@ class Service:
         self.jobs = {}
         self.jobs_lock = threading.Lock()
         self.principal = arguments.principal
+        self.recover_export_refs()
+
+    def recover_export_refs(self):
+        """A process death between update-ref and its deletion retains a
+        refs/coding-export ref in an authoritative repository; startup
+        deletes every leftover so the transfer namespace starts empty."""
+        for workspace in Authorities(self.arguments).workspaces.values():
+            repository = os.path.expandvars(workspace["repository_path"])
+            listed = subprocess.run(
+                ["git", "-C", repository, "for-each-ref",
+                 "--format=%(refname)", "refs/coding-export"],
+                capture_output=True, text=True)
+            for refname in listed.stdout.split():
+                subprocess.run(["git", "-C", repository, "update-ref",
+                                "-d", refname], capture_output=True)
 
     # -- principal execution -------------------------------------------
     def principal_prefix(self):
@@ -195,6 +247,10 @@ class Service:
         return subprocess.run(self.principal_prefix() + command,
                               capture_output=True, text=True, **kwargs)
 
+    def principal_run_bytes(self, command, input_bytes):
+        return subprocess.run(self.principal_prefix() + command,
+                              capture_output=True, input=input_bytes)
+
     # -- grants ---------------------------------------------------------
     def grant_signature(self, claim):
         message = "\n".join("%s=%s" % (field, claim[field])
@@ -202,7 +258,7 @@ class Service:
         return hmac.new(self.grant_key, message.encode(),
                         hashlib.sha256).hexdigest()
 
-    def verify_grant(self, request):
+    def verify_grant(self, request, workspace):
         grant = request.get("grant")
         if not isinstance(grant, dict):
             raise Refusal("grant_missing")
@@ -218,18 +274,22 @@ class Service:
             raise Refusal("grant_signature_invalid")
         if float(claim["expiry_epoch"]) < time.time():
             raise Refusal("grant_expired")
-        # A changed model, workspace, base commit, instruction, or test
-        # profile invalidates the grant: the claim is compared against the
-        # request rather than trusted alone.
+        # A changed model, workspace, repository, base commit, instruction,
+        # conversation generation, or test profile invalidates the grant:
+        # every signed field is compared against live request and workspace
+        # state rather than trusted alone.
         instruction_sha256 = hashlib.sha256(
             request.get("instruction", "").encode()).hexdigest()
         bindings = {
             "action": "open_job",
             "workspace_id": request.get("workspace_id"),
+            "repository_identity": workspace["repository_identity"],
             "model_id": request.get("model_id"),
             "profile_id": request.get("profile_id"),
             "base_commit": request.get("base_commit"),
             "instruction_sha256": instruction_sha256,
+            "conversation_generation":
+                str(request.get("conversation_generation")),
         }
         for field, expected in bindings.items():
             if claim[field] != expected:
@@ -260,30 +320,45 @@ class Service:
         # The bundle is the hand-off across the ownership boundary: the
         # service reads the authoritative checkout, the principal reads
         # only the bundle, and the mirror gains exactly the approved
-        # revision under a job-scoped ref.
+        # revision under a job-scoped ref. The service-side copy lives in
+        # a 0700 directory at mode 0600, and the principal receives a
+        # private copy of its own under its 0700 handoff directory, so no
+        # world-readable shape carries the transfer.
         bundle_directory = pathlib.Path(self.arguments.bundle_dir)
         bundle_directory.mkdir(parents=True, exist_ok=True)
-        os.chmod(bundle_directory, 0o755)
+        os.chmod(bundle_directory, 0o700)
         bundle = bundle_directory / ("%s.bundle" % job_id)
         # git bundle writes refs rather than raw objects, so the approved
         # commit gets a job-scoped export ref for the duration of the
-        # bundle write.
+        # bundle write; the deletion runs on both outcomes.
         export_ref = "refs/coding-export/%s" % job_id
         subprocess.run(["git", "-C", repository, "update-ref",
                         export_ref, base_commit],
                        capture_output=True, text=True)
-        made = subprocess.run(
-            ["git", "-C", repository, "bundle", "create", str(bundle),
-             export_ref], capture_output=True, text=True)
-        subprocess.run(["git", "-C", repository, "update-ref", "-d",
-                        export_ref], capture_output=True, text=True)
+        try:
+            made = subprocess.run(
+                ["git", "-C", repository, "bundle", "create", str(bundle),
+                 export_ref], capture_output=True, text=True)
+        finally:
+            subprocess.run(["git", "-C", repository, "update-ref", "-d",
+                            export_ref], capture_output=True, text=True)
         if made.returncode != 0:
             raise Refusal("bundle_failed", made.stderr.strip())
-        os.chmod(bundle, 0o644)
-        fetched = self.principal_run(
-            ["git", "-C", str(mirror), "fetch", "-q", str(bundle),
-             "%s:refs/import/%s" % (base_commit, job_id)])
+        os.chmod(bundle, 0o600)
+        handoff = principal_home / "handoff"
+        handoff_bundle = handoff / ("%s.bundle" % job_id)
+        received = self.principal_run_bytes(
+            ["sh", "-c",
+             'umask 077 && mkdir -p "$1" && cat >"$2"', "handoff",
+             str(handoff), str(handoff_bundle)], bundle.read_bytes())
         bundle.unlink(missing_ok=True)
+        if received.returncode != 0:
+            raise Refusal("handoff_failed",
+                          received.stderr.decode(errors="replace").strip())
+        fetched = self.principal_run(
+            ["git", "-C", str(mirror), "fetch", "-q", str(handoff_bundle),
+             "%s:refs/import/%s" % (base_commit, job_id)])
+        self.principal_run(["rm", "-f", str(handoff_bundle)])
         if fetched.returncode != 0:
             raise Refusal("mirror_import_failed", fetched.stderr.strip())
         worktree = principal_home / "worktrees" / job_id
@@ -292,6 +367,16 @@ class Service:
              str(worktree), base_commit])
         if added.returncode != 0:
             raise Refusal("worktree_add_failed", added.stderr.strip())
+        # The runtime's own state (.qwen) and the job temp directory live
+        # inside the worktree because HOME points there; the per-worktree
+        # exclude keeps both out of the exported diff, and clean -x still
+        # removes them on reset.
+        self.principal_run(
+            ["sh", "-c",
+             'git_dir=$(git -C "$1" rev-parse --absolute-git-dir) && '
+             'mkdir -p "$git_dir/info" && '
+             'printf ".job-tmp/\\n.qwen/\\n" >"$git_dir/info/exclude"',
+             "exclude", str(worktree)])
         return mirror, worktree
 
     def remove_worktree(self, job):
@@ -300,13 +385,18 @@ class Service:
         self.principal_run(["git", "-C", str(job.mirror), "worktree",
                             "remove", "--force", str(job.worktree)])
         self.principal_run(["rm", "-rf", str(job.worktree)])
+        # The job-scoped import ref is transfer residue once the worktree
+        # is gone; leaving it would grow the mirror's ref namespace by one
+        # entry per job forever.
+        self.principal_run(["git", "-C", str(job.mirror), "update-ref",
+                            "-d", "refs/import/%s" % job.job_id])
         job.worktree = None
 
     # -- contained execution -------------------------------------------
     def contained_run(self, job, command, extra_env=None):
-        """Run one command inside the job worktree: fresh process group,
-        scrubbed environment, resource limits, and the job deadline with
-        SIGTERM then SIGKILL of the whole group."""
+        """Run one command inside the job worktree: fresh session,
+        scrubbed environment, prlimit-applied resource limits, and the job
+        deadline with SIGTERM then SIGKILL of the whole group."""
         remaining = job.deadline_epoch - time.time()
         if remaining <= 0:
             raise Refusal("job_deadline_passed")
@@ -324,22 +414,17 @@ class Service:
         # created by the principal rather than by the service user.
         self.principal_run(["mkdir", "-p", str(job.worktree / ".job-tmp")])
 
-        def limits():
-            os.setsid()
-            resource.setrlimit(resource.RLIMIT_CPU, (600, 600))
-            resource.setrlimit(resource.RLIMIT_NOFILE, (1024, 1024))
-            resource.setrlimit(resource.RLIMIT_FSIZE,
-                               (1 << 30, 1 << 30))
-
-        # env --chdir enters the worktree after the identity switch, so
-        # the service user needs no traversal right into the principal's
-        # 0700 home.
+        # start_new_session establishes the fresh process group through the
+        # supported Popen mechanism, and prlimit applies the limits inside
+        # the executed child path after the identity switch; env --chdir
+        # enters the worktree after that switch, so the service user needs
+        # no traversal right into the principal's 0700 home.
         process = subprocess.Popen(
-            self.principal_prefix()
+            self.principal_prefix() + CHILD_PRLIMIT
             + ["env", "--chdir", str(job.worktree)] + command,
             env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, preexec_fn=limits)
+            text=True, start_new_session=True)
         with job.lock:
             job.process_group = process.pid
         try:
@@ -353,23 +438,37 @@ class Service:
             timed_out = True
         with job.lock:
             job.process_group = None
-        return returncode, output[-262144:], timed_out
+        return returncode, output[-RETAINED_OUTPUT_BYTES:], timed_out
 
-    @staticmethod
-    def kill_group(process_group):
+    def kill_group(self, process_group):
         """SIGTERM the group, then SIGKILL survivors: a child that traps
-        SIGTERM leaves on SIGKILL, and the group id covers every fork."""
-        for signal_number in (signal.SIGTERM, signal.SIGKILL):
+        SIGTERM leaves on SIGKILL, and the group id covers every fork.
+        Under the qwen-coder principal the group's processes belong to
+        that uid, so the signal is delivered through the principal the way
+        every other worktree operation is; a group led by a root-owned
+        sudo answers the direct killpg with EPERM, which counts as alive.
+        """
+        for flag, signal_number in (("-TERM", signal.SIGTERM),
+                                    ("-KILL", signal.SIGKILL)):
+            delivered = False
             try:
                 os.killpg(process_group, signal_number)
+                delivered = True
             except ProcessLookupError:
                 return
+            except PermissionError:
+                pass
+            if not delivered and self.principal != "current":
+                self.principal_run(["kill", flag, "--",
+                                    "-%d" % process_group])
             deadline = time.time() + 2
             while time.time() < deadline:
                 try:
                     os.killpg(process_group, 0)
                 except ProcessLookupError:
                     return
+                except PermissionError:
+                    pass
                 time.sleep(0.05)
 
     # -- path containment ----------------------------------------------
@@ -394,7 +493,7 @@ class Service:
         profile, workspace = authorities.admit_profile(
             request.get("profile_id", ""), request.get("model_id", ""),
             request.get("workspace_id", ""))
-        claim = self.verify_grant(request)
+        claim = self.verify_grant(request, workspace)
         if claim["allowed_test_profile"] != profile["allowed_test_profile"]:
             raise Refusal("grant_binding_mismatch", "allowed_test_profile")
         for bound in ("maximum_files_changed", "maximum_patch_bytes",
@@ -426,6 +525,9 @@ class Service:
         job = self.get_job(request)
         target = self.contain_path(job.worktree,
                                    str(request.get("path", ".")))
+        offset = int(request.get("offset", 0))
+        if offset < 0:
+            raise Refusal("offset_negative", str(offset))
         # Reads go through the principal, whose 0700 home the service user
         # cannot traverse. The service-side resolve cannot follow links it
         # cannot read, so the principal re-resolves the path and the
@@ -435,7 +537,8 @@ class Service:
             ["realpath", "-m", str(target)]).stdout.strip()
         root_resolved = self.principal_run(
             ["realpath", "-m", str(job.worktree)]).stdout.strip()
-        if principal_resolved != root_resolved and not                 principal_resolved.startswith(root_resolved + "/"):
+        if principal_resolved != root_resolved and not \
+                principal_resolved.startswith(root_resolved + "/"):
             raise Refusal("path_escapes_worktree",
                           str(request.get("path")))
         kind = self.principal_run(
@@ -450,30 +553,37 @@ class Service:
         if kind != "file":
             raise Refusal("path_absent", str(request.get("path")))
         content = self.principal_run(
-            ["head", "-c", str(INSPECT_BYTE_CEILING), str(target)]).stdout
-        size = self.principal_run(
-            ["stat", "-c", "%s", str(target)]).stdout.strip()
-        return {"kind": "file", "content": content,
-                "bytes": int(size or 0)}
+            ["sh", "-c", 'tail -c "+$2" -- "$1" | head -c "$3"', "inspect",
+             str(target), str(offset + 1),
+             str(INSPECT_BYTE_CEILING)]).stdout
+        size = int(self.principal_run(
+            ["stat", "-c", "%s", str(target)]).stdout.strip() or 0)
+        return {"kind": "file", "content": content, "bytes": size,
+                "offset": offset,
+                "truncated": offset + len(content.encode()) < size}
 
     def agent_command(self, job, mode):
         override = self.arguments.agent_command
         if override:
             return [override, mode]
-        runtime = Authorities(self.arguments).runtimes[
-            job.profile["runtime_id"]]
-        install_root = os.path.expandvars(self.arguments.runtime_root)
-        executable = os.path.join(install_root, "candidate",
-                                  runtime["executable"])
-        return [executable, "--model", job.model_id,
-                "--output-format", "stream-json", "--prompt",
-                job.instruction if mode == "apply" else
-                "Plan only, change nothing: %s" % job.instruction]
+        # The contained launcher, not a bare runtime invocation, is the
+        # executed path: it verifies the loopback endpoint and the local
+        # key file, scrubs ambient provider variables, and selects the
+        # read-only plan approval mode for plan against the automatic mode
+        # for apply, all inside the containment this service establishes.
+        return [self.arguments.agent_launcher, mode, job.model_id,
+                job.instruction]
 
     def run_agent(self, job, mode):
         returncode, output, timed_out = self.contained_run(
             job, self.agent_command(job, mode),
-            extra_env={"QWEN_CODING_JOB_ID": job.job_id})
+            extra_env={
+                "QWEN_CODING_JOB_ID": job.job_id,
+                "QWEN_CODING_KEY_FILE": self.arguments.runtime_key_file,
+                "QWEN_CODING_SETTINGS": self.arguments.runtime_settings,
+                "QWEN_CODING_BASE_URL": self.arguments.runtime_base_url,
+                "QWEN_CODING_RUNTIME_ROOT": self.arguments.runtime_root,
+            })
         job.events.append({"mode": mode, "returncode": returncode,
                            "timed_out": timed_out, "output": output})
         if timed_out:
@@ -484,7 +594,9 @@ class Service:
     def action_plan(self, request):
         job = self.get_job(request)
         returncode, output = self.run_agent(job, "plan")
-        return {"returncode": returncode, "plan": output}
+        view = output[-PLAN_BYTE_CEILING:]
+        return {"returncode": returncode, "plan": view,
+                "plan_truncated": len(view) < len(output)}
 
     def action_apply_patch(self, request):
         job = self.get_job(request)
@@ -537,26 +649,76 @@ class Service:
             job.state = "expired"
             raise Refusal("job_timed_out")
         job.test_log = output
-        return {"returncode": returncode, "log": output[-65536:]}
+        view = output[-TEST_LOG_TAIL_BYTES:]
+        return {"returncode": returncode, "log": view,
+                "log_truncated": len(view) < len(output)}
 
     def action_review_diff(self, request):
         job = self.get_job(request)
         diff = job.patch or self.job_diff(job)
-        return {"patch": diff["patch"], "diffstat": diff["diffstat"],
+        patch_bytes = len(diff["patch"].encode())
+        view = diff["patch"][:DIFF_VIEW_BYTE_CEILING]
+        return {"patch": view,
+                "patch_bytes": patch_bytes,
+                "patch_truncated": len(view) < len(diff["patch"]),
+                "diffstat": diff["diffstat"],
                 "changed_files": [line[2:] for line
                                   in diff["name_status"].splitlines()
                                   if line]}
 
+    def verify_result_tree(self, job, patch, result_tree):
+        """Reproduce the result tree independently: apply the exported
+        patch to the base commit's tree in a temporary index against the
+        authoritative repository. A mismatch means the export and the
+        worktree disagree, and the finish refuses rather than reporting a
+        tree the patch does not produce."""
+        repository = os.path.expandvars(
+            job.workspace["repository_path"])
+        with tempfile.TemporaryDirectory(
+                prefix="coding-tree-verify.") as scratch:
+            index = os.path.join(scratch, "index")
+            environment = dict(os.environ, GIT_INDEX_FILE=index)
+            read = subprocess.run(
+                ["git", "-C", repository, "read-tree",
+                 "%s^{tree}" % job.base_commit],
+                capture_output=True, text=True, env=environment)
+            if read.returncode != 0:
+                raise Refusal("result_tree_unverifiable",
+                              read.stderr.strip())
+            if patch:
+                patch_path = os.path.join(scratch, "patch.diff")
+                pathlib.Path(patch_path).write_text(patch)
+                applied = subprocess.run(
+                    ["git", "-C", repository, "apply", "--cached",
+                     patch_path], capture_output=True, text=True,
+                    env=environment)
+                if applied.returncode != 0:
+                    raise Refusal("patch_does_not_apply",
+                                  applied.stderr.strip())
+            written = subprocess.run(
+                ["git", "-C", repository, "write-tree"],
+                capture_output=True, text=True, env=environment)
+            reproduced = written.stdout.strip()
+        if reproduced != result_tree:
+            raise Refusal("result_tree_mismatch",
+                          "%s vs %s" % (result_tree, reproduced))
+
     def action_finish(self, request):
         job = self.get_job(request)
         diff = job.patch or self.job_diff(job)
+        # The stage runs unconditionally: a tracked-file-only edit leaves
+        # write-tree succeeding against the unstaged index, which would
+        # report the base tree while the exported patch carries changes.
+        self.principal_run(["git", "-C", str(job.worktree), "add", "-A",
+                            "--", "."])
         tree = self.principal_run(
             ["git", "-C", str(job.worktree), "write-tree"])
         if tree.returncode != 0:
-            self.principal_run(["git", "-C", str(job.worktree), "add",
-                                "-A", "--", "."])
-            tree = self.principal_run(
-                ["git", "-C", str(job.worktree), "write-tree"])
+            raise Refusal("result_tree_unavailable", tree.stderr.strip())
+        result_tree = tree.stdout.strip()
+        self.verify_result_tree(job, diff["patch"], result_tree)
+        patch_sha256 = hashlib.sha256(diff["patch"].encode()).hexdigest()
+        test_log_sha256 = hashlib.sha256(job.test_log.encode()).hexdigest()
         export = self.export_directory / job.job_id
         (export / "patch.diff").write_text(diff["patch"])
         (export / "diffstat.txt").write_text(diff["diffstat"])
@@ -565,21 +727,33 @@ class Service:
         (export / "events.jsonl").write_text(
             "".join(json.dumps(e) + "\n" for e in job.events))
         (export / "base-commit").write_text(job.base_commit + "\n")
-        (export / "result-tree").write_text(tree.stdout.strip() + "\n")
+        (export / "result-tree").write_text(result_tree + "\n")
         self.remove_worktree(job)
         job.state = "finished"
-        return {"export": str(export),
-                "result_tree": tree.stdout.strip()}
+        # The export is addressed by its job-scoped identity; the
+        # machine-local absolute path stays on this side of the socket.
+        return {"export_id": job.job_id,
+                "result_tree": result_tree,
+                "patch_sha256": patch_sha256,
+                "test_log_sha256": test_log_sha256}
 
     def action_cancel(self, request):
         job = self.get_job(request, states=("open", "expired"),
                            check_deadline=False)
+        # The kill runs ahead of the serialization: it interrupts an
+        # operation holding the lock, that operation returns, and the
+        # cleanup then runs alone.
         with job.lock:
             group = job.process_group
         if group:
             self.kill_group(group)
-        self.remove_worktree(job)
-        job.state = "cancelled"
+        if not job.operation_lock.acquire(timeout=15):
+            raise Refusal("job_busy")
+        try:
+            self.remove_worktree(job)
+            job.state = "cancelled"
+        finally:
+            job.operation_lock.release()
         return {"state": "cancelled"}
 
     def handle(self, request):
@@ -600,6 +774,15 @@ class Service:
         handler = handlers.get(action)
         if handler is None:
             raise Refusal("unknown_action", str(action))
+        if action in JOB_ACTIONS:
+            job = self.jobs.get(str(request.get("job_id")))
+            if job is not None:
+                if not job.operation_lock.acquire(blocking=False):
+                    raise Refusal("job_busy")
+                try:
+                    return handler(request)
+                finally:
+                    job.operation_lock.release()
         return handler(request)
 
 
@@ -639,6 +822,7 @@ def serve(service, arguments):
             if group:
                 service.kill_group(group)
             service.remove_worktree(job)
+        service.recover_export_refs()
         socket_path.unlink(missing_ok=True)
         raise SystemExit(0)
 
@@ -662,9 +846,20 @@ def main():
     parser.add_argument("--principal-home", default="/var/lib/qwen-coder")
     parser.add_argument("--bundle-dir", default="/tmp/qwen-coding-bundles")
     parser.add_argument("--runtime-root",
-                        default="$HOME/tools/qwen-code")
+                        default="/var/lib/qwen-coder/runtime")
+    parser.add_argument("--runtime-key-file",
+                        default="/run/qwen-coder/llama-api.key")
+    parser.add_argument("--runtime-settings",
+                        default="/run/qwen-coder/settings.json")
+    parser.add_argument("--runtime-base-url",
+                        default="http://127.0.0.1:8080/v1")
+    parser.add_argument("--agent-launcher", default="")
     parser.add_argument("--agent-command", default="")
     arguments = parser.parse_args()
+    if not arguments.agent_launcher:
+        arguments.agent_launcher = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "coding-agent-launch.sh")
     Authorities(arguments)  # startup validation of every authority
     service = Service(arguments)
     serve(service, arguments)

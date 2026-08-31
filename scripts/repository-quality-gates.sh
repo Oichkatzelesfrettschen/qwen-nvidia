@@ -66,6 +66,7 @@ scripts/test-qwen-code-pin.sh
 scripts/test-coding-principal.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-coding-agent-service.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/coding-mcp/test-coding-mcp.py
+scripts/test-coding-agent-launch.sh
 scripts/test-coding-principal-path.sh
 scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh

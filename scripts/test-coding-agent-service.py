@@ -65,8 +65,9 @@ class Harness:
         git(self.repo, "config", "user.name", "test")
         git(self.repo, "config", "user.email", "test@example.invalid")
         self.behaviors = {}
-        for behavior in ["edit", "many-files", "big-patch", "sleep-trap",
-                         "daemon", "push", "home-probe", "symlink"]:
+        for behavior in ["edit", "tracked-edit", "many-files", "big-patch",
+                         "sleep-trap", "daemon", "push", "home-probe",
+                         "symlink"]:
             (self.repo / "FIXTURE_BEHAVIOR").write_text(behavior + "\n")
             (self.repo / "README").write_text("base for %s\n" % behavior)
             git(self.repo, "add", "-A")
@@ -95,11 +96,19 @@ class Harness:
             "code-refused\tqwenseer-2b\tqwen-code\ttest-repo\t32768\t8192\t"
             "8\t65536\t120\tfixture-echo\tloopback-llama\trefused\n"
             "code-short\tqwenseer-2b\tqwen-code\ttest-repo\t32768\t8192\t"
-            "8\t65536\t3\tfixture-echo\tloopback-llama\tvalidator-gated\n")
+            "8\t65536\t3\tfixture-echo\tloopback-llama\tvalidator-gated\n"
+            "code-runtime-refused\tqwenseer-2b\tqwen-code-refused\t"
+            "test-repo\t32768\t8192\t8\t65536\t120\tfixture-echo\t"
+            "loopback-llama\tvalidator-gated\n"
+            "code-test-mismatch\tqwenseer-2b\tqwen-code\ttest-repo\t32768\t"
+            "8192\t8\t65536\t120\trepository-quality-gates\t"
+            "loopback-llama\tvalidator-gated\n")
         self.workspaces = authorities / "coding-workspaces.tsv"
         self.workspaces.write_text(
-            "# workspace_id\trepository_path\tmirror\ttest_profile\n"
-            "test-repo\t%s\ttest-repo.git\tfixture-echo\n" % self.repo)
+            "# workspace_id\trepository_path\tmirror\ttest_profile\t"
+            "repository_identity\n"
+            "test-repo\t%s\ttest-repo.git\tfixture-echo\ttest-repo\n"
+            % self.repo)
         self.models = authorities / "coding-models.tsv"
         self.models.write_text(
             "# model_id\trole\tminimum_validated_depth\tmax_reply_tokens\n"
@@ -118,7 +127,11 @@ class Harness:
             "asset_bytes\tasset_sha256\tinstall_directory\texecutable\t"
             "execution_policy\tvalidation_evidence\n"
             "qwen-code\t0.22.3\tQwenLM/qwen-code\tv0.22.3\ta.tar.gz\t1\t"
-            + "0" * 64 + "\tv0.22.3\tqwen-code/bin/qwen\trefused\t-\n")
+            + "0" * 64 + "\tv0.22.3\tqwen-code/bin/qwen\tvalidator-gated"
+            "\t-\n"
+            "qwen-code-refused\t0.22.3\tQwenLM/qwen-code\tv0.22.3\t"
+            "a.tar.gz\t1\t" + "0" * 64
+            + "\tv0.22.3\tqwen-code/bin/qwen\trefused\t-\n")
 
         self.socket_path = self.state_dir / "agent.sock"
         self.process = subprocess.Popen(
@@ -180,7 +193,8 @@ class Harness:
                              hashlib.sha256).hexdigest()
         return {"claim": claim, "signature": signature}
 
-    def open_job(self, behavior, profile_id="code-test", **grant_overrides):
+    def open_job(self, behavior, profile_id="code-test",
+                 request_overrides=None, **grant_overrides):
         request = {
             "action": "open_job",
             "workspace_id": "test-repo",
@@ -188,8 +202,11 @@ class Harness:
             "model_id": "qwenseer-2b",
             "base_commit": self.behaviors[behavior],
             "instruction": "perform the %s behavior" % behavior,
+            "conversation_generation": "1",
         }
         request["grant"] = self.grant(request, **grant_overrides)
+        if request_overrides:
+            request.update(request_overrides)
         return self.request(request)
 
     def stop(self):
@@ -231,6 +248,14 @@ def run_suite(harness):
     check("inspect_lists_worktree", listing.get("ok")
           and "README" in listing["result"]["entries"], json.dumps(listing))
 
+    window = harness.request({"action": "inspect", "job_id": job_id,
+                              "path": "README", "offset": 9})
+    check("inspect_offset_pages", window.get("ok")
+          and window["result"]["content"] == "edit\n"
+          and window["result"]["offset"] == 9
+          and window["result"]["truncated"] is False,
+          json.dumps(window))
+
     plan = harness.request({"action": "plan", "job_id": job_id})
     check("plan_runs_agent", plan.get("ok")
           and "plan:" in plan["result"]["plan"], json.dumps(plan))
@@ -251,12 +276,22 @@ def run_suite(harness):
           json.dumps(review)[:200])
 
     finished = harness.request({"action": "finish", "job_id": job_id})
-    check("finish_exports_artifacts", finished.get("ok"))
-    export = pathlib.Path(finished["result"]["export"])
+    check("finish_exports_artifacts", finished.get("ok"),
+          json.dumps(finished))
+    check("finish_returns_export_identity_not_path",
+          finished["result"].get("export_id") == job_id
+          and "export" not in finished["result"]
+          and "worktree" not in finished["result"])
+    export = harness.state_dir / "export" / job_id
     expected = ["patch.diff", "diffstat.txt", "changed-files.txt",
                 "test.log", "events.jsonl", "base-commit", "result-tree"]
     check("export_complete",
           all((export / name).is_file() for name in expected))
+    check("finish_hashes_match_export",
+          finished["result"]["patch_sha256"] == hashlib.sha256(
+              (export / "patch.diff").read_bytes()).hexdigest()
+          and finished["result"]["test_log_sha256"] == hashlib.sha256(
+              (export / "test.log").read_bytes()).hexdigest())
     check("worktree_removed_after_finish", not worktree.exists())
     check("authoritative_repo_untouched",
           git(harness.repo, "status", "--porcelain") == "")
@@ -292,6 +327,7 @@ def run_suite(harness):
         "profile_id": "code-test", "model_id": "qwenseer-2b",
         "base_commit": harness.behaviors["edit"],
         "instruction": "perform the edit behavior",
+        "conversation_generation": "1",
     }
     grant = harness.grant(request)
     request["grant"] = grant
@@ -308,6 +344,37 @@ def run_suite(harness):
     check("grant_instruction_change_rejected", not changed.get("ok")
           and changed["error"] in ("grant_binding_mismatch",
                                    "grant_replayed"))
+
+    # The runtime ledger is its own execution authority: a validator-gated
+    # profile naming a refused runtime opens nothing.
+    runtime_refused = harness.open_job("edit",
+                                       profile_id="code-runtime-refused")
+    check("refused_runtime_rejected", not runtime_refused.get("ok")
+          and runtime_refused["error"] == "runtime_execution_refused",
+          json.dumps(runtime_refused))
+
+    # The workspace names its approved test profile; a profile carrying
+    # another command set against the same repository is refused.
+    mismatch = harness.open_job("edit", profile_id="code-test-mismatch")
+    check("test_profile_outside_workspace_rejected",
+          not mismatch.get("ok")
+          and mismatch["error"] == "test_profile_outside_workspace",
+          json.dumps(mismatch))
+
+    # A request whose conversation generation departs from the signed
+    # claim is a stale approval and is refused.
+    stale = harness.open_job(
+        "edit", request_overrides={"conversation_generation": "2"})
+    check("conversation_generation_change_rejected", not stale.get("ok")
+          and stale["error"] == "grant_binding_mismatch",
+          json.dumps(stale))
+
+    # A claim signed over another repository identity fails against the
+    # live workspace row.
+    foreign = harness.open_job("edit", repository_identity="other-repo")
+    check("repository_identity_change_rejected", not foreign.get("ok")
+          and foreign["error"] == "grant_binding_mismatch",
+          json.dumps(foreign))
 
     # Path containment: traversal, absolute, and symlink escape.
     opened = harness.open_job("symlink")
@@ -409,6 +476,41 @@ def run_suite(harness):
           and "no ssh state" in ssh["result"]["content"])
     harness.request({"action": "cancel", "job_id": job_id})
 
+    # A tracked-file-only edit stages before write-tree, so the result
+    # tree departs from the base tree and matches what the exported patch
+    # produces; the service verifies the reproduction itself and the
+    # check reads the departure.
+    opened = harness.open_job("tracked-edit")
+    job_id = opened["result"]["job_id"]
+    harness.request({"action": "apply_patch", "job_id": job_id})
+    finished = harness.request({"action": "finish", "job_id": job_id})
+    base_tree = git(harness.repo, "rev-parse",
+                    harness.behaviors["tracked-edit"] + "^{tree}")
+    check("tracked_edit_result_tree_departs_from_base",
+          finished.get("ok")
+          and finished["result"]["result_tree"] != base_tree,
+          json.dumps(finished))
+
+    # One operation per job at a time: a request arriving while another
+    # operation runs is answered job_busy rather than interleaved.
+    opened = harness.open_job("sleep-trap")
+    job_id = opened["result"]["job_id"]
+    box = {}
+
+    def busy_plan():
+        box["plan"] = harness.request({"action": "plan",
+                                       "job_id": job_id})
+
+    busy_thread = threading.Thread(target=busy_plan)
+    busy_thread.start()
+    time.sleep(1.0)
+    busy = harness.request({"action": "inspect", "job_id": job_id,
+                            "path": "."})
+    check("concurrent_operation_answered_job_busy", not busy.get("ok")
+          and busy["error"] == "job_busy", json.dumps(busy))
+    harness.request({"action": "cancel", "job_id": job_id})
+    busy_thread.join(timeout=20)
+
     # Residue: after every job above ends, the worktree root is empty.
     time.sleep(0.5)
     leftover = list((harness.principal_home / "worktrees").iterdir())
@@ -416,6 +518,14 @@ def run_suite(harness):
     bundles = (list(harness.bundle_dir.iterdir())
                if harness.bundle_dir.exists() else [])
     check("no_bundle_residue", bundles == [], str(bundles))
+    handoff = harness.principal_home / "handoff"
+    handoff_left = list(handoff.iterdir()) if handoff.exists() else []
+    check("no_handoff_residue", handoff_left == [], str(handoff_left))
+    check("no_export_ref_residue",
+          git(harness.repo, "for-each-ref", "refs/coding-export") == "")
+    mirror = harness.principal_home / "repos" / "test-repo.git"
+    check("no_import_ref_residue",
+          git(mirror, "for-each-ref", "refs/import") == "")
 
     not_run("uid_separation", "requires the qwen-coder principal path")
     not_run("sudo_denied_for_principal",

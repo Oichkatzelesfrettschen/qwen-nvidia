@@ -3,13 +3,20 @@
 
 llama-server spawns this child for a section whose MCP configuration names
 it, one JSON-RPC request per line, the way it drives `web-mcp/server.py`
-and `image-mcp/server.py`. The six tools are the whole browser-facing
-surface: `code_plan` opens a job under the single-use grant a human
-approved and returns the agent's plan, `code_inspect`, `code_apply_patch`,
-`code_run_tests`, `code_review_diff`, and `code_finish` operate on that
-job by id, and the generic shell the agent runtime uses stays inside the
-coding-agent service's contained worktree. Every refusal reaches the model
-as an `isError` result at JSON-RPC success, so the router's
+and `image-mcp/server.py`. `server_mcp_tool` serves each wrapped tool as
+`<server>_<tool>`, so the bare names here compose with the section's
+`code` key into `code_plan`, `code_inspect`, `code_apply_patch`,
+`code_run_tests`, `code_review_diff`, `code_finish`, and `code_cancel` on
+the router port. Five of those are the model-facing surface: `plan` opens
+a job under the single-use grant a human approved and returns the agent's
+plan, and `inspect`, `apply_patch`, `run_tests`, and `review_diff` operate
+on that job by id. `finish` and `cancel` are browser-session controls the
+page calls directly and keeps out of the model's tool array: the model
+holds no way to remove its worktree before the user has seen the diff and
+test result, and the Clear button reaches the service's cancellation. The
+generic shell the agent runtime uses stays inside the coding-agent
+service's contained worktree. Every refusal reaches the model as an
+`isError` result at JSON-RPC success, so the router's
 `mcp_result_to_response` maps it onto an `error` key at HTTP 200.
 
 The listing states the configured coding profile's own bounds -- maximum
@@ -95,7 +102,7 @@ def tool_definitions(bounds):
     }
     return [
         {
-            "name": "code_plan",
+            "name": "plan",
             "description": (
                 "Open one approved coding job on profile %s (at most %s "
                 "changed files, %s patch bytes, %s seconds) and return the "
@@ -108,32 +115,39 @@ def tool_definitions(bounds):
                 "properties": {
                     "instruction": {"type": "string"},
                     "workspace_id": {"type": "string"},
+                    "repository_identity": {"type": "string"},
                     "profile_id": {"type": "string",
                                    "enum": [bounds["profile_id"]]},
                     "model_id": {"type": "string",
                                  "enum": [bounds["model_id"]]},
                     "base_commit": {"type": "string"},
+                    "conversation_generation": {"type": "string"},
                     "authorization": {"type": "object"},
                 },
-                "required": ["instruction", "workspace_id", "profile_id",
-                             "model_id", "base_commit", "authorization"],
+                "required": ["instruction", "workspace_id",
+                             "repository_identity", "profile_id",
+                             "model_id", "base_commit",
+                             "conversation_generation", "authorization"],
                 "additionalProperties": False,
             },
         },
         {
-            "name": "code_inspect",
-            "description": "List a directory or read a file inside the "
-                           "job worktree.",
+            "name": "inspect",
+            "description": "List a directory or read a bounded window of "
+                           "a file inside the job worktree; offset pages "
+                           "through a longer file.",
             "inputSchema": {
                 "type": "object",
                 "properties": dict(job_argument,
-                                   path={"type": "string"}),
+                                   path={"type": "string"},
+                                   offset={"type": "integer",
+                                           "minimum": 0}),
                 "required": ["job_id", "path"],
                 "additionalProperties": False,
             },
         },
         {
-            "name": "code_apply_patch",
+            "name": "apply_patch",
             "description": "Run the agent on the approved instruction and "
                            "report the bounded diff.",
             "inputSchema": {"type": "object", "properties": job_argument,
@@ -141,7 +155,7 @@ def tool_definitions(bounds):
                             "additionalProperties": False},
         },
         {
-            "name": "code_run_tests",
+            "name": "run_tests",
             "description": "Run the profile's allowed test command inside "
                            "the worktree.",
             "inputSchema": {"type": "object", "properties": job_argument,
@@ -149,17 +163,26 @@ def tool_definitions(bounds):
                             "additionalProperties": False},
         },
         {
-            "name": "code_review_diff",
-            "description": "Return the job's current patch, diffstat, and "
-                           "changed files.",
+            "name": "review_diff",
+            "description": "Return the job's current patch view, "
+                           "diffstat, and changed files.",
             "inputSchema": {"type": "object", "properties": job_argument,
                             "required": ["job_id"],
                             "additionalProperties": False},
         },
         {
-            "name": "code_finish",
-            "description": "Export the patch, test log, and event stream, "
-                           "then remove the worktree.",
+            "name": "finish",
+            "description": "Browser-session control: export the patch, "
+                           "test log, and event stream, verify the result "
+                           "tree, then remove the worktree.",
+            "inputSchema": {"type": "object", "properties": job_argument,
+                            "required": ["job_id"],
+                            "additionalProperties": False},
+        },
+        {
+            "name": "cancel",
+            "description": "Browser-session control: kill the job's "
+                           "process group and remove its worktree.",
             "inputSchema": {"type": "object", "properties": job_argument,
                             "required": ["job_id"],
                             "additionalProperties": False},
@@ -201,6 +224,7 @@ def call_plan(settings, arguments):
         "model_id": arguments["model_id"],
         "base_commit": arguments["base_commit"],
         "instruction": arguments["instruction"],
+        "conversation_generation": arguments["conversation_generation"],
         "grant": arguments["authorization"],
     }
     opened = service_request(settings, open_request)
@@ -208,7 +232,9 @@ def call_plan(settings, arguments):
                                          "job_id": opened["job_id"]})
     return json.dumps({"job_id": opened["job_id"],
                        "base_commit": opened["base_commit"],
-                       "plan": planned["plan"]}, sort_keys=True)
+                       "plan": planned["plan"],
+                       "plan_truncated": planned.get("plan_truncated")},
+                      sort_keys=True)
 
 
 def job_action(action, result_keys):
@@ -222,16 +248,21 @@ def job_action(action, result_keys):
 
 
 TOOL_HANDLERS = {
-    "code_plan": call_plan,
-    "code_inspect": job_action("inspect",
-                               ["kind", "entries", "content", "bytes"]),
-    "code_apply_patch": job_action("apply_patch",
-                                   ["returncode", "diffstat",
-                                    "changed_files"]),
-    "code_run_tests": job_action("run_tests", ["returncode", "log"]),
-    "code_review_diff": job_action("review_diff",
-                                   ["patch", "diffstat", "changed_files"]),
-    "code_finish": job_action("finish", ["export", "result_tree"]),
+    "plan": call_plan,
+    "inspect": job_action("inspect",
+                          ["kind", "entries", "content", "bytes",
+                           "offset", "truncated"]),
+    "apply_patch": job_action("apply_patch",
+                              ["returncode", "diffstat", "changed_files"]),
+    "run_tests": job_action("run_tests",
+                            ["returncode", "log", "log_truncated"]),
+    "review_diff": job_action("review_diff",
+                              ["patch", "patch_bytes", "patch_truncated",
+                               "diffstat", "changed_files"]),
+    "finish": job_action("finish",
+                         ["export_id", "result_tree", "patch_sha256",
+                          "test_log_sha256"]),
+    "cancel": job_action("cancel", ["state"]),
 }
 
 

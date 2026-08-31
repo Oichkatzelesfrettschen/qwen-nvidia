@@ -4,7 +4,11 @@
 # checkout the import bundle is read from; mirror names the bare repository
 # under the qwen-coder principal's repos root; test_profile names the one
 # command set code.run_tests may execute inside the worktree, resolved in
-# scripts/coding-profiles.tsv rather than taken from a request.
+# scripts/coding-profiles.tsv rather than taken from a request, and the
+# service refuses a profile whose allowed_test_profile departs from it.
+# repository_identity is the value every job grant is signed over, compared
+# against this row at open, so a grant issued for one repository cannot
+# open a job against another that later takes the same workspace_id path.
 #
-# workspace_id	repository_path	mirror	test_profile
-qwen-nvidia	$HOME/Github/qwen-nvidia	qwen-nvidia.git	repository-quality-gates
+# workspace_id	repository_path	mirror	test_profile	repository_identity
+qwen-nvidia	$HOME/Github/qwen-nvidia	qwen-nvidia.git	repository-quality-gates	qwen-nvidia

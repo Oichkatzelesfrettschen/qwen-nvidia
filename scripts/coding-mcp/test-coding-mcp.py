@@ -99,23 +99,34 @@ def run_suite(harness, child):
 
     listing = child.request("tools/list")
     tools = {t["name"]: t for t in listing["result"]["tools"]}
-    check("six_tools_listed", sorted(tools) == [
-        "code_apply_patch", "code_finish", "code_inspect", "code_plan",
-        "code_review_diff", "code_run_tests"], sorted(tools))
+    # Bare names compose with the section's `code` key into code_plan and
+    # so on at the router; finish and cancel are browser-session controls.
+    check("seven_bare_tools_listed", sorted(tools) == [
+        "apply_patch", "cancel", "finish", "inspect", "plan",
+        "review_diff", "run_tests"], sorted(tools))
     check("listing_states_profile_bounds",
           "at most 8 changed files, 65536 patch bytes"
-          in tools["code_plan"]["description"],
-          tools["code_plan"]["description"])
+          in tools["plan"]["description"],
+          tools["plan"]["description"])
     check("plan_schema_pins_model",
-          tools["code_plan"]["inputSchema"]["properties"]["model_id"]
+          tools["plan"]["inputSchema"]["properties"]["model_id"]
           ["enum"] == ["qwenseer-2b"])
+    check("plan_schema_requires_browser_fields",
+          set(tools["plan"]["inputSchema"]["required"]) >= {
+              "repository_identity", "conversation_generation",
+              "authorization"})
+    check("session_controls_marked",
+          tools["finish"]["description"].startswith("Browser-session")
+          and tools["cancel"]["description"].startswith("Browser-session"))
 
     request = {
         "instruction": "perform the edit behavior",
         "workspace_id": "test-repo",
+        "repository_identity": "test-repo",
         "profile_id": "code-test",
         "model_id": "qwenseer-2b",
         "base_commit": harness.behaviors["edit"],
+        "conversation_generation": "1",
     }
     grant = harness.grant({"action": "open_job",
                            "workspace_id": request["workspace_id"],
@@ -123,53 +134,71 @@ def run_suite(harness, child):
                            "model_id": request["model_id"],
                            "base_commit": request["base_commit"],
                            "instruction": request["instruction"]})
-    planned = child.call("code_plan", dict(request, authorization=grant))
-    check("code_plan_opens_and_plans", not is_error(planned),
+    planned = child.call("plan", dict(request, authorization=grant))
+    check("plan_opens_and_plans", not is_error(planned),
           json.dumps(planned)[:200])
     payload = json.loads(result_text(planned))
     job_id = payload["job_id"]
     check("plan_text_returned", "plan:" in payload["plan"])
 
-    inspected = child.call("code_inspect",
+    inspected = child.call("inspect",
                            {"job_id": job_id, "path": "README"})
-    check("code_inspect_reads_file", not is_error(inspected)
+    check("inspect_reads_file", not is_error(inspected)
           and "base for edit" in json.loads(
               result_text(inspected))["content"])
 
-    applied = child.call("code_apply_patch", {"job_id": job_id})
-    check("code_apply_patch", not is_error(applied)
+    paged = child.call("inspect",
+                       {"job_id": job_id, "path": "README", "offset": 9})
+    check("inspect_offset_forwarded", not is_error(paged)
+          and json.loads(result_text(paged))["content"] == "edit\n",
+          json.dumps(paged)[:200])
+
+    applied = child.call("apply_patch", {"job_id": job_id})
+    check("apply_patch", not is_error(applied)
           and "hello.txt" in json.loads(
               result_text(applied))["changed_files"])
 
-    tested = child.call("code_run_tests", {"job_id": job_id})
-    check("code_run_tests", not is_error(tested)
+    tested = child.call("run_tests", {"job_id": job_id})
+    check("run_tests", not is_error(tested)
           and "test-profile-ran" in json.loads(result_text(tested))["log"])
 
-    reviewed = child.call("code_review_diff", {"job_id": job_id})
-    check("code_review_diff", not is_error(reviewed)
+    reviewed = child.call("review_diff", {"job_id": job_id})
+    check("review_diff", not is_error(reviewed)
           and "+hello from the fixture agent"
           in json.loads(result_text(reviewed))["patch"])
 
-    finished = child.call("code_finish", {"job_id": job_id})
-    check("code_finish_exports", not is_error(finished)
-          and json.loads(result_text(finished))["result_tree"])
+    finished = child.call("finish", {"job_id": job_id})
+    finish_payload = json.loads(result_text(finished))
+    check("finish_exports", not is_error(finished)
+          and finish_payload["result_tree"]
+          and finish_payload["patch_sha256"])
+    check("finish_returns_no_absolute_path",
+          "export" not in finish_payload
+          and finish_payload["export_id"] == job_id)
+
+    second = harness.open_job("edit")
+    cancelled = child.call("cancel",
+                           {"job_id": second["result"]["job_id"]})
+    check("cancel_reaches_service", not is_error(cancelled)
+          and json.loads(result_text(cancelled))["state"] == "cancelled",
+          json.dumps(cancelled)[:200])
 
     unknown_tool = child.call("code_shell", {"job_id": job_id})
     check("generic_shell_tool_absent",
           "error" in unknown_tool
           and "unknown tool" in unknown_tool["error"]["message"])
 
-    unknown_argument = child.call("code_review_diff",
+    unknown_argument = child.call("review_diff",
                                   {"job_id": job_id, "command": "ls"})
     check("unknown_argument_refused", is_error(unknown_argument)
           and "does not read" in result_text(unknown_argument))
 
-    ungrunted = child.call("code_plan", dict(request,
-                                             authorization={"claim": {}}))
+    ungrunted = child.call("plan", dict(request,
+                                        authorization={"claim": {}}))
     check("ungranted_open_refused", is_error(ungrunted)
           and "refused" in result_text(ungrunted))
 
-    missing = child.call("code_apply_patch", {})
+    missing = child.call("apply_patch", {})
     check("missing_job_id_refused", is_error(missing))
 
 

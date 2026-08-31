@@ -15,6 +15,12 @@ edit)
     [ "$mode" = plan ] && { echo "plan: edit hello.txt"; exit 0; }
     printf 'hello from the fixture agent\n' >hello.txt
     ;;
+tracked-edit)
+    # A tracked-file-only modification: the defect this behavior guards
+    # against reported the base tree because nothing was staged before
+    # write-tree.
+    printf 'tracked change\n' >>README
+    ;;
 many-files)
     index=0
     while [ "$index" -lt 20 ]; do

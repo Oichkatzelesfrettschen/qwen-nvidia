@@ -81,7 +81,7 @@ authorities=$work_directory/authorities
 mkdir -p "$authorities"
 printf '# profile_id\tmodel_id\truntime_id\tworkspace_id\tmaximum_context\tmaximum_reply_tokens\tmaximum_files_changed\tmaximum_patch_bytes\tmaximum_job_seconds\tallowed_test_profile\tnetwork_policy\texecution_policy\ncode-test\tqwenseer-2b\tqwen-code\tprincipal-path-test\t32768\t8192\t8\t65536\t120\tfixture-echo\tloopback-llama\tvalidator-gated\n' \
     >"$authorities/coding-profiles.tsv"
-printf '# workspace_id\trepository_path\tmirror\ttest_profile\nprincipal-path-test\t%s\tprincipal-path-test.git\tfixture-echo\n' \
+printf '# workspace_id\trepository_path\tmirror\ttest_profile\trepository_identity\nprincipal-path-test\t%s\tprincipal-path-test.git\tfixture-echo\tprincipal-path-test\n' \
     "$repository" >"$authorities/coding-workspaces.tsv"
 printf '# model_id\trole\tminimum_validated_depth\tmax_reply_tokens\nqwenseer-2b\tfast-coder\t32768\t8192\n' \
     >"$authorities/coding-models.tsv"
@@ -89,7 +89,7 @@ printf '# id\tscope\tsubject\tfailure_class\tfirst_evidence\treason_record\n' \
     >"$authorities/coding-quarantine.tsv"
 printf '# id\tvalidated_filled_depth\nqwenseer-2b\t65536\n' \
     >"$authorities/models.tsv"
-printf '# id\tversion\tupstream_repository\trelease_tag\tasset_name\tasset_bytes\tasset_sha256\tinstall_directory\texecutable\texecution_policy\tvalidation_evidence\nqwen-code\t0.22.3\tQwenLM/qwen-code\tv0.22.3\ta\t1\t%s\tv0.22.3\tqwen-code/bin/qwen\trefused\t-\n' \
+printf '# id\tversion\tupstream_repository\trelease_tag\tasset_name\tasset_bytes\tasset_sha256\tinstall_directory\texecutable\texecution_policy\tvalidation_evidence\nqwen-code\t0.22.3\tQwenLM/qwen-code\tv0.22.3\ta\t1\t%s\tv0.22.3\tqwen-code/bin/qwen\tvalidator-gated\t-\n' \
     "$(printf '0%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64)" \
     >"$authorities/coding-runtimes.tsv"
 printf 'principal-path-key\n' >"$work_directory/grant.key"
@@ -163,6 +163,7 @@ def ask(payload):
 opened = ask({"action": "open_job", "workspace_id": "principal-path-test",
               "profile_id": "code-test", "model_id": "qwenseer-2b",
               "base_commit": base, "instruction": instruction,
+              "conversation_generation": "1",
               "grant": {"claim": claim, "signature": signature}})
 if not opened.get("ok"):
     print("open_failed %s %s" % (opened.get("error"),
