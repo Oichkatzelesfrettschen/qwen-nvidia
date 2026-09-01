@@ -1,0 +1,316 @@
+diff --git a/ggml/src/ggml-cuda/dispatch-census.cu b/ggml/src/ggml-cuda/dispatch-census.cu
+new file mode 100644
+index 000000000..a0c7d172a
+--- /dev/null
++++ b/ggml/src/ggml-cuda/dispatch-census.cu
+@@ -0,0 +1,130 @@
++#include "dispatch-census.cuh"
++
++#include <cstdio>
++#include <cstdlib>
++#include <ctime>
++#include <map>
++#include <mutex>
++#include <string>
++
++namespace {
++
++struct census_state {
++    std::mutex mutex;
++    FILE * file = nullptr;
++    bool header_written = false;
++    long graph_index = 0;
++    long long graph_t_ns = 0;
++    std::string graph_mode;
++    std::map<std::string, long> rows;
++};
++
++census_state & state() {
++    static census_state s;
++    return s;
++}
++
++const char * census_path() {
++    static const char * path = [] {
++        const char * env = getenv("GGML_CUDA_DISPATCH_CENSUS");
++        return (env != nullptr && env[0] != '\0') ? env : nullptr;
++    }();
++    return path;
++}
++
++long long now_ns() {
++    struct timespec ts;
++    clock_gettime(CLOCK_REALTIME, &ts);
++    return (long long) ts.tv_sec * 1000000000LL + ts.tv_nsec;
++}
++
++void write_header(census_state & s) {
++    if (s.header_written) {
++        return;
++    }
++    fputs("graph_index\tt_ns\tmode\tn_nodes\top\tpath\tdetail\tsrc0_name\tdst_name"
++          "\tsrc0_type\tsrc1_type\tdst_type"
++          "\tne00\tne01\tne02\tne03\tne10\tne11\tne12\tne13"
++          "\tnb01\tnb02\tnb03\tnb11\tnb12\tnb13"
++          "\tsrc0_contiguous\tsrc1_contiguous\tsrc0_transposed\tbatch_count\tlaunches\n", s.file);
++    s.header_written = true;
++}
++
++} // namespace
++
++bool ggml_cuda_dispatch_census_enabled() {
++    return census_path() != nullptr;
++}
++
++void ggml_cuda_dispatch_census_record(const char * path, const char * detail,
++    const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, const ggml_tensor * dst) {
++    if (!ggml_cuda_dispatch_census_enabled()) {
++        return;
++    }
++    char key[1024];
++    snprintf(key, sizeof(key),
++        "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
++        "\t%lld\t%lld\t%lld\t%lld\t%lld\t%lld\t%lld\t%lld"
++        "\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu"
++        "\t%d\t%d\t%d\t%lld",
++        ids != nullptr ? "MUL_MAT_ID" : "MUL_MAT", path, detail != nullptr ? detail : "-",
++        src0->name, dst->name,
++        ggml_type_name(src0->type), ggml_type_name(src1->type), ggml_type_name(dst->type),
++        (long long) src0->ne[0], (long long) src0->ne[1], (long long) src0->ne[2], (long long) src0->ne[3],
++        (long long) src1->ne[0], (long long) src1->ne[1], (long long) src1->ne[2], (long long) src1->ne[3],
++        src0->nb[1], src0->nb[2], src0->nb[3], src1->nb[1], src1->nb[2], src1->nb[3],
++        ggml_is_contiguous(src0) ? 1 : 0, ggml_is_contiguous(src1) ? 1 : 0,
++        ggml_is_transposed(src0) ? 1 : 0, (long long) (src1->ne[2] * src1->ne[3]));
++    census_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    s.rows[key] += 1;
++}
++
++void ggml_cuda_dispatch_census_graph_begin() {
++    if (!ggml_cuda_dispatch_census_enabled()) {
++        return;
++    }
++    census_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    s.graph_t_ns = now_ns();
++    s.graph_mode = "eager";
++    s.rows.clear();
++}
++
++void ggml_cuda_dispatch_census_graph_note(const char * mode) {
++    if (!ggml_cuda_dispatch_census_enabled()) {
++        return;
++    }
++    census_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    s.graph_mode = mode;
++}
++
++void ggml_cuda_dispatch_census_graph_end(int n_nodes) {
++    if (!ggml_cuda_dispatch_census_enabled()) {
++        return;
++    }
++    census_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    if (s.file == nullptr) {
++        s.file = fopen(census_path(), "a");
++        if (s.file == nullptr) {
++            fprintf(stderr, "ggml_cuda_dispatch_census: cannot open %s\n", census_path());
++            return;
++        }
++        write_header(s);
++    }
++    if (s.rows.empty()) {
++        fprintf(s.file, "%ld\t%lld\t%s\t%d\t-\t%s\t-\t-\t-\t-\t-\t-"
++            "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t1\n",
++            s.graph_index, s.graph_t_ns, s.graph_mode.c_str(), n_nodes,
++            s.graph_mode == "replay" ? "graph_replay" : "no_mat_mul");
++    }
++    for (const auto & row : s.rows) {
++        fprintf(s.file, "%ld\t%lld\t%s\t%d\t%s\t%ld\n",
++            s.graph_index, s.graph_t_ns, s.graph_mode.c_str(), n_nodes, row.first.c_str(), row.second);
++    }
++    fflush(s.file);
++    s.graph_index += 1;
++    s.rows.clear();
++}
+diff --git a/ggml/src/ggml-cuda/dispatch-census.cuh b/ggml/src/ggml-cuda/dispatch-census.cuh
+new file mode 100644
+index 000000000..1b72ba304
+--- /dev/null
++++ b/ggml/src/ggml-cuda/dispatch-census.cuh
+@@ -0,0 +1,18 @@
++#pragma once
++
++#include "common.cuh"
++
++// A default-off census of where each mat-mul launch goes. GGML_CUDA_DISPATCH_CENSUS
++// names a TSV path and enables every hook; unset, each hook costs one load of a
++// static bool. Rows are aggregated inside one graph compute and appended when it
++// ends, one row per distinct (path, detail, src0 name, types, shape, strides)
++// with the launch count, so a decode step and a prefill graph each retain their
++// own population. A CUDA graph replay launches no kernel through these hooks, so
++// the graph compute that replays retains one graph_replay row instead and the
++// captured population is read from the compute that captured it.
++bool ggml_cuda_dispatch_census_enabled();
++void ggml_cuda_dispatch_census_record(const char * path, const char * detail,
++    const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, const ggml_tensor * dst);
++void ggml_cuda_dispatch_census_graph_begin();
++void ggml_cuda_dispatch_census_graph_note(const char * mode);
++void ggml_cuda_dispatch_census_graph_end(int n_nodes);
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 2456f7dcc..9d9329a8e 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -32,6 +32,7 @@
+ #include "ggml-cuda/mmq.cuh"
+ #include "ggml-cuda/mmvf.cuh"
+ #include "ggml-cuda/mmvq.cuh"
++#include "ggml-cuda/dispatch-census.cuh"
+ #include "ggml-cuda/norm.cuh"
+ #include "ggml-cuda/opt-step-adamw.cuh"
+ #include "ggml-cuda/opt-step-sgd.cuh"
+@@ -1542,6 +1543,7 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
+     // However, for some old NVIDIA and AMD GPUs the strided/Ex GEMM is much slower,
+     //     probably because the internal kernel selection logic is suboptimal.
+     if (compute_type == GGML_TYPE_F32 && ne12 == 1 && ne13 == 1) {
++        ggml_cuda_dispatch_census_record("cuBLAS", "cublasSgemm/F32", src0, src1, nullptr, dst);
+         CUBLAS_CHECK(
+             cublasSgemm(cublas_h, CUBLAS_OP_T, CUBLAS_OP_N,
+                     ne01, ne11, ne10,
+@@ -1549,6 +1551,7 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
+                                            (const float *) src1_ptr, s11,
+                     (const float *) beta,  (float       *)  dst_ptr, ne0));
+     } else if (ne12 == 1 && ne13 == 1) {
++        ggml_cuda_dispatch_census_record("cuBLAS", compute_type == GGML_TYPE_F16 ? "cublasGemmEx/F16" : "cublasGemmEx/BF16", src0, src1, nullptr, dst);
+         CUBLAS_CHECK(
+             cublasGemmEx(cublas_h, CUBLAS_OP_T, CUBLAS_OP_N,
+                     ne01, ne11, ne10,
+@@ -1564,6 +1567,7 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
+ 
+         // there is no broadcast and src0, src1 are contiguous across dims 2, 3
+         // use cublasGemmStridedBatchedEx
++        ggml_cuda_dispatch_census_record("cuBLAS", compute_type == GGML_TYPE_F32 ? "cublasGemmStridedBatchedEx/F32" : compute_type == GGML_TYPE_F16 ? "cublasGemmStridedBatchedEx/F16" : "cublasGemmStridedBatchedEx/BF16", src0, src1, nullptr, dst);
+         CUBLAS_CHECK(
+         cublasGemmStridedBatchedEx(cublas_h, CUBLAS_OP_T, CUBLAS_OP_N,
+                 ne01, ne11, ne10,
+@@ -1602,6 +1606,7 @@ static void ggml_cuda_mul_mat_cublas_impl(ggml_backend_cuda_context & ctx, const
+ 
+         CUDA_CHECK(cudaGetLastError());
+ 
++        ggml_cuda_dispatch_census_record("cuBLAS", compute_type == GGML_TYPE_F32 ? "cublasGemmBatchedEx/F32" : compute_type == GGML_TYPE_F16 ? "cublasGemmBatchedEx/F16" : "cublasGemmBatchedEx/BF16", src0, src1, nullptr, dst);
+         CUBLAS_CHECK(
+         cublasGemmBatchedEx(cublas_h, CUBLAS_OP_T, CUBLAS_OP_N,
+                 ne01, ne11, ne10,
+@@ -4219,6 +4224,9 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+             ggml_cuda_graph_update_executable(cuda_ctx, graph_key);
+         }
+         // Launch graph
++        if (!cuda_graph_update_required) {
++            ggml_cuda_dispatch_census_graph_note("replay");
++        }
+         CUDA_CHECK(cudaGraphLaunch(graph->instance, cuda_ctx->stream()));
+ #else
+         GGML_UNUSED(graph_key);
+@@ -4248,6 +4256,7 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+     ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
+ 
+     ggml_cuda_set_device(cuda_ctx->device);
++    ggml_cuda_dispatch_census_graph_begin();
+ 
+     bool use_cuda_graph             = false;
+     bool cuda_graph_update_required = false;
+@@ -4296,9 +4305,11 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+         }
+ 
+         CUDA_CHECK(cudaStreamBeginCapture(cuda_ctx->stream(), cudaStreamCaptureModeRelaxed));
++        ggml_cuda_dispatch_census_graph_note("capture");
+     }
+ 
+     ggml_cuda_graph_evaluate_and_capture(cuda_ctx, cgraph, use_cuda_graph, cuda_graph_update_required, graph_key);
++    ggml_cuda_dispatch_census_graph_end(cgraph->n_nodes);
+ 
+     return GGML_STATUS_SUCCESS;
+ }
+diff --git a/ggml/src/ggml-cuda/mmf.cu b/ggml/src/ggml-cuda/mmf.cu
+index 646a5899c..20a78ec0c 100644
+--- a/ggml/src/ggml-cuda/mmf.cu
++++ b/ggml/src/ggml-cuda/mmf.cu
+@@ -1,6 +1,7 @@
+ #include "ggml.h"
+ #include "mmf.cuh"
+ #include "mmid.cuh"
++#include "dispatch-census.cuh"
+ 
+ static __forceinline__ int mmf_get_rows_per_block(const int cc) {
+     if (GGML_CUDA_CC_IS_CDNA(cc)) {
+@@ -15,6 +16,8 @@ void ggml_cuda_mul_mat_f(ggml_backend_cuda_context & ctx, const ggml_tensor * sr
+     GGML_ASSERT(!ids ||  ids->type == GGML_TYPE_I32);
+     GGML_ASSERT(         dst->type == GGML_TYPE_F32);
+ 
++    ggml_cuda_dispatch_census_record("MMF", nullptr, src0, src1, ids, dst);
++
+ 
+     GGML_TENSOR_BINARY_OP_LOCALS;
+ 
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+index 707437ea3..e439ee86c 100644
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -1,5 +1,6 @@
+ #include "common.cuh"
+ #include "mmq.cuh"
++#include "dispatch-census.cuh"
+ #include "quantize.cuh"
+ #include "mmid.cuh"
+ 
+@@ -88,6 +89,8 @@ void ggml_cuda_mul_mat_q(
+     GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
+     GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
+ 
++    ggml_cuda_dispatch_census_record("MMQ", nullptr, src0, src1, ids, dst);
++
+     GGML_TENSOR_BINARY_OP_LOCALS;
+ 
+     cudaStream_t stream = ctx.stream();
+diff --git a/ggml/src/ggml-cuda/mmvf.cu b/ggml/src/ggml-cuda/mmvf.cu
+index d7dbc8b99..6525c829f 100644
+--- a/ggml/src/ggml-cuda/mmvf.cu
++++ b/ggml/src/ggml-cuda/mmvf.cu
+@@ -3,6 +3,7 @@
+ #include "unary.cuh"
+ #include "mmvf.cuh"
+ #include "convert.cuh"
++#include "dispatch-census.cuh"
+ 
+ template <typename T, typename type_acc, int ncols_dst, int block_size, bool has_fusion = false, bool is_multi_token_id = false>
+ static __global__ void mul_mat_vec_f(
+@@ -632,6 +633,8 @@ void ggml_cuda_mul_mat_vec_f(ggml_backend_cuda_context & ctx, const ggml_tensor
+     GGML_ASSERT(!ids ||  ids->type == GGML_TYPE_I32);
+     GGML_ASSERT(         dst->type == GGML_TYPE_F32);
+ 
++    ggml_cuda_dispatch_census_record("MMVF", fusion != nullptr ? "fused" : "-", src0, src1, ids, dst);
++
+     GGML_TENSOR_BINARY_OP_LOCALS;
+ 
+     const size_t ts_src0 = ggml_type_size(src0->type);
+diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
+index c374e75b1..34eb12639 100644
+--- a/ggml/src/ggml-cuda/mmvq.cu
++++ b/ggml/src/ggml-cuda/mmvq.cu
+@@ -1,5 +1,6 @@
+ #include "mmvq.cuh"
+ #include "quantize.cuh"
++#include "dispatch-census.cuh"
+ #include "unary.cuh"
+ #include "vecdotq.cuh"
+ 
+@@ -1337,6 +1338,8 @@ void ggml_cuda_mul_mat_vec_q(
+     GGML_ASSERT(        dst->type  == GGML_TYPE_F32);
+     GGML_ASSERT(!ids || ids->type  == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
+ 
++    ggml_cuda_dispatch_census_record("MMVQ", fusion != nullptr ? "fused" : "-", src0, src1, ids, dst);
++
+     GGML_TENSOR_BINARY_OP_LOCALS;
+ 
+     cudaStream_t stream = ctx.stream();

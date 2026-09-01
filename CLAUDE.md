@@ -969,6 +969,9 @@ scripts/run-vision-review-control.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
                                                 # real, withheld, swapped, and a closing real arm
 scripts/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
                                                 # token identity across the graph optimizer
+scripts/run-cuda-dispatch-census.sh OUT [ARM_ID...]
+                                                # where every mat-mul launch goes, per arm, census closure only
+scripts/summarize-dispatch-census.py OUT        # census rows joined to the requests that produced them
 
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
@@ -998,6 +1001,7 @@ scripts/test-qwen-runtime-guards.sh
 scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
 scripts/test-strict-cuda-placement-fixture.sh
+scripts/test-dispatch-census-summary.sh
 scripts/test-probe-depth-projector.sh
 scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh

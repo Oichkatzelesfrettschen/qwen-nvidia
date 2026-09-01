@@ -56,8 +56,8 @@ The open extension is the Vulkan-backend arms.
 
 ## Graded quality suite
 
-`evidence/quality-roster-cuda/` grades all twenty-three servable rows in one
-withheld-image sweep on this host's CUDA serving path, with
+`evidence/quality-roster-cuda/` grades the twenty-three rows servable at its
+run in one withheld-image sweep on this host's CUDA serving path, with
 `lfm25-12b-thinking` re-run at a 4096-token budget as its own condition. The
 code category places `qwenseer-2b` at 9 of 10 near 232 tok/s, which moved
 the fast-coding role to it; the 4B Q5_K_M and Q6_K rungs hold 10 of 10 in
@@ -114,8 +114,9 @@ numerical-policy one. The `GGML_CUDA_FORCE_MMQ` build arm remains 2B-only.
 ## Quantized mat-mul dispatch
 
 `evidence/ada/cuda-mat-mul-dispatch-census.md` reads
-`ggml/src/ggml-cuda/` at `f280b2698` and closes the dense-fallback census
-without device time. `ggml_cuda_should_use_mmq` admits twenty-two weight types
+`ggml/src/ggml-cuda/` at `f280b2698` and states which conditions reach the
+dense path; `evidence/ada/cuda-dispatch-census/` then measures them at
+runtime. `ggml_cuda_should_use_mmq` admits twenty-two weight types
 and every quantization `scripts/models.tsv` serves is inside that set, so the
 dense cuBLAS path is reached by activation type and tensor shape --
 `ggml-cuda.cu:1829` on a non-F32 `src1` or `dst`, `:1869` where all four
@@ -140,17 +141,29 @@ this dispatch, including the `GGML_CUDA_CUBLAS_COMPUTE_TYPE` override at
 `ggml-cuda.cu:1634`. `GGML_CUDA_P2P` is the one it leaves alone, and peer
 access between devices is what one card cannot express.
 
-The static read closes no runtime question. cuBLAS is entered on activation
-type and shape, which is the regime the dense F16 and BF16 rows and every
-vision projector run in, so the runtime census stays open: a default-off
-counter at the dispatch leaves, run over the 0.8B at Q8_0, F16, and BF16, the
-three Q4_K_M distills, and three projector-loaded vision rows, decides whether
-any planner has a population to plan for. `qwen35-08b-bf16` is registered for
-that census as the representation control beside the F16 row:
-`scripts/admit-representation-row.sh` admitted it on the promoted closure
-through the publisher digest, the header, the pair check, and one strict
-CUDA0 load (`evidence/ada/representation-admission/qwen35-08b-bf16/`), at
-tier candidate with its ceiling at 8192 and every rate field empty.
+The runtime census is closed. `patches/llama-cuda-dispatch-census.patch` is
+a default-off counter at the five leaf launchers and the four cuBLAS entries,
+built into diagnostic closure `a925c84db3a2` at the promoted levers and kept
+out of `build-appliance-current`; `scripts/run-cuda-dispatch-census.sh` ran
+the 0.8B at Q8_0, F16, and BF16, the three Q4_K_M distills, and three
+projector-loaded vision rows through it. Production text serving reaches
+cuBLAS zero times at pp512 and tg64, so the general text cuBLASLt planner is
+retired. The dense F16 and BF16 rows run their whole prefill on
+`cublasGemmEx` because `ggml_cuda_should_use_mmf` refuses a dense weight above
+sixteen columns, and BF16 reaches exactly the paths F16 reaches. The one
+repeated material population is the vision encoder wherever the projector
+file carries F16 weights: all 96 encoder mat-muls per image on
+`qwen35-4b-base`, 27 `ffn_down` per image on LFM2.5-VL-1.6B, one reshaped
+activation on the 450M. The next arm is the cheaper lever, a Q8_0 projector
+for `qwen35-4b-base` timed against the F16 one, and a planner scoped to the
+F16 encoder shapes earns implementation only where that timing shows the
+cuBLAS share of request time worth it.
+`qwen35-08b-bf16` was registered for that census as the representation
+control beside the F16 row: `scripts/admit-representation-row.sh` admitted it
+on the promoted closure through the publisher digest, the header, the pair
+check, and one strict CUDA0 load
+(`evidence/ada/representation-admission/qwen35-08b-bf16/`), at tier candidate
+with its ceiling at 8192 and every rate field empty.
 
 ## Device ownership for depth campaigns
 

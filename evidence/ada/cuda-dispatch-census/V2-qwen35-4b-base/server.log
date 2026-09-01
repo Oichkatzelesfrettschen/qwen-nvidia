@@ -1,0 +1,49 @@
+0.00.019.462 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.019.571 I srv          init: The UI is disabled
+0.00.019.572 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.019.653 W srv  llama_server: -----------------
+0.00.019.654 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.019.654 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.019.654 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.019.655 W srv  llama_server: -----------------
+0.00.020.863 I srv    load_model: loading model '$HOME/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf'
+0.12.320.911 I cmn          init: llama threadpool init, n_threads = 6
+0.12.332.979 W load_hparams: Qwen-VL models require at minimum 1024 image tokens to function correctly on grounding tasks
+0.12.332.981 W load_hparams: if you encounter problems with accuracy, try adding --image-min-tokens 1024
+0.12.332.981 W load_hparams: more info: https://github.com/ggml-org/llama.cpp/issues/16842
+
+0.19.010.520 I srv    load_model: loaded multimodal model, '$HOME/models/Qwen3.5-4B-GGUF/mmproj-F16.gguf'
+0.19.204.882 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.19.204.952 W srv          init: --cache-idle-slots requires --cache-ram, disabling
+0.19.227.599 I srv  llama_server: model loaded
+0.19.227.607 I srv  llama_server: listening on http://127.0.0.1:18110
+0.19.472.684 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.19.472.748 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.19.866.631 I slot print_timing: id  0 | task 0 | prompt eval time =      91.49 ms /    28 tokens (    3.27 ms per token,   306.06 tokens per second)
+0.19.866.637 I slot print_timing: id  0 | task 0 |        eval time =     302.36 ms /    32 tokens (    9.75 ms per token,   102.53 tokens per second)
+0.19.866.638 I slot print_timing: id  0 | task 0 |       total time =     393.84 ms /    60 tokens
+0.19.866.645 I slot print_timing: id  0 | task 0 |    graphs reused =         30
+0.19.866.695 I slot      release: id  0 | task 0 | stop processing: n_tokens = 59, truncated = 0
+0.19.924.735 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 135840035862
+0.19.924.815 I slot launch_slot_: id  0 | task 33 | processing task, is_child = 0
+0.20.300.798 W find_slot: non-consecutive token position 17 after 16 for sequence 0 with 88 new tokens
+0.20.300.852 W find_slot: non-consecutive token position 17 after 16 for sequence 0 with 88 new tokens
+0.20.309.590 W find_slot: non-consecutive token position 37 after 17 for sequence 0 with 10 new tokens
+0.20.309.605 W find_slot: non-consecutive token position 37 after 17 for sequence 0 with 10 new tokens
+0.20.648.455 I slot print_timing: id  0 | task 33 | prompt eval time =     417.39 ms /   115 tokens (    3.63 ms per token,   275.52 tokens per second)
+0.20.648.467 I slot print_timing: id  0 | task 33 |        eval time =     306.22 ms /    32 tokens (    9.88 ms per token,   101.24 tokens per second)
+0.20.648.469 I slot print_timing: id  0 | task 33 |       total time =     723.61 ms /   147 tokens
+0.20.648.472 I slot print_timing: id  0 | task 33 |    graphs reused =         60
+0.20.648.542 I slot      release: id  0 | task 33 | stop processing: n_tokens = 146, truncated = 0
+0.20.690.241 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.788
+0.20.690.337 I slot launch_slot_: id  0 | task 67 | processing task, is_child = 0
+0.20.711.367 W find_slot: non-consecutive token position 17 after 16 for sequence 0 with 88 new tokens
+0.20.711.418 W find_slot: non-consecutive token position 17 after 16 for sequence 0 with 88 new tokens
+0.20.719.472 W find_slot: non-consecutive token position 37 after 17 for sequence 0 with 10 new tokens
+0.20.719.488 W find_slot: non-consecutive token position 37 after 17 for sequence 0 with 10 new tokens
+0.21.050.679 I slot print_timing: id  0 | task 67 | prompt eval time =      57.78 ms /   115 tokens (    0.50 ms per token,  1990.24 tokens per second)
+0.21.050.687 I slot print_timing: id  0 | task 67 |        eval time =     302.52 ms /    32 tokens (    9.76 ms per token,   102.47 tokens per second)
+0.21.050.689 I slot print_timing: id  0 | task 67 |       total time =     360.30 ms /   147 tokens
+0.21.050.692 I slot print_timing: id  0 | task 67 |    graphs reused =         90
+0.21.050.725 I slot      release: id  0 | task 67 | stop processing: n_tokens = 146, truncated = 0
+0.21.081.864 I srv    operator(): operator(): cleaning up before exit...

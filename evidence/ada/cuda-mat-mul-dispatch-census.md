@@ -99,7 +99,11 @@ sixteen is unmeasured because no build has expressed it.
 A dense-path planner has no served subject to plan for: every quantization in
 `scripts/models.tsv` carries an MMQ kernel, and the dense path is reached by
 activation type and tensor shape. A planner keyed on weight type would act on a
-condition this roster never presents.
+condition this roster never presents. `cuda-dispatch-census/` is the runtime
+reading this static one predicted the need for: the quantized text rows reach
+cuBLAS zero times, the dense F16 and BF16 rows run their whole prefill there,
+and the vision encoder reaches it wherever the projector file carries F16
+weights.
 
 ## Falsifiers
 

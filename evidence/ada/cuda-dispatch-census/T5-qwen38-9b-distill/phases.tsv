@@ -1,0 +1,15 @@
+arm	request	label	phase	path	detail	src0_type	src1_type	dst_type	mode	graphs	distinct_shapes	dispatch_launches	graph_replays
+T5-qwen38-9b-distill	outside	outside	text_decode	MMVQ	-	q6_K	f32	f32	eager	1	1	1	0
+T5-qwen38-9b-distill	outside	outside	text_prefill	MMVQ	-	q4_K	f32	f32	eager	1	216	216	0
+T5-qwen38-9b-distill	outside	outside	text_prefill	MMVQ	-	q6_K	f32	f32	eager	1	32	32	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	graph_replay	graph_replay	-	-	-	-	replay	61	0	0	61
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	-	q4_K	f32	f32	capture	1	128	128	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	-	q4_K	f32	f32	eager	1	128	128	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	-	q6_K	f32	f32	capture	1	17	17	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	-	q6_K	f32	f32	eager	2	17	18	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	fused	q4_K	f32	f32	capture	1	56	56	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	fused	q4_K	f32	f32	eager	1	56	56	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	fused	q6_K	f32	f32	capture	1	16	16	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_decode	MMVQ	fused	q6_K	f32	f32	eager	1	16	16	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_prefill	MMQ	-	q4_K	f32	f32	eager	1	216	216	0
+T5-qwen38-9b-distill	r1	text-pp512-tg64	text_prefill	MMQ	-	q6_K	f32	f32	eager	1	32	32	0
