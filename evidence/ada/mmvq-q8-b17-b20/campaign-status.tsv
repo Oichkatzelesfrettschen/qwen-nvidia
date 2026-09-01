@@ -1,0 +1,8 @@
+run	measurement_status	repeatability_evidence	crossover_promotion_evidence	opening_pp	closing_pp	span	preregistered_floor	reason
+repeats-3	non-promotable	invalid	invalid	2751.5	1970.7	0.2838	0.051	desktop/GPU state changed between opening and closing controls: pre-arm power 58 W at the opening arm and 136 W at the closing arm
+repeats-10	non-promotable	valid	invalid	3241.3	3038.1	0.0627	0.051	opening-to-closing span exceeds the preregistered 5.1% floor; within-arm scatter shrank, between-arm state did not
+paired-single-run	design-iteration	invalid	invalid	-	-	-	0.051	one timed run per process reads llama-bench's cold first run (543 to 1348 tok/s); withdrawn after three opening observations
+paired-cold-baseline	design-iteration	valid	invalid	-	-	-	0.051	baseline registered at 45 C before any load; the card runs at 51 C under repeated observations and the gate refused B19 after the settling window; B17 and B18 pairs retained
+paired-pinned	promotion-grade	valid	valid	3203.9	3278.2	0.0232	0.051	SM clock pinned at 2835 MHz, baseline registered after the opening controls, 86 observations admitted, zero refusals, same three clients throughout
+tails-qwen35-08b	control	valid	invalid	-	-	0.0280	0.051	co-resident alternating pairs on the exact nineteen-column closure, SM clock pinned, 120 pairs token-identical, prefill and decode ratios at unity; the tail's share bounds the request-level gain to about 1%, under the floor, so the run is a no-regression control rather than gain evidence
+tails-qwen38-2b-distill	control	valid	invalid	-	-	0.1355	0.051	same design on the 2B production control, which carries no Q8_0 weight; 120 pairs token-identical and ratios at unity where both closures execute identical kernels; control drift to 13.6% under the desktop

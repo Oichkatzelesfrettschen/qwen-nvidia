@@ -124,17 +124,32 @@ specialized predicates decline -- rather than by a weight type lacking a
 kernel. IQ1_M is the one absent weight type a GGUF could carry. A planner keyed
 on weight type would act on a condition this roster never presents.
 
-The same census closes the scoping question under the Q8_0 width arm.
-`mmvq.cuh:14` sets `MMVQ_KERNEL_MAX_NCOLS` to 16 and a launch assert
-(`mmvq.cu:934`), the instantiation switch ending at `mmvq.cu:1167`, and two
-`static_assert`s at `mmvq.cuh:15-20` hold it there, so a CMake threshold above
-sixteen fails the build rather than widening the kernel. The promoted Q8_0
-threshold of 16 already sits on that ceiling. Measuring beyond it needs a fifth
-entry in `patches/` carrying four coordinated edits -- the constant,
-`mul_mat_vec_q_switch_ncols_dst`, `calc_nwarps`, and `calc_rows_per_block` --
-ahead of any sweep. No resource bound explains the ceiling at sixteen, where
-shared memory holds 4096 bytes against roughly 96 KiB per SM; whether register
-pressure binds at a wider count is unmeasured.
+`patches/llama-cuda-mmvq-ncols-20.patch` raises `MMVQ_KERNEL_MAX_NCOLS` to
+twenty with the four coordinated edits, and `evidence/ada/mmvq-q8-b17-b20/`
+measures Q8_0 at seventeen through twenty against the promoted closure: the
+subject closure `8680bc95e989` clears the ten-repetition campaign's 6.3%
+floor at every width (12.0, 10.2, 6.9, and 10.0%), launches
+`mul_mat_vec_q<Q8_0, 17..20>` where the control launches `mul_mat_q`, holds
+153 registers with zero local memory at twenty, and answers
+token-identically at every served prompt length. Neither block run is promotion evidence: the
+three-repetition run changed state between its controls and the
+ten-repetition run's 6.3% span exceeds the preregistered 5.1% floor. The
+alternating paired campaign under `gpu-quiescence-gate.sh` with the SM clock
+pinned is: 86 observations, a 2.3% control span, and paired ratio medians of
+1.136, 1.137, 1.088, and 1.053 at seventeen through twenty, so seventeen
+through nineteen are admitted under the contiguous rule and twenty is not.
+The selected threshold is nineteen. The exact nineteen-column closure
+`137b2a23a42c` launches MMVQ at nineteen and MMQ at twenty in the boundary
+audit, and the co-resident alternating tail campaign on the 0.8B and on the
+2B production control reads it as a no-regression control: 120
+token-identical pairs per model, prefill and decode ratios at unity, and a
+request-level gain the tail's share bounds to about 1%, under the 5.1%
+floor. Production stays at sixteen until the ordinary promotion gate runs on
+that closure. `QWEN_GPU_OWNERSHIP_FD` replaces the exported held-claim
+marker: `gpu_ownership_require` proves an inherited descriptor is open on
+the lock inode and holds the lock before a nested sweep inspects the driver's
+client list, and `run-ad104-b789-calibration.sh` exports the descriptor it
+locked to the baseline sweep each arm runs.
 
 `cuda-runtime-env.sh` names every backend environment variable that reaches
 this dispatch, including the `GGML_CUDA_CUBLAS_COMPUTE_TYPE` override at

@@ -928,6 +928,12 @@ scripts/run-ad104-b789-calibration.sh [--validate] MATRIX_TSV OUT
                                                 # the MMVQ/MMQ crossover arms, one clean boot, one lock
 scripts/run-ad104-path-audit.sh [--dry-run] MATRIX_TSV OUT [ARM_ID...]
                                                 # which mat-mul kernel each arm launched, read from the symbol
+scripts/gpu-quiescence-gate.sh baseline|wait BASELINE_TSV [LABEL]
+                                                # the same clients and a settled card ahead of a one-percent reading
+scripts/run-mmvq-paired-crossover.sh CONTROL_BENCH SUBJECT_BENCH MODEL_ID OUT
+                                                # alternating pairs per width under the quiescence gate, paired ratios
+scripts/run-mmvq-width-request-tails.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
+                                                # served prefill at B, 512+B, 1024+B, 2048+B on two closures, tokens compared
 scripts/read-nsys-mat-mul-kernels.py CAPTURE.sqlite
                                                 # the quantized mat-mul launches one Nsight Systems capture holds
 
@@ -1009,6 +1015,7 @@ scripts/test-qwen-runtime-guards.sh
 scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
 scripts/test-strict-cuda-placement-fixture.sh
+scripts/test-gpu-quiescence-gate.sh
 scripts/test-dispatch-census-summary.sh
 scripts/test-probe-depth-projector.sh
 scripts/test-web-presets.sh
