@@ -31,9 +31,11 @@ row=$(awk -F'\t' '!/^#/ && $1 == "qwen-code"' \
 field_count=$(printf '%s' "$row" | awk -F'\t' '{ print NF }')
 [ "$field_count" = 11 ] && check registry_field_count pass ||
     check registry_field_count fail "fields=$field_count"
-[ "$(printf '%s' "$row" | cut -f10)" = refused ] &&
-    check registry_execution_refused pass ||
-    check registry_execution_refused fail "$(printf '%s' "$row" | cut -f10)"
+# The full-chain admission moved the row to validator-gated; a rollback is
+# a reviewed edit that updates this expectation with the ledger.
+[ "$(printf '%s' "$row" | cut -f10)" = validator-gated ] &&
+    check registry_execution_policy pass ||
+    check registry_execution_policy fail "$(printf '%s' "$row" | cut -f10)"
 printf '%s' "$row" | cut -f7 | grep -qE '^[0-9a-f]{64}$' &&
     check registry_digest_shape pass || check registry_digest_shape fail
 printf '%s' "$row" | cut -f6 | grep -qE '^[1-9][0-9]*$' &&
@@ -180,10 +182,12 @@ wrapper_env() {
 printf 'test-key\n' >"$work_directory/key"
 chmod 600 "$work_directory/key"
 
+# The wrapper carries no validator, so direct use needs the explicit
+# override whatever the registry policy reads.
 if wrapper_allow=0 wrapper_env qwenseer-2b >/dev/null 2>&1; then
-    check wrapper_refuses_refused_policy fail accepted
+    check wrapper_refuses_without_direct_override fail accepted
 else
-    check wrapper_refuses_refused_policy pass
+    check wrapper_refuses_without_direct_override pass
 fi
 if wrapper_base_url=http://0.0.0.0:8080/v1 \
     wrapper_env qwenseer-2b >/dev/null 2>&1; then

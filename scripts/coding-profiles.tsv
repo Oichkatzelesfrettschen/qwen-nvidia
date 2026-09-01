@@ -8,10 +8,12 @@
 # command set code.run_tests resolves; network_policy is `loopback-llama`
 # for every row because the contained task environment reaches exactly the
 # local llama-server. execution_policy decides whether the service accepts
-# a job at all: every checked-in row reads `refused`, and the lane opens
-# through a reviewed edit to `validator-gated` only after the model-depth,
-# switch-policy, containment, and full-chain admission gates pass.
+# a job at all. code-fast-a reads `validator-gated`: the model-depth,
+# switch-policy, containment, and full-chain admission gates passed and
+# evidence/coding-agent/chain-admission/ retains the qwenseer-2b run.
+# code-deep-a stays `refused` until the same chain passes against the 7B at
+# its validated 8192 depth under the evict-first transition.
 #
 # profile_id	model_id	runtime_id	workspace_id	maximum_context	maximum_reply_tokens	maximum_files_changed	maximum_patch_bytes	maximum_job_seconds	allowed_test_profile	network_policy	execution_policy
-code-fast-a	qwenseer-2b	qwen-code	qwen-nvidia	32768	8192	16	262144	600	repository-quality-gates	loopback-llama	refused
+code-fast-a	qwenseer-2b	qwen-code	qwen-nvidia	32768	8192	16	262144	600	repository-quality-gates	loopback-llama	validator-gated
 code-deep-a	qwen25-coder-7b	qwen-code	qwen-nvidia	8192	4096	8	131072	900	repository-quality-gates	loopback-llama	refused

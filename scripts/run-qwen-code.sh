@@ -11,10 +11,11 @@ set -eu
 # outside the process. The key travels through the environment alone and
 # stays out of argv, status files, and retained logs.
 #
-# execution_policy in scripts/coding-runtimes.tsv reads `refused`, so this
-# wrapper runs only under QWEN_CODE_ALLOW_DIRECT=1 for interactive local use
-# against the loopback listener; the coding-agent service is the path a
-# browser-approved job takes.
+# The validator-gated execution path is the coding-agent service, which
+# verifies a single-use grant before the runtime runs; this wrapper is the
+# interactive direct path beside it and carries no validator, so it runs
+# only under QWEN_CODE_ALLOW_DIRECT=1 whatever the registry policy reads,
+# against the loopback listener alone.
 
 usage() {
     printf 'usage: %s MODEL_ID [ARGUMENT...]\n' "$0" >&2
@@ -35,9 +36,9 @@ settings_template=$script_directory/qwen-code-settings.json
 
 execution_policy=$(awk -F'\t' '!/^#/ && $1 == "qwen-code" { print $10 }' \
     "$registry")
-if [ "$execution_policy" = refused ] &&
-    [ "${QWEN_CODE_ALLOW_DIRECT:-0}" != 1 ]; then
-    printf 'coding-runtimes.tsv holds qwen-code at execution_policy=refused; ' >&2
+if [ "${QWEN_CODE_ALLOW_DIRECT:-0}" != 1 ]; then
+    printf 'the validator-gated execution path is the coding-agent service ' >&2
+    printf '(registry policy: %s); ' "$execution_policy" >&2
     printf 'QWEN_CODE_ALLOW_DIRECT=1 admits an interactive loopback run\n' >&2
     exit 1
 fi

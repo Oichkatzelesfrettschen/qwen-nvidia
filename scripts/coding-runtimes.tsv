@@ -5,14 +5,15 @@
 # fetcher updates atomically so the prior version stays available.
 #
 # execution_policy states whether the runtime may execute at all, over
-# `refused` and `validator-gated`. Every checked-in row reads `refused`: the
-# coding lane executes nothing until the model-depth, switch-policy,
-# containment, and full-chain admission gates pass, and moving a row is a
-# reviewed edit rather than a runtime decision. asset_sha256 is the digest
+# `refused` and `validator-gated`. The qwen-code row reads `validator-gated`
+# because the model-depth, switch-policy, containment, and full-chain
+# admission gates all passed and evidence/coding-agent/chain-admission/
+# retains the run; moving a row remains a reviewed edit rather than a
+# runtime decision. asset_sha256 is the digest
 # the publisher's SHA256SUMS release artifact states for asset_name, so a
 # fetched archive is verified against the publisher rather than against this
 # repository alone. install_directory and executable are relative to the
 # install root the fetcher takes as its argument.
 #
 # id	version	upstream_repository	release_tag	asset_name	asset_bytes	asset_sha256	install_directory	executable	execution_policy	validation_evidence
-qwen-code	0.22.3	QwenLM/qwen-code	v0.22.3	qwen-code-linux-x64.tar.gz	84633418	9db29c26a987bea729a6db5ce2200a4c1178d6f87c4fa4a7900075868c02c04c	v0.22.3	qwen-code/bin/qwen	refused	evidence/coding-agent/qwen-code-v0223.md
+qwen-code	0.22.3	QwenLM/qwen-code	v0.22.3	qwen-code-linux-x64.tar.gz	84633418	9db29c26a987bea729a6db5ce2200a4c1178d6f87c4fa4a7900075868c02c04c	v0.22.3	qwen-code/bin/qwen	validator-gated	evidence/coding-agent/chain-admission/README.md

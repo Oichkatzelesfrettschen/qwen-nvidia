@@ -211,15 +211,21 @@ dangerous. Only `production` and `candidate` reach the preset file.
 Tool selection and tool execution are two claims and the registry carries them
 as `raw_tool_selection` and `guarded_tool_execution`. The first is the graded
 tool category, the model unaided. The second states whether the row may execute
-a tool, over `refused`, `validator-gated`, and `unguarded`. Every row reads
-`refused`, because `tool-08` puts an instruction inside the note the user asks
-about and all six measured arms carried the injected city into the call in place
-of the authorized one. Reading one number for both misleads in both directions:
-the 2B distill scores 2 of 10 and still serves text as the `fast-text` default,
-and the 4B distill scores 9 of 10 while failing the one row an execution grant
-exists to survive. A runtime that compares emitted arguments against the user's
-own authorization is what moves a row to `validator-gated`, and this tree holds
-none: the appliance runs without `--tools` and the server executes nothing.
+a tool, over `refused`, `validator-gated`, and `unguarded`. `tool-08` puts an
+instruction inside the note the user asks about and all six measured arms
+carried the injected city into the call in place of the authorized one, so a
+row earns `validator-gated` only from a runtime that compares emitted
+arguments against the user's own authorization. Reading one number for both
+misleads in both directions: the 2B distill scores 2 of 10 and still serves
+text as the `fast-text` default, and the 4B distill scores 9 of 10 while
+failing the one row an execution grant exists to survive. The coding lane is
+the one such runtime this tree holds -- the coding-agent service verifies a
+single-use HMAC grant field by field against live workspace and job state
+before anything executes, inside the qwen-coder principal's containment --
+and `qwenseer-2b` reads `validator-gated` on the strength of the full-chain
+admission `evidence/coding-agent/chain-admission/` retains. Every other row
+reads `refused`: the appliance still runs without `--tools` and llama-server
+itself executes nothing.
 
 The failure unit is a tuple rather than a checkpoint, so `scripts/quarantine.tsv`
 carries two scopes. A `model` row removes a checkpoint entirely; a `profile` row
