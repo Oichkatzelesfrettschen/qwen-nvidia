@@ -75,10 +75,12 @@ command -v python3 >/dev/null 2>&1 || {
     printf 'python3 is absent from PATH\n' >&2
     exit 1
 }
-if pgrep -x llama-server >/dev/null 2>&1 || pgrep -x llama-bench >/dev/null 2>&1; then
-    printf 'another llama process holds the device\n' >&2
-    exit 2
-fi
+# Device ownership comes from the driver's compute-client list and the campaign
+# lock rather than from a process name. A stub named llama-server left behind by
+# a fixture holds no CUDA context, and matching its name refused this sweep
+# against a device only the compositor was using.
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_require || exit 2
 
 mkdir -p "$output_directory"
 summary=$output_directory/speculation-summary.tsv

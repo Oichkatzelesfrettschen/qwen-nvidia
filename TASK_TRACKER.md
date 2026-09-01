@@ -64,9 +64,17 @@ admission run before any profile serves.
 
 `evidence/ada/cuda-runtime-levers.md` measures CUDA graphs, kernel fusion,
 programmatic dependent launch, and the `GGML_CUDA_FORCE_MMQ` build arm on the
-2B distill alone. The 0.8B and 4B classes have not run through the same
-lever sweep, so no lever default is confirmed to hold across the three
-runtime classes `CLAUDE.md` defines.
+2B distill. `evidence/ada/cuda-runtime-levers-cross-class.md` closes the other
+two classes through `scripts/run-cuda-lever-campaign.sh`, which runs each
+subject profile between two adjacent default arms forward and reversed and
+reads every ratio against that campaign's own default spread. The promoted
+defaults hold on all three: graphs buy decode and cost prefill everywhere, with
+the decode gain falling from 8.5% on the 0.8B to 1.7% on the 4B as a larger
+model does more work per launch; fusion buys decode on every class with an
+unresolved prefill direction; and PDL sits inside the drift floor on all three,
+so it stays unset. One greedy fixed-seed completion per profile produced one
+token digest per class, so every lever is a scheduling change rather than a
+numerical-policy one. The `GGML_CUDA_FORCE_MMQ` build arm remains 2B-only.
 
 ## Device ownership for depth campaigns
 
@@ -100,3 +108,12 @@ exits 75 against a device nothing is using.
 `evidence/credential-incident/` carries the condition set as booleans. The local
 half is closed and the publication half waits on the operator's provider-side
 deletions; `TASK_TRACKER.md` gains nothing further until `state.tsv` moves.
+
+The ownership authority reaches the sweeps as well.
+`run-cuda-baseline-sweep.sh` and `run-speculation-sweep.sh` refused on
+`pgrep -x llama-server`, which a fixture's leftover stub satisfied while holding
+no CUDA context; that refusal ended the first 4B campaign against a device only
+the compositor was using. Both now call `gpu_ownership_require`, which takes the
+lock where no ancestor holds it and inspects the driver's client list either
+way, since flock is per-process and a nested sweep asking for the path its own
+campaign holds would be refused by its parent.

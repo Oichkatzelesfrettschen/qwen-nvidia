@@ -1,0 +1,13 @@
+gpu_ownership_lock=inherited
+cuda_client pid=1942 name=/usr/bin/kwin_wayland used=317 MiB exe=unreadable start_time=4765 cgroup=0::/user.slice/user-1000.slice/session-2.scope verdict=record-desktop
+named_llama_server_pids=-
+sweep_start_utc=2026-09-01T05:47:47Z device=CUDA0 profile=default bench=$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench bench_sha256=c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a flags=-ngl 99 -fa 1 -ctk q8_0 -ctv q4_0 -p 512 -n 128 -r 3 -t 6
+arm_start_utc=2026-09-01T05:47:47Z slot=1 direction=forward model=Qwen3.8-4B-Q4_K_M
+arm_stop_utc=2026-09-01T05:47:52Z slot=1 model=Qwen3.8-4B-Q4_K_M prefill=6472.47 decode=108.46 status=0
+arm_start_utc=2026-09-01T05:47:52Z slot=2 direction=reverse model=Qwen3.8-4B-Q4_K_M
+arm_stop_utc=2026-09-01T05:47:58Z slot=2 model=Qwen3.8-4B-Q4_K_M prefill=6498.81 decode=109.33 status=0
+
+paired means, forward and reverse:
+model_id                                      prefill       decode   pp_span%   tg_span%
+Qwen3.8-4B-Q4_K_M                             6485.64       108.89       0.4%       0.8%
+sweep_stop_utc=2026-09-01T05:47:58Z failed=0 summary=evidence/ada/cuda-runtime-levers-4b/09-default-before-pdl/baseline-summary.tsv

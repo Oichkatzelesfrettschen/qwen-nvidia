@@ -60,6 +60,22 @@ gpu_ownership_acquire() {
     return 0
 }
 
+# Take the claim where no ancestor holds it, and inspect either way. A campaign
+# that already acquired the lock exports QWEN_GPU_OWNERSHIP_HELD, because flock
+# is per-process: a nested sweep asking for the same path would be refused by the
+# very campaign that launched it. The inspection is unconditional, since external
+# interference is what each nested stage still has to rule out.
+gpu_ownership_require() {
+    if [ -z "${QWEN_GPU_OWNERSHIP_HELD:-}" ]; then
+        gpu_ownership_acquire "${1:-}" || return $?
+        QWEN_GPU_OWNERSHIP_HELD=1
+        export QWEN_GPU_OWNERSHIP_HELD
+    else
+        printf 'gpu_ownership_lock=inherited\n'
+    fi
+    gpu_ownership_inspect
+}
+
 # Resolve one pid's durable identity. An exe that cannot be read leaves the
 # field `unreadable` rather than absent, because a compute client this harness
 # cannot name is the case that must refuse rather than pass silently.

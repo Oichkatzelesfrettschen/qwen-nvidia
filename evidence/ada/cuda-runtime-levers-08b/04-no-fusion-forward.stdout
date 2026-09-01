@@ -1,0 +1,10 @@
+sweep_start_utc=2026-09-01T05:42:22Z device=CUDA0 profile=no-fusion bench=$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-bench bench_sha256=c51daa95fe2fc4086264e4694f0d7a10d1e8207184d3d6cdf2a01ed8538b6e4a flags=-ngl 99 -fa 1 -ctk q8_0 -ctv q4_0 -p 512 -n 128 -r 3 -t 6
+arm_start_utc=2026-09-01T05:42:22Z slot=1 direction=forward model=Qwen3.5-0.8B-Q8_0
+arm_stop_utc=2026-09-01T05:42:25Z slot=1 model=Qwen3.5-0.8B-Q8_0 prefill=22075.25 decode=277.42 status=0
+arm_start_utc=2026-09-01T05:42:25Z slot=2 direction=reverse model=Qwen3.5-0.8B-Q8_0
+arm_stop_utc=2026-09-01T05:42:27Z slot=2 model=Qwen3.5-0.8B-Q8_0 prefill=21711.86 decode=276.48 status=0
+
+paired means, forward and reverse:
+model_id                                      prefill       decode   pp_span%   tg_span%
+Qwen3.5-0.8B-Q8_0                            21893.56       276.95       1.7%       0.3%
+sweep_stop_utc=2026-09-01T05:42:27Z failed=0 summary=evidence/ada/cuda-runtime-levers-08b/04-no-fusion-forward/baseline-summary.tsv
