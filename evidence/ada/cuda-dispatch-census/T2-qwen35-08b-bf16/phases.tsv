@@ -1,0 +1,10 @@
+arm	request	label	phase	path	detail	src0_type	src1_type	dst_type	mode	graphs	distinct_shapes	dispatch_launches	graph_replays
+T2-qwen35-08b-bf16	outside	outside	text_decode	MMVF	-	bf16	f32	f32	eager	1	1	1	0
+T2-qwen35-08b-bf16	outside	outside	text_prefill	MMF	-	bf16	f32	f32	eager	1	150	150	0
+T2-qwen35-08b-bf16	outside	outside	text_prefill	cuBLAS	cublasGemmEx/BF16	bf16	f32	f32	eager	1	36	36	0
+T2-qwen35-08b-bf16	r1	text-pp512-tg64	graph_replay	graph_replay	-	-	-	-	replay	61	0	0	61
+T2-qwen35-08b-bf16	r1	text-pp512-tg64	text_decode	MMVF	-	bf16	f32	f32	capture	1	109	109	0
+T2-qwen35-08b-bf16	r1	text-pp512-tg64	text_decode	MMVF	-	bf16	f32	f32	eager	2	109	110	0
+T2-qwen35-08b-bf16	r1	text-pp512-tg64	text_decode	MMVF	fused	bf16	f32	f32	capture	1	54	54	0
+T2-qwen35-08b-bf16	r1	text-pp512-tg64	text_decode	MMVF	fused	bf16	f32	f32	eager	1	54	54	0
+T2-qwen35-08b-bf16	r1	text-pp512-tg64	text_prefill	cuBLAS	cublasGemmEx/BF16	bf16	f32	f32	eager	1	186	186	0

@@ -1,0 +1,9 @@
+arm	request	label	phase	path	detail	src0_type	src1_type	dst_type	mode	graphs	distinct_shapes	dispatch_launches	graph_replays
+T0-qwen35-08b	outside	outside	text_decode	MMVQ	-	q8_0	f32	f32	eager	1	1	1	0
+T0-qwen35-08b	outside	outside	text_prefill	MMVQ	-	q8_0	f32	f32	eager	1	186	186	0
+T0-qwen35-08b	r1	text-pp512-tg64	graph_replay	graph_replay	-	-	-	-	replay	61	0	0	61
+T0-qwen35-08b	r1	text-pp512-tg64	text_decode	MMVQ	-	q8_0	f32	f32	capture	1	109	109	0
+T0-qwen35-08b	r1	text-pp512-tg64	text_decode	MMVQ	-	q8_0	f32	f32	eager	2	109	110	0
+T0-qwen35-08b	r1	text-pp512-tg64	text_decode	MMVQ	fused	q8_0	f32	f32	capture	1	54	54	0
+T0-qwen35-08b	r1	text-pp512-tg64	text_decode	MMVQ	fused	q8_0	f32	f32	eager	1	54	54	0
+T0-qwen35-08b	r1	text-pp512-tg64	text_prefill	MMQ	-	q8_0	f32	f32	eager	1	186	186	0
