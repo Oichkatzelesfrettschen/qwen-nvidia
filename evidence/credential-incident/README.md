@@ -76,3 +76,16 @@ only GitHub Support can purge.
 with a profiler extension refutes the rewrite. A `git ls-remote --heads`
 listing that still names the reconciliation branch refutes the branch removal.
 Either reopens the incident.
+
+## The isolated branch was mined before it was purged
+
+`refs/pull/1/head` carried 386 non-profiler paths against its merge base. 370
+are byte-identical to the published `main`, none is absent from it, and the 16
+that differ are the files the later authority, depth, and ownership commits
+edited, so `main` supersedes the branch rather than diverging from it. The one
+file with substantial branch-only content is
+`scripts/check-authority-consistency.py`, whose 329 lines the reviewer-directed
+rewrite replaced with 586; every check name the branch version defines is
+present in the published one, which is the falsifier that would have reported a
+dropped check. The branch therefore holds no work the repository lacks, and the
+local copies carrying its profiler blobs are removed.
