@@ -130,8 +130,8 @@ Vulkan0 as a separate fallback admission, and a CUDA-only build reports
 `fallback_vulkan=not-built`. The served closure is configuration `88681bf4d161`
 (`evidence/ada/promotion-88681bf4d161/`), using 89-real, CUDA only, Q6_K MMVQ
 threshold 10, and Q8_0 MMVQ threshold 16. Configuration `31d0775c5bc6` is
-retained as the rollback target and `572951d25562` as the PTX-bearing
-dual-backend diagnostic closure.
+retained as the rollback target, and configuration `572951d25562` is retained
+as the PTX-bearing dual-backend diagnostic closure.
 
 ## Roadmap
 

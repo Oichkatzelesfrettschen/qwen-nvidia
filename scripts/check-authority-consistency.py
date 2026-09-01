@@ -114,6 +114,52 @@ def threshold_values(text, quant):
     return values
 
 
+# Each closure role carries one canonical README statement binding a digest to
+# that role. A presence check accepts a document that swaps two digests under
+# each other's role labels, because both identities remain somewhere on the
+# page; matching the digest inside the role clause is what makes the swap fail.
+ROLE_STATEMENTS = {
+    "promoted": r"served closure is configuration `?([0-9a-f]{12})`?",
+    "rollback": (r"configuration `?([0-9a-f]{12})`? is retained as the "
+                 r"rollback target"),
+    "diagnostic": (r"configuration `?([0-9a-f]{12})`? is retained as the "
+                   r"[^.`]*diagnostic closure"),
+}
+
+
+def check_role_statement(role, expected_digest, readme_norm, report_error):
+    """Require README to name this digest inside its own role clause."""
+    pattern = ROLE_STATEMENTS.get(role)
+    if pattern is None:
+        report_error(f"scripts/serving-closures.tsv names role '{role}', for "
+                     "which this gate carries no README role statement")
+        return
+    match = re.search(pattern, readme_norm, re.IGNORECASE)
+    if not match:
+        report_error(f"README.md carries no {role}-closure statement naming a "
+                     "configuration digest")
+    elif match.group(1) != expected_digest:
+        report_error(f"README.md {role}-closure statement names "
+                     f"{match.group(1)}, but the closure ledger records "
+                     f"{expected_digest} as {role}")
+
+
+def documented_quarantine_set(readme_norm):
+    """The model-scope quarantine subjects README states, or None.
+
+    The statement is a complete set claim rather than a membership one, so the
+    gate reads every identifier it names and compares the whole set: a second
+    model-scope row added to the ledger has to appear here or the prose is
+    stale.
+    """
+    match = re.search(
+        r"active model quarantine set in `?scripts/quarantine\.tsv`? "
+        r"consists of ([^.]+)\.", readme_norm)
+    if not match:
+        return None
+    return set(re.findall(r"`([^`]+)`", match.group(1)))
+
+
 def check_serving_summary(path, report_error):
     """Require the promotion summary to state an outcome, not merely exist."""
     header, rows = parse_tsv(path)
@@ -256,6 +302,10 @@ def main():
             if digest not in readme_text:
                 report_error(f"README.md does not reference the {role} "
                              f"configuration {digest}")
+                continue
+            # Presence establishes the identity is on the page; the role
+            # statement establishes which role the page gives it.
+            check_role_statement(role, digest, readme_norm, report_error)
 
     # The promoted closure alone carries a serving summary, and the summary
     # states an outcome rather than merely existing.
@@ -335,9 +385,21 @@ def main():
         report_error("README.md contains stale text claiming "
                      "qwen38-9b-distill is quarantined")
 
-    if not quarantined_at("model", "ministral3-3b"):
-        report_error("ministral3-3b holds no model-scope quarantine row in "
-                     "scripts/quarantine.tsv")
+    # README states the model-scope quarantine set as a complete set, so the
+    # comparison runs both ways: a documented subject absent from the ledger is
+    # a stale exclusion, and a ledger subject absent from the prose is a
+    # quarantine the document does not disclose.
+    ledger_model_scope = {subj for scope, subj, _ in active_quarantines
+                          if scope == "model"}
+    documented = documented_quarantine_set(readme_norm)
+    if documented is None:
+        report_error("README.md carries no active model quarantine set "
+                     "statement naming scripts/quarantine.tsv")
+    elif documented != ledger_model_scope:
+        report_error(
+            "README.md documents the model-scope quarantine set as "
+            f"{sorted(documented) or 'empty'}; scripts/quarantine.tsv carries "
+            f"{sorted(ledger_model_scope) or 'no model-scope row'}")
 
     # The registry.
     models_tsv = repo_root / "scripts" / "models.tsv"

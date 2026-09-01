@@ -463,6 +463,58 @@ def main():
               mut_closure_evidence_missing, expect_pass=False,
               expect_error="diagnostic configuration evidence")
 
+    # Swapping the rollback and diagnostic digests under each other's role
+    # labels leaves both identities on the page, so only a role-qualified
+    # comparison rejects it.
+    def mut_swapped_role_digests(root):
+        path = root / "README.md"
+        text = path.read_text(encoding="utf-8")
+        text = (text.replace("31d0775c5bc6", "\0")
+                    .replace("572951d25562", "31d0775c5bc6")
+                    .replace("\0", "572951d25562"))
+        path.write_text(text, encoding="utf-8")
+    test_case("swapped_rollback_and_diagnostic_roles_fails",
+              mut_swapped_role_digests, expect_pass=False,
+              expect_error="rollback-closure statement names")
+
+    # A role statement removed outright fails rather than falling back to the
+    # presence of the digest elsewhere in the document.
+    def mut_missing_rollback_statement(root):
+        path = root / "README.md"
+        # README wraps the role clause across a line break, so the mutation
+        # names a fragment that survives the wrap rather than the whole
+        # normalized statement.
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "rollback target", "prior build"), encoding="utf-8")
+    test_case("missing_rollback_role_statement_fails",
+              mut_missing_rollback_statement, expect_pass=False,
+              expect_error="no rollback-closure statement")
+
+    # The model-scope quarantine claim is a complete set, so a second
+    # model-scope row the prose does not disclose rejects.
+    def mut_undisclosed_model_quarantine(root):
+        path = root / "scripts" / "quarantine.tsv"
+        text = path.read_text(encoding="utf-8")
+        template = [line for line in text.splitlines()
+                    if line.startswith("ministral3-3b\t")][0]
+        added = template.replace("ministral3-3b", "qwen35-08b", 2)
+        path.write_text(text + added + "\n", encoding="utf-8")
+    test_case("undisclosed_model_scope_quarantine_fails",
+              mut_undisclosed_model_quarantine, expect_pass=False,
+              expect_error="documents the model-scope quarantine set")
+
+    # And a documented subject the ledger no longer carries is stale prose in
+    # the other direction.
+    def mut_documented_subject_absent_from_ledger(root):
+        path = root / "scripts" / "quarantine.tsv"
+        text = path.read_text(encoding="utf-8")
+        kept = [line for line in text.splitlines()
+                if not line.startswith("ministral3-3b\t")]
+        path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    test_case("documented_quarantine_subject_absent_from_ledger_fails",
+              mut_documented_subject_absent_from_ledger, expect_pass=False,
+              expect_error="documents the model-scope quarantine set")
+
     if failures:
         print(f"test_authority_consistency: REJECTED ({failures} failures)", file=sys.stderr)
         sys.exit(1)
