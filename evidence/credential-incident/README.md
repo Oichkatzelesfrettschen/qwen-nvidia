@@ -39,6 +39,22 @@ Greptile is removed rather than rotated. The integration was unused, so a
 replacement key would reintroduce a credential surface for a capability
 nothing in this tree consumes.
 
+## The remaining exposure is a merged pull-request ref
+
+The rewritten history is published and `refs/heads/main` reaches no profiler
+report. The eight reports remain reachable through `refs/pull/1/head`, whose
+commit is the head of a merged pull request, and GitHub retains that ref
+independently of the branch it was opened from. Deleting the branch removed the
+branch; the pull-request ref survived it, and no push to `main` can reach it.
+GitHub Support purging the cached objects is therefore the whole remedy rather
+than a tidying step after one.
+
+The repository is private, so the reports were never readable without an
+authorization to it. That narrows the exposure and does not close it: the
+Greptile GitHub App held repository access over the period the reports were
+committed, which is an integration that could read them, and a private
+repository is exactly the surface a leaked personal token reaches.
+
 ## Falsifier
 
 `git rev-list --objects --all` over the published repository returning any path
