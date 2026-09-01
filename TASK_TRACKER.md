@@ -28,6 +28,19 @@ the fast-coding role to it; the 4B Q5_K_M and Q6_K rungs hold 10 of 10 in
 the deeper tier. Open work here is incremental: a new registry row takes
 one graded arm inside its own sweep rather than a roster rerun.
 
+## Coding lane
+
+The full chain -- served WebUI, two single-use approvals, the coding MCP,
+the coding-agent service under the qwen-coder principal, the pinned Qwen
+Code v0.22.3, and the promoted llama-server -- is admitted with
+`qwenseer-2b` at 32768 (`evidence/coding-agent/chain-admission/`, 36
+checks), and `code-fast-a` with the `qwen-code` runtime row read
+`validator-gated`. The deep-coder condition refuted itself at the 7B's
+validated 8192 depth: Qwen Code's opening request measures 16275-18348
+tokens, so `code-deep-a` stays `refused` and its re-entry gate is a
+validated filled-depth tuple for `qwen25-coder-7b` at 32768 followed by a
+chain rerun at that depth.
+
 ## Image lane
 
 `scripts/image-profiles.tsv` carries every profile at `execution_policy=refused`,

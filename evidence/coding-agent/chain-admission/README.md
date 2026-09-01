@@ -88,6 +88,30 @@ success, or any teardown check finding residue, rejects the run;
 `summary.tsv` is the check-by-check record and the fixture arm of the
 same harness runs in `repository-quality-gates.sh` on every clone.
 
-The deep-coder condition -- the same chain against `qwen25-coder-7b` at
-its validated 8192 depth under `evict-first` -- has not run; `code-deep-a`
-stays `refused` until it does.
+## The deep-coder condition refuted itself at 8192
+
+The same chain ran against `qwen25-coder-7b` at its validated 8192 depth
+(`deep-coder-8192-summary.tsv`) and the arithmetic ends it before the
+model's skill is measured: Qwen Code v0.22.3's opening request is 16275
+tokens in plan mode and 18348 in apply mode -- its own system prompt and
+tool roster, ahead of any file content -- and llama-server answered both
+with `400 request exceeds the available context size (8192 tokens)`
+(`deep-coder-8192-errors.json`). The runtime made no edit, and the four
+edit-dependent checks refused: empty changed-file list, the assertion
+still reading 41, an empty diff, and no patch to apply. Every grant,
+refusal, containment, and teardown check held, and the fixture repository
+stayed byte-identical, so the chain contains a failing agent run the same
+way it contains a hostile one.
+
+The refutation carries a second finding: Qwen Code exits 0 with a
+`success` result subtype on that API error, so exit status can never gate
+an apply -- the harness's independent diff, test, and patch-reproduction
+checks are what refused the run.
+
+`code-deep-a` stays `refused`. Its re-entry gate is a deeper validated
+filled-depth tuple for `qwen25-coder-7b` -- the runtime's opening request
+plus file reads and a reply budget puts the working floor near 24576, and
+32768 is the arm worth validating, whose KV cost at the served q8_0/q4_0
+triple is a few hundred mebibytes beside the ~4.4 GiB trunk -- followed by
+a rerun of this chain at that depth. The 8192 tuple remains valid for
+chat serving; it cannot host this agent runtime.
