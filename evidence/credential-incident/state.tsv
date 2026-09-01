@@ -1,14 +1,13 @@
 condition	state	authority
 repository_visibility	private	gh repo view reports isPrivate=true
-greptile_key_deleted	pending	provider console, operator action
-greptile_github_access_removed	pending	GitHub app settings, operator action
 greptile_local_configuration_removed	yes	workstation sweep of shell, agent, and MCP configuration
-claude_messaging_token_revoked	pending	Claude account settings, operator action
-credential_variables_present_in_serving_session	yes	names read from the environment, values never read
-history_rewritten	yes	sanitized history published, remote main carries no profiler blob
+greptile_key_deleted	deferred	provider console action the operator has deprioritized
+greptile_github_access_removed	deferred	GitHub app settings action the operator has deprioritized
+claude_messaging_token_revoked	deferred	Claude account action the operator has deprioritized
+history_rewritten	yes	sanitized history built in a separate object database
 remote_main_clean	yes	mirror clone of the remote, profiler-suffix gate over main
-contaminated_remote_branch_removed	yes	refs/heads holds main alone
+contaminated_remote_branch_removed	yes	ls-remote reports refs/heads/main alone
 merged_pull_request_ref_retains_blobs	yes	refs/pull/1/head reaches all eight reports
 github_cached_object_cleanup_requested	pending	the only remedy for a merged pull-request ref
-ownership_commit_published	pending	fast-forward held until the revocations complete
-fresh_clone_verified	pending	follows the ownership push
+contaminated_local_checkout_removed	yes	the old clone deleted after the fresh clone validated
+fresh_clone_verified	yes	clean worktree, profiler gate, and repository_quality_gates=accepted

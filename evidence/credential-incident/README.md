@@ -55,6 +55,21 @@ Greptile GitHub App held repository access over the period the reports were
 committed, which is an integration that could read them, and a private
 repository is exactly the surface a leaked personal token reaches.
 
+## What remains open, and who owns it
+
+Three conditions read `deferred` rather than `yes`, and they are the ones that
+matter most: the Greptile key still authenticates, its GitHub App authorization
+still stands, and the Claude Code token is still valid. The operator has
+deprioritized them, and this record states that rather than implying a
+remediation that did not happen. The repository being private bounds the
+exposure to the authorizations it granted, which is a narrower surface than a
+public repository and is not an empty one.
+
+The publication half is closed. Remote `main` reaches no profiler report, the
+reconciliation branch is gone, the contaminated local checkout is deleted, and
+a fresh clone passes every gate. The surviving copy is `refs/pull/1/head`, which
+only GitHub Support can purge.
+
 ## Falsifier
 
 `git rev-list --objects --all` over the published repository returning any path
