@@ -86,6 +86,35 @@ so it stays unset. One greedy fixed-seed completion per profile produced one
 token digest per class, so every lever is a scheduling change rather than a
 numerical-policy one. The `GGML_CUDA_FORCE_MMQ` build arm remains 2B-only.
 
+## Quantized mat-mul dispatch
+
+`evidence/ada/cuda-mat-mul-dispatch-census.md` reads
+`ggml/src/ggml-cuda/` at `f280b2698` and closes the dense-fallback census
+without device time. `ggml_cuda_should_use_mmq` admits twenty-two weight types
+and every quantization `scripts/models.tsv` serves is inside that set, so the
+dense cuBLAS path is reached by activation type and tensor shape --
+`ggml-cuda.cu:1829` on a non-F32 `src1` or `dst`, `:1869` where all four
+specialized predicates decline -- rather than by a weight type lacking a
+kernel. IQ1_M is the one absent weight type a GGUF could carry. A planner keyed
+on weight type would act on a condition this roster never presents.
+
+The same census closes the scoping question under the Q8_0 width arm.
+`mmvq.cuh:14` sets `MMVQ_KERNEL_MAX_NCOLS` to 16 and a launch assert
+(`mmvq.cu:934`), the instantiation switch ending at `mmvq.cu:1167`, and two
+`static_assert`s at `mmvq.cuh:15-20` hold it there, so a CMake threshold above
+sixteen fails the build rather than widening the kernel. The promoted Q8_0
+threshold of 16 already sits on that ceiling. Measuring beyond it needs a fifth
+entry in `patches/` carrying four coordinated edits -- the constant,
+`mul_mat_vec_q_switch_ncols_dst`, `calc_nwarps`, and `calc_rows_per_block` --
+ahead of any sweep. No resource bound explains the ceiling at sixteen, where
+shared memory holds 4096 bytes against roughly 96 KiB per SM; whether register
+pressure binds at a wider count is unmeasured.
+
+`cuda-runtime-env.sh` names every backend environment variable that reaches
+this dispatch, including the `GGML_CUDA_CUBLAS_COMPUTE_TYPE` override at
+`ggml-cuda.cu:1634`. `GGML_CUDA_P2P` is the one it leaves alone, and peer
+access between devices is what one card cannot express.
+
 ## Device ownership for depth campaigns
 
 `scripts/gpu-workload-ownership.sh` is the authority the depth probes take, and
