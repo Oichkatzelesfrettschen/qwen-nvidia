@@ -1,0 +1,19 @@
+# The runtime classes the depth-validation campaign is measured against, so
+# a completion claim is judged over a declared set rather than over whatever
+# registry rows happen to carry a numeric validated_filled_depth. A coder
+# checkpoint validated for its serving lane does not enlarge the campaign,
+# and a new class enters the campaign by gaining a row here.
+#
+# representative_model joins scripts/models.tsv by id. second_geometry and
+# vulkan_arm are `required` where the campaign's open-extension statement
+# counts the class, and `optional` where the row is validated for its own
+# lane alone. A class whose extensions are optional is still required to
+# hold its primary CUDA tuple, which the registry-derived depth check covers.
+#
+# class_id	representative_model	role	second_geometry	vulkan_arm
+primary-2b	qwen38-2b-distill	general production default	required	required
+secondary-08b	qwen35-08b	fast text target	required	required
+quality-4b	qwen38-4b-distill	quality-heavy target	required	required
+deep-9b	qwen38-9b-distill	deep text target	required	required
+fast-coder	qwenseer-2b	coding lane fast target	optional	optional
+deep-coder	qwen25-coder-7b	coding lane deep target	optional	optional

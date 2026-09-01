@@ -12,7 +12,7 @@ lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
 `evidence/depth-validation-cuda/` carries the first campaign: all four
 runtime classes validated at their registry ceilings (2B and 0.8B at 65536,
 4B at 32768, 9B at 24576), plus the two coding rows (qwenseer-2b at 65536
-covering the coding lane's 32768 floor, qwen25-coder-7b at 8192), each
+covering the coding lane's 32768 floor, qwen25-coder-7b at 32768), each
 with needle retrieval from the head of the fill,
 the ledger rows in `scripts/validated-tuples.tsv`, and the registry claims
 checked by `scripts/check-validated-tuples.sh`. Open extensions: a second

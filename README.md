@@ -70,12 +70,16 @@ and `context_ceiling` both at 32768, so the balanced-text class runs the same
 depth interactively and at its policy limit rather than the larger allocation
 its 131072 `context_target` names.
 
-The Qwen3.8 9B distill left its former router quarantine after the retained
-evict-before-load admission run
+Two registry rows depart from the `lru` default and carry
+`switch_policy=evict-first`. `qwen38-9b-distill` left its former router
+quarantine after the retained evict-before-load admission run
 (`evidence/ada/evict-first-9b-readmission/`) proved sequential child
-teardown returns memory before the 9B allocates. It now serves under
-`switch_policy=evict-first`, which constrains router construction and launch
-to `QWEN_ROUTER_MAX=1`. The active model quarantine set in
+teardown returns memory before the 9B allocates, and `qwen25-coder-7b`
+carries the same policy on the transition
+`evidence/ada/evict-first-7b-admission/` measured, where the resident child
+unloaded 1404 ms before its successor loaded. A roster holding either row
+serves one child at a time, so router construction and launch are
+constrained to `QWEN_ROUTER_MAX=1`. The active model quarantine set in
 `scripts/quarantine.tsv` consists of `ministral3-3b`.
 
 ## Measured baseline
@@ -142,9 +146,19 @@ service starts and stops through these two scripts alone -- no unit file,
 crontab entry, or login hook starts it, so a reboot leaves the host with
 nothing listening.
 
+The router takes two named shapes, because the resident count follows the
+roster rather than the command. `router-compact-pair` is the two-child
+figure `evidence/ada/cuda-router-serving/` measured, admitted for a roster
+of `lru` rows alone; `router-full-evict-first` is the one-child shape any
+roster containing an `evict-first` row requires, and the launch validator
+refuses an `evict-first` section at any other listener count.
+
 ```sh
 scripts/qwen-launch.sh [default|no-graphs|no-fusion|pdl|unified]
+# router-compact-pair: LRU-only roster, the measured two-child co-residency
 QWEN_ROUTER=1 QWEN_ROUTER_MAX=2 scripts/qwen-launch.sh
+# router-full-evict-first: mandatory wherever an evict-first row is servable
+QWEN_ROUTER=1 QWEN_ROUTER_MAX=1 scripts/qwen-launch.sh
 scripts/qwen-teardown.sh
 ```
 

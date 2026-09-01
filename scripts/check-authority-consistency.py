@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 """
 Check consistency between mutable current-state documentation and the
-machine-readable authority surfaces. The registry, the tuple ledger, and the
-quarantine ledger are the authorities; README.md and TASK_TRACKER.md are the
-prose surfaces this gate holds to them, so an expectation here is derived from
-a ledger rather than snapshotted into this script.
+machine-readable authority surfaces. The registry, the tuple ledger, the
+quarantine ledger, the closure ledger, and the validation-class ledger are
+the authorities; README.md and TASK_TRACKER.md are the prose surfaces this
+gate holds to them, so an expectation here is derived from a ledger rather
+than snapshotted into this script.
+
+The authorities carry distinctions this gate preserves rather than
+flattens. A quarantine row names a scope and a runtime mode, so a profile
+quarantine is not a model quarantine and a router-child exclusion is not a
+standalone one. A switch policy is a registry field on every row rather
+than one checkpoint's property. A validated tuple qualifies an extension
+arm only at the depth and cache triple the row's primary tuple already
+holds, so a shallow second geometry does not satisfy a deep row's coverage.
+A closure identity carries a role, so a digest mentioned under the wrong
+role fails rather than passing on presence.
 """
 
 import sys
@@ -12,6 +23,20 @@ import os
 import pathlib
 import subprocess
 import re
+
+# The serving backend this repository is authoritative for. The nested
+# validator reads QWEN_SERVING_BACKEND, so the value is set here rather than
+# inherited: an ambient override would otherwise decide what the gate admits.
+AUTHORITATIVE_BACKEND = "cuda"
+
+# The promotion summary's own schema. A summary that parses is not a summary
+# that states an outcome, so the header and the terminal checks are required
+# rather than assumed.
+SERVING_SUMMARY_HEADER = ["check", "result", "detail"]
+SERVING_SUMMARY_REQUIRED_CHECKS = {
+    "launch", "health", "roster", "teardown", "serving_device",
+}
+SERVING_SUMMARY_RESULTS = {"accepted", "observed", "skipped"}
 
 
 def parse_tsv(file_path):
@@ -47,6 +72,23 @@ def rows_as_dicts(header, rows, report_error, label):
     return result
 
 
+def load_ledger(repo_root, name, report_error, required_columns):
+    """Return the rows of one authority ledger, or an empty list."""
+    path = repo_root / "scripts" / name
+    header, rows = parse_tsv(path)
+    if rows is None or not header:
+        report_error(f"scripts/{name} missing, empty, or missing column "
+                     "header")
+        return []
+    missing = [c for c in required_columns if c not in header]
+    if missing:
+        report_error(f"scripts/{name} header does not name "
+                     f"{', '.join(missing)}")
+        return []
+    return [row for _, row in rows_as_dicts(header, rows, report_error,
+                                            f"scripts/{name}")]
+
+
 def normalize_ws(text):
     return " ".join(text.split())
 
@@ -72,6 +114,58 @@ def threshold_values(text, quant):
     return values
 
 
+def check_serving_summary(path, report_error):
+    """Require the promotion summary to state an outcome, not merely exist."""
+    header, rows = parse_tsv(path)
+    if rows is None:
+        report_error(f"{path.name} missing or unreadable under "
+                     f"{path.parent}")
+        return
+    # The summary's header is its first data-shaped line rather than a
+    # comment, so parse_tsv returns it as a row.
+    if not rows:
+        report_error(f"{path} carries no rows")
+        return
+    first = rows[0][1]
+    if first != SERVING_SUMMARY_HEADER:
+        report_error(f"{path} header reads {first}, expected "
+                     f"{SERVING_SUMMARY_HEADER}")
+        return
+    seen = {}
+    for lnum, parts in rows[1:]:
+        if len(parts) < 2:
+            report_error(f"{path} row at line {lnum} has {len(parts)} "
+                         "fields, expected at least 2")
+            continue
+        name, result = parts[0], parts[1]
+        if name in seen:
+            report_error(f"{path} repeats check '{name}' at lines "
+                         f"{seen[name]} and {lnum}")
+        seen[name] = lnum
+        if result not in SERVING_SUMMARY_RESULTS:
+            report_error(f"{path} check '{name}' carries result "
+                         f"'{result}', outside "
+                         f"{sorted(SERVING_SUMMARY_RESULTS)}")
+    missing = sorted(SERVING_SUMMARY_REQUIRED_CHECKS - set(seen))
+    if missing:
+        report_error(f"{path} omits required checks: {', '.join(missing)}")
+    for name in ("launch", "health", "roster", "teardown", "serving_device"):
+        lnum = seen.get(name)
+        if lnum is None:
+            continue
+        result = dict((p[0], p[1]) for _, p in rows[1:] if len(p) >= 2)[name]
+        if result != "accepted":
+            report_error(f"{path} check '{name}' reads '{result}', "
+                         "expected 'accepted'")
+    # The serving device is the repository's own authority claim, so the
+    # detail is read rather than the result alone.
+    for _, parts in rows[1:]:
+        if parts and parts[0] == "serving_device" and len(parts) >= 3:
+            if "CUDA0" not in parts[2]:
+                report_error(f"{path} serving_device detail does not name "
+                             f"CUDA0: {parts[2]}")
+
+
 def main():
     repo_root = (pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1
                  else pathlib.Path(__file__).parent.parent.resolve())
@@ -83,13 +177,24 @@ def main():
         print(f"authority_consistency: ERROR: {msg}", file=sys.stderr)
 
     # 1. The underlying validators run first: the tuple ledger against the
-    # registry, and the sanitization rules over the evidence tree.
+    # registry, and the sanitization rules over the evidence tree. The child
+    # environment names the backend rather than inheriting one, so an
+    # ambient QWEN_SERVING_BACKEND cannot decide what the nested validator
+    # admits.
+    # One scrubbed environment serves both children: each reads
+    # QWEN_SERVING_BACKEND, so an ambient override would otherwise decide
+    # what either validator admits.
+    env = os.environ.copy()
+    for name in ("QWEN_MODEL_REGISTRY", "QWEN_VALIDATED_TUPLES",
+                 "QWEN_SERVING_BACKEND"):
+        env.pop(name, None)
+    env["QWEN_MODEL_REGISTRY"] = str(repo_root / "scripts" / "models.tsv")
+    env["QWEN_VALIDATED_TUPLES"] = str(
+        repo_root / "scripts" / "validated-tuples.tsv")
+    env["QWEN_SERVING_BACKEND"] = AUTHORITATIVE_BACKEND
+
     check_tuples_script = repo_root / "scripts" / "check-validated-tuples.sh"
     if check_tuples_script.exists():
-        env = os.environ.copy()
-        env["QWEN_MODEL_REGISTRY"] = str(repo_root / "scripts" / "models.tsv")
-        env["QWEN_VALIDATED_TUPLES"] = str(
-            repo_root / "scripts" / "validated-tuples.tsv")
         res = subprocess.run([str(check_tuples_script)], cwd=str(repo_root),
                              env=env, capture_output=True, text=True)
         if res.returncode != 0:
@@ -101,28 +206,13 @@ def main():
     check_nvidia_script = repo_root / "scripts" / "check-nvidia-authority.sh"
     if check_nvidia_script.exists():
         res = subprocess.run([str(check_nvidia_script), str(repo_root)],
-                             cwd=str(repo_root), capture_output=True, text=True)
+                             cwd=str(repo_root), env=env,
+                             capture_output=True, text=True)
         if res.returncode != 0:
             report_error("check-nvidia-authority.sh failed: "
                          f"{res.stderr.strip() or res.stdout.strip()}")
     else:
         report_error("scripts/check-nvidia-authority.sh missing")
-
-    # 2. Promotion evidence and the README's build-closure statements.
-    promoted_dir = repo_root / "evidence" / "ada" / "promotion-88681bf4d161"
-    rollback_dir = repo_root / "evidence" / "ada" / "promotion-31d0775c5bc6"
-    diagnostic_dir = repo_root / "evidence" / "ada" / "promotion-572951d25562"
-
-    if (not (promoted_dir / "README.md").exists()
-            or not (promoted_dir / "serving-summary.tsv").exists()):
-        report_error("Missing promoted configuration evidence under "
-                     "evidence/ada/promotion-88681bf4d161/")
-    if not (rollback_dir / "README.md").exists():
-        report_error("Missing rollback configuration evidence under "
-                     "evidence/ada/promotion-31d0775c5bc6/")
-    if not (diagnostic_dir / "README.md").exists():
-        report_error("Missing diagnostic configuration evidence under "
-                     "evidence/ada/promotion-572951d25562/")
 
     readme_path = repo_root / "README.md"
     if not readme_path.exists():
@@ -130,27 +220,70 @@ def main():
         readme_text = ""
     else:
         readme_text = readme_path.read_text(encoding="utf-8")
-
     readme_norm = normalize_ws(readme_text)
 
-    # The served-closure statement names the promoted configuration by role,
-    # so a README that keeps the digest only as a rollback or historical
-    # mention is rejected rather than accepted on substring presence.
-    served_match = re.search(
-        r"served closure is configuration `?([0-9a-f]{12})`?", readme_norm)
-    if not served_match:
-        report_error("README.md carries no served-closure statement naming "
-                     "a configuration digest")
-    elif served_match.group(1) != "88681bf4d161":
-        report_error("README.md served-closure statement names "
-                     f"{served_match.group(1)}, but the retained promotion "
-                     "authority is 88681bf4d161")
-    if "31d0775c5bc6" not in readme_text:
-        report_error("README.md does not reference rollback configuration "
-                     "31d0775c5bc6")
-    if "572951d25562" not in readme_text:
-        report_error("README.md does not reference diagnostic dual-backend "
-                     "configuration 572951d25562")
+    # 2. Build closures, by role, from the closure ledger. The evidence path,
+    # the digest, and the role all come from the ledger, so a new rollback
+    # target or a second diagnostic closure enters this gate by gaining a row.
+    closures = load_ledger(
+        repo_root, "serving-closures.tsv", report_error,
+        ["role", "configuration_id", "evidence_path", "backend_set",
+         "architecture", "ptx_images", "status"])
+    closures_by_role = {}
+    for row in closures:
+        closures_by_role.setdefault(row["role"], []).append(row)
+
+    for role in ("promoted", "rollback", "diagnostic"):
+        if role not in closures_by_role:
+            report_error(f"scripts/serving-closures.tsv names no {role} "
+                         "closure")
+    if len(closures_by_role.get("promoted", [])) > 1:
+        report_error("scripts/serving-closures.tsv names more than one "
+                     "promoted closure; exactly one closure serves")
+
+    for role, rows in closures_by_role.items():
+        for row in rows:
+            digest = row["configuration_id"]
+            if not re.fullmatch(r"[0-9a-f]{12}", digest):
+                report_error(f"scripts/serving-closures.tsv {role} "
+                             f"configuration_id '{digest}' is not twelve "
+                             "hex characters")
+                continue
+            evidence = repo_root / row["evidence_path"]
+            if not (evidence / "README.md").exists():
+                report_error(f"Missing {role} configuration evidence under "
+                             f"{row['evidence_path']}/")
+            if digest not in readme_text:
+                report_error(f"README.md does not reference the {role} "
+                             f"configuration {digest}")
+
+    # The promoted closure alone carries a serving summary, and the summary
+    # states an outcome rather than merely existing.
+    for row in closures_by_role.get("promoted", []):
+        check_serving_summary(
+            repo_root / row["evidence_path"] / "serving-summary.tsv",
+            report_error)
+        # The served-closure statement names the promoted digest by role, so
+        # a README keeping it only as a rollback or historical mention fails.
+        served_match = re.search(
+            r"served closure is configuration `?([0-9a-f]{12})`?",
+            readme_norm)
+        if not served_match:
+            report_error("README.md carries no served-closure statement "
+                         "naming a configuration digest")
+        elif served_match.group(1) != row["configuration_id"]:
+            report_error("README.md served-closure statement names "
+                         f"{served_match.group(1)}, but the closure ledger "
+                         f"promotes {row['configuration_id']}")
+        # A CUDA-only closure serves no Vulkan device, so the prose must not
+        # present the promoted process as reaching one.
+        if row["backend_set"] == "cuda":
+            for stale in ("Vulkan as the fallback the same binary reaches",
+                          "the same binary carries both backends"):
+                if stale in readme_norm:
+                    report_error(
+                        "README.md presents the promoted CUDA-only closure "
+                        f"as carrying a Vulkan fallback: '{stale}'")
 
     # MMVQ threshold claims: every clause binding a value to the quant type
     # must state the promoted value, so one stale clause beside one correct
@@ -164,24 +297,32 @@ def main():
         report_error("README.md Q8_0 MMVQ threshold clauses read "
                      f"{q80_values or 'absent'}, expected every clause at 16")
 
-    # 3. Quarantine state, keyed by the subject column: a row's unique id may
-    # differ from the checkpoint it removes, so membership reads column
-    # `subject` rather than column `id`.
+    # 3. Quarantine state, keyed by scope, subject, and runtime mode. A row's
+    # unique id may differ from the checkpoint it removes, so membership
+    # reads `subject`; and a profile-scope or router-child-scope row removes
+    # one tuple rather than the checkpoint, so the scope travels with it.
     quarantine_tsv = repo_root / "scripts" / "quarantine.tsv"
     q_header, q_rows = parse_tsv(quarantine_tsv)
-    quarantined_subjects = set()
+    active_quarantines = set()
     if q_rows is None:
         report_error("scripts/quarantine.tsv missing or unreadable")
-    elif not q_header or "subject" not in q_header:
-        report_error("scripts/quarantine.tsv header does not name a "
-                     "subject column")
+    elif not q_header or "subject" not in q_header or "scope" not in q_header:
+        report_error("scripts/quarantine.tsv header does not name both a "
+                     "scope and a subject column")
     else:
         for _, row in rows_as_dicts(q_header, q_rows, report_error,
                                     "scripts/quarantine.tsv"):
-            quarantined_subjects.add(row["subject"])
+            active_quarantines.add((row["scope"], row["subject"],
+                                    row.get("runtime_mode", "any")))
 
-    if "qwen38-9b-distill" in quarantined_subjects:
-        report_error("qwen38-9b-distill is a quarantine subject in "
+    def quarantined_at(scope, subject):
+        return any(s == scope and subj == subject
+                   for s, subj, _ in active_quarantines)
+
+    # A model-scope row removes the checkpoint entirely; a profile-scope row
+    # does not, so the readmission claim is judged against model scope alone.
+    if quarantined_at("model", "qwen38-9b-distill"):
+        report_error("qwen38-9b-distill carries a model-scope quarantine in "
                      "scripts/quarantine.tsv but README.md documents it as "
                      "readmitted")
 
@@ -190,9 +331,9 @@ def main():
         report_error("README.md contains stale text claiming "
                      "qwen38-9b-distill is quarantined")
 
-    if "ministral3-3b" not in quarantined_subjects:
-        report_error("ministral3-3b is missing from the quarantine subject "
-                     "set in scripts/quarantine.tsv")
+    if not quarantined_at("model", "ministral3-3b"):
+        report_error("ministral3-3b holds no model-scope quarantine row in "
+                     "scripts/quarantine.tsv")
 
     # The registry.
     models_tsv = repo_root / "scripts" / "models.tsv"
@@ -206,28 +347,46 @@ def main():
                                        "scripts/models.tsv"):
             models_dict[row["id"]] = (lnum, row)
 
-    if "qwen38-9b-distill" in models_dict:
-        _, m9b = models_dict["qwen38-9b-distill"]
-        if m9b.get("switch_policy") != "evict-first":
-            report_error("qwen38-9b-distill in models.tsv has switch_policy "
-                         f"'{m9b.get('switch_policy')}', expected "
-                         "'evict-first'")
-    else:
-        report_error("qwen38-9b-distill missing from scripts/models.tsv")
-
-    if "evict-first" not in readme_norm:
-        report_error("README.md does not document the evict-first switch "
-                     "policy for qwen38-9b-distill")
-    if "QWEN_ROUTER_MAX=1" not in readme_text:
-        report_error("README.md does not document the QWEN_ROUTER_MAX=1 "
-                     "constraint for qwen38-9b-distill")
+    # 4. Switch policy, derived: every row departing from the `lru` default
+    # is a documented serving constraint, so a new evict-first checkpoint
+    # enters this check by its registry field rather than by being named here.
+    non_default_switch = {
+        model_id: row.get("switch_policy", "-")
+        for model_id, (_, row) in models_dict.items()
+        if row.get("switch_policy", "lru") != "lru"
+    }
+    if not non_default_switch:
+        report_error("scripts/models.tsv carries no non-default "
+                     "switch_policy row; the router transition documentation "
+                     "has no registry subject")
+    for model_id, policy in sorted(non_default_switch.items()):
+        if model_id not in readme_norm:
+            report_error(f"README.md does not document {model_id}, which "
+                         f"carries switch_policy '{policy}'")
+        if policy not in readme_norm:
+            report_error(f"README.md does not document the '{policy}' switch "
+                         f"policy that {model_id} carries")
+    # A roster holding any evict-first row serves one child at a time, so the
+    # constraint is documented wherever such a row exists.
+    if any(p == "evict-first" for p in non_default_switch.values()):
+        if "QWEN_ROUTER_MAX=1" not in readme_text:
+            report_error("README.md does not document the QWEN_ROUTER_MAX=1 "
+                         "constraint an evict-first roster requires")
+        # A generic two-child launch example beside an evict-first roster
+        # contradicts the constraint the same document states.
+        if re.search(r"QWEN_ROUTER_MAX=2[^\n]*qwen-launch", readme_text):
+            if "router-compact-pair" not in readme_text:
+                report_error(
+                    "README.md shows a QWEN_ROUTER_MAX=2 launch beside an "
+                    "evict-first roster without naming the compact-pair "
+                    "mode the two-child figure applies to")
 
     evict_evidence = repo_root / "evidence" / "ada" / "evict-first-9b-readmission"
     if not (evict_evidence / "README.md").exists():
         report_error("Missing readmission evidence under "
                      "evidence/ada/evict-first-9b-readmission/")
 
-    # 4. Validated filled depths, derived from the registry rather than
+    # 5. Validated filled depths, derived from the registry rather than
     # snapshotted here: every row claiming a numeric validated_filled_depth
     # must hold a validated CUDA tuple at that depth and its own submission
     # geometry, so a later measurement that legitimately moves both files
@@ -236,8 +395,14 @@ def main():
     for model_id, (lnum, row) in models_dict.items():
         depth = row.get("validated_filled_depth", "-")
         if depth.isdigit():
-            expected_depths[model_id] = (depth, row.get("batch", "-"),
-                                         row.get("ubatch", "-"))
+            expected_depths[model_id] = {
+                "depth": depth,
+                "batch": row.get("batch", "-"),
+                "ubatch": row.get("ubatch", "-"),
+                "cache_k": row.get("cache_type_k", "-"),
+                "cache_v": row.get("cache_type_v", "-"),
+                "flash": row.get("flash_attention", "-"),
+            }
 
     if not expected_depths:
         report_error("scripts/models.tsv claims no numeric "
@@ -254,24 +419,48 @@ def main():
         for _, row in rows_as_dicts(t_header, t_rows, report_error,
                                     "scripts/validated-tuples.tsv"):
             if row.get("status") == "validated":
-                validated_tuples_map.setdefault(row["model_id"], []).append(
-                    (row.get("context", row.get("depth", "-")),
-                     row.get("batch", "-"), row.get("ubatch", "-"),
-                     row.get("backend", "-")))
+                validated_tuples_map.setdefault(row["model_id"], []).append({
+                    "depth": row.get("context", row.get("depth", "-")),
+                    "batch": row.get("batch", "-"),
+                    "ubatch": row.get("ubatch", "-"),
+                    "cache_k": row.get("cache_k", "-"),
+                    "cache_v": row.get("cache_v", "-"),
+                    "flash": row.get("flash_attention", "-"),
+                    "backend": row.get("backend", "-"),
+                })
 
-    for model_id, (exp_depth, exp_batch, exp_ubatch) in expected_depths.items():
-        v_list = validated_tuples_map.get(model_id, [])
-        match = any(ctx == exp_depth and b == exp_batch and ub == exp_ubatch
-                    and backend == "cuda"
-                    for ctx, b, ub, backend in v_list)
-        if not match:
+    def matches_primary(tuple_row, expected, *, ignore=()):
+        for field in ("depth", "batch", "ubatch", "cache_k", "cache_v",
+                      "flash"):
+            if field in ignore:
+                continue
+            if tuple_row[field] != expected[field]:
+                return False
+        return True
+
+    for model_id, expected in expected_depths.items():
+        rows = validated_tuples_map.get(model_id, [])
+        if not any(r["backend"] == AUTHORITATIVE_BACKEND
+                   and matches_primary(r, expected) for r in rows):
             report_error("scripts/validated-tuples.tsv lacks a validated "
-                         f"CUDA tuple for {model_id} at depth {exp_depth}, "
-                         f"batch {exp_batch}, ubatch {exp_ubatch}")
+                         f"{AUTHORITATIVE_BACKEND} tuple for {model_id} at "
+                         f"depth {expected['depth']}, batch "
+                         f"{expected['batch']}, ubatch {expected['ubatch']}, "
+                         f"cache {expected['cache_k']}/{expected['cache_v']}, "
+                         f"flash attention {expected['flash']}")
 
-    # 5. TASK_TRACKER.md against the ledger-derived open-work state. The
+    # 6. TASK_TRACKER.md against the ledger-derived open-work state. The
     # document is a required surface, so its absence is a failure rather than
     # a skipped section.
+    classes = load_ledger(
+        repo_root, "validation-classes.tsv", report_error,
+        ["class_id", "representative_model", "second_geometry", "vulkan_arm"])
+    for row in classes:
+        model_id = row["representative_model"]
+        if model_id not in models_dict:
+            report_error(f"scripts/validation-classes.tsv names "
+                         f"{model_id}, absent from scripts/models.tsv")
+
     task_tracker_path = repo_root / "TASK_TRACKER.md"
     if not task_tracker_path.exists():
         report_error("TASK_TRACKER.md missing")
@@ -279,40 +468,104 @@ def main():
         tt_text = task_tracker_path.read_text(encoding="utf-8")
         tt_norm = normalize_ws(tt_text)
 
-        # Coverage is tracked per expected model for both conditions: a
-        # second CUDA geometry and a validated Vulkan tuple each count only
-        # when every class holds one, so one model's Vulkan arm leaves the
-        # other classes' work open.
-        cuda_geometries_per_model = {}
-        vulkan_per_model = {}
-        for model_id in expected_depths:
-            v_list = validated_tuples_map.get(model_id, [])
-            cuda_geometries_per_model[model_id] = len(
-                {(b, ub) for ctx, b, ub, backend in v_list
-                 if backend == "cuda"})
-            vulkan_per_model[model_id] = sum(
-                1 for ctx, b, ub, backend in v_list if backend == "vulkan")
-
-        has_second_geometry_all_classes = all(
-            count >= 2 for count in cuda_geometries_per_model.values())
-        has_vulkan_all_classes = all(
-            count >= 1 for count in vulkan_per_model.values())
+        # Coverage is judged over the declared classes rather than over every
+        # row carrying a numeric depth, and an extension arm counts only at
+        # the class's own validated depth and cache triple: a shallow second
+        # geometry measures a different question than the one the campaign
+        # asks.
+        second_geometry_open = []
+        vulkan_open = []
+        for row in classes:
+            model_id = row["representative_model"]
+            expected = expected_depths.get(model_id)
+            if expected is None:
+                # A class whose representative holds no numeric depth has its
+                # primary arm open, which the depth check above reports.
+                continue
+            rows = validated_tuples_map.get(model_id, [])
+            geometries = {
+                (r["batch"], r["ubatch"]) for r in rows
+                if r["backend"] == AUTHORITATIVE_BACKEND
+                and matches_primary(r, expected, ignore=("batch", "ubatch"))
+            }
+            vulkan_arms = [
+                r for r in rows
+                if r["backend"] == "vulkan" and matches_primary(r, expected)
+            ]
+            if row["second_geometry"] == "required" and len(geometries) < 2:
+                second_geometry_open.append(model_id)
+            if row["vulkan_arm"] == "required" and not vulkan_arms:
+                vulkan_open.append(model_id)
 
         open_statement = ("Open extensions: a second submission geometry per "
                           "class, and the Vulkan-backend arms")
-        if has_second_geometry_all_classes and has_vulkan_all_classes:
+        if not second_geometry_open and not vulkan_open:
             if open_statement in tt_norm:
                 report_error("TASK_TRACKER.md contains a stale open depth "
                              "work statement; the second geometry and the "
-                             "Vulkan arms are complete for every class in "
-                             "validated-tuples.tsv")
+                             "Vulkan arms are complete for every required "
+                             "class in scripts/validation-classes.tsv")
         else:
             if ("second submission geometry per class" not in tt_norm
                     or "Vulkan-backend arms" not in tt_norm):
                 report_error("TASK_TRACKER.md missing the expected open "
-                             "depth work statement")
+                             "depth work statement; open second geometry: "
+                             f"{second_geometry_open or 'none'}; open Vulkan "
+                             f"arms: {vulkan_open or 'none'}")
 
-    # 6. Serving backend.
+        # Per-model depth statements are reconciled rather than left to drift:
+        # a tracker naming a depth for a registry row must name the depth the
+        # registry claims.
+        for model_id, expected in expected_depths.items():
+            for match in re.finditer(
+                    rf"{re.escape(model_id)} at (\d+)", tt_norm):
+                if match.group(1) != expected["depth"]:
+                    report_error(
+                        f"TASK_TRACKER.md states {model_id} at "
+                        f"{match.group(1)}; scripts/models.tsv claims "
+                        f"validated_filled_depth {expected['depth']}")
+
+    # 7. The coding lane's three-way execution consistency: a profile that may
+    # execute requires the runtime it names to be admitted, the model's own
+    # execution grant, and readable full-chain evidence. The rule holds for
+    # every validator-gated profile rather than for one named row.
+    coding_profiles = load_ledger(
+        repo_root, "coding-profiles.tsv", report_error,
+        ["profile_id", "model_id", "runtime_id", "execution_policy"])
+    coding_runtimes = {
+        row["id"]: row for row in load_ledger(
+            repo_root, "coding-runtimes.tsv", report_error,
+            ["id", "execution_policy", "validation_evidence"])
+    }
+    for profile in coding_profiles:
+        if profile["execution_policy"] != "validator-gated":
+            continue
+        runtime = coding_runtimes.get(profile["runtime_id"])
+        if runtime is None:
+            report_error(f"coding profile {profile['profile_id']} names "
+                         f"runtime {profile['runtime_id']}, absent from "
+                         "scripts/coding-runtimes.tsv")
+            continue
+        if runtime["execution_policy"] != "validator-gated":
+            report_error(
+                f"coding profile {profile['profile_id']} is validator-gated "
+                f"while its runtime {profile['runtime_id']} reads "
+                f"'{runtime['execution_policy']}'")
+        model_id = profile["model_id"]
+        registry_row = models_dict.get(model_id, (0, {}))[1]
+        grant = registry_row.get("guarded_tool_execution", "-")
+        if grant != "validator-gated":
+            report_error(
+                f"coding profile {profile['profile_id']} is validator-gated "
+                f"while {model_id} carries guarded_tool_execution "
+                f"'{grant}' in scripts/models.tsv")
+        evidence = runtime.get("validation_evidence", "-")
+        if evidence == "-" or not (repo_root / evidence).exists():
+            report_error(
+                f"runtime {profile['runtime_id']} is validator-gated with "
+                f"unreadable validation evidence '{evidence}'")
+
+    # 8. Serving backend.
     if "CUDA0" not in readme_text:
         report_error("README.md does not assert CUDA0 serving authority")
 

@@ -1,0 +1,19 @@
+# The build closures this repository names by role, so a checker derives a
+# configuration identity and its evidence path from a ledger rather than
+# carrying either as a constant. `promoted` is the closure the appliance
+# serves and the one README's served-closure statement must name;
+# `rollback` is the prior promotion a revert reaches; `diagnostic` is the
+# PTX-bearing dual-backend closure the Vulkan arms use and production never
+# promotes. A README mention alone does not establish a role: the checker
+# reads the role from this ledger and requires the prose to state it.
+#
+# configuration_id is the twelve-hex build identity the promotion evidence
+# and the build directory share. backend_set is `cuda` or `cuda+vulkan`;
+# architecture is the CMAKE_CUDA_ARCHITECTURES value the closure emitted;
+# ptx_images counts the compute_89 images the payload carries, which is 0
+# for a `-real` arm. status is `promoted`, `retained`, or `superseded`.
+#
+# role	configuration_id	evidence_path	backend_set	architecture	cubin_images	ptx_images	status
+promoted	88681bf4d161	evidence/ada/promotion-88681bf4d161	cuda	89-real	187	0	promoted
+rollback	31d0775c5bc6	evidence/ada/promotion-31d0775c5bc6	cuda	89-real	187	0	superseded
+diagnostic	572951d25562	evidence/ada/promotion-572951d25562	cuda+vulkan	89	187	187	retained

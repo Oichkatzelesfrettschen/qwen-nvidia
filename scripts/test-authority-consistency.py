@@ -250,6 +250,219 @@ def main():
 
     test_case("stale_q80_threshold_clause_fails", mut_stale_q80_threshold, expect_pass=False)
 
+    # --- hostile fixtures for the semantic distinctions the ledgers carry ---
+
+    # A profile-scope quarantine removes one tuple rather than the checkpoint,
+    # so reading it as a model quarantine would refuse a readmitted row.
+    def mut_profile_scope_quarantine(root):
+        path = root / "scripts" / "quarantine.tsv"
+        lines = path.read_text().splitlines()
+        header = next(i for i, x in enumerate(lines)
+                      if x.lstrip("#").strip().startswith("id\t"))
+        columns = len(lines[header].lstrip("#").strip().split("\t"))
+        row = ["profile-9b-probe", "profile", "qwen38-9b-distill",
+               "fixture", "-"]
+        row += ["-"] * (columns - len(row))
+        lines.append("\t".join(row[:columns]))
+        path.write_text("\n".join(lines) + "\n")
+    test_case("profile_scope_quarantine_is_not_a_model_quarantine",
+              mut_profile_scope_quarantine, expect_pass=True)
+
+    # A model-scope row on the same subject must still refuse.
+    def mut_model_scope_quarantine(root):
+        path = root / "scripts" / "quarantine.tsv"
+        lines = path.read_text().splitlines()
+        header = next(i for i, x in enumerate(lines)
+                      if x.lstrip("#").strip().startswith("id\t"))
+        columns = len(lines[header].lstrip("#").strip().split("\t"))
+        row = ["model-9b-probe", "model", "qwen38-9b-distill", "fixture", "-"]
+        row += ["-"] * (columns - len(row))
+        lines.append("\t".join(row[:columns]))
+        path.write_text("\n".join(lines) + "\n")
+    test_case("model_scope_quarantine_on_readmitted_row_fails",
+              mut_model_scope_quarantine, expect_pass=False,
+              expect_error="model-scope quarantine")
+
+    # A new evict-first row that no document mentions must be caught, rather
+    # than the gate checking one named checkpoint.
+    def mut_new_evict_first_row(root):
+        path = root / "scripts" / "models.tsv"
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("qwen38-4b-i1-q2k\t"):
+                parts = line.split("\t")
+                parts[-1] = "evict-first"
+                lines[i] = "\t".join(parts)
+                break
+        path.write_text("\n".join(lines) + "\n")
+    test_case("new_evict_first_row_absent_from_docs_fails",
+              mut_new_evict_first_row, expect_pass=False,
+              expect_error="does not document")
+
+    # A registry row carrying a numeric depth but no validation class must not
+    # enlarge the campaign's completion judgement.
+    def mut_unrelated_numeric_depth(root):
+        models = root / "scripts" / "models.tsv"
+        tuples = root / "scripts" / "validated-tuples.tsv"
+        lines = models.read_text().splitlines()
+        target = None
+        for i, line in enumerate(lines):
+            if line.startswith("nanbeige42-3b\t"):
+                parts = line.split("\t")
+                parts[18] = "8192"
+                lines[i] = "\t".join(parts)
+                target = parts
+                break
+        if target is None:
+            return
+        models.write_text("\n".join(lines) + "\n")
+        tl = tuples.read_text().splitlines()
+        head = next(x for x in tl
+                    if x.lstrip("#").strip().startswith("tuple_id\t"))
+        columns = head.lstrip("#").strip().split("\t")
+        row = dict.fromkeys(columns, "-")
+        row.update({"tuple_id": "nanbeige42-3b-d8192-fixture",
+                    "model_id": "nanbeige42-3b", "runtime_mode": "standalone",
+                    "context": "8192", "batch": target[16],
+                    "ubatch": target[17], "cache_k": target[7],
+                    "cache_v": target[8], "flash_attention": target[9],
+                    "threads": "1", "parallel": "1", "projector_state": "none",
+                    "backend": "cuda", "status": "validated",
+                    "evidence": "evidence/depth-validation-cuda/",
+                    "measured_at": "2026-09-01"})
+        tl.append("\t".join(row[c] for c in columns))
+        tuples.write_text("\n".join(tl) + "\n")
+    test_case("unrelated_numeric_depth_does_not_change_class_completion",
+              mut_unrelated_numeric_depth, expect_pass=True)
+
+    # A second geometry measured at a shallower depth answers a different
+    # question than the campaign asks, so it must not close the extension.
+    def mut_shallow_second_geometry(root):
+        tuples = root / "scripts" / "validated-tuples.tsv"
+        tl = tuples.read_text().splitlines()
+        head = next(x for x in tl
+                    if x.lstrip("#").strip().startswith("tuple_id\t"))
+        columns = head.lstrip("#").strip().split("\t")
+        rows = [x for x in tl if x and not x.startswith("#")]
+        base = None
+        for r in rows:
+            d = dict(zip(columns, r.split("\t")))
+            if d["model_id"] == "qwen38-2b-distill" and d["backend"] == "cuda":
+                base = d
+                break
+        if base is None:
+            return
+        shallow = dict(base)
+        shallow.update({"tuple_id": "qwen38-2b-distill-shallow-fixture",
+                        "context": "4096", "batch": "512", "ubatch": "128"})
+        tl.append("\t".join(shallow[c] for c in columns))
+        tuples.write_text("\n".join(tl) + "\n")
+        # A shallow arm leaves the statement open, so removing it must fail.
+        tracker = root / "TASK_TRACKER.md"
+        tracker.write_text(tracker.read_text().replace(
+            "Open extensions: a second\nsubmission geometry per class, and the "
+            "Vulkan-backend arms.", "Depth work is complete."))
+    test_case("shallow_second_geometry_does_not_close_the_extension",
+              mut_shallow_second_geometry, expect_pass=False,
+              expect_error="open depth work statement")
+
+    # A rollback digest presented under the served-closure role must fail even
+    # though the string appears in the document.
+    def mut_rollback_under_served_role(root):
+        readme = root / "README.md"
+        readme.write_text(readme.read_text().replace(
+            "served closure is configuration `88681bf4d161`",
+            "served closure is configuration `31d0775c5bc6`"))
+    test_case("rollback_digest_under_served_role_fails",
+              mut_rollback_under_served_role, expect_pass=False,
+              expect_error="served-closure statement names")
+
+    # An ambient serving backend must not decide what the nested validator
+    # admits; the checker names the backend for its child.
+    def mut_none(root):
+        return
+    def run_with_backend(value):
+        import os
+        environment = dict(os.environ, QWEN_SERVING_BACKEND=value)
+        with tempfile.TemporaryDirectory(prefix="test_auth_env_") as tmp_dir:
+            tmp_path = pathlib.Path(tmp_dir)
+            copy_repo(repo_root, tmp_path)
+            checker = pathlib.Path(__file__).parent / "check-authority-consistency.py"
+            return subprocess.run(
+                [sys.executable, str(checker), str(tmp_path)],
+                capture_output=True, text=True, env=environment).returncode
+    for ambient in ("vulkan", "invalid"):
+        code = run_with_backend(ambient)
+        if code == 0:
+            print(f"PASS: ambient_backend_{ambient}_does_not_change_result")
+        else:
+            print(f"FAIL: ambient_backend_{ambient}_does_not_change_result "
+                  f"(exit {code})", file=sys.stderr)
+            failures += 1
+
+    # The promotion summary states an outcome rather than merely existing.
+    def mut_malformed_serving_summary(root):
+        path = (root / "evidence" / "ada" / "promotion-88681bf4d161"
+                / "serving-summary.tsv")
+        path.write_text("check\tresult\tdetail\nlaunch\taccepted\tx\n")
+    test_case("incomplete_serving_summary_fails",
+              mut_malformed_serving_summary, expect_pass=False,
+              expect_error="omits required checks")
+
+    def mut_serving_summary_wrong_device(root):
+        path = (root / "evidence" / "ada" / "promotion-88681bf4d161"
+                / "serving-summary.tsv")
+        text = path.read_text().replace("CUDA0", "Vulkan0")
+        path.write_text(text)
+    test_case("serving_summary_naming_another_device_fails",
+              mut_serving_summary_wrong_device, expect_pass=False,
+              expect_error="does not name CUDA0")
+
+    # A tracker stating a depth the registry does not claim must fail.
+    def mut_stale_tracker_depth(root):
+        tracker = root / "TASK_TRACKER.md"
+        tracker.write_text(tracker.read_text().replace(
+            "qwen25-coder-7b at 32768", "qwen25-coder-7b at 8192"))
+    test_case("stale_per_model_tracker_depth_fails",
+              mut_stale_tracker_depth, expect_pass=False,
+              expect_error="TASK_TRACKER.md states")
+
+    # The coding lane's three-way rule: a validator-gated profile requires an
+    # admitted runtime and the model's own execution grant. Each authority is
+    # mutated on its own.
+    def mut_coding_runtime_refused(root):
+        path = root / "scripts" / "coding-runtimes.tsv"
+        path.write_text(path.read_text().replace(
+            "qwen-code/bin/qwen\tvalidator-gated",
+            "qwen-code/bin/qwen\trefused"))
+    test_case("validator_gated_profile_with_refused_runtime_fails",
+              mut_coding_runtime_refused, expect_pass=False,
+              expect_error="while its runtime")
+
+    def mut_coding_model_grant_refused(root):
+        path = root / "scripts" / "models.tsv"
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("qwenseer-2b\t"):
+                parts = line.split("\t")
+                parts[21] = "refused"
+                lines[i] = "\t".join(parts)
+                break
+        path.write_text("\n".join(lines) + "\n")
+    test_case("validator_gated_profile_without_model_grant_fails",
+              mut_coding_model_grant_refused, expect_pass=False,
+              expect_error="guarded_tool_execution")
+
+    # A closure ledger naming an unreadable evidence path fails closed.
+    def mut_closure_evidence_missing(root):
+        path = root / "scripts" / "serving-closures.tsv"
+        path.write_text(path.read_text().replace(
+            "evidence/ada/promotion-572951d25562",
+            "evidence/ada/promotion-absent"))
+    test_case("closure_ledger_with_unreadable_evidence_fails",
+              mut_closure_evidence_missing, expect_pass=False,
+              expect_error="diagnostic configuration evidence")
+
     if failures:
         print(f"test_authority_consistency: REJECTED ({failures} failures)", file=sys.stderr)
         sys.exit(1)
