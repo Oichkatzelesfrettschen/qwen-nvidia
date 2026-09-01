@@ -27,6 +27,31 @@ the fill: 65197 of 65536 on the 0.8B and the 2B, 32577 of 32768 on the 4B, and
 device, including the 9B where the compute buffer is the tightest, so the
 served geometry is the registry's claim rather than the only geometry the depth
 survives. `evidence/depth-validation-cuda/*/second-geometry/` carries the arms.
+
+The claim is narrow by construction. The campaign moved batch and ubatch
+together, so it establishes a second safe geometry rather than attributing the
+result to either dimension, and it measured fill completion and needle
+retrieval rather than comparative prefill throughput or the instantaneous
+allocation peak. An orthogonal matrix separating 2048/256 from 1024/512
+belongs to a performance or memory task rather than to filled-depth
+validation. 2048/512 stays the served geometry and the registry's claim;
+1024/256 is a validated alternate rather than a serving promotion.
+
+Each ledger row now names the arm that proves it. `probe-filled-depth.sh`
+emitted every row against the model directory whatever geometry ran, so the
+served and second-geometry arms of one model resolved to one path and neither
+identified its own result; `QWEN_PROBE_EVIDENCE_PATH` names the arm directory
+and the run's own output directory is the default. `model-registry.sh`
+requires a directory-shaped evidence path to hold a
+`validated-tuples-rows.tsv` naming the tuple and a `filled-depth-summary.tsv`
+carrying an accepted arm at the same model, depth, batch, and ubatch, which the
+`tuple_evidence_binds_to_its_own_arm` fixture holds by moving one row's
+evidence to another model's valid directory. Applying that binding found two
+rows whose evidence did not identify them: the 7B's superseded 8192 arm, whose
+summary the 32768 rerun overwrote in the same directory and which is recovered
+from `bf73278` with a `prompt_n` matching its retained result exactly, and
+`qwenseer-2b`, which carried no emitted row file at all.
+
 The open extension is the Vulkan-backend arms.
 
 ## Graded quality suite
@@ -130,7 +155,7 @@ refusing, and a process merely named `llama-server` with no context recorded
 rather than read as ownership. `pgrep` remains diagnostic output alone, which is
 what it always was: reading it as the ownership authority is why
 `probe-depth-projector.sh` intermittently refused against a device nothing held.
-`scripts/test-gpu-workload-ownership.sh` carries eight fixtures over a fake
+`scripts/test-gpu-workload-ownership.sh` carries nine fixtures over a fake
 driver and a fake `/proc`.
 
 The authority found two things on its first run. Microsoft Edge's GPU process
@@ -144,9 +169,13 @@ exits 75 against a device nothing is using.
 
 ## Credential incident
 
-`evidence/credential-incident/` carries the condition set as booleans. The local
-half is closed and the publication half waits on the operator's provider-side
-deletions; `TASK_TRACKER.md` gains nothing further until `state.tsv` moves.
+`evidence/credential-incident/` carries the condition set as booleans. The
+reachable history is sanitized and the provider-side deletions are done. The
+remaining exposure was the cached pull-request ref, which retains a merged
+PR's head commit independently of every branch and no push reaches: deleting
+and recreating the repository purged `refs/pull/1/head` along with the eight
+Nsight captures it reached, and a fetch of that commit by SHA now answers
+`upload-pack: not our ref`.
 
 The ownership authority reaches the sweeps as well.
 `run-cuda-baseline-sweep.sh` and `run-speculation-sweep.sh` refused on

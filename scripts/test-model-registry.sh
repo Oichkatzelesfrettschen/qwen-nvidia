@@ -711,6 +711,31 @@ else
     report check_validated_tuples_discriminates_backend rejected
 fi
 
+# An evidence path proves a tuple only where the retained arm names that tuple.
+# Existence alone accepts a row bound to any directory in the tree, which is how
+# the served 2048/512 arm and the 1024/256 extension both pointed at one model
+# directory while neither identified its own result. The mutation moves one
+# row's evidence to another model's valid directory, so every earlier check the
+# path passes -- repository-relative, no upward traversal, present in the tree --
+# still holds and the tuple binding alone decides the outcome.
+cross_bound_tuples=$work_directory/cross-bound-tuples.tsv
+awk -F'\t' -v OFS='\t' '$1 == "qwen38-9b-distill-d24576-b1024-ub256" {
+        $15 = "evidence/depth-validation-cuda/qwen35-08b/"
+    } { print }' "$script_directory/validated-tuples.tsv" >"$cross_bound_tuples"
+set +e
+QWEN_VALIDATED_TUPLES=$cross_bound_tuples \
+    "$script_directory/model-registry.sh" tuples qwen38-9b-distill \
+    >"$work_directory/cross-bound.out" 2>"$work_directory/cross-bound.err"
+cross_bound_status=$?
+set -e
+if [ "$cross_bound_status" -ne 0 ] &&
+   grep -F 'evidence names no emitted row for this tuple' \
+    "$work_directory/cross-bound.err" >/dev/null; then
+    report tuple_evidence_binds_to_its_own_arm accepted
+else
+    report tuple_evidence_binds_to_its_own_arm rejected
+fi
+
 if [ "$failures" -eq 0 ]; then
     printf 'model_registry=accepted\n'
     exit 0

@@ -35,22 +35,34 @@
 # retained evidence does not carry that identity. measured_at is the ISO date
 # the arm ran, `-` where unknown.
 #
-# The ledger holds no row on this host. Every arm it carried was measured on
-# the prior host's APU over its Vulkan driver, where a depth validated under
-# one submission geometry says nothing about a different device, a different
-# driver, and a 12 GiB carve-out; the raw records stay in that host's own tree.
-# scripts/models.tsv reads `-` in validated_filled_depth for every row as a
-# result, and a depth campaign on this device is what fills both files.
+# Eleven rows carry this device's own CUDA arms, each measured through
+# scripts/probe-filled-depth.sh against the promoted closure. Four runtime
+# classes and two coding rows hold the served 2048/512 geometry, and the four
+# runtime classes hold a second 1024/256 arm at the same depth and cache
+# triple; the 7B carries a superseded 8192 arm beside its 32768 one. The
+# 2048/512 rows are the geometry scripts/models.tsv claims through
+# validated_filled_depth and the geometry the appliance serves, and the
+# 1024/256 rows are a validated alternate rather than a serving promotion.
+# The prior host's own arms stay in that host's tree, where a depth validated
+# over its Vulkan driver on an APU says nothing about this device, this driver,
+# and a 12 GiB carve-out.
+#
+# The evidence path names the arm that proves the row rather than the model
+# that ran it, because one model directory holds several geometries and a row
+# bound to the model cannot say which retained result carries its depth.
+# model-registry.sh requires a directory-shaped path to hold a
+# validated-tuples-rows.tsv naming this tuple_id and a filled-depth-summary.tsv
+# carrying an accepted arm at the same model, depth, batch, and ubatch.
 #
 # tuple_id	model_id	runtime_mode	context	batch	ubatch	cache_k	cache_v	flash_attention	threads	parallel	projector_state	backend	status	evidence	llama_commit	runner_sha256	kernel	mesa	gpu_module	measured_at
 qwen38-2b-distill-d65536-b2048-ub512	qwen38-2b-distill	standalone	65536	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-2b-distill/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
 qwen35-08b-d65536-b2048-ub512	qwen35-08b	standalone	65536	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen35-08b/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
 qwen38-4b-distill-d32768-b2048-ub512	qwen38-4b-distill	standalone	32768	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-4b-distill/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
 qwen38-9b-distill-d24576-b2048-ub512	qwen38-9b-distill	standalone	24576	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-9b-distill/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
-qwen25-coder-7b-d8192-b2048-ub512	qwen25-coder-7b	standalone	8192	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen25-coder-7b/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
+qwen25-coder-7b-d8192-b2048-ub512	qwen25-coder-7b	standalone	8192	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen25-coder-7b/d8192-b2048-ub512/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
 qwenseer-2b-d65536-b2048-ub512	qwenseer-2b	standalone	65536	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwenseer-2b/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-08-31
 qwen25-coder-7b-d32768-b2048-ub512	qwen25-coder-7b	standalone	32768	2048	512	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen25-coder-7b/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	054d1295095ec006ed2ae1c3b65d43a51aaaf5575989ace0b69f53efa4a351cd	7.2.2-1-cachyos	-	610.57.04	2026-09-01
-qwen35-08b-d65536-b1024-ub256	qwen35-08b	standalone	65536	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen35-08b/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
-qwen38-2b-distill-d65536-b1024-ub256	qwen38-2b-distill	standalone	65536	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-2b-distill/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
-qwen38-4b-distill-d32768-b1024-ub256	qwen38-4b-distill	standalone	32768	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-4b-distill/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
-qwen38-9b-distill-d24576-b1024-ub256	qwen38-9b-distill	standalone	24576	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-9b-distill/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
+qwen35-08b-d65536-b1024-ub256	qwen35-08b	standalone	65536	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen35-08b/second-geometry/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
+qwen38-2b-distill-d65536-b1024-ub256	qwen38-2b-distill	standalone	65536	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-2b-distill/second-geometry/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
+qwen38-4b-distill-d32768-b1024-ub256	qwen38-4b-distill	standalone	32768	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-4b-distill/second-geometry/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01
+qwen38-9b-distill-d24576-b1024-ub256	qwen38-9b-distill	standalone	24576	1024	256	q8_0	q4_0	on	1	1	none	cuda	validated	evidence/depth-validation-cuda/qwen38-9b-distill/second-geometry/	f280b26983ad0fdb705a0d9ebf0503e76f2899b0	0e6b482c8423f7d5d8c432ed06fa47e27618526b81590529fe940647c82521b7	7.2.2-1-cachyos	-	610.57.04	2026-09-01

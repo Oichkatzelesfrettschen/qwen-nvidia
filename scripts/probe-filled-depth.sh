@@ -26,6 +26,9 @@ usage() {
     printf '  QWEN_PROBE_PORT     listener, default 18093\n' >&2
     printf '  QWEN_PROBE_BATCH    batch size, default the row batch\n' >&2
     printf '  QWEN_PROBE_UBATCH   ubatch size, default the row ubatch\n' >&2
+    printf '  QWEN_PROBE_EVIDENCE_PATH  repository-relative arm directory the\n' >&2
+    printf '                      emitted ledger rows name, default this run\n' >&2
+    printf '                      output directory\n' >&2
     exit 2
 }
 
@@ -39,7 +42,46 @@ model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
 server_port=${QWEN_PROBE_PORT:-18093}
 ready_timeout_s=${QWEN_PROBE_READY_TIMEOUT_S:-300}
 decode_tokens=32
-evidence_root=evidence/depth-validation-cuda
+
+# The ledger row names the arm that proves it rather than the model that ran
+# it. One model directory holds several geometries, so a row bound to the model
+# leaves check-validated-tuples.sh unable to say which retained arm carries the
+# depth the row claims: the served 2048/512 arm and the 1024/256 extension both
+# resolved to the same path and neither identified its own result. The path
+# defaults to this run's own output directory, and QWEN_PROBE_EVIDENCE_PATH
+# names it where the run writes outside the tree.
+resolve_evidence_path() {
+    resolved_evidence=${QWEN_PROBE_EVIDENCE_PATH:-}
+    if [ -z "$resolved_evidence" ]; then
+        evidence_absolute=$(CDPATH='' cd -- "$output_directory" && pwd) || return 1
+        repository_root=$(CDPATH='' cd -- "$script_directory/.." && pwd) || return 1
+        case $evidence_absolute in
+            "$repository_root"/evidence/*)
+                resolved_evidence=${evidence_absolute#"$repository_root"/}
+                ;;
+            *)
+                printf '%s\n' "output directory lies outside evidence/;" \
+                    "set QWEN_PROBE_EVIDENCE_PATH: $output_directory" >&2
+                return 1
+                ;;
+        esac
+    fi
+    case $resolved_evidence in
+        evidence/*) ;;
+        *)
+            printf 'evidence path is not repository-relative under evidence/: %s\n' \
+                "$resolved_evidence" >&2
+            return 1
+            ;;
+    esac
+    case $resolved_evidence in
+        */../* | ../* | */..)
+            printf 'evidence path traverses upward: %s\n' "$resolved_evidence" >&2
+            return 1
+            ;;
+    esac
+    printf '%s/' "${resolved_evidence%/}"
+}
 
 [ -x "$llama_server" ] || {
     printf 'llama-server is not executable: %s\n' "$llama_server" >&2
@@ -279,13 +321,14 @@ done
 # One appendable ledger row per healthy arm, written beside the evidence: a
 # validated row in scripts/validated-tuples.tsv requires its evidence path to
 # exist in the tree, so the row joins the ledger with the directory it names.
+arm_evidence_path=$(resolve_evidence_path) || exit 1
 llama_cpp_commit=$(git -C "${HOME:?}/src/llama.cpp-qwen-nvidia" rev-parse HEAD)
 runner_sha256=$(sha256sum "$0" | cut -d ' ' -f 1)
 kernel_release=$(uname -r)
 gpu_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
 measured_at=$(date -u +%Y-%m-%d)
 awk -F'\t' -v OFS='\t' -v model_id="$model_id" \
-    -v evidence="$evidence_root/$model_id/" -v commit="$llama_cpp_commit" \
+    -v evidence="$arm_evidence_path" -v commit="$llama_cpp_commit" \
     -v runner="$runner_sha256" -v kernel="$kernel_release" \
     -v gpu_module="$gpu_driver" -v measured_at="$measured_at" '
     NR > 1 && $9 == "ok" && $13 == "healthy" {

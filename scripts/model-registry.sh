@@ -451,6 +451,41 @@ validate_tuple_ledger() {
             printf '%s: validation evidence is absent from the tree: %s\n' \
                 "$tuple_id" "$tuple_evidence" >&2
             tuple_evidence_failures=$((tuple_evidence_failures + 1))
+            continue
+        fi
+        # Existence proves a directory was retained; it does not say the
+        # directory holds this tuple's own arm. One model directory carries
+        # several geometries, so a row bound to the model alone leaves the
+        # ledger unable to name which retained arm proves its depth. The
+        # emitted row file has to name this tuple_id and the summary has to
+        # carry an accepted arm at the same model, depth, and geometry.
+        # A probe run retains a directory; a narrative evidence file is a
+        # different class and keeps the existence check alone, so the binding
+        # applies where the path names a directory.
+        [ -d "$script_directory/../$tuple_evidence" ] || continue
+        tuple_rows_file=$script_directory/../$tuple_evidence/validated-tuples-rows.tsv
+        tuple_summary_file=$script_directory/../$tuple_evidence/filled-depth-summary.tsv
+        if [ ! -f "$tuple_rows_file" ] || [ ! -f "$tuple_summary_file" ]; then
+            printf '%s: evidence lacks the emitted row or summary file: %s\n' \
+                "$tuple_id" "$tuple_evidence" >&2
+            tuple_evidence_failures=$((tuple_evidence_failures + 1))
+            continue
+        fi
+        if ! awk -F'\t' -v want="$tuple_id" '$1 == want { found = 1 }
+            END { exit found ? 0 : 1 }' "$tuple_rows_file"; then
+            printf '%s: evidence names no emitted row for this tuple: %s\n' \
+                "$tuple_id" "$tuple_evidence" >&2
+            tuple_evidence_failures=$((tuple_evidence_failures + 1))
+            continue
+        fi
+        if ! awk -F'\t' -v m="$_model_id" -v d="$_context" -v b="$_batch" \
+            -v u="$_ubatch" 'NR > 1 && $2 == m && $3 == d && $4 == b &&
+            $5 == u && $9 == "ok" { found = 1 }
+            END { exit found ? 0 : 1 }' "$tuple_summary_file"; then
+            printf '%s: evidence summary carries no accepted %s arm at %s/%s/%s: %s\n' \
+                "$tuple_id" "$_model_id" "$_context" "$_batch" "$_ubatch" \
+                "$tuple_evidence" >&2
+            tuple_evidence_failures=$((tuple_evidence_failures + 1))
         fi
     done <<EOF
 $tuple_ledger_rows
