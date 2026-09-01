@@ -1,15 +1,34 @@
 #!/bin/sh
 set -eu
 
-# Fill and decode a near-full cache on the CUDA serving path for a text row.
-# An allocation and a validated depth are two claims: a server that loads a
+# Fill and decode a near-full cache on one named backend for a text row. An
+# allocation and a validated depth are two claims: a server that loads a
 # 65536-token allocation has proven it can reserve the memory and has not
 # proven a near-full cache executes. This harness runs llama-server standalone
-# at the row's own cache triple and submission geometry with strict CUDA0
-# placement, converges a padding prompt into the acceptance window through
-# /tokenize, and requires the decode to retrieve a needle planted at the head
-# of the fill, so the arm proves execution and long-range attention rather
-# than allocation alone.
+# at the row's own cache triple and submission geometry with strict placement
+# on the resolved device, converges a padding prompt into the acceptance
+# window through /tokenize, and requires the decode to retrieve a needle
+# planted at the head of the fill, so the arm proves execution and long-range
+# attention rather than allocation alone.
+#
+# QWEN_PROBE_BACKEND selects cuda (the default) or vulkan, and the selection
+# carries through every retained artifact rather than living in the argv
+# alone. cuda resolves device CUDA0, override pattern .*=CUDA0, and wrapper
+# scripts/cuda-runtime-env.sh; vulkan resolves device Vulkan0, override
+# pattern .*=Vulkan0, and wrapper scripts/vulkan-runtime-env.sh. The wrapper
+# applies the scheduling policy and the backend-specific environment scrub
+# qwen-capacity-policy.sh applies to a served launch, so the arm measures the
+# tuple under the environment the appliance would build it under.
+# QWEN_PROBE_DEVICE overrides the resolved device name alone, keeping the
+# backend's own wrapper and deriving the override pattern from the overridden
+# name, for a caller measuring a second device enumerated under the same
+# backend.
+#
+# filled-depth-summary.tsv and the emitted validated-tuples row both carry the
+# resolved backend, because scripts/check-validated-tuples.sh admits a row only
+# where its backend equals the one the host currently serves: a depth filled on
+# Vulkan proves nothing about the CUDA registry claim the row would otherwise
+# be read against.
 #
 # The acceptance window is asymmetric because decode follows the fill inside
 # one allocation: DEPTH - 2% <= prompt_n <= DEPTH - 32, where a prompt at or
@@ -23,6 +42,10 @@ usage() {
     printf 'usage: %s MODEL_ID OUTPUT_DIRECTORY\n' "$0" >&2
     printf '  QWEN_PROBE_DEPTHS   depths to fill, default the row context_ceiling\n' >&2
     printf '  QWEN_LLAMA_SERVER   server binary, default the promoted build\n' >&2
+    printf '  QWEN_PROBE_BACKEND  cuda (default) or vulkan; selects the device,\n' >&2
+    printf '                      the tensor override, and the runtime wrapper\n' >&2
+    printf '  QWEN_PROBE_DEVICE   overrides the resolved device name alone,\n' >&2
+    printf '                      default CUDA0 for cuda and Vulkan0 for vulkan\n' >&2
     printf '  QWEN_PROBE_PORT     listener, default 18093\n' >&2
     printf '  QWEN_PROBE_BATCH    batch size, default the row batch\n' >&2
     printf '  QWEN_PROBE_UBATCH   ubatch size, default the row ubatch\n' >&2
@@ -42,6 +65,31 @@ model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
 server_port=${QWEN_PROBE_PORT:-18093}
 ready_timeout_s=${QWEN_PROBE_READY_TIMEOUT_S:-300}
 decode_tokens=32
+
+# The backend decides three things together: the device the arm places every
+# tensor on, the tensor-override pattern that names it, and the runtime
+# wrapper that builds the environment the appliance would build for a served
+# launch on that backend. QWEN_PROBE_DEVICE overrides the device name alone,
+# so a caller measuring a second enumerated device keeps the backend's own
+# wrapper and override derivation.
+probe_backend=${QWEN_PROBE_BACKEND:-cuda}
+case $probe_backend in
+    cuda)
+        default_device=CUDA0
+        runtime_wrapper=$script_directory/cuda-runtime-env.sh
+        ;;
+    vulkan)
+        default_device=Vulkan0
+        runtime_wrapper=$script_directory/vulkan-runtime-env.sh
+        ;;
+    *)
+        printf 'QWEN_PROBE_BACKEND takes cuda or vulkan: %s\n' \
+            "$probe_backend" >&2
+        exit 2
+        ;;
+esac
+resolved_device=${QWEN_PROBE_DEVICE:-$default_device}
+override_pattern=".*=$resolved_device"
 
 # The ledger row names the arm that proves it rather than the model that ran
 # it. One model directory holds several geometries, so a row bound to the model
@@ -85,6 +133,10 @@ resolve_evidence_path() {
 
 [ -x "$llama_server" ] || {
     printf 'llama-server is not executable: %s\n' "$llama_server" >&2
+    exit 1
+}
+[ -x "$runtime_wrapper" ] || {
+    printf 'runtime wrapper is not executable: %s\n' "$runtime_wrapper" >&2
     exit 1
 }
 
@@ -146,7 +198,7 @@ gpu_ownership_inspect || exit 1
 mkdir -p "$output_directory"
 summary=$output_directory/filled-depth-summary.tsv
 emitted_rows=$output_directory/validated-tuples-rows.tsv
-printf 'arm\tmodel_id\tdepth\tbatch\tubatch\tcache_k\tcache_v\tflash_attn\tstatus\tprompt_n\tcompletion_tokens\tneedle\thealth\tserver_log\n' \
+printf 'arm\tmodel_id\tbackend\tdepth\tbatch\tubatch\tcache_k\tcache_v\tflash_attn\tstatus\tprompt_n\tcompletion_tokens\tneedle\thealth\tserver_log\n' \
     >"$summary"
 
 server_pid=''
@@ -160,20 +212,26 @@ trap 'stop_server' EXIT
 trap 'stop_server; exit 130' INT
 trap 'stop_server; exit 143' TERM
 
-# Strict CUDA0 placement with the CPU fallback refused, one slot, and the
-# prompt cache off, so prompt_n reports the tokens the arm actually prefilled.
+# Strict placement on the resolved device with the CPU fallback refused, one
+# slot, and the prompt cache off, so prompt_n reports the tokens the arm
+# actually prefilled. The launch runs through the backend's own runtime
+# wrapper rather than a raw invocation, so it inherits the environment scrub
+# and the scheduling policy a served launch on that backend gets;
+# QWEN_SERVING_NICE carries this harness's own idle-priority intent through
+# the wrapper's own renice, since the wrapper otherwise renices to the served
+# default of 0.
 start_server() {
-    env LLAMA_NO_CPU_FALLBACK=1 \
-        nice -n 19 ionice -c 3 "$llama_server" \
+    env QWEN_SERVING_NICE=19 \
+        ionice -c 3 "$runtime_wrapper" "$llama_server" \
         --model "$model_path" \
         --alias "$model_id" \
         --host 127.0.0.1 \
         --port "$server_port" \
         --no-ui \
-        --device CUDA0 \
+        --device "$resolved_device" \
         --split-mode none \
         --n-gpu-layers all \
-        --override-tensor '.*=CUDA0' \
+        --override-tensor "$override_pattern" \
         --fit off \
         --parallel 1 \
         --threads 1 \
@@ -214,9 +272,10 @@ for depth in $depths; do
 
     start_server "$depth" "$arm_log"
     if ! wait_for_server; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tserver-never-ready\tn/a\tn/a\tn/a\tn/a\t%s\n' \
-            "$arm_label" "$model_id" "$depth" "$batch_size" "$ubatch_size" \
-            "$cache_type_k" "$cache_type_v" "$flash_attention" "$arm_log" >>"$summary"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tserver-never-ready\tn/a\tn/a\tn/a\tn/a\t%s\n' \
+            "$arm_label" "$model_id" "$probe_backend" "$depth" "$batch_size" \
+            "$ubatch_size" "$cache_type_k" "$cache_type_v" "$flash_attention" \
+            "$arm_log" >>"$summary"
         overall_status=failed
         stop_server
         continue
@@ -310,9 +369,9 @@ PYTHON
     fi
     stop_server
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$arm_label" "$model_id" "$depth" "$batch_size" "$ubatch_size" \
-        "$cache_type_k" "$cache_type_v" "$flash_attention" \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$arm_label" "$model_id" "$probe_backend" "$depth" "$batch_size" \
+        "$ubatch_size" "$cache_type_k" "$cache_type_v" "$flash_attention" \
         "${arm_status:-failed}" "${prompt_n:-n/a}" "${completion:-n/a}" \
         "${needle_state:-n/a}" "$health" "$arm_log" >>"$summary"
     [ "${arm_status:-failed}" = ok ] && [ "$health" = healthy ] || overall_status=failed
@@ -326,15 +385,25 @@ llama_cpp_commit=$(git -C "${HOME:?}/src/llama.cpp-qwen-nvidia" rev-parse HEAD)
 runner_sha256=$(sha256sum "$0" | cut -d ' ' -f 1)
 kernel_release=$(uname -r)
 gpu_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+# vulkaninfo names the driver an arm ran a Vulkan backend against; a CUDA arm
+# leaves the field the nvidia-smi driver version already carries on gpu_module
+# and records no separate Vulkan identity.
+vulkan_driver_version=-
+if [ "$probe_backend" = vulkan ] && command -v vulkaninfo >/dev/null 2>&1; then
+    parsed_vulkan_driver=$(timeout 5s vulkaninfo --summary 2>/dev/null |
+        awk -F': *' '/driverInfo/ { print $2; exit }')
+    [ -z "$parsed_vulkan_driver" ] || vulkan_driver_version=$parsed_vulkan_driver
+fi
 measured_at=$(date -u +%Y-%m-%d)
 awk -F'\t' -v OFS='\t' -v model_id="$model_id" \
     -v evidence="$arm_evidence_path" -v commit="$llama_cpp_commit" \
     -v runner="$runner_sha256" -v kernel="$kernel_release" \
-    -v gpu_module="$gpu_driver" -v measured_at="$measured_at" '
-    NR > 1 && $9 == "ok" && $13 == "healthy" {
-        print model_id "-d" $3 "-b" $4 "-ub" $5, model_id, "standalone",
-            $3, $4, $5, $6, $7, $8, 1, 1, "none", "cuda", "validated",
-            evidence, commit, runner, kernel, "-", gpu_module, measured_at
+    -v gpu_module="$gpu_driver" -v backend="$probe_backend" \
+    -v vulkan_driver="$vulkan_driver_version" -v measured_at="$measured_at" '
+    NR > 1 && $10 == "ok" && $14 == "healthy" {
+        print model_id "-d" $4 "-b" $5 "-ub" $6, model_id, "standalone",
+            $4, $5, $6, $7, $8, $9, 1, 1, "none", backend, "validated",
+            evidence, commit, runner, kernel, vulkan_driver, gpu_module, measured_at
     }' "$summary" >"$emitted_rows"
 
 printf 'filled_depth=%s model_id=%s output_directory=%s emitted_rows=%s\n' \

@@ -59,6 +59,11 @@ record_launch() {
     printf 'cuda_pdl=%s\n' "${GGML_CUDA_PDL:-unset}"
     printf 'cuda_unified_memory=%s\n' "${GGML_CUDA_ENABLE_UNIFIED_MEMORY:-unset}"
     printf 'cuda_devices=%s\n' "${CUDA_VISIBLE_DEVICES:-unset}"
+    # cuda-runtime-env.sh unsets VK_ICD_FILENAMES as part of its own scrub and
+    # vulkan-runtime-env.sh exports it to the pinned ICD path, so this line
+    # names which wrapper built the environment independently of the argv the
+    # probe itself derived.
+    printf 'vk_icd=%s\n' "${VK_ICD_FILENAMES:-unset}"
     printf 'argument_count=%s\n' "$#"
     for argument in "$@"; do
         printf 'argument=%s\n' "$argument"
@@ -191,9 +196,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.path.startswith("/v1/chat/completions"):
             self.send_error(404)
             return
+        # A message's content is either a plain string, the shape a text-only
+        # chat completion sends, or a list of typed parts, the shape a
+        # multimodal completion sends; both reach the same word-count-per-part
+        # accounting the projector probe and the filled-depth probe both rely
+        # on.
         prompt_tokens = 0
         for message in body.get("messages") or []:
-            for part in message.get("content") or []:
+            message_content = message.get("content")
+            if isinstance(message_content, str):
+                prompt_tokens += len(message_content.split())
+                continue
+            for part in message_content or []:
                 if part.get("type") == "text":
                     prompt_tokens += len(part.get("text", "").split())
                 if part.get("type") == "image_url":
@@ -203,6 +217,9 @@ class Handler(BaseHTTPRequestHandler):
             predicted = min(predicted, predicted_cap)
         self.respond({
             "choices": [{"message": {"role": "assistant", "content": reply}}],
+            "usage": {"prompt_tokens": prompt_tokens,
+                      "completion_tokens": predicted,
+                      "total_tokens": prompt_tokens + predicted},
             "timings": {"prompt_n": prompt_tokens, "prompt_ms": 1000.0,
                         "predicted_n": predicted, "predicted_per_second": 4.5}})
 
