@@ -20,6 +20,13 @@ probe=$script_directory/probe-depth-projector.sh
 fake_server=$script_directory/test-fixtures/fake-llama-server.sh
 tuple_checker=$script_directory/check-validated-tuples.sh
 temporary_directory=$(mktemp -d)
+
+# The probe asks the driver which processes hold a CUDA context. This fixture
+# drives a fake server against no device, so the driver stub answers with an
+# empty compute-app list and the arm's outcome follows the probe rather than
+# whatever the workstation's desktop happens to be rendering.
+printf '#!/bin/sh\nexit 0\n' >"$temporary_directory/no-compute-apps.sh"
+chmod +x "$temporary_directory/no-compute-apps.sh"
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 failures=0
 tab=$(printf '\t')
@@ -57,6 +64,8 @@ chmod +x "$dmesg_stub"
 run_probe() {
     env QWEN_MODEL_REGISTRY="$registry" \
         QWEN_MODEL_ROOT="$model_root" \
+        QWEN_GPU_OWNERSHIP_NVIDIA_SMI="${QWEN_GPU_OWNERSHIP_NVIDIA_SMI:-$temporary_directory/no-compute-apps.sh}" \
+        QWEN_GPU_OWNERSHIP_LOCK="$temporary_directory/ownership.lock" \
         QWEN_LLAMA_SERVER="$fake_server" \
         QWEN_QUALITY_IMAGE_DIRECTORY="$image_directory" \
         QWEN_CLOCK_SAMPLER="$temporary_directory/absent-sampler.sh" \
@@ -121,20 +130,23 @@ set -e
     report oversized_margin_refused accepted ||
     report oversized_margin_refused "status-$margin_status"
 
-# Another llama process on the device makes every measurement a contended one,
-# so the harness refuses to start rather than recording it.
-busy_path=$temporary_directory/busy-bin
-mkdir -p "$busy_path"
-printf '%s\n' '#!/bin/sh' 'exit 0' >"$busy_path/pgrep"
-chmod +x "$busy_path/pgrep"
+# A foreign CUDA client makes every measurement a contended one, so the harness
+# refuses to start rather than recording it. The driver's compute-app list is the
+# authority: a stub that reports another llama-server holding a context refuses,
+# where a process merely named llama-server holding none would not, which is the
+# distinction a process-name match could not draw.
+busy_driver=$temporary_directory/busy-driver.sh
+printf '%s\n' '#!/bin/sh' \
+    'printf "%s\\n" "4242, llama-server, 5307 MiB"' >"$busy_driver"
+chmod +x "$busy_driver"
 set +e
-PATH="$busy_path:$PATH" run_probe "$probe" fake-vision \
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$busy_driver run_probe "$probe" fake-vision \
     "$temporary_directory/busy" >/dev/null 2>&1
 busy_status=$?
 set -e
 [ "$busy_status" -eq 2 ] &&
-    report running_server_refused accepted ||
-    report running_server_refused "status-$busy_status"
+    report foreign_cuda_client_refused accepted ||
+    report foreign_cuda_client_refused "status-$busy_status"
 
 # One complete arm against the served fixture.
 arm_directory=$temporary_directory/arm

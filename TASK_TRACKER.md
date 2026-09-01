@@ -67,3 +67,36 @@ programmatic dependent launch, and the `GGML_CUDA_FORCE_MMQ` build arm on the
 2B distill alone. The 0.8B and 4B classes have not run through the same
 lever sweep, so no lever default is confirmed to hold across the three
 runtime classes `CLAUDE.md` defines.
+
+## Device ownership for depth campaigns
+
+`scripts/gpu-workload-ownership.sh` is the authority the depth probes take, and
+it answers two separate questions. An exclusive `flock(2)` on
+`/tmp/qwen-ad104-gpu-0.lock` serializes this tree's own campaigns and is held
+across server launch, cache fill, needle decode, server stop, and the post-arm
+health reads. Device residency is answered by the driver:
+`nvidia-smi --query-compute-apps` lists the processes holding a CUDA context and
+each pid resolves through `/proc` to an executable path, a start time, and a
+cgroup before it is classified -- the compositor recorded as the covariate this
+workstation always carries, a project workload or an unnamed compute client
+refusing, and a process merely named `llama-server` with no context recorded
+rather than read as ownership. `pgrep` remains diagnostic output alone, which is
+what it always was: reading it as the ownership authority is why
+`probe-depth-projector.sh` intermittently refused against a device nothing held.
+`scripts/test-gpu-workload-ownership.sh` carries eight fixtures over a fake
+driver and a fake `/proc`.
+
+The authority found two things on its first run. Microsoft Edge's GPU process
+holds a CUDA context at about 98 MiB beside the compositor, which a
+compute-app list reports and a process-name match never saw; browsers are
+classified with the desktop because that context is rasterization rather than a
+competing campaign. And a child inherits the open lock descriptor, so the
+server, the dmesg follower, and the clock sampler each close it with `9>&-`: a
+server outliving its probe otherwise holds the claim and the next campaign
+exits 75 against a device nothing is using.
+
+## Credential incident
+
+`evidence/credential-incident/` carries the condition set as booleans. The local
+half is closed and the publication half waits on the operator's provider-side
+deletions; `TASK_TRACKER.md` gains nothing further until `state.tsv` moves.

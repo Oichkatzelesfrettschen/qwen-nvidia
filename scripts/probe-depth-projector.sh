@@ -166,11 +166,14 @@ if [ -z "$control_image" ]; then
     exit 2
 fi
 
-if pgrep -x llama-server >/dev/null 2>&1 ||
-   pgrep -x llama-bench >/dev/null 2>&1; then
-    printf 'another llama process holds the device\n' >&2
-    exit 2
-fi
+# The same two authorities the filled-depth harness takes: the exclusive lock
+# serializes this tree's campaigns, and the driver's own compute-client list
+# decides external interference. A process name alone never established device
+# ownership, and reading it as one made this precondition refuse against a
+# device nothing held.
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_acquire || exit $?
+gpu_ownership_inspect || exit 2
 
 mkdir -p "$output_directory"
 summary=$output_directory/projector-summary.tsv
@@ -373,7 +376,7 @@ kernel_capture_method=offset
 start_kernel_capture() {
     capture_file=$1
     kernel_capture_method=offset
-    $dmesg_command --follow-new >"$capture_file" 2>/dev/null &
+    $dmesg_command --follow-new >"$capture_file" 2>/dev/null 9>&- &
     kernel_follow_pid=$!
     sleep 0.2
     if kill -0 "$kernel_follow_pid" 2>/dev/null; then
@@ -472,7 +475,7 @@ start_server() {
         --flash-attn "$flash_attention" \
         --cache-type-k "$cache_type_k" \
         --cache-type-v "$cache_type_v" \
-        >"$start_log" 2>&1 &
+        >"$start_log" 2>&1 9>&- &
     server_pid=$!
 }
 
@@ -606,7 +609,7 @@ run_arm() {
 
     : >"$arm_samples"
     if [ -x "$clock_sampler" ]; then
-        "$clock_sampler" "$arm_samples" &
+        "$clock_sampler" "$arm_samples" 9>&- &
         sampler_pid=$!
     fi
 

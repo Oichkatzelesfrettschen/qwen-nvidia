@@ -85,10 +85,15 @@ for depth in $depths; do
     fi
 done
 
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'a llama-server process is already running; this harness owns its own\n' >&2
-    exit 1
-fi
+# Device ownership is decided by two authorities rather than by a process name.
+# The exclusive lock serializes this tree's own campaigns and is held for the
+# whole run, and the driver's compute-client list decides external interference:
+# the compositor is recorded as the covariate it is, a project workload or an
+# unnamed CUDA client refuses, and a process merely named llama-server that
+# holds no context is recorded rather than treated as ownership.
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_acquire || exit $?
+gpu_ownership_inspect || exit 1
 
 mkdir -p "$output_directory"
 summary=$output_directory/filled-depth-summary.tsv
@@ -135,7 +140,7 @@ start_server() {
         --flash-attn "$flash_attention" \
         --cache-type-k "$cache_type_k" \
         --cache-type-v "$cache_type_v" \
-        >"$2" 2>&1 &
+        >"$2" 2>&1 9>&- &
     server_pid=$!
 }
 
