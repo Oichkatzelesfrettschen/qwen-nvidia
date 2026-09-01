@@ -120,18 +120,31 @@ fi
 # reads placement from the log sees the same three lines here, and
 # QWEN_FAKE_SERVER_PLACEMENT=cpu withholds them so the caller's rejection path
 # is reachable too.
-case ${QWEN_FAKE_SERVER_PLACEMENT:-vulkan} in
-    vulkan)
-        printf 'load_tensors: Vulkan0 model buffer size = 1234.00 MiB\n'
-        printf 'llama_kv_cache: Vulkan0 KV buffer size = 56.00 MiB\n'
-        printf 'llama_context: Vulkan0 compute buffer size = 78.00 MiB\n'
-        ;;
-    cuda)
-        printf 'load_tensors: CUDA0 model buffer size = 1234.00 MiB\n'
-        printf 'llama_kv_cache: CUDA0 KV buffer size = 56.00 MiB\n'
-        printf 'llama_context: CUDA0 compute buffer size = 78.00 MiB\n'
+# The banner names the device the argv asked for, so a caller overriding the
+# device name reads its own device back the way a real load prints it.
+requested_device=''
+previous_argument=''
+for argument in "$@"; do
+    [ "$previous_argument" = --device ] && requested_device=$argument
+    previous_argument=$argument
+done
+# The banner follows the argv only inside the placement's own backend family,
+# so a placement of vulkan under a CUDA0 argv still prints Vulkan0: that is the
+# other-backend banner the strict placement fixture refuses on.
+case ${QWEN_FAKE_SERVER_PLACEMENT:-vulkan}:$requested_device in
+    vulkan:Vulkan*) banner_device=$requested_device ;;
+    vulkan:*) banner_device=Vulkan0 ;;
+    cuda:CUDA*) banner_device=$requested_device ;;
+    cuda:*) banner_device=CUDA0 ;;
+    *)
+        banner_device=''
         ;;
 esac
+if [ -n "$banner_device" ]; then
+    printf 'load_tensors: %s model buffer size = 1234.00 MiB\n' "$banner_device"
+    printf 'llama_kv_cache: %s KV buffer size = 56.00 MiB\n' "$banner_device"
+    printf 'llama_context: %s compute buffer size = 78.00 MiB\n' "$banner_device"
+fi
 
 # One whitespace-separated word stands for one token and each image part
 # contributes a fixed lump, which is the shape a projector-loaded prompt has:

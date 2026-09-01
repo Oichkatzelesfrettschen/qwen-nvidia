@@ -89,6 +89,19 @@ case $probe_backend in
         ;;
 esac
 resolved_device=${QWEN_PROBE_DEVICE:-$default_device}
+# The device name has to belong to the backend that owns it: a CUDA arm
+# naming Vulkan0, or a Vulkan arm naming CUDA0 or CPU, would run the other
+# backend under this backend's wrapper and ledger label, so the canonical
+# enumeration form is required ahead of any launch.
+case $probe_backend:$resolved_device in
+    cuda:CUDA[0-9]|cuda:CUDA[0-9][0-9]) ;;
+    vulkan:Vulkan[0-9]|vulkan:Vulkan[0-9][0-9]) ;;
+    *)
+        printf 'QWEN_PROBE_DEVICE %s does not belong to backend %s\n' \
+            "$resolved_device" "$probe_backend" >&2
+        exit 2
+        ;;
+esac
 override_pattern=".*=$resolved_device"
 
 # The ledger row names the arm that proves it rather than the model that ran
@@ -198,7 +211,7 @@ gpu_ownership_inspect || exit 1
 mkdir -p "$output_directory"
 summary=$output_directory/filled-depth-summary.tsv
 emitted_rows=$output_directory/validated-tuples-rows.tsv
-printf 'arm\tmodel_id\tbackend\tdepth\tbatch\tubatch\tcache_k\tcache_v\tflash_attn\tstatus\tprompt_n\tcompletion_tokens\tneedle\thealth\tserver_log\n' \
+printf 'arm\tmodel_id\tbackend\tdepth\tbatch\tubatch\tcache_k\tcache_v\tflash_attn\tstatus\tprompt_n\tcompletion_tokens\tneedle\thealth\tserver_log\tplacement\tnice\tioclass\n' \
     >"$summary"
 
 server_pid=''
@@ -215,13 +228,15 @@ trap 'stop_server; exit 143' TERM
 # Strict placement on the resolved device with the CPU fallback refused, one
 # slot, and the prompt cache off, so prompt_n reports the tokens the arm
 # actually prefilled. The launch runs through the backend's own runtime
-# wrapper rather than a raw invocation, so it inherits the environment scrub
-# and the scheduling policy a served launch on that backend gets;
-# QWEN_SERVING_NICE carries this harness's own idle-priority intent through
-# the wrapper's own renice, since the wrapper otherwise renices to the served
-# default of 0.
+# wrapper rather than a raw invocation, so the wrapper supplies the backend
+# scrub and the placement policy; the probe retains its own nice-19
+# measurement scheduling through QWEN_SERVING_NICE, which the wrapper applies
+# in place of the served default of 0, and the observed nice and I/O class
+# are read back from the kernel into the arm summary. The wrapper profile is
+# pinned to default, because an ambient no-graphs, pdl, or custom profile
+# would change the arm's allocation and the tuple schema records no profile.
 start_server() {
-    env QWEN_SERVING_NICE=19 \
+    env QWEN_SERVING_NICE=19 QWEN_CUDA_PROFILE=default QWEN_VULKAN_PROFILE=default \
         ionice -c 3 "$runtime_wrapper" "$llama_server" \
         --model "$model_path" \
         --alias "$model_id" \
@@ -272,7 +287,7 @@ for depth in $depths; do
 
     start_server "$depth" "$arm_log"
     if ! wait_for_server; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tserver-never-ready\tn/a\tn/a\tn/a\tn/a\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tserver-never-ready\tn/a\tn/a\tn/a\tn/a\t%s\tn/a\tn/a\tn/a\n' \
             "$arm_label" "$model_id" "$probe_backend" "$depth" "$batch_size" \
             "$ubatch_size" "$cache_type_k" "$cache_type_v" "$flash_attention" \
             "$arm_log" >>"$summary"
@@ -367,14 +382,33 @@ PYTHON
         "http://127.0.0.1:$server_port/health" >/dev/null 2>&1; then
         health=healthy
     fi
+    # The ledger backend is what the server proved rather than what the
+    # environment asked: every buffer class has to name the resolved device
+    # in the load banner and no fallback line may appear, or the arm carries
+    # placement=off-device and emits no row.
+    placement=on-device
+    for banner in "$resolved_device model buffer size" \
+        "$resolved_device KV buffer size" "$resolved_device compute buffer size"; do
+        grep -qF "$banner" "$arm_log" || placement=off-device
+    done
+    grep -qF 'CPU fallback rejected' "$arm_log" && placement=off-device
+    observed_nice=n/a
+    observed_ioclass=n/a
+    if [ -n "$server_pid" ] && [ -r "/proc/$server_pid/stat" ]; then
+        observed_nice=$(awk '{ print $19 }' "/proc/$server_pid/stat")
+        observed_ioclass=$(ionice -p "$server_pid" 2>/dev/null | cut -d: -f1 || printf 'n/a')
+        [ -n "$observed_ioclass" ] || observed_ioclass=n/a
+    fi
     stop_server
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$arm_label" "$model_id" "$probe_backend" "$depth" "$batch_size" \
         "$ubatch_size" "$cache_type_k" "$cache_type_v" "$flash_attention" \
         "${arm_status:-failed}" "${prompt_n:-n/a}" "${completion:-n/a}" \
-        "${needle_state:-n/a}" "$health" "$arm_log" >>"$summary"
-    [ "${arm_status:-failed}" = ok ] && [ "$health" = healthy ] || overall_status=failed
+        "${needle_state:-n/a}" "$health" "$arm_log" "$placement" \
+        "$observed_nice" "$observed_ioclass" >>"$summary"
+    [ "${arm_status:-failed}" = ok ] && [ "$health" = healthy ] &&
+        [ "$placement" = on-device ] || overall_status=failed
 done
 
 # One appendable ledger row per healthy arm, written beside the evidence: a
@@ -387,10 +421,13 @@ kernel_release=$(uname -r)
 gpu_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
 # vulkaninfo names the driver an arm ran a Vulkan backend against; a CUDA arm
 # leaves the field the nvidia-smi driver version already carries on gpu_module
-# and records no separate Vulkan identity.
+# and records no separate Vulkan identity. The query runs through the same
+# wrapper at the same profile as the server, so it enumerates the ICD the
+# wrapper pinned rather than whatever the ambient loader would pick.
 vulkan_driver_version=-
 if [ "$probe_backend" = vulkan ] && command -v vulkaninfo >/dev/null 2>&1; then
-    parsed_vulkan_driver=$(timeout 5s vulkaninfo --summary 2>/dev/null |
+    parsed_vulkan_driver=$(QWEN_VULKAN_PROFILE=default "$runtime_wrapper" \
+        timeout 5s vulkaninfo --summary 2>/dev/null |
         awk -F': *' '/driverInfo/ { print $2; exit }')
     [ -z "$parsed_vulkan_driver" ] || vulkan_driver_version=$parsed_vulkan_driver
 fi
@@ -400,8 +437,8 @@ awk -F'\t' -v OFS='\t' -v model_id="$model_id" \
     -v runner="$runner_sha256" -v kernel="$kernel_release" \
     -v gpu_module="$gpu_driver" -v backend="$probe_backend" \
     -v vulkan_driver="$vulkan_driver_version" -v measured_at="$measured_at" '
-    NR > 1 && $10 == "ok" && $14 == "healthy" {
-        print model_id "-d" $4 "-b" $5 "-ub" $6, model_id, "standalone",
+    NR > 1 && $10 == "ok" && $14 == "healthy" && $16 == "on-device" {
+        print model_id "-" backend "-d" $4 "-b" $5 "-ub" $6, model_id, "standalone",
             $4, $5, $6, $7, $8, $9, 1, 1, "none", backend, "validated",
             evidence, commit, runner, kernel, vulkan_driver, gpu_module, measured_at
     }' "$summary" >"$emitted_rows"

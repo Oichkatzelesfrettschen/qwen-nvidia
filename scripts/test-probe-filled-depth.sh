@@ -203,6 +203,92 @@ grep -qxF 'vk_icd=unset' "$override_argv" 2>/dev/null ||
     override_accepted=missing-vk-icd-unset-marker
 report device_override_keeps_backend_wrapper "$override_accepted"
 
+# One model measured on both backends yields two ledger rows, and the id
+# carries the backend so the two stay distinct.
+cuda_tuple_id=$(printf '%s' "$cuda_emitted_row" | awk -F'\t' '{ print $1 }')
+vulkan_tuple_id=$(printf '%s' "$vulkan_emitted_row" | awk -F'\t' '{ print $1 }')
+if [ "$cuda_tuple_id" = fake-text-cuda-d4096-b128-ub32 ] &&
+    [ "$vulkan_tuple_id" = fake-text-vulkan-d4096-b128-ub32 ]; then
+    report tuple_ids_qualified_by_backend accepted
+else
+    report tuple_ids_qualified_by_backend "ids-$cuda_tuple_id-$vulkan_tuple_id"
+fi
+
+# The summary carries what the server proved and what the kernel scheduled.
+cuda_header=$(sed -n '1p' "$cuda_directory/filled-depth-summary.tsv")
+cuda_placement=$(printf '%s' "$cuda_summary_row" | awk -F'\t' '{ print $16 }')
+cuda_nice=$(printf '%s' "$cuda_summary_row" | awk -F'\t' '{ print $17 }')
+if [ "$(printf '%s' "$cuda_header" | awk -F'\t' '{ print $16 "/" $17 "/" $18 }')" = placement/nice/ioclass ] &&
+    [ "$cuda_placement" = on-device ] && [ "$cuda_nice" = 19 ]; then
+    report summary_records_placement_and_scheduling accepted
+else
+    report summary_records_placement_and_scheduling "placement-$cuda_placement-nice-$cuda_nice"
+fi
+
+# A device name from the other backend, or the host, is refused before any
+# launch, whatever the requested backend.
+mismatch_accepted=accepted
+for pairing in cuda:Vulkan0 cuda:CPU vulkan:CUDA0 vulkan:CPU; do
+    set +e
+    env QWEN_PROBE_BACKEND="${pairing%%:*}" QWEN_PROBE_DEVICE="${pairing#*:}" \
+        QWEN_MODEL_REGISTRY="$registry" QWEN_MODEL_ROOT="$model_root" \
+        QWEN_LLAMA_SERVER="$fake_server" \
+        "$probe" fake-text "$temporary_directory/mismatch" \
+        >/dev/null 2>"$temporary_directory/mismatch.err"
+    mismatch_status=$?
+    set -e
+    [ "$mismatch_status" -eq 2 ] &&
+        grep -qF "does not belong to backend" "$temporary_directory/mismatch.err" ||
+        mismatch_accepted="admitted-$pairing"
+done
+report backend_device_mismatch_refused "$mismatch_accepted"
+
+# An ambient wrapper profile does not reach the arm: the probe pins default.
+profile_argv=$temporary_directory/profile-argv.txt
+set +e
+env QWEN_CUDA_PROFILE=no-graphs QWEN_FAKE_SERVER_PLACEMENT=cuda \
+    QWEN_POLICY_TEST_OUTPUT="$profile_argv" QWEN_PROBE_PORT=18196 QWEN_FAKE_SERVER_PORT=18196 \
+    QWEN_MODEL_REGISTRY="$registry" QWEN_MODEL_ROOT="$model_root" \
+    QWEN_GPU_OWNERSHIP_NVIDIA_SMI="$temporary_directory/no-compute-apps.sh" \
+    QWEN_GPU_OWNERSHIP_LOCK="$temporary_directory/ownership.lock" \
+    QWEN_LLAMA_SERVER="$fake_server" \
+    QWEN_PROBE_EVIDENCE_PATH="evidence/test-probe-filled-depth/fake-text/" \
+    QWEN_PROBE_READY_TIMEOUT_S=30 \
+    "$probe" fake-text "$temporary_directory/profile-arm" >/dev/null 2>&1
+profile_status=$?
+set -e
+if [ "$profile_status" -eq 0 ] && grep -qxF 'profile=default' "$profile_argv" &&
+    grep -qxF 'cuda_disable_graphs=unset' "$profile_argv"; then
+    report ambient_profile_pinned_to_default accepted
+else
+    report ambient_profile_pinned_to_default "status-$profile_status"
+fi
+
+# A server whose banner names no device buffer proves nothing: the arm reads
+# placement=off-device, fails, and emits no ledger row.
+offdevice_directory=$temporary_directory/offdevice-arm
+set +e
+env QWEN_FAKE_SERVER_PLACEMENT=cpu \
+    QWEN_POLICY_TEST_OUTPUT="$temporary_directory/offdevice-argv.txt" \
+    QWEN_PROBE_PORT=18197 QWEN_FAKE_SERVER_PORT=18197 \
+    QWEN_MODEL_REGISTRY="$registry" QWEN_MODEL_ROOT="$model_root" \
+    QWEN_GPU_OWNERSHIP_NVIDIA_SMI="$temporary_directory/no-compute-apps.sh" \
+    QWEN_GPU_OWNERSHIP_LOCK="$temporary_directory/ownership.lock" \
+    QWEN_LLAMA_SERVER="$fake_server" \
+    QWEN_PROBE_EVIDENCE_PATH="evidence/test-probe-filled-depth/fake-text/" \
+    QWEN_PROBE_READY_TIMEOUT_S=30 \
+    "$probe" fake-text "$offdevice_directory" >/dev/null 2>&1
+offdevice_status=$?
+set -e
+offdevice_placement=$(awk -F'\t' 'NR == 2 { print $16 }' \
+    "$offdevice_directory/filled-depth-summary.tsv" 2>/dev/null || true)
+if [ "$offdevice_status" -ne 0 ] && [ "$offdevice_placement" = off-device ] &&
+    [ ! -s "$offdevice_directory/validated-tuples-rows.tsv" ]; then
+    report off_device_placement_emits_no_row accepted
+else
+    report off_device_placement_emits_no_row "status-$offdevice_status-placement-$offdevice_placement"
+fi
+
 if [ "$failures" -ne 0 ]; then
     printf 'probe_filled_depth_tests=failed failures=%s\n' "$failures" >&2
     exit 1
