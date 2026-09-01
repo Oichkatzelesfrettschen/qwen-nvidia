@@ -1,0 +1,19 @@
+diff --git a/check-value.sh b/check-value.sh
+index 5677f18..513bb79 100644
+--- a/check-value.sh
++++ b/check-value.sh
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+ set -eu
+-expected=41
++expected=42
+ value=$(sed -n 's/^VALUE=//p' declared-value.txt)
+ [ "$value" = "$expected" ] || {
+     printf 'declared value %s, expected %s\n' "$value" "$expected" >&2
+diff --git a/declared-value.txt b/declared-value.txt
+index 98c5310..d2d2985 100644
+--- a/declared-value.txt
++++ b/declared-value.txt
+@@ -1 +1 @@
+-VALUE=41
++VALUE=42

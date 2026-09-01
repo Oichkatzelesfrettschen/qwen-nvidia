@@ -58,6 +58,9 @@ validated_depth=${QWEN_CODING_VALIDATED_DEPTH:-65536}
 page_arm=${QWEN_CODING_PAGE_ARM:-1}
 router_command=${QWEN_CODING_ROUTER_COMMAND:-"python3 $script_directory/test-fixtures/fake-router-server.py"}
 agent_command=${QWEN_CODING_AGENT_COMMAND:-"$script_directory/test-fixtures/fake-coding-agent.sh"}
+# `real` selects the service's own contained launcher, which is the pinned
+# Qwen Code runtime under the principal; anything else is a fixture command.
+[ "$agent_command" = real ] && agent_command=''
 router_origin=http://127.0.0.1:$server_port
 broker_origin=http://127.0.0.1:$broker_port
 
@@ -160,10 +163,17 @@ printf '# id\tscope\tsubject\tfailure_class\tfirst_evidence\treason_record\n' \
 grant_key=$output_directory/grant.key
 python3 -c 'import secrets; print(secrets.token_hex(24))' >"$grant_key"
 chmod 600 "$grant_key"
-api_key_file=$output_directory/webui-api.key
-printf 'coding-admission-%s\n' "$(python3 -c 'import secrets; print(secrets.token_hex(8))')" \
-    >"$api_key_file"
-chmod 600 "$api_key_file"
+# The real arm shares one appliance-local credential between the router's
+# --api-key-file and the runtime key the principal reads, so a caller may
+# supply the file; the fixture arm generates a fresh one per run.
+api_key_file=${QWEN_CODING_API_KEY_FILE:-}
+if [ -z "$api_key_file" ]; then
+    api_key_file=$output_directory/webui-api.key
+    printf 'coding-admission-%s\n' \
+        "$(python3 -c 'import secrets; print(secrets.token_hex(8))')" \
+        >"$api_key_file"
+    chmod 600 "$api_key_file"
+fi
 
 # -- the coding-agent service ---------------------------------------------
 # AF_UNIX bounds a socket path at 108 bytes, so the socket lives in its own
@@ -225,10 +235,22 @@ EOF
 preset=$output_directory/coding-admission.ini
 {
     printf '# qwen_web_presets=1\n'
-    printf '[coding-admission]\n'
+    # The router reports the section name as the roster id, so the section
+    # is named for the model the page must select.
+    printf '[%s]\n' "$model_id"
     printf 'LLAMA_ARG_ALIAS=%s\n' "$model_id"
     printf 'LLAMA_ARG_MODEL=%s\n' "$model_path"
     printf 'LLAMA_ARG_CTX_SIZE=32768\n'
+    # The full serving tuple travels in the section, because an absent key
+    # falls through to the llama.cpp defaults of batch 2048 and ubatch 512
+    # -- the quarantined geometry -- and the real router merges router argv
+    # over every section. The fixture router ignores the keys it holds no
+    # use for.
+    printf 'LLAMA_ARG_CACHE_TYPE_K=%s\n' "${QWEN_CODING_CACHE_K:-q8_0}"
+    printf 'LLAMA_ARG_CACHE_TYPE_V=%s\n' "${QWEN_CODING_CACHE_V:-q4_0}"
+    printf 'LLAMA_ARG_FLASH_ATTN=%s\n' "${QWEN_CODING_FLASH_ATTN:-on}"
+    printf 'LLAMA_ARG_BATCH=%s\n' "${QWEN_CODING_BATCH:-2048}"
+    printf 'LLAMA_ARG_UBATCH=%s\n' "${QWEN_CODING_UBATCH:-512}"
     printf 'LLAMA_ARG_MCP_SERVERS_CONFIG=%s\n' "$mcp_configuration"
     printf 'LLAMA_ARG_TAGS=coding-admission\n'
 } >"$preset"
@@ -303,7 +325,7 @@ if [ "$page_arm" = 1 ] && command -v chromium >/dev/null 2>&1; then
         --origin "$router_origin" --broker "$broker_origin" \
         --model "$model_id" --lane code \
         --api-key-file "$api_key_file" \
-        --prompt 'Update the declared value fixture as planned.' \
+        --prompt "${QWEN_CODING_PAGE_PROMPT:-Update the declared value fixture as planned.}" \
         >"$output_directory/page-report.json" 2>"$output_directory/page.err"; then
         python3 - "$output_directory/page-report.json" "$router_origin" \
             "$broker_origin" <<'EOF' >>"$summary.page" || :

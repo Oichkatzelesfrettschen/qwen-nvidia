@@ -1,0 +1,50 @@
+{
+ "selected_model": "qwenseer-2b",
+ "plan_dialog": {
+  "heading": "Authorize one coding plan",
+  "note": "",
+  "args": {
+   "instruction": "set VALUE to 42 in declared-value.txt and change expected=41 to expected=42 in check-value.sh",
+   "workspace": "coding-admission (coding-admission)",
+   "base commit": "31aad7ba299b -- declared-value admission base",
+   "model / profile": "qwenseer-2b / code-fast-a",
+   "bounds": "16 files, 262144 patch bytes, 600 s",
+   "test profile": "fixture-declared-value"
+  }
+ },
+ "apply_dialog": {
+  "heading": "Authorize the edit phase",
+  "note": "",
+  "args": {
+   "job": "job-1788222569-0f1e012f",
+   "instruction": "set VALUE to 42 in declared-value.txt and change expected=41 to expected=42 in check-value.sh",
+   "plan sha256": "d734066520c806498dd5b57c038885f4c737738f0d490bbd1773cf69c92a4b6e",
+   "model / profile": "qwenseer-2b / code-fast-a",
+   "base commit": "31aad7ba299b"
+  }
+ },
+ "code_card": {
+  "head": "job job-1788222569-0f1e012f | code-fast-a on qwenseer-2b | base 31aad7ba299b (declared-value admission base)",
+  "status": "finished: export job-1788222569-0f1e012f | result tree f5459c5cd33b | patch sha256 4d8306ee84fa",
+  "diff": "changed files:\ncheck-value.sh\ndeclared-value.txt\n\n check-value.sh     | 2 +-\n declared-value.txt | 2 +-\n 2 files changed, 2 insertions(+), 2 deletions(-)\n"
+ },
+ "assistant_tool_calls": [
+  [
+   "code_plan"
+  ],
+  [
+   "code_apply_patch"
+  ],
+  [
+   "code_run_tests"
+  ],
+  [
+   "code_review_diff"
+  ]
+ ],
+ "request_count": 14,
+ "request_hosts": [
+  "127.0.0.1:8095",
+  "127.0.0.1:8598"
+ ]
+}

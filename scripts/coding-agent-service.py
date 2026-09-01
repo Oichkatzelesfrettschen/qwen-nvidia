@@ -410,14 +410,17 @@ class Service:
         if added.returncode != 0:
             raise Refusal("worktree_add_failed", added.stderr.strip())
         # The runtime's own state (.qwen) and the job temp directory live
-        # inside the worktree because HOME points there; the per-worktree
-        # exclude keeps both out of the exported diff, and clean -x still
-        # removes them on reset.
+        # inside the worktree because HOME points there; the exclude keeps
+        # both out of the exported diff, and clean -x still removes them on
+        # reset. Git reads info/exclude from the common dir alone -- a
+        # linked worktree's own gitdir holds no exclude Git consults -- so
+        # the write targets --git-common-dir, which the mirror's worktrees
+        # share.
         self.principal_run(
             ["sh", "-c",
-             'git_dir=$(git -C "$1" rev-parse --absolute-git-dir) && '
-             'mkdir -p "$git_dir/info" && '
-             'printf ".job-tmp/\\n.qwen/\\n" >"$git_dir/info/exclude"',
+             'common_dir=$(git -C "$1" rev-parse --git-common-dir) && '
+             'mkdir -p "$common_dir/info" && '
+             'printf ".job-tmp/\\n.qwen/\\n" >"$common_dir/info/exclude"',
              "exclude", str(worktree)])
         return mirror, worktree
 
@@ -460,11 +463,16 @@ class Service:
         # supported Popen mechanism, and prlimit applies the limits inside
         # the executed child path after the identity switch; env --chdir
         # enters the worktree after that switch, so the service user needs
-        # no traversal right into the principal's 0700 home.
+        # no traversal right into the principal's 0700 home. sudo resets
+        # the environment across the switch, so the child's variables
+        # travel as env's own assignments with -i: what the child starts
+        # with is exactly this dictionary on both principal modes.
+        assignments = ["%s=%s" % (name, value)
+                       for name, value in environment.items()]
         process = subprocess.Popen(
             self.principal_prefix() + CHILD_PRLIMIT
-            + ["env", "--chdir", str(job.worktree)] + command,
-            env=environment,
+            + ["env", "--chdir", str(job.worktree), "-i"]
+            + assignments + command,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, start_new_session=True)
         with job.lock:
