@@ -173,6 +173,14 @@ and belongs in the ledger because a rejected geometry is what steers a later
 choice away from it. `scripts/model-registry.sh tuples MODEL_ID` and
 `tuple TUPLE_ID [FIELD]` read the ledger after validating every row in it, the
 same discipline `emit_servable_rows` applies to the quarantine authority.
+`scripts/probe-filled-depth.sh` names its backend through `QWEN_PROBE_BACKEND`,
+`cuda` by default or `vulkan`, which resolves the device, the tensor override,
+and the runtime wrapper together at the `default` profile; the device has to
+belong to that backend, the ledger backend is what the load banner proved
+rather than what the environment asked, and an emitted `tuple_id` carries the
+backend as `MODEL-BACKEND-dDEPTH-bBATCH-ubUBATCH`, so one model measured on
+both backends yields two distinct rows. Rows retained ahead of that change keep
+their unqualified ids.
 `scripts/check-validated-tuples.sh` derives the tuple each `models.tsv` row with
 a numeric `validated_filled_depth` already claims and requires a `validated`
 ledger row matching model, depth, batch, ubatch, and cache triple; a gap

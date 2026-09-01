@@ -478,9 +478,14 @@ validate_tuple_ledger() {
             tuple_evidence_failures=$((tuple_evidence_failures + 1))
             continue
         fi
+        # The summary's columns are resolved by header name, since the probe
+        # gained a backend column ahead of depth and a placement column after
+        # the log path while the retained summaries keep the earlier layout.
         if ! awk -F'\t' -v m="$_model_id" -v d="$_context" -v b="$_batch" \
-            -v u="$_ubatch" 'NR > 1 && $2 == m && $3 == d && $4 == b &&
-            $5 == u && $9 == "ok" { found = 1 }
+            -v u="$_ubatch" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+            $col["model_id"] == m && $col["depth"] == d && $col["batch"] == b &&
+            $col["ubatch"] == u && $col["status"] == "ok" &&
+            (!("placement" in col) || $col["placement"] == "on-device") { found = 1 }
             END { exit found ? 0 : 1 }' "$tuple_summary_file"; then
             printf '%s: evidence summary carries no accepted %s arm at %s/%s/%s: %s\n' \
                 "$tuple_id" "$_model_id" "$_context" "$_batch" "$_ubatch" \

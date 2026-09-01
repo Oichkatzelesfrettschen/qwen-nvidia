@@ -59,6 +59,11 @@ record_launch() {
     printf 'cuda_pdl=%s\n' "${GGML_CUDA_PDL:-unset}"
     printf 'cuda_unified_memory=%s\n' "${GGML_CUDA_ENABLE_UNIFIED_MEMORY:-unset}"
     printf 'cuda_devices=%s\n' "${CUDA_VISIBLE_DEVICES:-unset}"
+    # cuda-runtime-env.sh unsets VK_ICD_FILENAMES as part of its own scrub and
+    # vulkan-runtime-env.sh exports it to the pinned ICD path, so this line
+    # names which wrapper built the environment independently of the argv the
+    # probe itself derived.
+    printf 'vk_icd=%s\n' "${VK_ICD_FILENAMES:-unset}"
     printf 'argument_count=%s\n' "$#"
     for argument in "$@"; do
         printf 'argument=%s\n' "$argument"
@@ -115,18 +120,31 @@ fi
 # reads placement from the log sees the same three lines here, and
 # QWEN_FAKE_SERVER_PLACEMENT=cpu withholds them so the caller's rejection path
 # is reachable too.
-case ${QWEN_FAKE_SERVER_PLACEMENT:-vulkan} in
-    vulkan)
-        printf 'load_tensors: Vulkan0 model buffer size = 1234.00 MiB\n'
-        printf 'llama_kv_cache: Vulkan0 KV buffer size = 56.00 MiB\n'
-        printf 'llama_context: Vulkan0 compute buffer size = 78.00 MiB\n'
-        ;;
-    cuda)
-        printf 'load_tensors: CUDA0 model buffer size = 1234.00 MiB\n'
-        printf 'llama_kv_cache: CUDA0 KV buffer size = 56.00 MiB\n'
-        printf 'llama_context: CUDA0 compute buffer size = 78.00 MiB\n'
+# The banner names the device the argv asked for, so a caller overriding the
+# device name reads its own device back the way a real load prints it.
+requested_device=''
+previous_argument=''
+for argument in "$@"; do
+    [ "$previous_argument" = --device ] && requested_device=$argument
+    previous_argument=$argument
+done
+# The banner follows the argv only inside the placement's own backend family,
+# so a placement of vulkan under a CUDA0 argv still prints Vulkan0: that is the
+# other-backend banner the strict placement fixture refuses on.
+case ${QWEN_FAKE_SERVER_PLACEMENT:-vulkan}:$requested_device in
+    vulkan:Vulkan*) banner_device=$requested_device ;;
+    vulkan:*) banner_device=Vulkan0 ;;
+    cuda:CUDA*) banner_device=$requested_device ;;
+    cuda:*) banner_device=CUDA0 ;;
+    *)
+        banner_device=''
         ;;
 esac
+if [ -n "$banner_device" ]; then
+    printf 'load_tensors: %s model buffer size = 1234.00 MiB\n' "$banner_device"
+    printf 'llama_kv_cache: %s KV buffer size = 56.00 MiB\n' "$banner_device"
+    printf 'llama_context: %s compute buffer size = 78.00 MiB\n' "$banner_device"
+fi
 
 # One whitespace-separated word stands for one token and each image part
 # contributes a fixed lump, which is the shape a projector-loaded prompt has:
@@ -191,9 +209,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.path.startswith("/v1/chat/completions"):
             self.send_error(404)
             return
+        # A message's content is either a plain string, the shape a text-only
+        # chat completion sends, or a list of typed parts, the shape a
+        # multimodal completion sends; both reach the same word-count-per-part
+        # accounting the projector probe and the filled-depth probe both rely
+        # on.
         prompt_tokens = 0
         for message in body.get("messages") or []:
-            for part in message.get("content") or []:
+            message_content = message.get("content")
+            if isinstance(message_content, str):
+                prompt_tokens += len(message_content.split())
+                continue
+            for part in message_content or []:
                 if part.get("type") == "text":
                     prompt_tokens += len(part.get("text", "").split())
                 if part.get("type") == "image_url":
@@ -203,6 +230,9 @@ class Handler(BaseHTTPRequestHandler):
             predicted = min(predicted, predicted_cap)
         self.respond({
             "choices": [{"message": {"role": "assistant", "content": reply}}],
+            "usage": {"prompt_tokens": prompt_tokens,
+                      "completion_tokens": predicted,
+                      "total_tokens": prompt_tokens + predicted},
             "timings": {"prompt_n": prompt_tokens, "prompt_ms": 1000.0,
                         "predicted_n": predicted, "predicted_per_second": 4.5}})
 
