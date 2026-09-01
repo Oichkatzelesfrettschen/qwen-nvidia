@@ -28,8 +28,16 @@ GPU_OWNERSHIP_LOCK_DEFAULT=/tmp/qwen-ad104-gpu-0.lock
 # reports a name and a byte count rather than an intent, so a desktop client
 # whose name is absent from this pattern refuses the run and is added here once
 # it is identified rather than being admitted by a wider default.
+#
+# One entry names a process shape rather than an application. Chromium and every
+# Electron embedder built on it spawn their GPU process with `--type=gpu-process`
+# in the argv the driver reports, so that flag identifies the rasterization
+# client of an application this list has never seen: Discord reached the
+# compute-app list at 594 MiB under its own name and nothing else in the
+# pattern. Matching the flag classifies the whole family at once, and a project
+# workload never carries it.
 GPU_OWNERSHIP_PROJECT_PATTERN='llama-server|llama-bench|llama-cli|llama-mtmd-cli|llama-quantize|nsys|ncu|nv-nsight|image-service|coding-agent|qwen-'
-GPU_OWNERSHIP_DESKTOP_PATTERN='kwin_wayland|kwin_x11|Xorg|Xwayland|plasmashell|gnome-shell|sway|wayfire|mutter|firefox|chromium|chrome|msedge|brave|vivaldi|opera|electron|obs'
+GPU_OWNERSHIP_DESKTOP_PATTERN='kwin_wayland|kwin_x11|Xorg|Xwayland|plasmashell|gnome-shell|sway|wayfire|mutter|firefox|chromium|chrome|msedge|brave|vivaldi|opera|electron|obs|--type=gpu-process'
 
 gpu_ownership_nvidia_smi() {
     printf '%s\n' "${QWEN_GPU_OWNERSHIP_NVIDIA_SMI:-nvidia-smi}"

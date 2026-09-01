@@ -24,6 +24,8 @@ usage() {
     printf '  QWEN_PROBE_DEPTHS   depths to fill, default the row context_ceiling\n' >&2
     printf '  QWEN_LLAMA_SERVER   server binary, default the promoted build\n' >&2
     printf '  QWEN_PROBE_PORT     listener, default 18093\n' >&2
+    printf '  QWEN_PROBE_BATCH    batch size, default the row batch\n' >&2
+    printf '  QWEN_PROBE_UBATCH   ubatch size, default the row ubatch\n' >&2
     exit 2
 }
 
@@ -53,8 +55,12 @@ context_ceiling=$(read_registry_field context_ceiling)
 cache_type_k=$(read_registry_field cache_type_k)
 cache_type_v=$(read_registry_field cache_type_v)
 flash_attention=$(read_registry_field flash_attention)
-batch_size=$(read_registry_field batch)
-ubatch_size=$(read_registry_field ubatch)
+# The registry names the served submission geometry; a second-geometry arm
+# overrides it here rather than by editing the registry, because the arm
+# measures whether a depth that fills under one geometry also fills under
+# another and the registry claim is what it is measured against.
+batch_size=${QWEN_PROBE_BATCH:-$(read_registry_field batch)}
+ubatch_size=${QWEN_PROBE_UBATCH:-$(read_registry_field ubatch)}
 projector_requirement=$(read_registry_field projector)
 
 if [ "$projector_requirement" != none ]; then

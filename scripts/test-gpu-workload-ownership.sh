@@ -173,5 +173,23 @@ else
     report refused released-lock-admits-the-next-campaign
 fi
 
+# 9. An Electron embedder's GPU process records rather than refusing. The
+# application name reaches no entry in the desktop pattern; the
+# `--type=gpu-process` argv shape every Chromium-derived embedder spawns it
+# with is what classifies it, so a desktop application this list has never seen
+# is a covariate rather than a refusal.
+mkdir -p "$work/embedder/proc"
+printf '1942, kwin_wayland, 316 MiB\n8801, /opt/SomeChatApp/SomeChatApp --type=gpu-process --ozone-platform=wayland, 594 MiB\n' \
+    >"$work/embedder/clients.csv"
+make_proc_entry "$work/embedder/proc" 1942 /usr/bin/kwin_wayland kwin_wayland
+make_proc_entry "$work/embedder/proc" 8801 /opt/SomeChatApp/SomeChatApp SomeChatApp
+status=$(SELF_PIDS='' run_case embedder)
+if [ "$status" = '0' ] &&
+    [ "$(grep -c 'verdict=record-desktop' "$work/embedder/stdout")" = '2' ]; then
+    report accepted electron-gpu-process-records
+else
+    report refused electron-gpu-process-records
+fi
+
 [ "$failures" -eq 0 ] || exit 1
-printf 'gpu_workload_ownership=accepted cases=8 lock=flock-exclusive clients=driver-resolved\n'
+printf 'gpu_workload_ownership=accepted cases=9 lock=flock-exclusive clients=driver-resolved\n'
