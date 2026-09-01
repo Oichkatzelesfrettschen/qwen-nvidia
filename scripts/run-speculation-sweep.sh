@@ -80,7 +80,7 @@ command -v python3 >/dev/null 2>&1 || {
 # a fixture holds no CUDA context, and matching its name refused this sweep
 # against a device only the compositor was using.
 . "$script_directory/gpu-workload-ownership.sh"
-gpu_ownership_require || exit 2
+gpu_ownership_require || exit $?
 
 mkdir -p "$output_directory"
 summary=$output_directory/speculation-summary.tsv
@@ -198,9 +198,9 @@ run_arm() {
     printf 'arm_start_utc=%s arm=%s spec_type=%s n_max=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$arm_label" "$spec_type" "$draft_n_max"
 
-    "$clock_sampler" "$arm_samples" 1 &
+    "$clock_sampler" "$arm_samples" 1 9>&- &
     sampler_pid=$!
-    "$server" "$@" >"$server_log" 2>&1 &
+    "$server" "$@" >"$server_log" 2>&1 9>&- &
     server_pid=$!
 
     arm_status=ready

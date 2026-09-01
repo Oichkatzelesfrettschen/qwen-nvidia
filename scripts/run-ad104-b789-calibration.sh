@@ -181,17 +181,25 @@ if [ "$validate_only" -eq 1 ]; then
     exit $?
 fi
 
-# The lock excludes a second calibration rather than the device generally: a
-# lock only excludes what also takes it, and nothing else in this tree does. The
-# process and compute-client checks below are what exclude the appliance. The
-# descriptor is held for the whole campaign including the closing control and
-# the post-run health read, so it is opened here and never closed explicitly.
+# The lock is the one every campaign in this tree takes through
+# gpu-workload-ownership.sh, so it serializes this calibration against the
+# depth probes, the sweeps, and the census as well as against a second
+# calibration; the process and compute-client checks below are what exclude
+# the appliance. The descriptor is held for the whole campaign including the
+# closing control and the post-run health read, so it is opened here and
+# never closed explicitly. flock is per-process and the baseline sweep each
+# arm runs calls gpu_ownership_require, which would ask this same path of its
+# own parent and be refused, so the descriptor number is exported as
+# QWEN_GPU_OWNERSHIP_FD and the nested sweep proves the inherited descriptor is
+# this lock file and holds it before it inspects the driver's client list.
 calibration_lock=${QWEN_CALIBRATION_LOCK:-/tmp/qwen-ad104-gpu-0.lock}
 exec 9>"$calibration_lock"
 flock -n 9 || {
     printf 'refused: the AD104 calibration lock is held: %s\n' "$calibration_lock" >&2
     exit 75
 }
+QWEN_GPU_OWNERSHIP_FD=9
+export QWEN_GPU_OWNERSHIP_FD
 
 # Preconditions. Each one is the confound the clean boot exists to remove, so a
 # failure here ends the run rather than annotating it.

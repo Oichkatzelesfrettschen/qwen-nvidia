@@ -62,8 +62,8 @@ printf 'slot\tarm\tprofile\tdirection\tprefill_tok_s\tdecode_tok_s\tstatus\tdesk
 # child that outlives an arm closes it explicitly.
 . "$script_directory/gpu-workload-ownership.sh"
 gpu_ownership_acquire || exit $?
-QWEN_GPU_OWNERSHIP_HELD=1
-export QWEN_GPU_OWNERSHIP_HELD
+QWEN_GPU_OWNERSHIP_FD=9
+export QWEN_GPU_OWNERSHIP_FD
 gpu_ownership_inspect >"$output_directory/ownership-open.txt" || exit 1
 
 # The desktop client set is a covariate rather than a constant, so it is read as
