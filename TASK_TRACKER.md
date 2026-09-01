@@ -44,8 +44,11 @@ rather than the row's declared 32768 target -- and the re-run validates
 `qwen25-coder-7b` at 32768 (32539 of 32768, needle retrieved). The row's
 ceiling and `validated_filled_depth` now read 32768 and `code-deep-a`
 carries `maximum_context=32768`; the profile stays `refused` and its
-re-entry gate is a chain rerun at that depth under the evict-first
-transition.
+re-entry gate moved: the rerun at 32768 fits the window (27212 and 28647
+input tokens, no API error) and the 7B then printed a fenced JSON block
+describing an `edit` call instead of emitting one, so the worktree went
+unchanged. The gate is now a demonstrated structured tool-call emission
+through this runtime rather than a deeper depth.
 
 ## Image lane
 

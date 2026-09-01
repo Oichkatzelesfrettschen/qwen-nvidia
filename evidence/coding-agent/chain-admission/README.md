@@ -108,10 +108,55 @@ The refutation carries a second finding: Qwen Code exits 0 with a
 an apply -- the harness's independent diff, test, and patch-reproduction
 checks are what refused the run.
 
-`code-deep-a` stays `refused`. The depth half of its gate is now closed:
+The depth half of that gate is closed:
 `evidence/depth-validation-cuda/qwen25-coder-7b/` validates the 7B at
 32768 (32539 of 32768, needle retrieved), the registry ceiling and
 `validated_filled_depth` read 32768, and `code-deep-a` carries
-`maximum_context=32768`. The remaining gate is a rerun of this chain at
-that depth under the evict-first transition; the 8192 tuple stays a valid
-earlier arm that cannot host this agent runtime.
+`maximum_context=32768`.
+
+## The rerun at 32768 refutes the deep coder on emission rather than depth
+
+`deep-coder-32768-summary.tsv` carries the rerun with the depth corrected.
+The window is no longer the constraint: the plan request measures 27212
+input tokens and the apply request 28647, both inside 32768, and Qwen Code
+completes each turn with `is_error: false` and a zero exit rather than the
+400 the 8192 arm produced. The runtime, the principal, the containment, and
+the whole grant chain execute as designed.
+
+`qwen25-coder-7b` then fails the task on its own output shape. Rather than
+emitting a structured tool call, it prints a fenced JSON block describing
+one -- `{"name": "edit", "arguments": {...}}` as assistant text -- so Qwen
+Code reads that block as the final answer, ends the turn at `num_turns: 1`,
+and exits successfully having changed nothing. The worktree is untouched,
+`changed_files` is empty, and the assertion still reads 41, so the four
+edit-dependent checks refuse while every grant, refusal, containment, and
+teardown check holds.
+
+The described edit is wrong besides: the plan run names `old_string: ""`
+and the apply run names `old_string: "VALUE=0"` against a file containing
+`VALUE=41`, so the model states file contents it did not read.
+`deep-coder-32768-emission.json` retains both turns with their token counts
+and emitted text.
+
+The separation this produces runs against size. `qwenseer-2b`, a 2B
+checkpoint, drove the identical fixture to a correct patch through real
+tool calls in `summary.tsv`; the 7B coder, at four times the parameters and
+a higher graded code category, cannot deliver one through this runtime. The
+registry records `raw_tool_selection=unmeasured` for both rows, and this is
+one arm rather than the graded suite, so it is recorded as an observed
+emission failure on this task rather than as a tool-selection grade.
+
+`code-deep-a` stays `refused`, and its re-entry gate changes: no longer a
+deeper depth, which is now validated, but a demonstrated structured
+tool-call emission through this runtime -- whether from a different deep
+checkpoint, a runtime setting that constrains the reply to the tool
+grammar, or a graded `raw_tool_selection` arm establishing the 7B can emit
+calls at all. The lane's fast profile is unaffected.
+
+## Falsifier for this arm
+
+A rerun in which the 7B emits a real tool call and the fixture edit lands
+refutes the emission finding, which would most plausibly follow from a
+runtime setting rather than from the same prompt repeated. A rerun that
+reproduces the fenced-JSON reply confirms it. The prompt named the sequence
+explicitly, so prompt vagueness is excluded as the cause.
