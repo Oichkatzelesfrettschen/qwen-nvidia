@@ -1,0 +1,64 @@
+0.00.025.231 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.026.269 I srv          init: The UI is disabled
+0.00.026.271 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.026.477 W srv  llama_server: -----------------
+0.00.026.479 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.026.479 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.026.479 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.026.479 W srv  llama_server: -----------------
+0.00.028.670 I srv    load_model: loading model '$HOME/models/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf'
+0.00.398.528 W model has unused tensor blk.24.attn_norm.weight (size = 4096 bytes) -- ignoring
+0.00.398.536 W model has unused tensor blk.24.post_attention_norm.weight (size = 4096 bytes) -- ignoring
+0.00.398.542 W model has unused tensor blk.24.attn_q.weight (size = 4456448 bytes) -- ignoring
+0.00.398.545 W model has unused tensor blk.24.attn_k.weight (size = 557056 bytes) -- ignoring
+0.00.398.547 W model has unused tensor blk.24.attn_v.weight (size = 557056 bytes) -- ignoring
+0.00.398.554 W model has unused tensor blk.24.attn_output.weight (size = 2228224 bytes) -- ignoring
+0.00.398.556 W model has unused tensor blk.24.attn_q_norm.weight (size = 1024 bytes) -- ignoring
+0.00.398.558 W model has unused tensor blk.24.attn_k_norm.weight (size = 1024 bytes) -- ignoring
+0.00.398.560 W model has unused tensor blk.24.ffn_gate.weight (size = 3899392 bytes) -- ignoring
+0.00.398.562 W model has unused tensor blk.24.ffn_down.weight (size = 3899392 bytes) -- ignoring
+0.00.398.564 W model has unused tensor blk.24.ffn_up.weight (size = 3899392 bytes) -- ignoring
+0.00.398.568 W model has unused tensor blk.24.nextn.eh_proj.weight (size = 2228224 bytes) -- ignoring
+0.00.398.571 W model has unused tensor blk.24.nextn.enorm.weight (size = 4096 bytes) -- ignoring
+0.00.398.573 W model has unused tensor blk.24.nextn.hnorm.weight (size = 4096 bytes) -- ignoring
+0.00.398.580 W model has unused tensor blk.24.nextn.shared_head_norm.weight (size = 4096 bytes) -- ignoring
+0.00.608.436 I cmn          init: llama threadpool init, n_threads = 1
+0.00.684.046 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 65536, kv_unified = 'false'
+0.00.684.094 W srv          init: --cache-idle-slots requires --cache-ram, disabling
+0.00.694.087 I srv  llama_server: model loaded
+0.00.694.098 I srv  llama_server: listening on http://127.0.0.1:18093
+0.00.921.971 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.00.922.057 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.00.978.705 I slot print_timing: id  0 | task 0 | prompt eval time =      26.91 ms /    40 tokens (    0.67 ms per token,  1486.33 tokens per second)
+0.00.978.710 I slot print_timing: id  0 | task 0 |        eval time =      29.71 ms /     8 tokens (    4.24 ms per token,   235.63 tokens per second)
+0.00.978.711 I slot print_timing: id  0 | task 0 |       total time =      56.62 ms /    48 tokens
+0.00.978.715 I slot print_timing: id  0 | task 0 |    graphs reused =          7
+0.00.978.763 I slot      release: id  0 | task 0 | stop processing: n_tokens = 47, truncated = 0
+0.01.125.138 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 88860294583
+0.01.125.226 I slot launch_slot_: id  0 | task 9 | processing task, is_child = 0
+0.04.212.067 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  45056, progress = 0.69, t =   3.09 s / 14596.33 tokens per second
+0.04.303.130 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  46080, progress = 0.71, t =   3.18 s / 14500.30 tokens per second
+0.04.396.477 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  47104, progress = 0.72, t =   3.27 s / 14399.48 tokens per second
+0.04.489.440 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  48128, progress = 0.74, t =   3.36 s / 14305.96 tokens per second
+0.04.583.282 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  49152, progress = 0.75, t =   3.46 s / 14213.85 tokens per second
+0.04.676.796 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  50176, progress = 0.77, t =   3.55 s / 14128.01 tokens per second
+0.04.773.970 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  51200, progress = 0.79, t =   3.65 s / 14032.30 tokens per second
+0.04.872.288 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  52224, progress = 0.80, t =   3.75 s / 13937.39 tokens per second
+0.04.966.938 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  53248, progress = 0.82, t =   3.84 s / 13860.58 tokens per second
+0.05.066.839 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  54272, progress = 0.83, t =   3.94 s / 13769.05 tokens per second
+0.05.167.339 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  55296, progress = 0.85, t =   4.04 s / 13680.03 tokens per second
+0.05.266.895 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  56320, progress = 0.86, t =   4.14 s / 13598.46 tokens per second
+0.05.370.100 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  57344, progress = 0.88, t =   4.24 s / 13509.06 tokens per second
+0.05.473.228 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  58368, progress = 0.90, t =   4.35 s / 13424.19 tokens per second
+0.05.576.616 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  59392, progress = 0.91, t =   4.45 s / 13342.40 tokens per second
+0.05.680.984 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  60416, progress = 0.93, t =   4.56 s / 13261.51 tokens per second
+0.05.785.479 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  61440, progress = 0.94, t =   4.66 s / 13183.89 tokens per second
+0.05.890.432 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  62464, progress = 0.96, t =   4.77 s / 13108.47 tokens per second
+0.05.997.388 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  63488, progress = 0.97, t =   4.87 s / 13030.82 tokens per second
+0.06.110.133 I slot print_timing: id  0 | task 9 | prompt processing, n_tokens =  64512, progress = 0.99, t =   4.98 s / 12941.58 tokens per second
+0.06.283.148 I slot print_timing: id  0 | task 9 | prompt eval time =    5099.41 ms / 65197 tokens (    0.08 ms per token, 12785.19 tokens per second)
+0.06.283.152 I slot print_timing: id  0 | task 9 |        eval time =      58.49 ms /    11 tokens (    5.85 ms per token,   170.95 tokens per second)
+0.06.283.152 I slot print_timing: id  0 | task 9 |       total time =    5157.91 ms / 65208 tokens
+0.06.283.153 I slot print_timing: id  0 | task 9 |    graphs reused =         16
+0.06.284.385 I slot      release: id  0 | task 9 | stop processing: n_tokens = 65207, truncated = 0
+0.06.303.674 I srv    operator(): operator(): cleaning up before exit...

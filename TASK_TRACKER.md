@@ -16,8 +16,18 @@ runtime classes validated at their registry ceilings (2B and 0.8B at 65536,
 covering the coding lane's 32768 floor, qwen25-coder-7b at 32768), each
 with needle retrieval from the head of the fill,
 the ledger rows in `scripts/validated-tuples.tsv`, and the registry claims
-checked by `scripts/check-validated-tuples.sh`. Open extensions: a second
-submission geometry per class, and the Vulkan-backend arms.
+checked by `scripts/check-validated-tuples.sh`.
+
+The second submission geometry is closed for all four runtime classes. Each
+fills and decodes at its registry ceiling under batch 1024 and ubatch 256 as
+well as under the served 2048 and 512, at the same `q8_0`/`q4_0` cache triple
+with Flash Attention on, and each retrieves the needle planted at the head of
+the fill: 65197 of 65536 on the 0.8B and the 2B, 32577 of 32768 on the 4B, and
+24415 of 24576 on the 9B. Halving the submission size moves no ceiling on this
+device, including the 9B where the compute buffer is the tightest, so the
+served geometry is the registry's claim rather than the only geometry the depth
+survives. `evidence/depth-validation-cuda/*/second-geometry/` carries the arms.
+The open extension is the Vulkan-backend arms.
 
 ## Graded quality suite
 

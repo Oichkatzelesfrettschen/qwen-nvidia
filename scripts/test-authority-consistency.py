@@ -197,11 +197,14 @@ def main():
 
     # The backend gate in check-nvidia-authority.sh also rejects the Vulkan
     # rows, so the assertion binds to the stale-tracker message itself.
-    test_case("completed_open_depth_work_makes_stale_task_tracker_fail", mut_completed_open_depth_work, expect_pass=False, expect_error="stale open depth work")
+    test_case("completed_open_depth_work_makes_stale_task_tracker_fail",
+              mut_completed_open_depth_work, expect_pass=False,
+              expect_error="still states the Vulkan arm as open work")
 
     # 12. Second CUDA geometries alone leave the Vulkan arms open for every
-    # class, so the tracker's open statement remains accurate and the tree
-    # passes.
+    # class. The tracker states the Vulkan arm and states no open second
+    # geometry, which is what the two conditions independently require, so the
+    # tree passes.
     def mut_second_geometry_without_vulkan(tmp_path):
         vt = tmp_path / "scripts" / "validated-tuples.tsv"
         rows = [tuple_row(model_id, depth, "1024", "256", "cuda")
@@ -355,16 +358,15 @@ def main():
         shallow = dict(base)
         shallow.update({"tuple_id": "qwen38-2b-distill-shallow-fixture",
                         "context": "4096", "batch": "512", "ubatch": "128"})
+        # The measured second geometries are removed so the only candidate
+        # left is the shallow one: with them in place the extension is closed
+        # whatever this row says, and the case would assert nothing.
+        tl = [x for x in tl if "-b1024-ub256\t" not in x]
         tl.append("\t".join(shallow[c] for c in columns))
         tuples.write_text("\n".join(tl) + "\n")
-        # A shallow arm leaves the statement open, so removing it must fail.
-        tracker = root / "TASK_TRACKER.md"
-        tracker.write_text(tracker.read_text().replace(
-            "Open extensions: a second\nsubmission geometry per class, and the "
-            "Vulkan-backend arms.", "Depth work is complete."))
     test_case("shallow_second_geometry_does_not_close_the_extension",
               mut_shallow_second_geometry, expect_pass=False,
-              expect_error="open depth work statement")
+              expect_error="omits the open second geometry statement")
 
     # A rollback digest presented under the served-closure role must fail even
     # though the string appears in the document.

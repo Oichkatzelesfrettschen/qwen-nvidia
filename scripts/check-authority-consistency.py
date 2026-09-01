@@ -563,21 +563,24 @@ def main():
             if row["vulkan_arm"] == "required" and not vulkan_arms:
                 vulkan_open.append(model_id)
 
-        open_statement = ("Open extensions: a second submission geometry per "
-                          "class, and the Vulkan-backend arms")
-        if not second_geometry_open and not vulkan_open:
-            if open_statement in tt_norm:
-                report_error("TASK_TRACKER.md contains a stale open depth "
-                             "work statement; the second geometry and the "
-                             "Vulkan arms are complete for every required "
-                             "class in scripts/validation-classes.tsv")
-        else:
-            if ("second submission geometry per class" not in tt_norm
-                    or "Vulkan-backend arms" not in tt_norm):
-                report_error("TASK_TRACKER.md missing the expected open "
-                             "depth work statement; open second geometry: "
-                             f"{second_geometry_open or 'none'}; open Vulkan "
-                             f"arms: {vulkan_open or 'none'}")
+        # Each extension is judged on its own, because the two close at
+        # different times: reading them together lets a tracker keep claiming
+        # a finished arm is open for as long as the other arm remains open,
+        # which is the direction prose drifts in.
+        for phrase, still_open, label in (
+                ("second submission geometry per class", second_geometry_open,
+                 "second geometry"),
+                ("Vulkan-backend arms", vulkan_open, "Vulkan arm")):
+            present = phrase in tt_norm
+            if still_open and not present:
+                report_error(
+                    f"TASK_TRACKER.md omits the open {label} statement; "
+                    f"open for {still_open}")
+            elif not still_open and present:
+                report_error(
+                    f"TASK_TRACKER.md still states the {label} as open work; "
+                    "every required class in "
+                    "scripts/validation-classes.tsv holds it")
 
         # Per-model depth statements are reconciled rather than left to drift:
         # a tracker naming a depth for a registry row must name the depth the
