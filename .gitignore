@@ -22,3 +22,15 @@ VP_VULKANINFO_*.json
 # evidence/ada/speculation-target-*/.
 /evidence/ada/speculation-2b-target/
 /evidence/ada/speculation-4b-target/
+
+# Raw profiler reports carry the capturing process's whole environment:
+# Nsight Systems records every exported variable into TARGET_INFO_SYSTEM_ENV,
+# and the sqlite export carries it forward. The retained form is the derived
+# CSV/TSV beside the report's SHA-256, and
+# scripts/exec-profiler-clean-env.sh bounds what a capture can absorb.
+*.nsys-rep
+*.ncu-rep
+*.qdrep
+*.qdstrm
+*.sqlite
+*.sqlite3

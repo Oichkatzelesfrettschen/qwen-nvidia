@@ -83,7 +83,9 @@ scripts/test-qwen-session-signals.sh
 scripts/test-admit-web-router-fake.sh
 scripts/test-quality-roster.sh
 scripts/test-qwen-runtime-guards.sh
+scripts/test-exec-profiler-clean-env.sh
 scripts/refresh-evidence-manifest.sh --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-text-policy.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-tracked-artifacts.py
 
 printf 'repository_quality_gates=accepted\n'
