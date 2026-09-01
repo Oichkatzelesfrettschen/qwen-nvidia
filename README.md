@@ -26,9 +26,13 @@ kernels for the served `cache_type_k=q8_0`/`cache_type_v=q4_0` pair rather than
 leaving it off the flash-attention path, and the build runs through `g++-15`
 because nvcc refuses a host compiler newer than GCC 15.
 
-CUDA0 is the serving backend and Vulkan0 is the fallback the same binary
-reaches, selected by `QWEN_SERVING_BACKEND` and named explicitly with
-`--device`. Serving defaults are CUDA graphs on, kernel fusion on, programmatic
+CUDA0 is the serving backend, and the promoted closure `88681bf4d161`
+carries the CUDA backend alone. Vulkan is reached by switching closure to
+the retained diagnostic `572951d25562`, which builds both backends, rather
+than by a device flag inside the promoted process;
+`scripts/serving-closures.tsv` names each closure by role.
+`QWEN_SERVING_BACKEND` selects the wrapper and `--device` names the device
+the argv carries. Serving defaults are CUDA graphs on, kernel fusion on, programmatic
 dependent launch unset, `--fit off`, and explicit tensor placement
 `-ot .*=CUDA0`; a launch that names neither device risks the scheduler
 allocating on Vulkan0 for the same card, which is what `--device` and `-ot`
@@ -131,10 +135,16 @@ dual-backend diagnostic closure.
 
 ## Roadmap
 
-A bounded coding-agent service is planned direction: a dedicated security
-principal distinct from the serving user, and worktree isolation per task, so
-an agent granted execution never shares the appliance's own credentials or
-working tree.
+The bounded coding-agent service runs under the `qwen-coder` principal,
+distinct from the serving user, with one ephemeral worktree per job, so an
+agent granted execution reaches neither the appliance's credentials nor its
+working tree. Fast coding is admitted: `qwenseer-2b` drove the full
+WebUI-to-teardown chain at 32768 through two single-use approvals
+(`evidence/coding-agent/chain-admission/`), and `code-fast-a` with the
+`qwen-code` runtime reads `validator-gated`. Deep coding stays refused:
+`qwen25-coder-7b` validates at 32768 and `code-deep-a` carries that
+context, but the profile opens only after the same chain passes at that
+depth under its `evict-first` transition.
 
 ## Lifecycle
 

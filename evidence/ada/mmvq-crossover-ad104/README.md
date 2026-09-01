@@ -90,3 +90,23 @@ the stock rate), and Q8_0 on MMVQ at twelve (206.7), so each knob reaches its
 own type alone. `QWEN_LLAMA_CANDIDATE_PATCHES=1
 scripts/verify-llama-patch-series.sh` accepts the series with the candidate
 applied third.
+
+## Supersession: the Q8_0 threshold moved to sixteen
+
+This calibration bounded Q8_0 from below rather than locating its crossover:
+its own verdict names twelve "a floor rather than an optimum" and leaves the
+span past twelve open, because twelve was the widest column count the arm
+instantiated. The Q8_0 extension that followed instantiated wider variants
+and measured the crossover, and `evidence/ada/promotion-88681bf4d161/`
+promotes the result.
+
+```text
+Earlier candidate value: 12
+Current promoted value:  16
+Promotion authority:     evidence/ada/promotion-88681bf4d161/
+```
+
+The Q6_K threshold of ten is unchanged, and the tables above are the arms
+this run measured rather than a restatement of the promoted policy.
+`evidence/ada/mmvq-mmq-occupancy-ad104/` carries a later paired arm at
+sixteen columns that corroborates the promoted value from the dispatch side.

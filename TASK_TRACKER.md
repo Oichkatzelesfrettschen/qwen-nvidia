@@ -2,7 +2,8 @@
 
 This file states this repository's open work on the current host: an AMD
 Ryzen 5 5600X3D workstation carrying one NVIDIA GeForce RTX 4070 Ti, served
-through the CUDA backend with Vulkan as the fallback the same binary reaches.
+through the CUDA backend alone in the promoted closure `88681bf4d161`;
+Vulkan arms run under the retained diagnostic closure `572951d25562`.
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
 
@@ -52,7 +53,7 @@ transition.
 so `scripts/build-web-presets.sh` emits no image MCP configuration from the
 checked-in ledger. The image runtime, build, and standalone harnesses that
 depended on the prior host's driver were removed. Admitting an image profile
-on this host requires a Vulkan-capable image runtime built for this device,
+on this host requires a CUDA image runtime placing work on CUDA0,
 a `scripts/image-profiles.tsv` row moved to `validator-gated`, and a fresh
 admission run before any profile serves.
 

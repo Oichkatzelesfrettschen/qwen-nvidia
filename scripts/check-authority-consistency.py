@@ -278,12 +278,16 @@ def main():
         # A CUDA-only closure serves no Vulkan device, so the prose must not
         # present the promoted process as reaching one.
         if row["backend_set"] == "cuda":
-            for stale in ("Vulkan as the fallback the same binary reaches",
-                          "the same binary carries both backends"):
-                if stale in readme_norm:
+            for stale in (
+                    r"Vulkan\w*\s+is\s+the\s+fallback\s+the\s+same\s+binary",
+                    r"Vulkan\s+as\s+the\s+fallback\s+the\s+same\s+binary",
+                    r"the\s+same\s+binary\s+carries\s+both\s+backends",
+                    r"one\s+binary\s+carrying\s+the\s+CUDA\s+and\s+Vulkan"):
+                found = re.search(stale, readme_norm, re.IGNORECASE)
+                if found:
                     report_error(
                         "README.md presents the promoted CUDA-only closure "
-                        f"as carrying a Vulkan fallback: '{stale}'")
+                        f"as carrying a Vulkan fallback: '{found.group(0)}'")
 
     # MMVQ threshold claims: every clause binding a value to the quant type
     # must state the promoted value, so one stale clause beside one correct
