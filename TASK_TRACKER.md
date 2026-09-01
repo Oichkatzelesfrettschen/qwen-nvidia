@@ -140,6 +140,18 @@ this dispatch, including the `GGML_CUDA_CUBLAS_COMPUTE_TYPE` override at
 `ggml-cuda.cu:1634`. `GGML_CUDA_P2P` is the one it leaves alone, and peer
 access between devices is what one card cannot express.
 
+The static read closes no runtime question. cuBLAS is entered on activation
+type and shape, which is the regime the dense F16 and BF16 rows and every
+vision projector run in, so the runtime census stays open: a default-off
+counter at the dispatch leaves, run over the 0.8B at Q8_0, F16, and BF16, the
+three Q4_K_M distills, and three projector-loaded vision rows, decides whether
+any planner has a population to plan for. `qwen35-08b-bf16` is registered for
+that census as the representation control beside the F16 row:
+`scripts/admit-representation-row.sh` admitted it on the promoted closure
+through the publisher digest, the header, the pair check, and one strict
+CUDA0 load (`evidence/ada/representation-admission/qwen35-08b-bf16/`), at
+tier candidate with its ceiling at 8192 and every rate field empty.
+
 ## Device ownership for depth campaigns
 
 `scripts/gpu-workload-ownership.sh` is the authority the depth probes take, and

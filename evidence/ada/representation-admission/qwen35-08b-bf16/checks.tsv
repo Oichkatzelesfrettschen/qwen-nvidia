@@ -1,0 +1,13 @@
+check	outcome	detail
+registry_row	pass	model_id=qwen35-08b-bf16 tier=candidate context_ceiling=8192
+control_row	pass	control_id=qwen35-08b-f16
+artifact_digest	pass	artifact_status=already_verified sha256=ad1549eedc613064971dcbbbfab6c9b7990984d1c9ab38f792c6f2ec1207bbc2 source_revision=f36b1ea49a332ede8fe5f389bbf5b3575ef71f48 
+header_read	pass	architecture=qwen35 tensors=335 dominant_type=BF16 dominant_share=0.9987 types=BF16:1544683520,F32:2016512
+representation_pair	pass	representation_pair=compatible identity=architecture+dimensions+tokenizer+tensor-layout changed_tensor_types=195
+gpu_state_latch	pass	
+gpu_ownership_before	pass	3 clients
+kernel_ring_before	pass	hazard_lines=0
+strict_cuda_placement	pass	cpu_tensor_rejection=accepted cpu_graph_rejection=accepted graph_refusal=buffer-selection strict_cuda_completion=accepted deterministic_completion=accepted completion_sha256=a6aa75f3dc6dbf79016d9a9a456cee482f2b775a46f1538e725ca7a344dccc5a
+gpu_ownership_after	pass	client_set=unchanged
+server_teardown	pass	named_llama_server_pids=-
+kernel_ring_after	pass	hazard_lines=0 delta=0

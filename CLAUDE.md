@@ -944,6 +944,10 @@ scripts/fetch-candidate-artifact.sh REPO REV FILE DIR  # observed, not pinned
 scripts/run-one-token-admission.sh RECORD [OUT]  # load every candidate once
 scripts/verify-representation-pair.py CONTROL SUBJECT
                                                 # GGUF-header structural identity, one value format against another
+scripts/admit-representation-row.sh REGISTRY MODEL_ID CONTROL_ID VALUE_TYPE OUT
+                                                # digest, header, pair check, and one strict CUDA0 load
+scripts/test-strict-cuda-placement.sh --llama-server PATH --model PATH
+                                                # host placement refused twice, then every buffer on CUDA0
 scripts/admit-web-router-fake.sh OUTPUT_DIR      # the web router against the fake provider
 scripts/admit-image-router.sh OUTPUT_DIR         # one approved generation through the router
 scripts/probe-depth-projector.sh MODEL_ID OUT   # filled depth, projector loaded
@@ -993,6 +997,7 @@ directly:
 scripts/test-qwen-runtime-guards.sh
 scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
+scripts/test-strict-cuda-placement-fixture.sh
 scripts/test-probe-depth-projector.sh
 scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh

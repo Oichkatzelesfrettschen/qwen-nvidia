@@ -73,6 +73,28 @@ if [ -n "${QWEN_FAKE_SERVER_STATE_DIRECTORY:-}" ]; then
     record_launch "$@" >"$QWEN_FAKE_SERVER_STATE_DIRECTORY/argv-$$.txt"
 fi
 
+# The strict-placement checks read two refusals ahead of the served load, and
+# each is keyed on the argv the check passes: a load placed on the host by
+# `--device none` ends at the buffer selection, and a device load carrying no
+# `--override-tensor` ends at the graph check on the token embedding. Both are
+# the lines patches/llama-no-cpu-fallback.patch prints, so a fixture test of
+# test-strict-cuda-placement.sh reaches every branch without the device.
+if [ -n "${QWEN_FAKE_SERVER_STRICT:-}" ]; then
+    case " $* " in
+        *' --device none '*)
+            printf 'tensor token_embd.weight selected CPU buffer CPU while LLAMA_NO_CPU_FALLBACK is enabled\n' >&2
+            exit 1
+            ;;
+    esac
+    case " $* " in
+        *' --override-tensor '*) ;;
+        *)
+            printf 'CPU fallback rejected for graph node inp_embd (GET_ROWS)\n' >&2
+            exit 1
+            ;;
+    esac
+fi
+
 [ -n "$serving_port" ] || exit 0
 
 # The token array /completion returns depends on the two variables the
@@ -93,11 +115,18 @@ fi
 # reads placement from the log sees the same three lines here, and
 # QWEN_FAKE_SERVER_PLACEMENT=cpu withholds them so the caller's rejection path
 # is reachable too.
-if [ "${QWEN_FAKE_SERVER_PLACEMENT:-vulkan}" = vulkan ]; then
-    printf 'load_tensors: Vulkan0 model buffer size = 1234.00 MiB\n'
-    printf 'llama_kv_cache: Vulkan0 KV buffer size = 56.00 MiB\n'
-    printf 'llama_context: Vulkan0 compute buffer size = 78.00 MiB\n'
-fi
+case ${QWEN_FAKE_SERVER_PLACEMENT:-vulkan} in
+    vulkan)
+        printf 'load_tensors: Vulkan0 model buffer size = 1234.00 MiB\n'
+        printf 'llama_kv_cache: Vulkan0 KV buffer size = 56.00 MiB\n'
+        printf 'llama_context: Vulkan0 compute buffer size = 78.00 MiB\n'
+        ;;
+    cuda)
+        printf 'load_tensors: CUDA0 model buffer size = 1234.00 MiB\n'
+        printf 'llama_kv_cache: CUDA0 KV buffer size = 56.00 MiB\n'
+        printf 'llama_context: CUDA0 compute buffer size = 78.00 MiB\n'
+        ;;
+esac
 
 # One whitespace-separated word stands for one token and each image part
 # contributes a fixed lump, which is the shape a projector-loaded prompt has:
@@ -117,6 +146,8 @@ port = int(os.environ["QWEN_FAKE_SERVER_RESOLVED_PORT"])
 tokens = [int(value) for value in os.environ["QWEN_FAKE_SERVER_RESOLVED_TOKENS"].split()]
 image_tokens = int(os.environ["QWEN_POLICY_TEST_IMAGE_TOKENS"])
 reply = os.environ["QWEN_POLICY_TEST_REPLY"]
+# The completion text a strict-placement check compares across two requests.
+content = os.environ.get("QWEN_FAKE_SERVER_CONTENT", "")
 # A positive cap stops the reply short of the requested length, which is the
 # shape a fixed-length decode fails in: the answer arrives and carries fewer
 # tokens than the caller asked for.
@@ -154,7 +185,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/completion"):
             predict = int(body.get("n_predict") or len(tokens))
             emitted = [tokens[index % len(tokens)] for index in range(predict)]
-            self.respond({"content": "", "tokens": emitted})
+            self.respond({"content": content, "tokens": emitted,
+                          "tokens_predicted": predict})
             return
         if not self.path.startswith("/v1/chat/completions"):
             self.send_error(404)

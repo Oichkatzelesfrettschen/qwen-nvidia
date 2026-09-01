@@ -95,6 +95,18 @@
 # rather than faster, at 15.68 against 18.53, which is what buying precision
 # costs here.
 #
+# `qwen35-08b-bf16` is the third row of those weights, the publisher's own BF16
+# at `compact-bf16-control`. F16 and BF16 split the same sixteen bits between
+# exponent and mantissa differently, and ggml_cuda_mul_mat_cublas_impl selects
+# its compute type per representation, so the row is the control that separates
+# a dispatch effect of the value type from one of the width. It enters at tier
+# candidate on the publisher digest, a header read, a representation-pair check
+# against the F16 row, and one strict CUDA0 load
+# (evidence/ada/representation-admission/qwen35-08b-bf16/), with its ceiling at
+# 8192 until a filled-depth arm runs and every rate field at `-` until an
+# uninstrumented paired sweep fills it; evidence/ada/representation-08b/ carries
+# the llama-bench triple that measured the artifact ahead of the row.
+#
 # Both 0.8B rows read `projector: none` and run text-only, because
 # select-projector.sh searches the model file's own directory and no projector
 # sits beside either file. The publisher does ship one --
@@ -153,6 +165,7 @@ qwen35-2b	compact-vision	Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf	download-qwen35-
 lfm25-vl-16b	fast-vision	LFM2.5-VL-1.6B-GGUF/LFM2.5-VL-1.6B-Q4_K_M.gguf	download-lfm25-vl-16b-q4km.sh	8192	32768	32768	q8_0	q4_0	on	required	download-lfm25-vl-16b-mmproj.sh	-	-	43/55	candidate	2048	512	-	-	8/10	refused	-	off	-	lru
 ministral3-3b	dense-vision	Ministral-3-3B-Instruct-GGUF/Ministral-3-3B-Instruct-Q4_K_M.gguf	download-ministral3-3b-q4km.sh	8192	8192	16384	q8_0	q4_0	on	required	download-ministral3-3b-mmproj.sh	-	-	untested	quarantine	2048	512	-	-	unmeasured	refused	-	off	-	lru
 qwen35-08b-f16	compact-precision	Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-F16.gguf	derive-qwen35-08b-f16.sh	65536	65536	131072	q8_0	q4_0	on	none	-	-	-	32/55	candidate	2048	512	-	-	unmeasured	refused	-	off	-	lru
+qwen35-08b-bf16	compact-bf16-control	Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-bf16.gguf	download-qwen35-08b-bf16.sh	8192	8192	131072	q8_0	q4_0	on	none	-	-	-	untested	candidate	2048	512	-	-	unmeasured	refused	1	off	-	lru
 qwen38-2b-uncensored	uncensored-text	Qwen3.8-2B-Uncensored-GGUF/Qwen3.8-2B-Uncensored-Q4_K_M.gguf	download-qwen38-2b-uncensored-q4km.sh	65536	65536	131072	q8_0	q4_0	on	none	-	-	-	untested	candidate	2048	512	-	-	unmeasured	refused	0	off	-	lru
 qwen35-2b-hauhau	uncensored-text	Qwen3.5-2B-Uncensored-HauhauCS-Aggressive-GGUF/Qwen3.5-2B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf	download-qwen35-2b-hauhau-q4km.sh	65536	65536	131072	q8_0	q4_0	on	none	-	-	-	untested	candidate	2048	512	-	-	unmeasured	refused	0	off	-	lru
 qwen35-2b-unredacted	uncensored-text	Qwen3.5-2B-Unredacted-MAX-GGUF/Qwen3.5-2B-Unredacted-MAX.Q4_K_M.gguf	download-qwen35-2b-unredacted-q4km.sh	65536	65536	131072	q8_0	q4_0	on	none	-	-	-	untested	candidate	2048	512	-	-	unmeasured	refused	0	off	-	lru
