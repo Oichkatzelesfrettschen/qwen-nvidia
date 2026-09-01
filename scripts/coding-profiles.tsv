@@ -11,9 +11,11 @@
 # a job at all. code-fast-a reads `validator-gated`: the model-depth,
 # switch-policy, containment, and full-chain admission gates passed and
 # evidence/coding-agent/chain-admission/ retains the qwenseer-2b run.
-# code-deep-a stays `refused` until the same chain passes against the 7B at
-# its validated 8192 depth under the evict-first transition.
+# code-deep-a stays `refused` until the full chain passes against the 7B:
+# its filled-depth arm now validates 32768 (maximum_context matches), so the
+# re-entry gate is a chain rerun at that depth under the evict-first
+# transition, the depth Qwen Code's own 16-18k-token opening request needs.
 #
 # profile_id	model_id	runtime_id	workspace_id	maximum_context	maximum_reply_tokens	maximum_files_changed	maximum_patch_bytes	maximum_job_seconds	allowed_test_profile	network_policy	execution_policy
 code-fast-a	qwenseer-2b	qwen-code	qwen-nvidia	32768	8192	16	262144	600	repository-quality-gates	loopback-llama	validator-gated
-code-deep-a	qwen25-coder-7b	qwen-code	qwen-nvidia	8192	4096	8	131072	900	repository-quality-gates	loopback-llama	refused
+code-deep-a	qwen25-coder-7b	qwen-code	qwen-nvidia	32768	4096	8	131072	900	repository-quality-gates	loopback-llama	refused

@@ -55,6 +55,11 @@ broker_port=${QWEN_CODING_BROKER_PORT:-8599}
 principal=${QWEN_CODING_PRINCIPAL:-current}
 test_profile=${QWEN_CODING_TEST_PROFILE:-fixture-declared-value}
 validated_depth=${QWEN_CODING_VALIDATED_DEPTH:-65536}
+# The profile's maximum context and the served depth travel together, and
+# the service refuses a profile whose maximum exceeds the validated depth,
+# so a deep-coder arm passes both at its own smaller figure.
+maximum_context=${QWEN_CODING_MAX_CONTEXT:-32768}
+minimum_validated_depth=${QWEN_CODING_DEPTH_FLOOR:-32768}
 page_arm=${QWEN_CODING_PAGE_ARM:-1}
 router_command=${QWEN_CODING_ROUTER_COMMAND:-"python3 $script_directory/test-fixtures/fake-router-server.py"}
 agent_command=${QWEN_CODING_AGENT_COMMAND:-"$script_directory/test-fixtures/fake-coding-agent.sh"}
@@ -139,15 +144,15 @@ authorities=$output_directory/authorities
 mkdir -p "$authorities"
 {
     printf '# profile_id\tmodel_id\truntime_id\tworkspace_id\tmaximum_context\tmaximum_reply_tokens\tmaximum_files_changed\tmaximum_patch_bytes\tmaximum_job_seconds\tallowed_test_profile\tnetwork_policy\texecution_policy\n'
-    printf 'code-fast-a\t%s\tqwen-code\tcoding-admission\t32768\t8192\t16\t262144\t600\t%s\tloopback-llama\tvalidator-gated\n' \
-        "$model_id" "$test_profile"
+    printf 'code-fast-a\t%s\tqwen-code\tcoding-admission\t%s\t8192\t16\t262144\t600\t%s\tloopback-llama\tvalidator-gated\n' \
+        "$model_id" "$maximum_context" "$test_profile"
     printf 'code-deep-a\tqwen25-coder-7b\tqwen-code\tcoding-admission\t8192\t4096\t8\t131072\t900\t%s\tloopback-llama\trefused\n' \
         "$test_profile"
 } >"$authorities/coding-profiles.tsv"
 printf '# workspace_id\trepository_path\tmirror\ttest_profile\trepository_identity\ncoding-admission\t%s\tcoding-admission.git\t%s\tcoding-admission\n' \
     "$workspace_repo" "$test_profile" >"$authorities/coding-workspaces.tsv"
-printf '# model_id\trole\tminimum_validated_depth\tmax_reply_tokens\n%s\tfast-coder\t32768\t8192\nqwen25-coder-7b\tdeep-coder\t8192\t4096\n' \
-    "$model_id" >"$authorities/coding-models.tsv"
+printf '# model_id\trole\tminimum_validated_depth\tmax_reply_tokens\n%s\tfast-coder\t%s\t8192\n' \
+    "$model_id" "$minimum_validated_depth" >"$authorities/coding-models.tsv"
 printf '# id\tvalidated_filled_depth\n%s\t%s\n' \
     "$model_id" "$validated_depth" >"$authorities/models.tsv"
 # The runtime row copies the pinned registry with execution_policy moved to
@@ -240,7 +245,7 @@ preset=$output_directory/coding-admission.ini
     printf '[%s]\n' "$model_id"
     printf 'LLAMA_ARG_ALIAS=%s\n' "$model_id"
     printf 'LLAMA_ARG_MODEL=%s\n' "$model_path"
-    printf 'LLAMA_ARG_CTX_SIZE=32768\n'
+    printf 'LLAMA_ARG_CTX_SIZE=%s\n' "$maximum_context"
     # The full serving tuple travels in the section, because an absent key
     # falls through to the llama.cpp defaults of batch 2048 and ubatch 512
     # -- the quarantined geometry -- and the real router merges router argv

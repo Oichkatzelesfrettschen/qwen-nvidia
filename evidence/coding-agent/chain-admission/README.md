@@ -108,10 +108,10 @@ The refutation carries a second finding: Qwen Code exits 0 with a
 an apply -- the harness's independent diff, test, and patch-reproduction
 checks are what refused the run.
 
-`code-deep-a` stays `refused`. Its re-entry gate is a deeper validated
-filled-depth tuple for `qwen25-coder-7b` -- the runtime's opening request
-plus file reads and a reply budget puts the working floor near 24576, and
-32768 is the arm worth validating, whose KV cost at the served q8_0/q4_0
-triple is a few hundred mebibytes beside the ~4.4 GiB trunk -- followed by
-a rerun of this chain at that depth. The 8192 tuple remains valid for
-chat serving; it cannot host this agent runtime.
+`code-deep-a` stays `refused`. The depth half of its gate is now closed:
+`evidence/depth-validation-cuda/qwen25-coder-7b/` validates the 7B at
+32768 (32539 of 32768, needle retrieved), the registry ceiling and
+`validated_filled_depth` read 32768, and `code-deep-a` carries
+`maximum_context=32768`. The remaining gate is a rerun of this chain at
+that depth under the evict-first transition; the 8192 tuple stays a valid
+earlier arm that cannot host this agent runtime.

@@ -36,10 +36,15 @@ Code v0.22.3, and the promoted llama-server -- is admitted with
 `qwenseer-2b` at 32768 (`evidence/coding-agent/chain-admission/`, 36
 checks), and `code-fast-a` with the `qwen-code` runtime row read
 `validator-gated`. The deep-coder condition refuted itself at the 7B's
-validated 8192 depth: Qwen Code's opening request measures 16275-18348
-tokens, so `code-deep-a` stays `refused` and its re-entry gate is a
-validated filled-depth tuple for `qwen25-coder-7b` at 32768 followed by a
-chain rerun at that depth.
+first-validated 8192 depth: Qwen Code's opening request measures
+16275-18348 tokens. The RCA (`depth-8k-rca.md`) traced that 8192 to a
+circular default -- the admission arm filled the entry boilerplate ceiling
+rather than the row's declared 32768 target -- and the re-run validates
+`qwen25-coder-7b` at 32768 (32539 of 32768, needle retrieved). The row's
+ceiling and `validated_filled_depth` now read 32768 and `code-deep-a`
+carries `maximum_context=32768`; the profile stays `refused` and its
+re-entry gate is a chain rerun at that depth under the evict-first
+transition.
 
 ## Image lane
 
