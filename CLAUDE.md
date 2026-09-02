@@ -1017,6 +1017,7 @@ scripts/test-model-tiers.sh
 scripts/test-strict-cuda-placement-fixture.sh
 scripts/test-gpu-quiescence-gate.sh
 scripts/test-dispatch-census-summary.sh
+scripts/test-mmvq-width-request-tails.sh
 scripts/test-probe-depth-projector.sh
 scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh

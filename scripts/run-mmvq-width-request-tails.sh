@@ -11,9 +11,10 @@ set -eu
 # of 512 and leaves a tail of B columns, which is where a threshold acts
 # inside a request. The first request at each length on each server is the
 # uncounted warm-up, since a kernel instantiation the process has never
-# launched pays its module load on first use. The reply tokens have to agree
-# between the closures at every length, and the server's own prompt_ms and
-# predicted_ms are the request-level prefill and decode costs. The SM clock
+# launched pays its module load on first use. The prompts are cut from one
+# prose file, and the reply ids and text, returned under return_tokens, have
+# to agree between the closures at every length; the server's own prompt_ms
+# and predicted_ms are the request-level prefill and decode costs. The SM clock
 # is pinned for the campaign where QWEN_TAIL_LOCK_CLOCKS names it, because a
 # thirty-millisecond request on an idle card measures the clock ramp.
 
@@ -26,6 +27,7 @@ usage() {
     printf '             QWEN_TAIL_FLOOR        paired-gain floor, default 0.051\n' >&2
     printf '             QWEN_TAIL_PORT         control port, subject at +1, default 18120\n' >&2
     printf '             QWEN_TAIL_LOCK_CLOCKS  SM MHz to pin through sudo -n nvidia-smi, default unset\n' >&2
+    printf '             QWEN_TAIL_PASSAGE      prose file the prompts are cut from, default CLAUDE.md\n' >&2
     printf '             QWEN_MODEL_ROOT        default $HOME/models\n' >&2
     exit 2
 }
@@ -45,6 +47,11 @@ floor=${QWEN_TAIL_FLOOR:-0.051}
 port=${QWEN_TAIL_PORT:-18120}
 lock_clocks=${QWEN_TAIL_LOCK_CLOCKS:-}
 model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
+passage=${QWEN_TAIL_PASSAGE:-"$script_directory/../CLAUDE.md"}
+[ -r "$passage" ] || {
+    printf 'passage file is not readable: %s\n' "$passage" >&2
+    exit 2
+}
 wrapper=$script_directory/cuda-runtime-env.sh
 
 row=$("$script_directory/model-registry.sh" id "$model_id")
@@ -63,7 +70,9 @@ ubatch=$(field ubatch)
 mkdir -p "$output_directory"
 scrub_home() { sed "s|${HOME:?}|\$HOME|g"; }
 . "$script_directory/gpu-workload-ownership.sh"
-gpu_ownership_require >"$output_directory/ownership.txt"
+gpu_ownership_require >"$output_directory/ownership.txt.raw"
+scrub_home <"$output_directory/ownership.txt.raw" >"$output_directory/ownership.txt"
+rm -f "$output_directory/ownership.txt.raw"
 "$script_directory/gpu-state-latch.sh" require-clear >"$output_directory/gpu-state-latch.txt"
 
 control_pid=''
@@ -150,12 +159,15 @@ subject_closure=$(basename "$(dirname "$(dirname "$subject_server")")")
 for server in "$control_server" "$subject_server"; do
     printf '%s\t%s\n' "$(sha256sum "$server" | cut -d ' ' -f 1)" "$(printf '%s' "$server" | scrub_home)"
 done >"$output_directory/server-digests.tsv"
+printf '%s\t%s\n' "$(sha256sum "$passage" | cut -d ' ' -f 1)" "$(printf '%s' "$passage" | scrub_home)" \
+    >"$output_directory/passage-digest.tsv"
 
 observations=$output_directory/observations.tsv
 QWEN_TAIL_CONTROL_PORT=$control_port QWEN_TAIL_SUBJECT_PORT=$subject_port \
 QWEN_TAIL_CONTROL_CLOSURE=$control_closure QWEN_TAIL_SUBJECT_CLOSURE=$subject_closure \
 QWEN_TAIL_WIDTHS_RESOLVED="$widths" QWEN_TAIL_BASES_RESOLVED="$bases" \
 QWEN_TAIL_PAIRS_RESOLVED=$pairs QWEN_TAIL_PREDICT_RESOLVED=$predict \
+QWEN_TAIL_PASSAGE_RESOLVED=$passage QWEN_TAIL_REPLIES_RESOLVED=$output_directory/replies.jsonl \
     python3 - >"$observations" <<'PYTHON'
 import hashlib
 import json
@@ -168,10 +180,13 @@ widths = [int(w) for w in os.environ["QWEN_TAIL_WIDTHS_RESOLVED"].split()]
 bases = [int(b) for b in os.environ["QWEN_TAIL_BASES_RESOLVED"].split()]
 pairs = int(os.environ["QWEN_TAIL_PAIRS_RESOLVED"])
 predict = int(os.environ["QWEN_TAIL_PREDICT_RESOLVED"])
-passage = ("The measurement runs on one card shared with a desktop, so every rate "
-           "carries the compositor as a covariate rather than as a condition to "
-           "exclude. A prefill fills whole micro-batches and leaves a tail whose "
-           "column count is where a dispatch threshold acts inside a request. ") * 200
+# The prompt is a prose file rather than a repeated sentence, because a greedy
+# continuation of a periodic passage is a copy of the passage that every model
+# reproduces token for token; two closures can disagree numerically and still
+# emit the same copy, so identity over that prompt separates nothing. A text
+# without a period leaves the continuation to the model's own logits, and its
+# digest is recorded beside the observations.
+passage = open(os.environ["QWEN_TAIL_PASSAGE_RESOLVED"], encoding="utf-8").read()
 
 
 def post(arm, route, body, timeout=600):
@@ -190,31 +205,62 @@ for base in bases:
         prompts[(base, width)] = post("control", "/detokenize", {"tokens": tokens[:length]})["content"]
 
 
+# llama-server returns the sampled token ids only under return_tokens, which
+# server-task.h defaults to false; server-context.cpp appends to
+# generated_tokens inside `if (slot.task->params.return_tokens)`, so a request
+# leaving the flag unset receives an absent array and a digest over the
+# default would hash the same empty list for every reply of every closure.
+# The reply is therefore required to carry exactly predicted_n ids, and the
+# content text is digested beside them as a second reading of the same reply.
 def ask(arm, base, width):
     reply = post(arm, "/completion", {"prompt": prompts[(base, width)], "n_predict": predict,
-                                      "temperature": 0, "top_k": 1, "seed": 1, "cache_prompt": False})
+                                      "temperature": 0, "top_k": 1, "seed": 1, "cache_prompt": False,
+                                      "return_tokens": True})
     timings = reply.get("timings") or {}
-    digest = hashlib.sha256(json.dumps(reply.get("tokens", []), separators=(",", ":")).encode()).hexdigest()
-    return timings, digest
+    generated = reply.get("tokens")
+    if not isinstance(generated, list):
+        raise RuntimeError(f"{arm}: completion omitted the requested raw token list")
+    predicted_n = timings.get("predicted_n")
+    if not isinstance(predicted_n, int) or predicted_n < 0:
+        raise RuntimeError(f"{arm}: completion omitted a valid predicted_n")
+    if predicted_n > 0 and not generated:
+        raise RuntimeError(f"{arm}: completion returned an empty token list")
+    if len(generated) != predicted_n:
+        raise RuntimeError(f"{arm}: token-count mismatch: tokens={len(generated)} predicted_n={predicted_n}")
+    if not all(isinstance(token, int) for token in generated):
+        raise RuntimeError(f"{arm}: completion returned a token that is not an integer id")
+    content = reply.get("content")
+    if not isinstance(content, str):
+        raise RuntimeError(f"{arm}: completion omitted textual content")
+    token_digest = hashlib.sha256(json.dumps(generated, separators=(",", ":")).encode()).hexdigest()
+    content_digest = hashlib.sha256(content.encode()).hexdigest()
+    replies.write(json.dumps({"arm": arm, "closure": closures[arm], "base": base, "width": width,
+                              "tokens": generated, "content": content}, separators=(",", ":")) + "\n")
+    return timings, token_digest, content_digest
 
 
-print("phase\tpair\tposition\tarm\tclosure\tbase\twidth\tlength\tprompt_n\tprompt_ms\tpredicted_n\tpredicted_ms\ttokens_sha256")
+# Every reply's ids and text are retained beside the digests, so a divergent
+# pair reports the position of its first differing id rather than two hashes.
+replies = open(os.environ["QWEN_TAIL_REPLIES_RESOLVED"], "w", encoding="utf-8")
+
+
+print("phase\tpair\tposition\tarm\tclosure\tbase\twidth\tlength\tprompt_n\tprompt_ms\tpredicted_n\tpredicted_ms\ttokens_sha256\tcontent_sha256")
 for base in bases:
     for width in widths:
         for arm in ("control", "subject"):
-            timings, digest = ask(arm, base, width)
+            timings, digest, content_digest = ask(arm, base, width)
             print("\t".join(str(v) for v in ("warmup", 0, 0, arm, closures[arm], base, width, base + width,
                 timings.get("prompt_n", "-"), timings.get("prompt_ms", "-"),
-                timings.get("predicted_n", "-"), timings.get("predicted_ms", "-"), digest)))
+                timings.get("predicted_n", "-"), timings.get("predicted_ms", "-"), digest, content_digest)))
 for pair in range(1, pairs + 1):
     order = ("control", "subject") if pair % 2 else ("subject", "control")
     for base in bases:
         for width in widths:
             for position, arm in enumerate(order, 1):
-                timings, digest = ask(arm, base, width)
+                timings, digest, content_digest = ask(arm, base, width)
                 print("\t".join(str(v) for v in ("paired", pair, position, arm, closures[arm], base, width, base + width,
                     timings.get("prompt_n", "-"), timings.get("prompt_ms", "-"),
-                    timings.get("predicted_n", "-"), timings.get("predicted_ms", "-"), digest)))
+                    timings.get("predicted_n", "-"), timings.get("predicted_ms", "-"), digest, content_digest)))
 PYTHON
 
 cleanup
@@ -224,8 +270,9 @@ for name in control subject; do
 done
 trap - EXIT HUP INT TERM
 
-python3 - "$observations" "$output_directory/tails-summary.tsv" "$floor" <<'PYTHON'
+python3 - "$observations" "$output_directory/tails-summary.tsv" "$floor" "$output_directory/replies.jsonl" <<'PYTHON'
 import csv
+import json
 import math
 import statistics
 import sys
@@ -235,14 +282,31 @@ rows = list(csv.DictReader(open(sys.argv[1], encoding="utf-8"), delimiter="\t"))
 floor = float(sys.argv[3])
 paired = defaultdict(dict)
 digests = defaultdict(set)
+contents = defaultdict(set)
 for r in rows:
     key = (int(r["base"]), int(r["width"]))
     digests[key].add(r["tokens_sha256"])
+    contents[key].add(r["content_sha256"])
     if r["phase"] == "paired":
         paired[(key, int(r["pair"]))][r["arm"]] = (float(r["prompt_ms"]), float(r["predicted_ms"]))
+# The first position at which any reply of a length differs from the control
+# arm's reply, or "-" where every reply at that length carries the same ids.
+replies = defaultdict(list)
+for line in open(sys.argv[4], encoding="utf-8"):
+    reply = json.loads(line)
+    replies[(reply["base"], reply["width"])].append(reply)
+def first_divergence(key):
+    reference = next(r["tokens"] for r in replies[key] if r["arm"] == "control")
+    positions = []
+    for reply in replies[key]:
+        pairs = zip(reference, reply["tokens"])
+        differing = [i for i, (a, b) in enumerate(pairs) if a != b]
+        if differing or len(reply["tokens"]) != len(reference):
+            positions.append(differing[0] if differing else min(len(reference), len(reply["tokens"])))
+    return str(min(positions)) if positions else "-"
 lengths = sorted({(int(r["base"]), int(r["width"])) for r in rows})
 with open(sys.argv[2], "w", encoding="utf-8") as h:
-    h.write("base\twidth\tlength\tpairs\tprefill_ratio_median\tprefill_ratio_geomean\tprefill_ratio_iqr\tprefill_ratio_min\tprefill_ratio_max\tdecode_ratio_median\tcontrol_drift\tfloor\tclears_floor\ttokens_identical\n")
+    h.write("base\twidth\tlength\tpairs\tprefill_ratio_median\tprefill_ratio_geomean\tprefill_ratio_iqr\tprefill_ratio_min\tprefill_ratio_max\tdecode_ratio_median\tcontrol_drift\tfloor\tclears_floor\ttokens_identical\tcontent_identical\tfirst_divergent_index\n")
     for key in lengths:
         pr, dr, ctl = [], [], []
         for (k, p), arms in sorted(paired.items()):
@@ -258,6 +322,6 @@ with open(sys.argv[2], "w", encoding="utf-8") as h:
         first, last = statistics.mean(ctl[:3]), statistics.mean(ctl[-3:])
         drift = abs(first - last) / first
         clears = (med - 1.0) > floor and (geo - 1.0) > floor and q[0] > 1.0
-        h.write(f"{key[0]}\t{key[1]}\t{key[0] + key[1]}\t{len(pr)}\t{med:.4f}\t{geo:.4f}\t{q[2] - q[0]:.4f}\t{pr[0]:.4f}\t{pr[-1]:.4f}\t{statistics.median(dr):.4f}\t{drift:.4f}\t{floor}\t{'yes' if clears else 'no'}\t{'yes' if len(digests[key]) == 1 else 'no'}\n")
+        h.write(f"{key[0]}\t{key[1]}\t{key[0] + key[1]}\t{len(pr)}\t{med:.4f}\t{geo:.4f}\t{q[2] - q[0]:.4f}\t{pr[0]:.4f}\t{pr[-1]:.4f}\t{statistics.median(dr):.4f}\t{drift:.4f}\t{floor}\t{'yes' if clears else 'no'}\t{'yes' if len(digests[key]) == 1 else 'no'}\t{'yes' if len(contents[key]) == 1 else 'no'}\t{first_divergence(key)}\n")
 print(open(sys.argv[2], encoding="utf-8").read())
 PYTHON

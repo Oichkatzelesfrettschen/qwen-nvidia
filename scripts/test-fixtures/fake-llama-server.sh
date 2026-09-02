@@ -23,6 +23,17 @@ if [ -n "${QWEN_POLICY_TEST_HTTP_PORT:-}" ] && [ -n "${QWEN_FAKE_SERVER_PORT:-}"
     exit 2
 fi
 serving_port=${QWEN_POLICY_TEST_HTTP_PORT:-${QWEN_FAKE_SERVER_PORT:-}}
+# A harness that starts two servers at once names each listener on its argv,
+# the way the real server takes it, so under QWEN_FAKE_SERVER_PORT_FROM_ARGV
+# the port follows --port. The opt-in keeps a policy test's recorded argv,
+# which also carries --port, from turning the recorder into a listener.
+if [ -z "$serving_port" ] && [ -n "${QWEN_FAKE_SERVER_PORT_FROM_ARGV:-}" ]; then
+    previous_argument=''
+    for argument in "$@"; do
+        [ "$previous_argument" = --port ] && serving_port=$argument
+        previous_argument=$argument
+    done
+fi
 
 # The argv record has two destinations because it has two readers. A single
 # launch under test writes one file named by QWEN_POLICY_TEST_OUTPUT; a sweep
@@ -145,6 +156,9 @@ if [ -n "$banner_device" ]; then
     printf 'llama_kv_cache: %s KV buffer size = 56.00 MiB\n' "$banner_device"
     printf 'llama_context: %s compute buffer size = 78.00 MiB\n' "$banner_device"
 fi
+# The readiness line llama-server prints once the listener is bound; a caller
+# that reads readiness from the banner and this line together sees both here.
+printf 'main: server is listening on http://127.0.0.1:%s\n' "$serving_port"
 
 # One whitespace-separated word stands for one token and each image part
 # contributes a fixed lump, which is the shape a projector-loaded prompt has:
@@ -197,14 +211,28 @@ class Handler(BaseHTTPRequestHandler):
             words = len(str(body.get("content", "")).split())
             self.respond({"tokens": list(range(words))})
             return
+        # The inverse of the word-per-token rule above: one word per id, so a
+        # prompt cut to N ids tokenizes back to N.
+        if self.path.startswith("/detokenize"):
+            self.respond({"content": " ".join(f"w{i}" for i in body.get("tokens") or [])})
+            return
         # The token-identity route. A fixed cycle over the configured array
         # fills the requested length, so the reply is exactly as long as
         # n_predict asked and differs between arms only where the array does.
+        # The id array is present only under return_tokens, which is the
+        # contract server-task.h states with its false default and
+        # server-context.cpp enforces where it appends generated_tokens; a
+        # caller digesting the array without asking for it reads its absence.
         if self.path.startswith("/completion"):
             predict = int(body.get("n_predict") or len(tokens))
             emitted = [tokens[index % len(tokens)] for index in range(predict)]
-            self.respond({"content": content, "tokens": emitted,
-                          "tokens_predicted": predict})
+            payload = {"content": content, "tokens_predicted": predict,
+                       "timings": {"prompt_n": len(str(body.get("prompt", "")).split()),
+                                   "prompt_ms": 10.0, "predicted_n": predict,
+                                   "predicted_ms": 20.0}}
+            if body.get("return_tokens") is True:
+                payload["tokens"] = emitted
+            self.respond(payload)
             return
         if not self.path.startswith("/v1/chat/completions"):
             self.send_error(404)

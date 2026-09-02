@@ -131,8 +131,7 @@ measures Q8_0 at seventeen through twenty against the promoted closure: the
 subject closure `8680bc95e989` clears the ten-repetition campaign's 6.3%
 floor at every width (12.0, 10.2, 6.9, and 10.0%), launches
 `mul_mat_vec_q<Q8_0, 17..20>` where the control launches `mul_mat_q`, holds
-153 registers with zero local memory at twenty, and answers
-token-identically at every served prompt length. Neither block run is promotion evidence: the
+153 registers with zero local memory at twenty. Neither block run is promotion evidence: the
 three-repetition run changed state between its controls and the
 ten-repetition run's 6.3% span exceeds the preregistered 5.1% floor. The
 alternating paired campaign under `gpu-quiescence-gate.sh` with the SM clock
@@ -143,12 +142,20 @@ The selected threshold is nineteen. The shipped nineteen-column closure
 `73af02b39194` launches MMVQ at nineteen and MMQ at twenty in the boundary
 audit, carries no twenty-column instantiation, and leaves the SASS of Q8_0
 one through sixteen identical to production; the co-resident alternating
-tail campaign on the nineteen-threshold diagnostic closure `137b2a23a42c` on the 0.8B and on the
-2B production control reads the threshold as a no-regression control: 120
-token-identical pairs per model, prefill and decode ratios at unity, and a
-request-level gain the tail's share bounds to about 1%, under the 5.1%
-floor. Production stays at sixteen until the ordinary promotion gate runs on
-that closure. `QWEN_GPU_OWNERSHIP_FD` replaces the exported held-claim
+tail campaign on that closure on the 0.8B and on the 2B production control
+reads the threshold as a rate control, 60 pairs and 120 measured requests
+per model with prefill and decode ratios at unity and a request-level gain
+the tail's share bounds to about 1%, under the 5.1% floor, and as a refusal
+on identity: the 0.8B reply ids differ between the closures at every
+nineteen-column tail, first at position 31, 21, and 0, where the model's
+top two candidates sit under 0.1 nats apart and the subject's MMVQ pass
+replaces the control's MMQ pass, and agree at every twenty-column tail and
+at every length on the 2B. The first two tail runs read identity through an
+absent array and through a periodic prompt either kernel copies, and the
+harness now requires the ids under `return_tokens` and cuts its prompts from
+prose. The preregistered exact-identity gate is not met and is not relaxed,
+so the threshold is not promotable under it and production stays at sixteen
+on `88681bf4d161`. `QWEN_GPU_OWNERSHIP_FD` replaces the exported held-claim
 marker: `gpu_ownership_require` proves an inherited descriptor is open on
 the lock inode and holds the lock before a nested sweep inspects the driver's
 client list, and `run-ad104-b789-calibration.sh` exports the descriptor it

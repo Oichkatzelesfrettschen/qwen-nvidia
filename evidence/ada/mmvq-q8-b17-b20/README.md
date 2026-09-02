@@ -99,57 +99,95 @@ alone.
 ## Served request tails
 
 `request-tails/qwen35-08b/` and `request-tails/qwen38-2b-distill/` are
-`scripts/run-mmvq-width-request-tails.sh` on the nineteen-threshold
-closure `137b2a23a42c`, the twenty-column diagnostic tree built with Q8_0 at
-nineteen, against the production closure `88681bf4d161`: both
+`scripts/run-mmvq-width-request-tails.sh` on the shipped closure
+`73af02b39194` against the production closure `88681bf4d161`: both
 llama-servers resident on CUDA0 at the row's served tuple, the SM clock
 pinned at 2835 MHz, and at each of 512+B, 1024+B, and 2048+B for B of
 nineteen and twenty ten alternating pairs of one fixed-seed greedy completion
 of 32 tokens, control first on odd pairs and subject first on even ones,
-with one uncounted warm-up per length per server. A prompt of 512+B tokens
+with one uncounted warm-up per length per server: 60 pairs and 120 measured
+requests per model, 132 requests with the warm-ups. A prompt of 512+B tokens
 fills one ubatch and leaves a tail of B columns, which is where the threshold
-acts inside a request. `observations.tsv` carries every request with its
-prompt count, prompt and decode milliseconds, and the SHA-256 of its reply
-tokens; `tails-summary.tsv` the paired ratios per length;
+acts inside a request. The prompts are cut from the repository's own
+`CLAUDE.md`, whose digest `passage-digest.tsv` records. `observations.tsv`
+carries every request with its prompt count, prompt and decode milliseconds,
+and the SHA-256 of its reply ids and of its reply text; `replies.jsonl` the
+ids and text themselves; `tails-summary.tsv` the paired ratios per length
+with the first position at which any reply differs from the control's;
 `server-digests.tsv` the two binaries; and the load logs the CUDA0 model,
 KV, and compute buffers each server placed, read at `-lv 10` because the
 buffer banner is an INFO line the default verbosity hides.
-`design-iterations/` retains the block-order runs that shaped this design,
-where the subject read slower even on the 2B, which carries no Q8_0 weight,
-so those runs measured block order rather than the kernel.
 
-| model | length | prefill ratio median | geometric mean | IQR | min | max | decode ratio | control drift |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.8B | 512+19 | 0.980 | 0.998 | 0.058 | 0.956 | 1.078 | 1.004 | 0.013 |
-| 0.8B | 512+20 | 1.037 | 1.043 | 0.060 | 1.002 | 1.084 | 1.004 | 0.019 |
-| 0.8B | 1024+19 | 1.014 | 1.016 | 0.071 | 0.975 | 1.068 | 0.988 | 0.008 |
-| 0.8B | 1024+20 | 0.991 | 0.992 | 0.033 | 0.962 | 1.042 | 0.996 | 0.028 |
-| 0.8B | 2048+19 | 1.012 | 1.010 | 0.046 | 0.969 | 1.048 | 0.998 | 0.023 |
-| 0.8B | 2048+20 | 1.005 | 1.005 | 0.027 | 0.973 | 1.032 | 0.995 | 0.014 |
-| 2B | 512+19 | 0.998 | 0.973 | 0.090 | 0.809 | 1.051 | 0.959 | 0.079 |
-| 2B | 512+20 | 0.975 | 0.981 | 0.092 | 0.920 | 1.122 | 0.982 | 0.116 |
-| 2B | 1024+19 | 1.007 | 0.989 | 0.070 | 0.887 | 1.042 | 1.013 | 0.092 |
-| 2B | 1024+20 | 0.999 | 1.011 | 0.043 | 0.982 | 1.070 | 0.988 | 0.136 |
-| 2B | 2048+19 | 0.994 | 1.009 | 0.065 | 0.906 | 1.152 | 1.010 | 0.064 |
-| 2B | 2048+20 | 0.999 | 0.985 | 0.090 | 0.909 | 1.047 | 0.974 | 0.023 |
+The harness requests the ids under `return_tokens`. `server-task.h` defaults
+that flag to false and `server-context.cpp` appends to `generated_tokens`
+only under it, so a request leaving it unset receives an absent array; the
+first retained run of this arm digested that absence, and every one of its
+264 digests was the SHA-256 of `[]`. The harness now refuses a reply whose
+id count differs from `predicted_n`, and
+`scripts/test-mmvq-width-request-tails.sh` runs a copy with the flag removed
+against a fixture that honors the contract and requires the refusal.
 
-The reply tokens agree between the closures in all 120 pairs on each model,
-so the wider kernel preserves exact output at every served length. The
-paired prefill ratio sits at unity on both models: medians between 0.980
-and 1.037 on the 0.8B with the control's own drift inside 2.8%, and between
-0.975 and 1.007 on the 2B, which carries no Q8_0 weight and therefore runs
-the same kernels on both closures, with the control drifting to 13.6% under
-the desktop. Decode ratios hold unity on every row, and neither server log
-carries a graph fallback, recapture, or CPU placement line. No length
-clears the 5.1% floor and the arithmetic says none can: a tail of nineteen
-columns is one MMVQ pass, about one weight stream and therefore about the
-3.2 ms of a decode token, against a 531-token prompt the control answers in
-29.7 ms, so the 8.8% the paired campaign measured at nineteen moves the
-request by about 1%, under the floor and under the 3 to 7% interquartile
-range the pairs carry. Read the tails as the no-regression control they
-are: the wider kernel changes no token, slows no length beyond pair scatter,
-and moves decode by nothing, and the 2B rows show the harness reading unity
-where the two closures execute identical kernels.
+The second run read real ids over a passage that repeated one paragraph 200
+times, and the six digests it produced on the 0.8B were the six the 2B
+produced: a greedy continuation of a periodic prompt is a copy of the
+prompt, which either model and either kernel reproduces, so that prompt
+separates nothing. `periodic-passage-qwen35-08b-summary.tsv` and
+`periodic-passage-qwen38-2b-distill-summary.tsv` retain those summaries as
+the reason the prompt changed. `design-iterations/` retains the block-order
+runs that shaped the paired design, where the subject read slower even on
+the 2B, which carries no Q8_0 weight, so those runs measured block order
+rather than the kernel; their `tokens_sha256` column is the empty-array
+digest throughout, since they predate the `return_tokens` fix, and they
+carry rate alone.
+
+| model | length | prefill ratio median | geometric mean | IQR | min | max | decode ratio | control drift | ids identical | first differing position |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| 0.8B | 512+19 | 1.054 | 1.032 | 0.160 | 0.913 | 1.235 | 1.013 | 0.053 | no | 31 |
+| 0.8B | 512+20 | 0.981 | 0.986 | 0.070 | 0.903 | 1.083 | 1.009 | 0.040 | yes | - |
+| 0.8B | 1024+19 | 1.021 | 1.005 | 0.053 | 0.932 | 1.038 | 1.003 | 0.042 | no | 21 |
+| 0.8B | 1024+20 | 0.993 | 0.989 | 0.045 | 0.889 | 1.033 | 0.987 | 0.017 | yes | - |
+| 0.8B | 2048+19 | 1.010 | 1.014 | 0.035 | 0.979 | 1.053 | 1.015 | 0.005 | no | 0 |
+| 0.8B | 2048+20 | 0.996 | 0.991 | 0.030 | 0.936 | 1.029 | 0.971 | 0.007 | yes | - |
+| 2B | 512+19 | 1.000 | 0.994 | 0.045 | 0.937 | 1.039 | 1.001 | 0.022 | yes | - |
+| 2B | 512+20 | 1.009 | 1.005 | 0.051 | 0.939 | 1.059 | 1.018 | 0.006 | yes | - |
+| 2B | 1024+19 | 1.009 | 1.001 | 0.040 | 0.950 | 1.038 | 0.998 | 0.006 | yes | - |
+| 2B | 1024+20 | 1.005 | 1.007 | 0.043 | 0.977 | 1.040 | 1.023 | 0.039 | yes | - |
+| 2B | 2048+19 | 1.007 | 1.008 | 0.022 | 0.991 | 1.041 | 1.013 | 0.019 | yes | - |
+| 2B | 2048+20 | 1.020 | 1.017 | 0.020 | 0.992 | 1.038 | 1.020 | 0.010 | yes | - |
+
+The reply ids differ between the closures at every nineteen-column tail on
+the 0.8B and agree at every twenty-column tail, and they agree at every
+length on the 2B. Each arm is deterministic on its own: the eleven replies a
+server gives at one length carry one digest, so the split at nineteen is two
+digests, one per closure. The nineteen-column tail is the one cell where the
+two closures run different kernels, `mul_mat_q` on the control and
+`mul_mat_vec_q<Q8_0, 19>` on the subject; at twenty both run MMQ, and the 2B
+carries no Q8_0 weight, so both closures run identical kernels on it at
+every width. `qwen35-08b-logit-margins/` is
+`scripts/probe-mmvq-tail-logit-margin.sh` at the three first-differing
+positions and at the identical 2048+20 control: the control's top two
+candidates sit 0.014, 0.024, and 0.096 nats apart at the three divergent
+positions, the subject chooses the control's second candidate at each with
+the control's first no lower than third, and at 2048+20 the two closures
+return four equal log-probabilities to four decimals with a 0.330-nat margin.
+The two kernels sum the same products in different orders and different
+widths, and the difference moves an argmax only where the model itself is
+near a tie. Both continuations read as fluent prose from the same document.
+
+The paired prefill ratio sits at unity on both models: medians between 0.981
+and 1.054 on the 0.8B with the control's own drift inside 5.3%, and between
+1.000 and 1.020 on the 2B. Decode ratios hold within 3% of unity on every
+row, and neither server log carries a graph fallback, recapture, or CPU
+placement line. No length clears the 5.1% floor and the arithmetic says none
+can: a tail of nineteen columns is one MMVQ pass, about one weight stream
+and therefore about the 3.2 ms of a decode token, against a 531-token prompt
+the control answers in about 30 ms, so the 8.8% the paired campaign measured
+at nineteen moves the request by about 1%, under the floor and under the 2
+to 16% interquartile range the pairs carry. Read the tails as the
+integration control they are for rate, and as the refusal they are for
+identity: the wider kernel slows no length beyond pair scatter and moves
+decode by nothing, and it changes the greedy reply at the width it takes
+over.
 
 ## Classification
 
@@ -213,19 +251,34 @@ threshold is nineteen.
 
 ## Verdict
 
-`Q8_0 = 19` is the threshold this campaign selects: the greatest width with
-every width below it admitted, `mul_mat_vec_q<Q8_0, 19>` observed on the
-shipped closure `73af02b39194` with MMQ at twenty, registers held without a spill, and a
-zero kernel-ring delta on every run. The nineteen-threshold diagnostic closure passes the served
-tail controls on the 0.8B and on the 2B production control as a
-no-regression control with exact tokens and unchanged decode; the
-request-level prefill gain the promotion design asked for is bounded by the
-tail's share of the request to about 1% and is unreadable against a 5.1%
-floor, so the gain rests on the pinned paired campaign alone. Production
-stays at sixteen: promotion is a fresh `89-real` closure from merged main at Q6_K ten and
-Q8_0 nineteen through `promote-llama-build.sh` and
-`admit-cuda-router-serving.sh`, and it has not run. MMVQ loses its margin at twenty here, so the search ends at
-nineteen rather than extending to twenty-four.
+`Q8_0 = 19` is the threshold the kernel campaign selects: the greatest width
+with every width below it admitted, `mul_mat_vec_q<Q8_0, 19>` observed on
+the shipped closure `73af02b39194` with MMQ at twenty, registers held
+without a spill, and a zero kernel-ring delta on every run. The served tails
+on the 0.8B and on the 2B production control pass as a rate control, with
+prefill and decode at unity, and the request-level prefill gain the
+promotion design asked for is bounded by the tail's share of the request to
+about 1%, unreadable against a 5.1% floor, so the gain rests on the pinned
+paired campaign alone.
+
+The numerical gate is not met. The promotion design requires exact token
+identity between the closures across every pair on both models, and the
+0.8B reply differs at every nineteen-column tail, at position 31, 21, and 0,
+where the subject's MMVQ pass replaces the control's MMQ pass and the
+model's top two candidates sit under 0.1 nats apart. The gate stands as
+preregistered and is not relaxed after the result: this threshold is not
+promotable under it. Production stays at sixteen on `88681bf4d161`, and the
+promotion sequence, a fresh `89-real` closure from merged main through
+`promote-llama-build.sh` and `admit-cuda-router-serving.sh`, has not run and
+does not run under this record. What the result states is narrower than a
+defect: the two kernels reach different roundings of the same products, and
+the served path already crosses that boundary at sixteen, so a greedy reply
+whose tail lands on either side of any MMVQ/MMQ threshold already depends on
+which kernel ran. A gate that separates rounding-order divergence at a near
+tie from a value error is a different gate, and choosing it belongs to the
+promotion design rather than to this record. MMVQ loses its margin at
+twenty here, so the search ends at nineteen rather than extending to
+twenty-four.
 
 ## Protocol amendment
 
@@ -245,29 +298,46 @@ and is not lowered to fit the result; the retained request-level experiment
 is interpreted only as a bounded no-regression and integration control, and
 the promotion case rests on the pinned alternating kernel-level campaign.
 
+The "exact tokens" clause of the same gate is retained as written and is
+the clause the corrected run fails. The first retained tail run reported it
+passed while digesting an absent array, and the second reported it passed
+over a periodic prompt that either kernel copies; the run that reads real
+ids over prose reports the divergence above.
+
 The claims separate as follows.
 
 ```text
 Measured:
     B17, B18, B19 kernel-path improvement over MMQ, contiguous, pinned clock
+    reply ids differ between the closures at every 19-column tail on the
+        0.8B Q8_0 row, first at position 31, 21, and 0; identical at every
+        20-column tail and at every length on the 2B control
+    top-two logit margin at the three divergent positions 0.014, 0.024,
+        and 0.096 nats on the control; four equal log-probabilities at the
+        identical 2048+20 control
 
 Observed:
-    exact token identity across 120 alternating pairs per model
-    no request-level prefill or decode regression beyond pair scatter
+    no request-level prefill or decode regression beyond pair scatter,
+        60 alternating pairs and 120 measured requests per model
     no graph fallback, recapture, or CPU placement line
     MMVQ at nineteen and MMQ at twenty on the exact closure
 
 Not established:
     user-visible whole-request latency improvement
+    exact token identity between the closures, the preregistered
+        numerical gate, which the 0.8B fails at every 19-column tail
 ```
 
 ## Falsifiers
 
 A width where the paired ratio's spread crosses one ends the search at the
 previous width, and a threshold is admitted only where every width below it
-is admitted in the same campaign. A reply-token digest that
-differs between the closures at any length refuses the kernel regardless of
-rate. A `cuobjdump` read showing local memory above zero at a wider
-instantiation is the spill the design note names, and a served request whose
-prompt time rises under the subject beyond the pair scatter at any tail
-length refutes the no-regression reading.
+is admitted in the same campaign. A reply-id digest that differs between the
+closures at any length refuses the kernel regardless of rate, and that
+falsifier fired at every nineteen-column tail on the 0.8B. A `cuobjdump`
+read showing local memory above zero at a wider instantiation is the spill
+the design note names, and a served request whose prompt time rises under
+the subject beyond the pair scatter at any tail length refutes the
+no-regression reading. A digest column whose every value is the SHA-256 of
+`[]`, or a set of digests one model shares with another, is a harness
+reading its own default rather than the reply.
