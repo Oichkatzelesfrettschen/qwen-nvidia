@@ -233,6 +233,16 @@ with open(sys.argv[2], "w", encoding="utf-8") as h:
             ratios.append(pair[False][0] / pair[True][0])
             tg_ratios.append(pair[False][1] / pair[True][1])
         ratios.sort()
+        # A width whose observations all failed leaves no complete pair. The
+        # loop over widths continues, because a `failed` observation records
+        # itself and returns without ending the campaign the way a refused
+        # quiescence gate does, so the summary states the empty width rather
+        # than raising out of statistics.median on the way to it.
+        if not ratios:
+            verdicts[w] = False
+            h.write(f"{w}\t0\tn/a\tn/a\tn/a\tn/a\tn/a\tn/a\tn/a\t{span:.4f}\t{floor}\t"
+                    "n/a\tno\tno\tinsufficient_pairs\tno\tno\n")
+            continue
         med = statistics.median(ratios)
         geo = math.exp(sum(math.log(x) for x in ratios) / len(ratios))
         mad = statistics.median(abs(x - med) for x in ratios)
