@@ -118,20 +118,19 @@ arm whose executed family differs from the matrix expectation;
 mixed forward pass where Q4_K runs MMQ beside Q6_K on MMVQ.
 `GGML_CUDA_FORCE_CUBLAS` is the one build-time flag that reaches the same
 decision, at `mmq.cu:260`, and `QWEN_FORCE_CUBLAS=ON` builds that tree.
-Three candidate-patch levers move a dispatch threshold from
-`scripts/build-llama-cuda.sh`, and each takes the route its own patch opens.
-`QWEN_CUDA_MMVQ_Q6K_MAX` and `QWEN_CUDA_MMVQ_Q8_0_MAX` ride cmake cache
-entries, because `llama-cuda-mmvq-crossover-ad104.patch` carries a
+Two candidate-patch levers move a dispatch threshold from
+`scripts/build-llama-cuda.sh`. `QWEN_CUDA_MMVQ_Q6K_MAX` and
+`QWEN_CUDA_MMVQ_Q8_0_MAX` ride cmake cache entries, because
+`llama-cuda-mmvq-crossover-ad104.patch` carries a
 `ggml/src/ggml-cuda/CMakeLists.txt` hunk bridging each entry into a compile
-definition. `QWEN_CUDA_MMQ_TILING_PERCENT` rides `CMAKE_CUDA_FLAGS`, because
-`llama-cuda-mmq-stream-k-grid.patch` touches `mmq.cuh` alone and its `#ifndef`
-reads a preprocessor macro no cache entry reaches. All three enter the
-configuration digest, so two closures differing by one threshold carry
-different build directories and different names. The tiling default of 90
-reproduces the upstream stream-K grid selection and builds against any tree; a
-value beside 90 against a tree whose `mmq.cuh` lacks the macro is refused by
-name, since an ignored `-D` would give a subject closure the control's
-dispatch.
+definition. Both enter the configuration digest, so two closures differing by
+one threshold carry different build directories and different names. The Ada
+MMQ stream-K tiling threshold was a third such lever and is now a constant at
+the upstream 90: its patch lost the identity gate, so the builder emits no
+tiling define on any tree and refuses `QWEN_CUDA_MMQ_TILING_PERCENT` at every
+value beside 90 rather than serving the control under a subject request. The
+field stays in the configuration record at that value, which holds the identity
+of every closure the campaign retained.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
@@ -144,13 +143,20 @@ multiprocessor count otherwise, and `fixup_needed` at `mmq.cuh:1440`, which
 holds where the tile count fails to divide that grid and launches
 `mul_mat_q_stream_k_fixup` at `mmq.cuh:1463` over the partial tiles
 `write_back` sent to `tmp_fixup` at `mmq.cuh:936`.
-`patches/llama-cuda-mmq-stream-k-grid.patch` makes that 90 a build-configured
-value on Ada Lovelace alone, `scripts/ad104-stream-k-matrix.tsv` is the arm
-matrix `run-ad104-path-audit.sh` reads for it, and
-`evidence/ada/mmq-stream-k-grid/` preregisters the campaign. Nothing is
-measured yet: the fixup pass reorders floating-point accumulation, so exact
-greedy token identity is tested rather than promised and failing it rejects the
-candidate the way `evidence/ada/mmvq-q8-b17-b20/` rejected the MMVQ width.
+`patches/llama-cuda-mmq-stream-k-grid.patch` made that 90 a build-configured
+value on Ada Lovelace alone and `evidence/ada/mmq-stream-k-grid/` carries the
+three phases that closed against it. The patch is inert at its own default
+(`phase-a-null/`), grid selection controls divisibility and divisibility
+controls whether the fixup launch exists, 186 against 0 (`phase-b-witness/`),
+and removing every fixup costs 18.9% of the pass while the direction splits by
+tile class. Threshold 80 then changed the 2B's output at tokens 16, 35, and 146
+(`phase-c-identity/`), so the patch is rejected on exact greedy token identity
+the way `evidence/ada/mmvq-q8-b17-b20/` rejected the MMVQ width, and
+`scripts/verify-llama-patch-series.sh` names it on a `rejected_patch=` line
+beside that one. The fixup pass reorders floating-point accumulation by
+construction, which is why identity was tested rather than promised.
+`scripts/ad104-stream-k-matrix.tsv` retains the arm matrix
+`run-ad104-path-audit.sh` read for the campaign.
 
 A move of that crossover is measured as pairs.
 `scripts/run-mmvq-paired-crossover.sh` compares two llama-bench closures width
