@@ -27,4 +27,5 @@ jobs:
       - name: Run clone-local gates
         env:
           PATH: /tmp/qwen-quality-gates/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          QWEN_GATE_HOST_ROLE: runner
         run: scripts/repository-quality-gates.sh

@@ -1001,11 +1001,18 @@ scripts/download-sd-turbo.sh
 scripts/download-lcm-lora-sd15.sh
 ```
 
+`scripts/repository-quality-gates.sh` reads `QWEN_GATE_HOST_ROLE` to decide the
+two coding-principal tests: `appliance` is the default and requires the
+qwen-coder account the host holds, `runner` reports both `not_run` with reason
+`runner_host` because a GitHub runner carries no such principal, and any other
+value is a usage error.
+
 Tests are standalone POSIX shell scripts that exit non-zero on failure. Run one
 directly:
 
 ```sh
 scripts/test-qwen-runtime-guards.sh
+scripts/test-repository-quality-gates-host-role.sh
 scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
 scripts/test-strict-cuda-placement-fixture.sh
