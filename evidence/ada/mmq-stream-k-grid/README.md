@@ -201,7 +201,17 @@ weights and 10 of 27 Q6_K weights on the 2B, 18 of 195 Q8_0 weights on the
 identity is its promotion gate on the 2B primary, the 0.8B secondary, and the
 4B control. A divergence rejects it under the standard
 `evidence/ada/mmvq-q8-b17-b20/` set, and no bounded-numerics exception is
-created for this campaign.
+created for this campaign. Identity runs before any mirrored rate matrix,
+because a rejected candidate spends no further device time and a rate measured
+on a divergent closure decides nothing.
+
+Phase B set the rule the candidate is judged against.
+`evidence/ada/mmq-stream-k-grid/phase-b-witness/` measured the fixup removed at
+every shape and the aggregate pass 18.9% slower, with the direction splitting by
+tile class: the 62.8%-fixup width-32 class gained 11.4% while the 16.6%-fixup
+width-24 class lost 23.3%. A fixup is therefore worth removing exactly where the
+alternative grid's own tail is shorter than the reduction it eliminates, which
+is the population threshold 80 selects and threshold 1 deliberately does not.
 
 Identity is expected to fail. The patch reorders floating-point accumulation by
 construction: a tile split across blocks sums two slice partials through

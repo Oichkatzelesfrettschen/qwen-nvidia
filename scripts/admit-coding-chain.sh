@@ -335,6 +335,8 @@ done <"$summary.replay"
 
 # -- the served page runs the same turn -----------------------------------
 if [ "$page_arm" = 1 ] && command -v chromium >/dev/null 2>&1; then
+    page_started_at=$(date +%s)
+    page_status=0
     if python3 "$script_directory/web-mcp/drive-fallback-page.py" \
         --origin "$router_origin" --broker "$broker_origin" \
         --model "$model_id" --lane code \
@@ -375,8 +377,56 @@ EOF
             record "$name" "$result" "$detail"
         done <"$summary.page"
     else
+        page_status=$?
+        # drive-fallback-page.py catches its own exceptions, writes the report
+        # to stdout carrying an `error` object, and returns 1, so the cause of a
+        # refusal lives in page-report.json rather than in page.err. Reading the
+        # stderr tail alone produced two refusals on the GitHub runner whose
+        # detail was empty, which named nothing to triage. The report is the
+        # authority and page.err is the fallback for a death before it is
+        # written.
+        page_elapsed_ms=$(( ($(date +%s) - page_started_at) * 1000 ))
+        page_error=$(python3 - "$output_directory/page-report.json" <<'EOF'
+import json, sys
+try:
+    report = json.load(open(sys.argv[1]))
+except Exception as exc:
+    print("report_unreadable %s" % type(exc).__name__)
+    raise SystemExit(0)
+error = report.get("error")
+if not isinstance(error, dict):
+    print("report_carries_no_error")
+    raise SystemExit(0)
+print("%s: %s" % (error.get("type"), str(error.get("message"))[:200]))
+EOF
+)
+        if [ "$page_status" -gt 128 ]; then
+            page_termination=signal
+        elif [ "${page_error%% *}" = report_unreadable ] ||
+            [ "$page_error" = report_carries_no_error ]; then
+            page_termination=crash
+        else
+            case $page_error in
+            TimeoutError:*) page_termination=timeout ;;
+            *) page_termination=protocol_error ;;
+            esac
+        fi
+        {
+            printf 'termination_reason=%s\n' "$page_termination"
+            printf 'exit_status=%s\n' "$page_status"
+            printf 'elapsed_ms=%s\n' "$page_elapsed_ms"
+            printf 'report_bytes=%s\n' \
+                "$(wc -c <"$output_directory/page-report.json" 2>/dev/null || echo 0)"
+            printf 'stderr_bytes=%s\n' \
+                "$(wc -c <"$output_directory/page.err" 2>/dev/null || echo 0)"
+            printf 'error=%s\n' "$page_error"
+            printf 'stderr_tail=%s\n' \
+                "$(tail -3 "$output_directory/page.err" | tr '\n\t' '; ')"
+        } >"$output_directory/page-arm.txt"
         record coding_page_arm refused \
-            "$(tail -3 "$output_directory/page.err" | tr '\n\t' '; ')"
+            "$(printf '%s exit=%s elapsed_ms=%s %s' "$page_termination" \
+                "$page_status" "$page_elapsed_ms" "$page_error" |
+                tr '\n\t' '; ')"
     fi
 else
     record coding_page_arm not-run 'chromium absent or page arm disabled'
