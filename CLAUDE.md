@@ -116,6 +116,23 @@ decision, at `mmq.cu:260`, and `QWEN_FORCE_CUBLAS=ON` builds that tree.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
+Stream-K is the MMQ decomposition on this device rather than a decision:
+`ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
+Volta or later into the Ampere table and all 352 of its `CASE` rows set
+`stream_k` true. What varies at run time is the grid at `mmq.cuh:1436`, which
+takes the destination tile count where tiling efficiency reaches 90% and the
+multiprocessor count otherwise, and `fixup_needed` at `mmq.cuh:1440`, which
+holds where the tile count fails to divide that grid and launches
+`mul_mat_q_stream_k_fixup` at `mmq.cuh:1463` over the partial tiles
+`write_back` sent to `tmp_fixup` at `mmq.cuh:936`.
+`patches/llama-cuda-mmq-stream-k-grid.patch` makes that 90 a build-configured
+value on Ada Lovelace alone, `scripts/ad104-stream-k-matrix.tsv` is the arm
+matrix `run-ad104-path-audit.sh` reads for it, and
+`evidence/ada/mmq-stream-k-grid/` preregisters the campaign. Nothing is
+measured yet: the fixup pass reorders floating-point accumulation, so exact
+greedy token identity is tested rather than promised and failing it rejects the
+candidate the way `evidence/ada/mmvq-q8-b17-b20/` rejected the MMVQ width.
+
 A move of that crossover is measured as pairs.
 `scripts/run-mmvq-paired-crossover.sh` compares two llama-bench closures width
 by width and `scripts/run-mmvq-width-request-tails.sh` asks the same question of
