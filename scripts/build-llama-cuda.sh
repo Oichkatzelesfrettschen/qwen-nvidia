@@ -25,6 +25,14 @@ set -eu
 # The two ADA MMVQ thresholds reach the source through the candidate patch
 # llama-cuda-mmvq-crossover-ad104.patch; against an unpatched tree they rest
 # as unused cache entries and the build reproduces upstream dispatch.
+#
+# The Ada MMQ tiling threshold travels differently because its patch,
+# llama-cuda-mmq-stream-k-grid.patch, carries a hunk for
+# ggml/src/ggml-cuda/mmq.cuh alone and adds no CMake cache-to-define bridge.
+# Its #ifndef default reads a preprocessor macro, so the value reaches the
+# compile line through CMAKE_CUDA_FLAGS. A non-default value against a tree
+# whose mmq.cuh lacks the macro is refused by name, since an ignored -D would
+# name a subject closure that dispatches like the control.
 
 usage() {
     printf 'usage: %s [SOURCE_DIRECTORY]\n' "$0" >&2
@@ -46,6 +54,8 @@ usage() {
     printf '  QWEN_CUDA_NO_PEER_COPY     default OFF, single-GPU hygiene arm\n' >&2
     printf '  QWEN_CUDA_MMVQ_Q6K_MAX     Ada Q6_K MMVQ ceiling, default 8, patched trees only\n' >&2
     printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, default 8, patched trees only\n' >&2
+    printf '  QWEN_CUDA_MMQ_TILING_PERCENT  Ada MMQ stream-K tiling threshold, 1 to 100,\n' >&2
+    printf '                             default 90, a value beside 90 needs the patch\n' >&2
     printf '  QWEN_FORCE_MMQ             ON builds the MMQ kernel-policy arm\n' >&2
     printf '  QWEN_FORCE_CUBLAS          ON builds the cuBLAS differential arm\n' >&2
     printf '  QWEN_HOST_COMPILER         C++ compiler, default g++-15\n' >&2
@@ -76,6 +86,7 @@ llama_openssl=${QWEN_LLAMA_OPENSSL:-ON}
 cuda_no_peer_copy=${QWEN_CUDA_NO_PEER_COPY:-OFF}
 mmvq_q6k_max=${QWEN_CUDA_MMVQ_Q6K_MAX:-8}
 mmvq_q8_0_max=${QWEN_CUDA_MMVQ_Q8_0_MAX:-8}
+mmq_tiling_percent=${QWEN_CUDA_MMQ_TILING_PERCENT:-90}
 force_mmq=${QWEN_FORCE_MMQ:-OFF}
 force_cublas=${QWEN_FORCE_CUBLAS:-OFF}
 host_cxx=${QWEN_HOST_COMPILER:-/usr/bin/g++-15}
@@ -126,6 +137,14 @@ for threshold in "$mmvq_q6k_max" "$mmvq_q8_0_max"; do
             "$threshold" >&2; exit 2 ;;
     esac
 done
+# The patch's own static_assert admits 1 through 100, and this case rejects a
+# leading zero so the digest field and the emitted -D carry one spelling per
+# value.
+case $mmq_tiling_percent in
+    [1-9]|[1-9][0-9]|100) ;;
+    *) printf 'QWEN_CUDA_MMQ_TILING_PERCENT takes an integer from 1 to 100: %s\n' \
+        "$mmq_tiling_percent" >&2; exit 2 ;;
+esac
 if [ "$force_mmq" = ON ] && [ "$force_cublas" = ON ]; then
     printf 'QWEN_FORCE_MMQ and QWEN_FORCE_CUBLAS are exclusive arms\n' >&2
     exit 2
@@ -166,6 +185,25 @@ builder_sha256=$(sha256sum "$0" | cut -d ' ' -f 1)
 worktree_state=clean
 if [ -n "$(git -C "$source_directory" status --porcelain)" ]; then
     worktree_state=dirty
+fi
+
+# 90 is the upstream selection, so it builds on every tree and the emitted
+# command line stays the one an unpatched closure already carries. Any other
+# value requires the macro to exist in mmq.cuh, because CMAKE_CUDA_FLAGS would
+# otherwise define a name no source reads and the closure would measure the
+# control under a subject id.
+mmq_tiling_header=$source_directory/ggml/src/ggml-cuda/mmq.cuh
+mmq_tiling_macro=absent
+if grep -q GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT "$mmq_tiling_header"; then
+    mmq_tiling_macro=present
+fi
+if [ "$mmq_tiling_macro" = absent ] && [ "$mmq_tiling_percent" != 90 ]; then
+    printf 'QWEN_CUDA_MMQ_TILING_PERCENT=%s needs the stream-K grid patch\n' \
+        "$mmq_tiling_percent" >&2
+    printf 'GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT is absent from %s\n' \
+        "$mmq_tiling_header" >&2
+    printf 'apply patches/llama-cuda-mmq-stream-k-grid.patch or leave it at 90\n' >&2
+    exit 1
 fi
 
 for compiler in "$host_cc" "$host_cxx"; do
@@ -241,6 +279,7 @@ openssl	$llama_openssl
 no_peer_copy	$cuda_no_peer_copy
 mmvq_q6k_max	$mmvq_q6k_max
 mmvq_q8_0_max	$mmvq_q8_0_max
+mmq_tiling_percent	$mmq_tiling_percent
 force_mmq	$force_mmq
 force_cublas	$force_cublas
 host_cxx	$host_cxx"
@@ -248,39 +287,12 @@ configuration_sha256=$(printf '%s\n' "$configuration_tsv" | sha256sum | cut -d '
 configuration_id=$(printf '%s' "$configuration_sha256" | cut -c 1-12)
 build_directory=${QWEN_BUILD_DIRECTORY:-$source_directory/build-qwen-cuda-$configuration_id}
 
-printf 'source_commit=%s worktree=%s\n' "$actual_commit" "$worktree_state"
-git -C "$source_directory" diff --stat | tail -1
-
-# ggml builds its Vulkan shader compiler as a nested ExternalProject whose
-# CMakeCache.txt records the absolute path it was created under, so a tree
-# copied to seed a second arm carries a cache naming the first arm and the
-# subbuild refuses to configure against it.
-shader_generator_prefix=$build_directory/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix
-if [ -f "$shader_generator_prefix/src/vulkan-shaders-gen-build/CMakeCache.txt" ] &&
-    ! grep -q "^CMAKE_CACHEFILE_DIR:INTERNAL=$shader_generator_prefix/" \
-        "$shader_generator_prefix/src/vulkan-shaders-gen-build/CMakeCache.txt"
-then
-    printf 'shader_generator_cache=stale removing=%s\n' "$shader_generator_prefix"
-    rm -rf "$shader_generator_prefix"
-fi
-
-if [ "$build_vulkan" = ON ] && [ ! -d /usr/include/spirv ]; then
-    printf 'the SPIR-V headers are absent from /usr/include/spirv\n' >&2
-    printf 'install them with: sudo pacman -S --needed spirv-headers\n' >&2
-    printf 'or leave QWEN_BUILD_VULKAN=OFF for the CUDA closure alone\n' >&2
-    exit 1
-fi
-
-printf 'cuda_build=starting configuration=%s tree=%s\n' \
-    "$configuration_id" "$build_directory"
-printf '%s\n' "$configuration_tsv"
-
-mkdir -p "$build_directory"
-printf '%s\n' "$configuration_tsv" > "$build_directory/build-configuration.tsv"
-printf '%s  build-configuration.tsv\n' "$configuration_sha256" \
-    > "$build_directory/build-configuration.sha256"
-
-cmake -S "$source_directory" -B "$build_directory" -G Ninja \
+# The configure arguments are assembled before anything touches the build tree,
+# so QWEN_BUILD_DRY_RUN prints the digest and the exact argv without creating a
+# directory, running cmake, or reaching the device. The Ada tiling threshold
+# rides CMAKE_CUDA_FLAGS and is emitted where mmq.cuh reads the macro, which
+# leaves an unpatched tree the command line it already carries.
+set -- cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -U LLAMA_CURL \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$host_cc" \
@@ -324,6 +336,55 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DLLAMA_SUBPROCESS=ON \
     -DLLAMA_LLGUIDANCE=OFF \
     -DLLAMA_OPENSSL="$llama_openssl"
+if [ "$mmq_tiling_macro" = present ]; then
+    set -- "$@" \
+        "-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=$mmq_tiling_percent"
+fi
+
+if [ "${QWEN_BUILD_DRY_RUN:-0}" = 1 ]; then
+    printf 'cuda_build=dry_run configuration=%s tree=%s\n' \
+        "$configuration_id" "$build_directory"
+    printf '%s\n' "$configuration_tsv"
+    printf 'mmq_tiling_macro=%s percent=%s\n' \
+        "$mmq_tiling_macro" "$mmq_tiling_percent"
+    printf 'cmake_argument=%s\n' "$@"
+    exit 0
+fi
+
+printf 'source_commit=%s worktree=%s\n' "$actual_commit" "$worktree_state"
+git -C "$source_directory" diff --stat | tail -1
+
+# ggml builds its Vulkan shader compiler as a nested ExternalProject whose
+# CMakeCache.txt records the absolute path it was created under, so a tree
+# copied to seed a second arm carries a cache naming the first arm and the
+# subbuild refuses to configure against it.
+shader_generator_prefix=$build_directory/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix
+if [ -f "$shader_generator_prefix/src/vulkan-shaders-gen-build/CMakeCache.txt" ] &&
+    ! grep -q "^CMAKE_CACHEFILE_DIR:INTERNAL=$shader_generator_prefix/" \
+        "$shader_generator_prefix/src/vulkan-shaders-gen-build/CMakeCache.txt"
+then
+    printf 'shader_generator_cache=stale removing=%s\n' "$shader_generator_prefix"
+    rm -rf "$shader_generator_prefix"
+fi
+
+if [ "$build_vulkan" = ON ] && [ ! -d /usr/include/spirv ]; then
+    printf 'the SPIR-V headers are absent from /usr/include/spirv\n' >&2
+    printf 'install them with: sudo pacman -S --needed spirv-headers\n' >&2
+    printf 'or leave QWEN_BUILD_VULKAN=OFF for the CUDA closure alone\n' >&2
+    exit 1
+fi
+
+printf 'cuda_build=starting configuration=%s tree=%s\n' \
+    "$configuration_id" "$build_directory"
+printf '%s\n' "$configuration_tsv"
+
+mkdir -p "$build_directory"
+printf '%s\n' "$configuration_tsv" > "$build_directory/build-configuration.tsv"
+printf '%s  build-configuration.tsv\n' "$configuration_sha256" \
+    > "$build_directory/build-configuration.sha256"
+
+# The positional parameters hold the cmake configure argv the dry-run printed.
+"$@"
 
 cmake --build "$build_directory" --parallel "$build_jobs" \
     --target llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
