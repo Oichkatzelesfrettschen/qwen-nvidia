@@ -290,7 +290,10 @@ span of 2.3% against the preregistered 5.1% floor.
 A width is admitted where the median and the geometric mean of its paired
 ratios both clear the floor and the lower quartile sits above unity, and a
 threshold where every width below it is admitted in the same campaign; the
-rule is in the runner and predates the run. Seventeen, eighteen, and
+rule is in the runner and predates the run. `width_admitted` and
+`threshold_admitted` in `paired-summary.tsv`, and `clears_floor` in
+`width-verdicts.tsv`, report that rate rule alone: the runner sees no token
+identity, and the candidate is rejected on the gate that does. Seventeen, eighteen, and
 nineteen are admitted; twenty is not, its median 0.2 points over the floor,
 its geometric mean under it, and its worst pair at 0.86. The decode ratio
 sits at unity on every width, the within-pair control. Nineteen is the width
