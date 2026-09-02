@@ -1144,7 +1144,7 @@ python3 scripts/test-image-service.py            # image lane, held outside the 
 python3 scripts/image-mcp/test-image-mcp.py      # image lane, held outside the unattended set
 python3 scripts/test-image-review.py             # image lane, held outside the unattended set
 python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
-scripts/test-vulkan-workload-lease.sh            # served half needs a patched llama-server and a model it can decode with
+scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
 scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included
