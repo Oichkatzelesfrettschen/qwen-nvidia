@@ -1,12 +1,19 @@
 #!/bin/sh
 set -eu
 
-# build-llama-cuda.sh names a closure by a digest over its configuration, so
-# the Ada MMQ tiling threshold has to reach that digest or three campaign arms
-# would share one directory and the second build would be skipped as current.
-# This test drives the script's own dry-run path against a fixture llama.cpp
-# checkout, which resolves the digest and the configure argv while creating no
-# build tree, compiling nothing, and reaching no device.
+# The Ada MMQ tiling threshold is fixed at the upstream 90 because
+# patches/llama-cuda-mmq-stream-k-grid.patch, which made it configurable, lost
+# its promotion gate on exact greedy token identity
+# (evidence/ada/mmq-stream-k-grid/phase-c-identity/). This test holds three
+# claims: the configuration digest still records the threshold, so every
+# closure identity the campaign retained keeps its name; the configure argv
+# carries no tiling define on either a patched or an unpatched tree, so no
+# build reaches the rejected mechanism; and a caller who still sets
+# QWEN_CUDA_MMQ_TILING_PERCENT is refused at any value beside 90 rather than
+# served the control under a subject request. It drives the script's own
+# dry-run path against fixture checkouts, which resolves the digest and the
+# argv while creating no build tree, compiling nothing, and reaching no
+# device.
 
 if [ "$#" -ne 0 ]; then
     printf 'usage: %s\n' "$0" >&2
@@ -91,16 +98,10 @@ configuration_id_of() {
 run_dry "$patched_tree" "$temporary_directory/default.out"
 run_dry "$patched_tree" "$temporary_directory/explicit-90.out" \
     QWEN_CUDA_MMQ_TILING_PERCENT=90
-run_dry "$patched_tree" "$temporary_directory/at-80.out" \
-    QWEN_CUDA_MMQ_TILING_PERCENT=80
-run_dry "$patched_tree" "$temporary_directory/at-1.out" \
-    QWEN_CUDA_MMQ_TILING_PERCENT=1
 run_dry "$unpatched_tree" "$temporary_directory/unpatched.out"
 
 default_id=$(configuration_id_of "$temporary_directory/default.out")
 explicit_id=$(configuration_id_of "$temporary_directory/explicit-90.out")
-id_80=$(configuration_id_of "$temporary_directory/at-80.out")
-id_1=$(configuration_id_of "$temporary_directory/at-1.out")
 
 check() {
     description=$1
@@ -113,71 +114,84 @@ check() {
 }
 
 if [ -n "$default_id" ] && [ "$default_id" = "$explicit_id" ]; then
-    report 0 "the unset threshold reproduces the identity of an explicit 90"
+    report 0 "a caller naming 90 asks for what the build already does"
 else
-    report 1 "the unset threshold reproduces the identity of an explicit 90"
+    report 1 "a caller naming 90 asks for what the build already does"
 fi
 
-if [ "$id_80" != "$default_id" ] && [ "$id_1" != "$default_id" ] &&
-    [ "$id_1" != "$id_80" ]
-then
-    report 0 "each threshold names its own closure identity"
-else
-    report 1 "each threshold names its own closure identity"
-fi
+# The field stays in the configuration record at its fixed value, which is what
+# holds the identity of every closure the campaign retained: removing it would
+# rename the production closure and orphan the digests bound in
+# scripts/ad104-stream-k-matrix.tsv.
+check "the configuration record states the fixed threshold" \
+    grep -q '^mmq_tiling_percent	90$' "$temporary_directory/default.out"
 
-check "the configuration record states the threshold the digest hashes" \
-    grep -q '^mmq_tiling_percent	80$' "$temporary_directory/at-80.out"
+check "the dry run names the threshold as fixed rather than as an input" \
+    grep -qx 'mmq_tiling_percent=90 source=fixed' "$temporary_directory/default.out"
 
-check "a patched tree carries the threshold on CMAKE_CUDA_FLAGS" \
-    grep -qx 'cmake_argument=-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=80' \
-        "$temporary_directory/at-80.out"
+for tree_output in default explicit-90 unpatched; do
+    if grep -q 'GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT' \
+        "$temporary_directory/$tree_output.out"
+    then
+        report 1 "the $tree_output argv reaches no tiling define"
+    else
+        report 0 "the $tree_output argv reaches no tiling define"
+    fi
+done
 
-check "the default value reaches the compile line as itself" \
-    grep -qx 'cmake_argument=-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=90' \
-        "$temporary_directory/explicit-90.out"
-
-# The MMVQ ceilings ride cache entries their own patch bridges into defines,
-# so the two mechanisms are asserted apart.
-check "the MMVQ ceiling stays a cache entry beside the compiler flag" \
+# The MMVQ ceilings ride cache entries their own patch bridges into defines and
+# are unaffected by the tiling retirement, so the two mechanisms are asserted
+# apart.
+check "the MMVQ ceiling stays a cache entry" \
     grep -qx 'cmake_argument=-DGGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE=8' \
         "$temporary_directory/default.out"
 
-if grep -q 'CMAKE_CUDA_FLAGS' "$temporary_directory/unpatched.out"; then
-    report 1 "an unpatched tree keeps the configure argv it already carries"
-else
-    report 0 "an unpatched tree keeps the configure argv it already carries"
-fi
-
-# Everything other than the one flag and the digest-named build tree is equal
-# across two thresholds, which is what makes a difference between the arms
-# readable as the threshold.
+# A tree carrying the rejected patch builds the same argv as one without it,
+# because the patch's own #ifndef default is 90 and nothing defines the macro.
 normalized_argv() {
     sed -n 's/^cmake_argument=//p' "$1" |
-        grep -v CMAKE_CUDA_FLAGS |
-        sed "s/build-qwen-cuda-[0-9a-f]*/build-qwen-cuda-ID/"
+        sed "s/build-qwen-cuda-[0-9a-f]*/build-qwen-cuda-ID/" |
+        sed "s#$temporary_directory/[a-z]*#TREE#g"
 }
-normalized_argv "$temporary_directory/explicit-90.out" \
-    >"$temporary_directory/argv-90"
-normalized_argv "$temporary_directory/at-80.out" >"$temporary_directory/argv-80"
-check "two thresholds change one configure argument" \
-    cmp -s "$temporary_directory/argv-90" "$temporary_directory/argv-80"
+normalized_argv "$temporary_directory/default.out" >"$temporary_directory/argv-patched"
+normalized_argv "$temporary_directory/unpatched.out" >"$temporary_directory/argv-unpatched"
+check "a patched tree and an unpatched tree configure alike" \
+    cmp -s "$temporary_directory/argv-patched" "$temporary_directory/argv-unpatched"
 
-refusal_status=0
-run_dry "$unpatched_tree" "$temporary_directory/refused.out" \
-    QWEN_CUDA_MMQ_TILING_PERCENT=80 || refusal_status=$?
-check "an unpatched tree refuses a threshold beside 90 by name" \
-    test "$refusal_status" = 1
-check "the refusal names the patch that supplies the macro" \
-    grep -q 'needs the stream-K grid patch' "$temporary_directory/refused.out"
-
-for rejected_value in 0 101 08 90.0 ninety; do
+for rejected_value in 1 80 100 0 101 08 90.0 ninety; do
     argument_status=0
     run_dry "$patched_tree" "$temporary_directory/rejected.out" \
         "QWEN_CUDA_MMQ_TILING_PERCENT=$rejected_value" || argument_status=$?
     check "the threshold refuses the value $rejected_value" \
         test "$argument_status" = 2
+    check "the refusal of $rejected_value names the rejected patch" \
+        grep -q 'llama-cuda-mmq-stream-k-grid.patch is rejected' \
+            "$temporary_directory/rejected.out"
 done
+
+# The patch itself stays in the tree as a rejected artifact, and the series
+# authority is where that claim lives. Reading it here keeps the builder and
+# the authority from drifting apart without a pinned llama.cpp checkout.
+series_script=$script_directory/verify-llama-patch-series.sh
+if grep -q '^candidate_patch_names=.*llama-cuda-mmq-stream-k-grid' \
+    "$series_script"
+then
+    report 1 "the grid patch left the candidate list"
+else
+    report 0 "the grid patch left the candidate list"
+fi
+
+check "the grid patch joined the rejected list" \
+    grep -q '^rejected_patch_names=.*llama-cuda-mmq-stream-k-grid' "$series_script"
+
+if grep -q '^candidate_digest_paths=.*mmq\.cuh' "$series_script"; then
+    report 1 "mmq.cuh left the candidate digest paths with its sole writer"
+else
+    report 0 "mmq.cuh left the candidate digest paths with its sole writer"
+fi
+
+check "the rejected patch is retained rather than deleted" \
+    test -f "$script_directory/../patches/llama-cuda-mmq-stream-k-grid.patch"
 
 if [ "$failures" -ne 0 ]; then
     printf 'cuda_build_tiling_threshold=rejected failures=%s\n' "$failures" >&2

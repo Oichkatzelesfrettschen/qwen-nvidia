@@ -139,10 +139,13 @@ the kind `llama-cuda-mmvq-crossover-ad104.patch` puts in
 `ggml/src/ggml-cuda/CMakeLists.txt`, so the value travels as
 `-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=80` rather
 than as a cmake cache entry the MMVQ ceilings use.
-`scripts/build-llama-cuda.sh` carries that pass-through as
-`QWEN_CUDA_MMQ_TILING_PERCENT`, which defaults to 90, enters the configuration
-digest as `mmq_tiling_percent`, and therefore names each subject closure its
-own build directory. The `static_assert` beside the default refuses a value
+`scripts/build-llama-cuda.sh` carried that pass-through as
+`QWEN_CUDA_MMQ_TILING_PERCENT`, which defaulted to 90, entered the
+configuration digest as `mmq_tiling_percent`, and therefore named each subject
+closure its own build directory. The paragraphs here describe the builder as
+the campaign's three closures were built; the rejection retired the input, so
+`mmq_tiling_percent` is now a constant at 90, the builder emits no tiling
+define, and a caller naming any other value is refused. The `static_assert` beside the default refuses a value
 outside 1 through 100 at compile time and the builder refuses one outside that
 range before configuring. A value beside 90 against a tree whose `mmq.cuh`
 lacks the macro is refused by name, since a `-D` no source reads would give a

@@ -79,17 +79,16 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # post-series offsets in tools/server/server-context.cpp, which no earlier
 # candidate touches, so the two stay independent while the list stays ordered.
 # llama-cuda-dispatch-census adds a hook line at the head of mmvq.cu's launcher
-# below the crossover patch's hunks, so it follows that patch.
-# llama-cuda-mmq-stream-k-grid is the only entry that rewrites mmq.cuh, which
-# the census patch names as an include line alone, so it lands independently of
-# every earlier candidate and takes the last position.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch llama-cuda-mmq-stream-k-grid.patch"
+# below the crossover patch's hunks, so it follows that patch and takes the
+# last position.
+candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
-# mmq.cuh joins the list with the stream-k grid patch that rewrites it: the
-# printed digest is what identifies a control closure built at the default
-# threshold of 90 against a subject closure built at a lower one.
-candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmq.cuh ggml/src/ggml-cuda/mmvf.cu"
+# mmq.cuh left the list with llama-cuda-mmq-stream-k-grid, its sole writer: the
+# census patch names mmq.cu rather than the header, so no remaining candidate
+# rewrites it and a digest of an unmodified file states nothing about the
+# series.
+candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"
 if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     for candidate_name in $candidate_patch_names; do
         git -C "$temporary_directory/llama.cpp" apply --check \
@@ -113,16 +112,22 @@ fi
 # repository builds and contributes no digest a promotion could move into
 # verify_source. llama-cuda-mmvq-ncols-19 raises the Q8_0 MMVQ column ceiling
 # to nineteen and failed the exact-token-identity gate on the 0.8B
-# (evidence/ada/mmvq-q8-b17-b20/). Its hunks sit below those of
-# llama-cuda-mmvq-crossover-ad104 and llama-cuda-dispatch-census in mmvq.cu, so
-# the tree it would apply against is the one the candidate stage produces, and
-# the check runs only where that stage ran. `apply --check` reports whether the
+# (evidence/ada/mmvq-q8-b17-b20/). llama-cuda-mmq-stream-k-grid makes the
+# Ada stream-K tiling threshold build-configurable and failed the same gate on
+# the 2B at threshold 80
+# (evidence/ada/mmq-stream-k-grid/phase-c-identity/), which is why it moved out
+# of the candidate list rather than staying there for a later arm: a rejected
+# patch left in the candidate stack would put the next mmq.cuh candidate on top
+# of arithmetic this repository already declined. Neither patch collides with
+# the other's files, and both sit below the candidate stage's own hunks, so the
+# tree they would apply against is the one that stage produces, and the check
+# runs only where that stage ran. `apply --check` reports whether the
 # diff still lands and writes nothing, so the replay tree the candidate digests
 # were taken from stays as those digests found it. Setting
 # QWEN_LLAMA_REJECTED_PATCHES=1 beside QWEN_LLAMA_CANDIDATE_PATCHES=1 proves the
 # retained diff still applies against the pinned commit; every other setting
 # prints the refusal alone.
-rejected_patch_names="llama-cuda-mmvq-ncols-19.patch"
+rejected_patch_names="llama-cuda-mmvq-ncols-19.patch llama-cuda-mmq-stream-k-grid.patch"
 for rejected_name in $rejected_patch_names; do
     if [ "${QWEN_LLAMA_REJECTED_PATCHES:-0}" = 1 ] &&
         [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
