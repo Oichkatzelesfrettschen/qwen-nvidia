@@ -305,6 +305,14 @@ rm -f "$resolved_rows"
 
 printf 'audit_end_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$output_directory/run.txt"
 
+# Retained evidence names the checkout and the model file the arm resolved, and
+# a Git copy replaces the home prefix with $HOME. The scrub runs over every
+# retained text file rather than over the summary alone, since the arm record
+# and the profiler's own stdout carry the same paths.
+find "$output_directory" -type f \( -name '*.txt' -o -name '*.tsv' \
+    -o -name '*.log' -o -name '*.stdout' -o -name '*.stderr' \) \
+    -exec sed -i "s#$HOME#\$HOME#g" {} +
+
 differing=$(awk -F'\t' 'NR > 1 && $5 != "agrees"' "$summary" | wc -l)
 printf 'arms=%s differing=%s observations=%s\n' \
     "$(( $(wc -l <"$summary") - 1 ))" "$differing" \
