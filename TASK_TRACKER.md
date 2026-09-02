@@ -124,17 +124,40 @@ specialized predicates decline -- rather than by a weight type lacking a
 kernel. IQ1_M is the one absent weight type a GGUF could carry. A planner keyed
 on weight type would act on a condition this roster never presents.
 
-The same census closes the scoping question under the Q8_0 width arm.
-`mmvq.cuh:14` sets `MMVQ_KERNEL_MAX_NCOLS` to 16 and a launch assert
-(`mmvq.cu:934`), the instantiation switch ending at `mmvq.cu:1167`, and two
-`static_assert`s at `mmvq.cuh:15-20` hold it there, so a CMake threshold above
-sixteen fails the build rather than widening the kernel. The promoted Q8_0
-threshold of 16 already sits on that ceiling. Measuring beyond it needs a fifth
-entry in `patches/` carrying four coordinated edits -- the constant,
+The same census scoped the Q8_0 width arm, and that arm is closed against its
+candidate. `mmvq.cuh:14` sets `MMVQ_KERNEL_MAX_NCOLS` to 16, held there by a
+launch assert (`mmvq.cu:934`), the instantiation switch ending at
+`mmvq.cu:1167`, and two `static_assert`s at `mmvq.cuh:15-20`.
+`patches/llama-cuda-mmvq-ncols-19.patch` carries the four coordinated edits
+that raise it to nineteen -- the constant,
 `mul_mat_vec_q_switch_ncols_dst`, `calc_nwarps`, and `calc_rows_per_block` --
-ahead of any sweep. No resource bound explains the ceiling at sixteen, where
-shared memory holds 4096 bytes against roughly 96 KiB per SM; whether register
-pressure binds at a wider count is unmeasured.
+and `evidence/ada/mmvq-q8-b17-b20/` measures Q8_0 at seventeen through twenty
+against production closure `88681bf4d161`. Register pressure was the falsifier
+and it did not fire: the twenty-column instantiation holds 153 registers with
+zero local memory, shared memory grows from 4096 to 5120 bytes against roughly
+96 KiB per SM, and the SASS of Q8_0 one through sixteen is identical between
+the closures. The pinned alternating campaign admitted seventeen through
+nineteen at paired ratio medians of 1.136, 1.137, and 1.088 over a 2.3%
+control span and refused twenty, and the Nsight boundary read observed
+`mul_mat_vec_q<Q8_0, 19>` with `mul_mat_q` at twenty on the nineteen-column
+closure. The served tails then refused the candidate on the preregistered
+exact-token-identity gate: over 60 alternating pairs and 120 measured requests
+per model the 0.8B reply parts from the control at every nineteen-column tail,
+first at position 31, 21, and 0, where the control's top two candidates sit
+0.014, 0.024, and 0.096 nats apart, and agrees at every twenty-column tail and
+at every length on the 2B, which carries no Q8_0 weight. The tail is one MMVQ
+pass of a request the control answers in about 30 ms, so the 8.8% the pinned
+campaign measured there moves the request by about 1%, under the 5.1% floor:
+the candidate offers nothing a request can read to trade a changed reply
+against, and the gate is retained rather than relaxed. The 0.01-nat aggregate
+tolerance proposed after the divergence is refused as underived,
+retrospectively selected, and insufficiently specified, and its per-logit
+reading fails on arithmetic, since 0.01 per logit admits 0.02 nats of pairwise
+movement and the 0.024 and 0.096 nat witnesses exceed that. A bounded-numerics
+admission class is deferred to a separately preregistered design. Q8_0 stays at
+sixteen on `88681bf4d161`, the patch is registered as rejected in
+`verify-llama-patch-series.sh` and applies to no tree a build reads, and
+`build-llama-cuda.sh` still refuses an MMVQ threshold above sixteen.
 
 `cuda-runtime-env.sh` names every backend environment variable that reaches
 this dispatch, including the `GGML_CUDA_CUBLAS_COMPUTE_TYPE` override at

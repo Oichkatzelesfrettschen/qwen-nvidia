@@ -6,7 +6,7 @@
 | Device measurement, quarantine, and lease records | raw exact-target evidence | ordinary Git under `evidence/` | `evidence/SHA256SUMS` |
 | `llama-server`, `llama-cli`, `llama-mtmd-cli`, `llama-bench`, `llama-quantize` | derived regenerable | excluded from Git and LFS | `scripts/build-llama-cuda.sh`, byte sizes and SHA-256 values once a build on this host records them |
 | Qwen3.5-4B, Qwen3.8-9B Distill, and Qwen3.8-27B GGUFs | external reproducible dependencies | excluded from Git and LFS | pinned Hugging Face revisions, byte sizes, and SHA-256 values |
-| llama.cpp source | external canonical source plus local patch series | pinned commit plus a production patch series and two candidate patches | `scripts/verify-llama-patch-series.sh` |
+| llama.cpp source | external canonical source plus local patch series | pinned commit plus a production patch series, four candidate patches, and one rejected patch | `scripts/verify-llama-patch-series.sh` |
 | llama.cpp build tree | derived regenerable | excluded | `scripts/build-llama-cuda.sh` |
 | View-metadata incremental patch | superseded retain | `patches/superseded/` | folded into `llama-no-cpu-fallback.patch` |
 | Fallback Web UI | adapted source asset | ordinary Git under `webui/` | qwen-lab 1.5.0 source plus this repository's policy tests |
@@ -106,13 +106,24 @@ patch registers `/tools` on a router that holds no tools of its own as a
 proxy to the child the request selects, so the fixed router port serves the
 route the fallback UI targets.
 
-Two further patches are candidates rather than members of the production
-series: `patches/llama-vulkan-view-alias-deps.patch` and
-`patches/llama-server-vulkan-workload-lease.patch`. Passing
+Four further patches are candidates rather than members of the production
+series: `patches/llama-vulkan-view-alias-deps.patch`,
+`patches/llama-server-vulkan-workload-lease.patch`,
+`patches/llama-cuda-mmvq-crossover-ad104.patch`, and
+`patches/llama-cuda-dispatch-census.patch`. Passing
 `QWEN_LLAMA_CANDIDATE_PATCHES=1` to `scripts/verify-llama-patch-series.sh`
-applies both after every production digest is checked and prints the
-post-apply digest of each file they rewrite; omitting the variable leaves the
-production digests as the whole check.
+applies them in that order after every production digest is checked and prints
+the post-apply digest of each file they rewrite; omitting the variable leaves
+the production digests as the whole check.
+
+`patches/llama-cuda-mmvq-ncols-19.patch` is a third class: a rejected patch,
+retained as the diff a closed campaign was measured on.
+`evidence/ada/mmvq-q8-b17-b20/` records four passed gates and a failed
+exact-token-identity gate, so the same script names it on a `rejected_patch=`
+line, applies it to no tree by default, and moves no digest into the
+production check. Setting `QWEN_LLAMA_REJECTED_PATCHES=1` beside
+`QWEN_LLAMA_CANDIDATE_PATCHES=1` runs `apply --check` on it, which proves the
+diff still lands against the pinned commit and writes nothing.
 
 The retained llama.cpp executables and derived source patches carry the
 upstream MIT terms in `licenses/llama.cpp-LICENSE`. The external GGUF model
