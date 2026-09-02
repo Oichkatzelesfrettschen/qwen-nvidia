@@ -371,8 +371,9 @@ fi
 # nothing is using. Case 14 proves the mechanism; this reads the session's own
 # launch sites, since a single missed `9>&-` is silent until the next run.
 session_source=$script_directory/qwen-webui-session.sh
+# grep -n prefixes a line number, so the comment filter matches after it.
 unclosed=$(grep -n '&$' "$session_source" |
-    grep -v '9>&-' | grep -v '&&$' | grep -v '^\s*#' || :)
+    grep -v '9>&-' | grep -v '&&$' | grep -v '^[0-9]*: *#' || :)
 if [ -z "$unclosed" ]; then
     report accepted session-children-close-the-owner-descriptor
 else

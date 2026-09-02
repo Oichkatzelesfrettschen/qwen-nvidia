@@ -56,6 +56,11 @@ mkdir -p "$state_directory"
 # rather than the state it created.
 . "$script_directory/gpu-workload-ownership.sh"
 gpu_ownership_require || exit $?
+# gpu_ownership_require exports QWEN_GPU_OWNERSHIP_FD, and every child closes
+# descriptor 9. A child inheriting the variable without the descriptor is the
+# forgery gpu_ownership_verify_inherited refuses, so the variable is dropped here
+# and the children carry neither half.
+unset QWEN_GPU_OWNERSHIP_FD
 
 server_log=$state_directory/server.log
 telemetry_log=$state_directory/telemetry.log

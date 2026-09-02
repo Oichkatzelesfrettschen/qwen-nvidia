@@ -106,10 +106,11 @@ if [ "$dry_run" -eq 0 ]; then
     # The authority answers both questions this stage used to answer with a raw
     # flock beside a process-name match. The lock it takes is the same inode the
     # calibration and every sweep take, so exclusion is unchanged, and the
-    # driver's own compute-app list now decides residency: `pgrep -f llama-server`
-    # matched any command line carrying the string, including this harness's own
-    # invocation under a shell that names it, which is the spurious refusal the
-    # tracker records against reading pgrep as the authority. gpu_ownership_inspect
+    # driver's own compute-app list now decides residency. `pgrep -f` matches the
+    # whole command line rather than the executable name, so any process whose
+    # argv carries the string refuses the run, and reading pgrep as the ownership
+    # authority is what TASK_TRACKER.md records probe-depth-projector.sh
+    # refusing against a device nothing held. gpu_ownership_inspect
     # still prints `named_llama_server_pids=` from `pgrep -x`, so the diagnostic
     # survives without deciding the run. The descriptor is exported so the nested
     # arms verify this lock rather than asking for it again.

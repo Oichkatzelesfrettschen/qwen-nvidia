@@ -90,10 +90,6 @@ if [ ! -x "$llama_server" ] || [ ! -f "$model_path" ] || [ ! -s "$corpus" ]; the
     printf 'server, model, and corpus must exist before a ladder run\n' >&2
     exit 2
 fi
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'another llama-server process is already running\n' >&2
-    exit 2
-fi
 
 for depth in $depths; do
     case $depth in

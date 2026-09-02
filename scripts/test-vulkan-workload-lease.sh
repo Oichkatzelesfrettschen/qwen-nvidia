@@ -86,6 +86,18 @@ if ! grep -q '^export QWEN_VULKAN_WORKLOAD_LOCK="\$QWEN_GPU_COMPUTE_LEASE"$' \
 fi
 pass 'the legacy lease name aliases the new one over one file'
 
+# The order check fires at the session's acquire, where neither lease variable is
+# set yet, so gpu_ownership_lease_path's own fallback has to name the file the
+# policy and the service resolve. A fallback naming any other basename stats a
+# file that never exists and reports no inversion in the one place it matters.
+authority_fallback=$(
+    . "$script_directory/gpu-workload-ownership.sh"
+    QWEN_WEBUI_STATE_DIRECTORY=/fixture-state gpu_ownership_lease_path
+)
+[ "$authority_fallback" = "/fixture-state/$service_lock_name" ] ||
+    fail "the authority fallback names $authority_fallback, not $service_lock_name"
+pass 'the authority fallback resolves the lease the policy and the service share\'
+
 lease_split_stderr=$temporary_directory/lease-split.stderr
 : >"$temporary_directory/lease-a"
 : >"$temporary_directory/lease-b"

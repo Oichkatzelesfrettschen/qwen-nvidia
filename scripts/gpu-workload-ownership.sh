@@ -131,7 +131,13 @@ gpu_ownership_lease_path() {
         printf '%s\n' "$gpu_ownership_lease_legacy"
         return 0
     fi
-    printf '%s/gpu-compute.lease\n' \
+    # The fallback names the file image-service.py's LEASE_FILE_NAME and
+    # qwen-capacity-policy.sh both resolve under the session state directory. The
+    # session takes the owner lock above the policy, so neither lease variable is
+    # set yet at the one acquire where the order check has to fire; a fallback
+    # naming any other basename would stat a file that never exists and return
+    # no violation. scripts/test-vulkan-workload-lease.sh compares the three.
+    printf '%s/vulkan-workload.lock\n' \
         "${QWEN_WEBUI_STATE_DIRECTORY:-${HOME:-/nonexistent}/qwen-webui-state}"
 }
 

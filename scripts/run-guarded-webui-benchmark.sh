@@ -62,10 +62,6 @@ if [ ! -x "$llama_server" ] || [ ! -f "$model_path" ] || \
     printf 'server, model, and request must exist before a benchmark\n' >&2
     exit 2
 fi
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'another llama-server process is already running\n' >&2
-    exit 2
-fi
 
 umask 077
 mkdir -p "$state_directory"
