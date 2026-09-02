@@ -9,6 +9,29 @@ an image generation, and a vision review are the workloads the invariant orders,
 and `~/qwen-webui-state/vulkan-workload.lock` is the kernel object that orders
 them.
 
+## The lock order
+
+Two kernel locks order this device and the lease is the inner one. The campaign
+lock in `scripts/gpu-workload-ownership.sh` at `/tmp/qwen-ad104-gpu-0.lock` is
+outer: `scripts/run-qwen-capacity-server.sh` takes it on descriptor 9 above the
+memory preflight, the descriptor rides the exec chain into llama-server, and
+every lease acquisition happens inside that one hold. The order follows from how
+each acquire behaves rather than from granularity. The lease acquire blocks --
+`image-service.py` waits `QWEN_IMAGE_LEASE_WAIT_S` seconds and the patched
+`update_slots` waits per decode pass -- while the campaign lock refuses at once
+with status 75, so a blocking acquire taken above a contended non-blocking lock
+converts a refusal into a wait the refusal exists to replace.
+
+The rule is enforced rather than stated. `gpu_ownership_assert_order` runs on the
+acquire path in `gpu_ownership_acquire` and compares every descriptor in
+`/proc/self/fd` against the lease file by device and inode, which is the identity
+comparison `gpu_ownership_verify_inherited` already applies to the campaign lock.
+A process that already holds a lease descriptor and then asks for the campaign
+lock is refused by name. Inheriting the campaign lock and then opening the lease
+is the sanctioned sequence and passes, which is what llama-server and
+`image-service.py` both do; the check therefore never fires on the inherited
+path. `scripts/test-gpu-workload-ownership.sh` carries both cases.
+
 ## The mechanism
 
 Two processes take `flock(LOCK_EX)` on one file.
