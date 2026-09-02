@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 import urllib.parse
 
 SERVER_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -2531,6 +2532,20 @@ class WebMcpServerTest(unittest.TestCase):
         path = os.path.join(self.directory.name, name)
         return path
 
+    @staticmethod
+    def pinned_rate_window():
+        """Name the instant every rate bucket of one arm floors its window from.
+
+        `Ledger._consume_bucket` floors its window to a multiple of the
+        bucket width, so an allowance spent across several spawned children
+        reads a fresh counter wherever a wall-clock boundary falls between
+        the first call and the last, and the arm then reports which second it
+        started in. `QWEN_WEB_RATE_WINDOW_EPOCH` holds every child of one arm
+        inside a single bucket, so the refusal the arm asserts comes from the
+        limit alone.
+        """
+        return "1700000000"
+
     def bucket_rows(self, state_path):
         connection = sqlite3.connect(
             os.path.join(state_path, server.LEDGER_FILE_NAME)
@@ -2562,6 +2577,7 @@ class WebMcpServerTest(unittest.TestCase):
                 QWEN_WEB_STATE_DIR=state_path,
                 QWEN_WEB_SEARCH_PER_MINUTE="2",
                 QWEN_WEB_PROFILE="paced",
+                QWEN_WEB_RATE_WINDOW_EPOCH=self.pinned_rate_window(),
             )
             response = self.search(session, max_results=1)
             with self.subTest(call=index):
@@ -2573,6 +2589,33 @@ class WebMcpServerTest(unittest.TestCase):
                         "rate limit", self.result_text(response)
                     )
 
+    def test_the_pinned_rate_window_stays_inert_on_a_served_provider(self):
+        """The window override resolves only under the fake provider.
+
+        `_resolve_pinned_rate_window` reads the provider before the epoch, so
+        a profile naming `exa` or `searxng` floors every bucket from the call
+        itself whatever the environment carries, and a malformed value under
+        the fake provider resolves the same way.
+        """
+        for provider, pinned, expected in (
+            ("exa", "1700000000", None),
+            ("searxng", "1700000000", None),
+            ("fake", "", None),
+            ("fake", "not-an-epoch", None),
+            ("fake", "1700000000", 1700000000),
+        ):
+            with self.subTest(provider=provider, pinned=pinned):
+                environment = {
+                    "QWEN_WEB_PROVIDER": provider,
+                    "QWEN_WEB_RATE_WINDOW_EPOCH": pinned,
+                }
+                with unittest.mock.patch.dict(
+                    server.os.environ, environment, clear=False
+                ):
+                    self.assertEqual(
+                        server._resolve_pinned_rate_window(), expected
+                    )
+
     def test_concurrent_children_serialize_on_the_rate_bucket(self):
         state_path = self.state_directory("concurrent-state")
         sessions = [
@@ -2580,6 +2623,7 @@ class WebMcpServerTest(unittest.TestCase):
                 self.environment(
                     QWEN_WEB_STATE_DIR=state_path,
                     QWEN_WEB_SEARCH_PER_MINUTE="3",
+                    QWEN_WEB_RATE_WINDOW_EPOCH=self.pinned_rate_window(),
                 )
             )
             for _ in range(6)
@@ -2753,15 +2797,11 @@ class WebMcpServerTest(unittest.TestCase):
         and pages-day buckets charge every invocation and the third call in a
         minute meets a limit of two whether or not its document was stored.
         """
-        # Keep the three calls inside one fixed-wall-clock rate window. A start
-        # during a minute's final two seconds would test a legitimate bucket
-        # reset instead of cached-window charging.
-        seconds_until_boundary = 60 - (time.time() % 60)
-        if seconds_until_boundary < 2:
-            time.sleep(seconds_until_boundary + 0.1)
         state_path = self.state_directory("cached-charge-state")
         session = self.open_session(
-            QWEN_WEB_STATE_DIR=state_path, QWEN_WEB_FETCH_PER_MINUTE="2"
+            QWEN_WEB_STATE_DIR=state_path,
+            QWEN_WEB_FETCH_PER_MINUTE="2",
+            QWEN_WEB_RATE_WINDOW_EPOCH=self.pinned_rate_window(),
         )
         token = self.first_result_id(
             self.result_text(self.search(session, max_results=1))

@@ -9,7 +9,12 @@
 # `mul_mat_vec_q<(ggml_type)12, 7, ...>` and names the quantization type and B
 # in the symbol itself. MMQ demangles to `mul_mat_q<(ggml_type)T, mmq_x, ...>`,
 # whose second parameter is the tile width rather than B, so an MMQ arm reads
-# its type from the symbol and its B from the arm. Nsight Systems records the
+# its type from the symbol and its B from the arm. mmq.cuh:1463 launches
+# mul_mat_q_stream_k_fixup inside the same call that launched mul_mat_q
+# whenever fixup_needed at mmq.cuh:1440 holds, so a FIXUP symbol is a reduction
+# of MMQ's own partial tiles and an expected family of MMQ admits it. An arm
+# that requires the reduction to have run names MMQ+FIXUP instead. Nsight
+# Systems records the
 # launched name without replaying a kernel, which is what keeps this audit off
 # the timing campaign: it establishes the path and its rates are discarded.
 #
@@ -233,23 +238,42 @@ do
     # which is also what makes "B is ne11" an observation rather than a reading
     # of the source. MMQ's second template parameter is the tile width, so an
     # MMQ row is read for its type and the arm requires the contradicting MMVQ
-    # row at ne11 to be absent.
+    # row at ne11 to be absent. A FIXUP row satisfies MMQ, since mmq.cuh:1463
+    # reaches the reduction only from the call that already launched
+    # mul_mat_q, and it contradicts MMVQ for that same reason; a FIXUP row with
+    # no MMQ row of its type is unreachable from that path and reads
+    # differs-fixup-without-mmq rather than agreeing. MMQ+FIXUP is the arm that
+    # requires the reduction, because fixup_needed at mmq.cuh:1440 turns on the
+    # tile count against the SM count rather than on B or the quantization
+    # type, so the matrix expects the reduction only where a capture observed
+    # it. observed_kernel_families carries FIXUP into the summary through the
+    # same cut over column five, so a counted fixup is named without a column
+    # of its own.
     verdict=$(
         awk -F'\t' -v quant="$quant_family" -v b="$ne11" \
             -v expected="$expected_kernel_family" '
             $6 == quant && $5 == "MMVQ" && $7 == b { mmvq_at_b = 1 }
             $6 == quant && $5 == "MMQ" { mmq_present = 1 }
+            $6 == quant && $5 == "FIXUP" { fixup_present = 1 }
             $6 == quant { type_present = 1 }
             END {
                 if (!type_present) { print "type-absent"; exit }
                 if (expected == "MMVQ") {
-                    if (mmq_present) { print "differs-mmq-present"; exit }
+                    if (mmq_present || fixup_present) {
+                        print "differs-mmq-present"; exit
+                    }
                     if (!mmvq_at_b) { print "differs-no-mmvq-at-b"; exit }
                     print "agrees"; exit
                 }
-                if (expected == "MMQ") {
+                if (expected == "MMQ" || expected == "MMQ+FIXUP") {
                     if (mmvq_at_b) { print "differs-mmvq-at-b"; exit }
+                    if (fixup_present && !mmq_present) {
+                        print "differs-fixup-without-mmq"; exit
+                    }
                     if (!mmq_present) { print "differs-no-mmq"; exit }
+                    if (expected == "MMQ+FIXUP" && !fixup_present) {
+                        print "differs-no-fixup"; exit
+                    }
                     print "agrees"; exit
                 }
                 print "expectation-unhandled"

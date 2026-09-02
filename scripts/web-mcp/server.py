@@ -143,6 +143,33 @@ LEDGER_BUSY_TIMEOUT_MS = 10000
 AUDIT_RETENTION_SECONDS = 14 * 86400
 GRANT_MAX_USES = 1
 SEARCH_FETCH_ALLOWANCE_DEFAULT = 8
+
+
+def _resolve_pinned_rate_window():
+    """Read the one instant every rate bucket floors its window from.
+
+    A rate bucket tumbles at each multiple of its own width, so a harness
+    that spends an allowance across several spawned children measures which
+    side of a wall-clock boundary the calls landed on rather than the limit.
+    `QWEN_WEB_RATE_WINDOW_EPOCH` names the instant to floor from instead, and
+    a pinned window never rolls, so the limiter refuses at or before the
+    point an unpinned one would and admits nothing extra. The fake provider
+    is the further condition, which leaves the value inert against a served
+    profile naming `exa` or `searxng`.
+    """
+    if os.environ.get("QWEN_WEB_PROVIDER", "exa") != "fake":
+        return None
+    pinned = os.environ.get("QWEN_WEB_RATE_WINDOW_EPOCH", "")
+    if not pinned:
+        return None
+    try:
+        return int(pinned)
+    except ValueError:
+        return None
+
+
+RATE_WINDOW_PINNED_EPOCH = _resolve_pinned_rate_window()
+
 GRANT_ID_BYTES = 12
 
 
@@ -1990,8 +2017,18 @@ class Ledger:
     def _consume_bucket(
         self, name, window_seconds, limit, now, exhausted=RateLimited, units=1
     ):
-        """Consume one bucket inside the caller's active transaction."""
-        window_start = int(now) - int(now) % window_seconds
+        """Consume one bucket inside the caller's active transaction.
+
+        The window is a tumbling bucket floored to the epoch rather than a
+        rolling interval, so a call that crosses a multiple of
+        `window_seconds` meets a counter of zero however recently the prior
+        call ran. `RATE_WINDOW_PINNED_EPOCH` replaces the floor's input with
+        one fixed instant, which holds every call of a run inside a single
+        bucket; an unset override leaves `now` as the input and the served
+        path keeps the epoch-floored window.
+        """
+        origin = now if RATE_WINDOW_PINNED_EPOCH is None else RATE_WINDOW_PINNED_EPOCH
+        window_start = int(origin) - int(origin) % window_seconds
         row = self.connection.execute(
             "SELECT window_start, used FROM buckets WHERE name = ?", (name,)
         ).fetchone()
