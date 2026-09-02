@@ -46,7 +46,12 @@ of L3, 31 GiB of DDR4, and one NVIDIA GeForce RTX 4070 Ti: AD104, compute
 capability 8.9, 12282 MiB of GDDR6X on a 192-bit bus, driver 610.57.04 with
 CUDA 13.3. `scripts/build-llama-cuda.sh` builds one binary carrying the CUDA
 and Vulkan backends, so `llama-bench --device` selects between them and two
-rows differ by the backend alone.
+rows differ by the backend alone. That script executes no artifact it built and
+ends on `runtime_execution=not_run reason=build_only`, because llama-bench calls
+`ggml_backend_load_all()` ahead of parsing argv and a closing `--version` print
+therefore opened a CUDA context inside a compile; case 30 of
+`scripts/test-gpu-workload-ownership.sh` reads that claim out of every
+`non-gpu-helper` row rather than trusting the ledger.
 
 CUDA is the serving backend and Vulkan is the fallback the same binary reaches.
 That inverts the APU tree, where Vulkan was the only accelerated path the device
@@ -614,8 +619,19 @@ roles are `serving-session`, `measurement-campaign`, `nested-orchestrator`,
 `active-workload`, `authorized-monitor`, and `non-gpu-helper`. The
 graphics-latency probe is an authorized monitor under the owner rather than an
 entry in the desktop pattern, because its submissions are project-generated
-traffic even on the graphics queue; what it costs a concurrent campaign is
-unmeasured and needs one arm on the device.
+traffic even on the graphics queue.
+`scripts/classify-graphics-latency-probe.sh` asked which driver client list
+reports it and the answer refuted the prediction: the probe reads type `C+G` in
+`nvidia-smi -q -d PIDS` and appears in all ten compute-app samples at 5 MiB, so
+the NVIDIA user-mode driver opens a compute context behind a Vulkan device
+whatever queue the application submits on, and `gpu_ownership_inspect`
+identifies a probe that survived one session. `GPU_OWNERSHIP_PROJECT_PATTERN`
+therefore names `vulkan-graphics-service-probe` by its own basename, since ahead
+of that name it matched through the `qwen-` fragment of the checkout path and
+the same binary elsewhere read `refuse-unknown`.
+`evidence/ada/graphics-probe-classification/` carries the run. What the probe
+costs a concurrent campaign stays unmeasured and needs an arm that runs it
+beside compute.
 `scripts/test-gpu-workload-ownership.sh` enumerates the ledger and requires every
 listed entry point to exist, every top-level owner to take the authority, every
 nested capability to verify an inherited descriptor rather than open a second
@@ -630,7 +646,8 @@ session. A direct non-tmux runner takes the lock itself and passes the capabilit
 down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
 `run-mmvq-paired-crossover.sh`, `run-mmvq-width-request-tails.sh`,
 `probe-mmvq-tail-logit-margin.sh`, `run-cuda-dispatch-census.sh`,
-`admit-representation-row.sh`, `probe-filled-depth.sh`,
+`admit-representation-row.sh`, `classify-graphics-latency-probe.sh`,
+`probe-filled-depth.sh`,
 `probe-depth-projector.sh`, `run-cuda-lever-campaign.sh`,
 `run-ad104-path-audit.sh`, `run-ad104-b789-calibration.sh`,
 `run-placement-sweep.sh`, `run-graph-alias-ab.sh`, `run-one-token-admission.sh`
@@ -1073,6 +1090,7 @@ QWEN_BIND_HOST=0.0.0.0 QWEN_SERVING_BACKEND=vulkan \
 
 # Build, measure, and admit on this host
 scripts/build-llama-cuda.sh                     # CUDA and Vulkan in one binary, sm_89
+scripts/classify-graphics-latency-probe.sh OUT    # which driver client list names the probe
 scripts/run-cuda-baseline-sweep.sh OUT MODEL...  # mirrored prefill and decode
 scripts/run-speculation-sweep.sh OUT TARGET [DRAFT]
                                                 # baseline, external draft, MTP, n-gram

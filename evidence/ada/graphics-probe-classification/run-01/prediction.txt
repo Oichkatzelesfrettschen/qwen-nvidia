@@ -1,0 +1,9 @@
+prediction=graphics
+reasoning=the compute-app query on driver 610.57.04 returned only C+G clients
+    and omitted every type-G client that -q -d PIDS and pmon reported, so a
+    probe submitting on the graphics queue alone is predicted to be absent from
+    the compute-app list and present in the other two.
+falsifier_compute=the probe appears in --query-compute-apps, which would make
+    the existing compute-client inspection able to identify it without the lock.
+falsifier_absent=the probe appears in none of the three surfaces, which would
+    leave the owner lock as the only mechanism that reaches it.
