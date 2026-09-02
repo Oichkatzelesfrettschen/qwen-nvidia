@@ -41,7 +41,9 @@ with `#`, and these sixteen columns:
   source_revision        the llama.cpp revision that binary was built from.
   build_configuration    the build tree's distinguishing options.
   environment            space separated NAME=VALUE pairs for this arm, or `-`.
-  expected_kernel_family MMVQ, MMQ, MMF, or CUBLAS.
+  expected_kernel_family MMVQ, MMQ, MMQ+FIXUP, MMF, or CUBLAS. MMQ admits the
+                         stream-k fixup reduction beside the mat-mul; MMQ+FIXUP
+                         requires it.
   expected_math_path     DP4A, INT8_MMA, FP16_MMA, or CUBLAS.
   path_evidence          `observed` where a runtime marker names the kernel,
                          `derived` where it follows from source constants alone.
@@ -128,7 +130,7 @@ if [ "$validate_only" -eq 1 ]; then
             '' | *[!0-9]*) field_failures="$field_failures $arm_id:ne11=$arm_ne11" ;;
         esac
         case $expected_kernel_family in
-            MMVQ | MMQ | MMF | CUBLAS | mixed) ;;
+            MMVQ | MMQ | "MMQ+FIXUP" | MMF | CUBLAS | mixed) ;;
             *) field_failures="$field_failures $arm_id:kernel=$expected_kernel_family" ;;
         esac
         case $expected_math_path in

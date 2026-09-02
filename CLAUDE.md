@@ -1043,6 +1043,7 @@ scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
 scripts/test-strict-cuda-placement-fixture.sh
 scripts/test-dispatch-census-summary.sh
+python3 scripts/test-read-nsys-mat-mul-kernels.py
 scripts/test-probe-depth-projector.sh
 scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh
