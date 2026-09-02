@@ -163,16 +163,45 @@ configure argv while compiling nothing.
    other than the threshold-1 ones expects `MMQ+FIXUP`, which its verdict
    enforces. A threshold-1 arm expects `MMQ` and its absence of a fixup is
    read from `observed_kernel_families`, since the verdict admits one.
-4. Exact greedy token identity between the control and each subject closure, on
-   the carriers `scripts/run-graph-alias-ab.sh` already uses: temperature 0,
-   top_k 1, a fixed seed, `ignore_eos`, prompt cache off, hashed over the
-   `return_tokens` array, asserted present and of the predicted length before
-   hashing, since an unset field hashes the empty array and passes silently. A
-   0.01-nat aggregate tolerance is refused as underived and retrospectively
-   selected, on the standard `evidence/ada/mmvq-q8-b17-b20/` retained.
+4. Exact greedy token identity between the control and each closure the next
+   section names it a gate for, on the carriers `scripts/run-graph-alias-ab.sh`
+   already uses: temperature 0, top_k 1, a fixed seed, `ignore_eos`, prompt
+   cache off, hashed over the `return_tokens` array, asserted present and of the
+   predicted length before hashing, since an unset field hashes the empty array
+   and passes silently. A 0.01-nat aggregate tolerance is refused as underived
+   and retrospectively selected, on the standard
+   `evidence/ada/mmvq-q8-b17-b20/` retained.
 5. Per-family kernel time, subject against control, on the fixup arms.
 6. Paired mirrored rate arms through `scripts/run-cuda-baseline-sweep.sh`.
 7. The publication gate of `evidence/research-claim-methodology.md`.
+
+## What each threshold decides
+
+Three thresholds carry three separate claims, and gate 4 promotes on two of
+them while deciding nothing on the third. The distinction is stated here rather
+than after a result, because the same gate applied to all three would let a
+value chosen to be extreme reject the value chosen to be served.
+
+`90` is the implementation null. The patch reproduces the upstream selection at
+its default, so exact greedy token identity against the unpatched control is
+mandatory and a divergence stops the campaign permanently: it reports that the
+patch changes behavior where it changes no value, which is a defect in the patch
+rather than a property of the grid.
+
+`1` is the structural witness. Every shape takes the tiling grid there, so a
+`FIXUP` symbol in its `observed_kernel_families` refutes the reading of
+`mmq.cuh:1436` and `:1440` the design rests on. Its token identity is recorded
+and promotes nothing. One is a value no serving closure carries, and its
+accumulation order differs from the control on every shape the grid reaches, so
+a divergence there is the mechanism working rather than evidence against 80.
+
+`80` is the candidate. It flips the 48-tile class alone -- 58 of 168 Q4_K
+weights and 10 of 27 Q6_K weights on the 2B, 18 of 195 Q8_0 weights on the
+0.8B, and none of the 222 Q4_K weights on the 4B -- and exact greedy token
+identity is its promotion gate on the 2B primary, the 0.8B secondary, and the
+4B control. A divergence rejects it under the standard
+`evidence/ada/mmvq-q8-b17-b20/` set, and no bounded-numerics exception is
+created for this campaign.
 
 Identity is expected to fail. The patch reorders floating-point accumulation by
 construction: a tile split across blocks sums two slice partials through
