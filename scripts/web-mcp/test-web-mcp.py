@@ -1879,16 +1879,21 @@ class WebMcpServerTest(unittest.TestCase):
         `timeout_seconds` is an instance attribute seeded from
         `REQUEST_TIMEOUT_SECONDS` the way the Exa endpoints are seeded from
         their module constants, so this arm measures the deadline in under a
-        second instead of the twenty a serving child waits.
+        second instead of the twenty a serving child waits. The fixture holds
+        the answer for 8.0 seconds and the elapsed bound sits at 4.0, halfway
+        between the injected deadline and the hold, so the assertion reads the
+        deadline ending the call rather than the machine's own speed: it
+        tolerates a host thirteen times slower than the 0.3 second deadline
+        while still failing on a call that waits the fixture out.
         """
         fixture, provider = self.searxng_provider()
         provider.timeout_seconds = 0.3
-        fixture.responses["/search"] = {"body": "{}", "delay": 3.0}
+        fixture.responses["/search"] = {"body": "{}", "delay": 8.0}
         started = time.monotonic()
         with self.assertRaises(server.ProviderHttpError) as raised:
             provider.search("bench", 5, self.unconstrained())
         self.assertIn("exceeded", str(raised.exception))
-        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertLess(time.monotonic() - started, 4.0)
 
     def test_a_source_page_is_reduced_to_its_readable_text(self):
         fixture, provider = self.searxng_provider()
@@ -2281,8 +2286,19 @@ class WebMcpServerTest(unittest.TestCase):
         self.assertIn("429", str(raised.exception))
 
     def test_provider_body_read_obeys_the_total_request_deadline(self):
+        """The POSIX timer ends the accumulated read rather than one chunk.
+
+        The fixture writes one body byte per chunk delay, so the 200-byte
+        padded body takes 6.0 seconds to arrive while `provider_deadline`
+        ends the call at 0.1. The chunk delay stays under that deadline, so
+        the timer expires against the accumulated read and the message names
+        the deadline rather than urllib's own socket timeout ending a single
+        chunk. The elapsed bound at 0.5 sat 0.05 above the 0.45 an unbounded
+        read of the unpadded body cost; at 2.0 against a 6.0 second body it
+        reads the deadline rather than the machine's speed.
+        """
         fixture, provider = self.live_provider()
-        fixture.responses["/search"] = {"results": []}
+        fixture.responses["/search"] = {"results": [], "padding": "p" * 170}
         fixture.response_chunk_delays["/search"] = 0.03
         original_timeout = server.REQUEST_TIMEOUT_SECONDS
         server.REQUEST_TIMEOUT_SECONDS = 0.1
@@ -2302,7 +2318,7 @@ class WebMcpServerTest(unittest.TestCase):
             )
         elapsed = time.monotonic() - started
         self.assertIn("exceeded 0.1 seconds", str(raised.exception))
-        self.assertLess(elapsed, 0.5)
+        self.assertLess(elapsed, 2.0)
 
     def test_an_oversized_provider_response_is_refused_during_the_read(self):
         fixture, provider = self.live_provider()
