@@ -68,7 +68,13 @@ A fixup share well below 22.1% on the anchor arm removes the case. A patched
 combined time inside the control span, or one moving the wrong way because the
 tiling grid's tail exceeds the fixup it removes, refutes the discriminator at
 that shape. A `FIXUP` symbol present in the threshold-1 arm refutes the reading
-of `mmq.cuh:1436` and `:1440` the whole campaign rests on.
+of `mmq.cuh:1436` and `:1440` the whole campaign rests on. That refutation is
+read from the `observed_kernel_families` column of `summary.tsv` rather than
+from the `verdict` column: the awk at `run-ad104-path-audit.sh:268-277` requires
+a FIXUP row for `MMQ+FIXUP` and admits one for `MMQ`, since `mmq.cuh:1463`
+reaches the reduction only from the call that already launched `mul_mat_q`, so
+a threshold-1 arm reads `agrees` whether or not the symbol appears. The
+`cut -f5` at `:230` is what carries the symbol into the summary.
 
 ## Arm matrix rationale
 
@@ -109,9 +115,10 @@ artifact carries no 48-tile class.
 
 Four closures, one changed value each. The control is the promoted
 `88681bf4d161` without the patch. The null closure carries the patch at 90.
-The candidate is 80, which flips the 48-tile class alone -- 58 of 132 Q4_K
-weights and 10 of 24 Q6_K weights on the 2B, 18 of 158 Q8_0 weights on the
-0.8B, and nothing on the 4B. The tiling closure is 1, where every shape takes
+The candidate is 80, which flips the 48-tile class alone. Counting every 2D
+tensor of a type in the GGUF, the 16-row and 32-row tensors included, that is
+58 of 168 Q4_K weights and 10 of 27 Q6_K weights on the 2B, 18 of 195 Q8_0
+weights on the 0.8B, and none of the 222 Q4_K weights on the 4B. The tiling closure is 1, where every shape takes
 the tiling grid and no fixup launches at all, which turns the audit's
 presence check into a decisive reading and bounds the tail cost at its worst.
 
@@ -123,6 +130,17 @@ through `scripts/gpu-workload-ownership.sh` under
 `/tmp/qwen-ad104-gpu-0.lock`, and a change between adjacent arms ends the
 campaign.
 
+## How a subject closure is built
+
+The patch guards its default with `#ifndef`, so a subject closure is configured
+by defining the macro on the compiler command line:
+`-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=80` on the
+`cmake` invocation at `scripts/build-llama-cuda.sh:283`. That script passes no
+`CMAKE_CUDA_FLAGS` today, so adding the pass-through is the campaign's first
+step and it is open work rather than a capability this tree already has. The
+`static_assert` beside the default refuses a value outside 1 through 100 at
+compile time.
+
 ## Gates, in order
 
 1. `QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh`
@@ -130,9 +148,10 @@ campaign.
    what identifies a control closure from a subject one.
 2. The null arms run first. The patch is inert at 90 -- same families, same
    launch counts, identical tokens -- or the run stops.
-3. `scripts/run-ad104-path-audit.sh` reads the executed families. Every
-   threshold-1 arm expects `MMQ` with no `FIXUP` symbol; every other arm
-   expects `MMQ+FIXUP`.
+3. `scripts/run-ad104-path-audit.sh` reads the executed families. Every arm
+   other than the threshold-1 ones expects `MMQ+FIXUP`, which its verdict
+   enforces. A threshold-1 arm expects `MMQ` and its absence of a fixup is
+   read from `observed_kernel_families`, since the verdict admits one.
 4. Exact greedy token identity between the control and each subject closure, on
    the carriers `scripts/run-graph-alias-ab.sh` already uses: temperature 0,
    top_k 1, a fixed seed, `ignore_eos`, prompt cache off, hashed over the
