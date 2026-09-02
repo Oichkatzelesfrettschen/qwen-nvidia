@@ -1423,6 +1423,17 @@ was predicted to move decode and moved 0.2% against a 0.3% span, and `-ngl 99`
 alone was predicted to place the whole 9B on CUDA0 and instead left enough on
 the host to halve its prefill.
 
+A claim that an intervention removed something requires a positive control of
+the same shape, unless a retained observation already establishes the thing
+present under an otherwise identical model, quantization family, mat-mul width,
+closure family, and client set. A single arm reading zero states absence and
+attributes it to nothing; the pair `186 -> 0` states that the intervention
+caused it. `evidence/ada/mmq-stream-k-grid/phase-b-witness/` is the shape: the
+production closure launched 186 `mul_mat_q_stream_k_fixup` beside 186
+`mul_mat_q`, the threshold-1 closure launched 186 and 0, and MMVQ held at 164
+in both, so grid selection controls divisibility and divisibility controls
+whether the fixup launch exists.
+
 `evidence/SHA256SUMS` and `ARTIFACTS.md` fix the retention class of every
 surface. Git copies replace the private hostname with `qwen-laptop`, the home
 prefix with `$HOME`, and MAC addresses with `<mac>`.
