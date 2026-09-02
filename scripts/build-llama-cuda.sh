@@ -45,7 +45,7 @@ usage() {
     printf '  QWEN_LLAMA_OPENSSL         default ON, HTTPS support in the server\n' >&2
     printf '  QWEN_CUDA_NO_PEER_COPY     default OFF, single-GPU hygiene arm\n' >&2
     printf '  QWEN_CUDA_MMVQ_Q6K_MAX     Ada Q6_K MMVQ ceiling, default 8, patched trees only\n' >&2
-    printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, default 8, patched trees only, 17-20 need the ncols-20 patch\n' >&2
+    printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, default 8, patched trees only, 17-19 need the ncols-19 patch\n' >&2
     printf '  QWEN_FORCE_MMQ             ON builds the MMQ kernel-policy arm\n' >&2
     printf '  QWEN_FORCE_CUBLAS          ON builds the cuBLAS differential arm\n' >&2
     printf '  QWEN_HOST_COMPILER         C++ compiler, default g++-15\n' >&2
@@ -117,13 +117,13 @@ case $cuda_compression in
 esac
 # The applied tree's MMVQ_KERNEL_MAX_NCOLS static_assert is the binding
 # ceiling: a threshold above the instantiated column count fails the compile
-# by name. This range admits the twenty-column candidate tree beside the
-# sixteen-column production series, and a tree at sixteen refuses 17 to 20
+# by name. This range admits the nineteen-column candidate tree beside the
+# sixteen-column production series, and a tree at sixteen refuses 17 to 19
 # in the compiler rather than here.
 for threshold in "$mmvq_q6k_max" "$mmvq_q8_0_max"; do
     case $threshold in
-        [1-9]|1[0-9]|20) ;;
-        *) printf 'an MMVQ threshold takes an integer from 1 to 20: %s\n' \
+        [1-9]|1[0-9]) ;;
+        *) printf 'an MMVQ threshold takes an integer from 1 to 19: %s\n' \
             "$threshold" >&2; exit 2 ;;
     esac
 done

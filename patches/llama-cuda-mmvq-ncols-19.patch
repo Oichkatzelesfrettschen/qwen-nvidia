@@ -2,29 +2,27 @@ diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
 index 34eb12639..f772d12e7 100644
 --- a/ggml/src/ggml-cuda/mmvq.cu
 +++ b/ggml/src/ggml-cuda/mmvq.cu
-@@ -419,6 +419,10 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
+@@ -419,6 +419,9 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
              case 14:
              case 15:
              case 16:
 +            case 17:
 +            case 18:
 +            case 19:
-+            case 20:
                  return 2;
              default:
                  return 1;
-@@ -554,6 +558,10 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+@@ -554,6 +557,9 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
              case 14:
              case 15:
              case 16:
 +            case 17:
 +            case 18:
 +            case 19:
-+            case 20:
                  return 2;
              default:
                  return 1;
-@@ -1173,6 +1181,38 @@ static void mul_mat_vec_q_switch_ncols_dst(
+@@ -1173,6 +1179,30 @@ static void mul_mat_vec_q_switch_ncols_dst(
                   sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
                   dims.first, dims.second, 0, ids_stride, stream);
          } break;
@@ -52,14 +50,6 @@ index 34eb12639..f772d12e7 100644
 +                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
 +                 dims.first, dims.second, 0, ids_stride, stream);
 +        } break;
-+        case 20: {
-+            constexpr int c_ncols_dst = 20;
-+            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
-+            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
-+                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
-+                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
-+                 dims.first, dims.second, 0, ids_stride, stream);
-+        } break;
          default:
              GGML_ABORT("fatal error");
              break;
@@ -72,13 +62,13 @@ index 052ea6f4a..5999b370f 100644
  #define GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE 8
  #endif
 -#define MMVQ_KERNEL_MAX_NCOLS 16
-+// The instantiated column counts run 1 to this value. Columns 17 to 20
++// The instantiated column counts run 1 to this value. Columns 17 to 19
 +// inherit the block geometry of 16 -- nwarps 2 and rows_per_cuda_block 2
 +// on the generic table Ada resolves to -- because blocks_per_iter is
 +// vdr * nwarps * warp_size / qi and carries no ncols_dst term, so the K
 +// loop trip count and the reduction tree are the ones column 16 already
 +// runs and the only change is the column extent of tmp and tmp_shared.
-+#define MMVQ_KERNEL_MAX_NCOLS 20
++#define MMVQ_KERNEL_MAX_NCOLS 19
  static_assert(GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE >= 1 &&
      GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE <= MMVQ_KERNEL_MAX_NCOLS,
      "the Q6_K threshold names an instantiated MMVQ column count");

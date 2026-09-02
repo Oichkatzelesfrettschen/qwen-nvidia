@@ -124,8 +124,9 @@ specialized predicates decline -- rather than by a weight type lacking a
 kernel. IQ1_M is the one absent weight type a GGUF could carry. A planner keyed
 on weight type would act on a condition this roster never presents.
 
-`patches/llama-cuda-mmvq-ncols-20.patch` raises `MMVQ_KERNEL_MAX_NCOLS` to
-twenty with the four coordinated edits, and `evidence/ada/mmvq-q8-b17-b20/`
+`patches/llama-cuda-mmvq-ncols-19.patch` raises `MMVQ_KERNEL_MAX_NCOLS` to
+nineteen with the four coordinated edits, its twenty-column diagnostic form
+measured the boundary, and `evidence/ada/mmvq-q8-b17-b20/`
 measures Q8_0 at seventeen through twenty against the promoted closure: the
 subject closure `8680bc95e989` clears the ten-repetition campaign's 6.3%
 floor at every width (12.0, 10.2, 6.9, and 10.0%), launches
@@ -138,10 +139,12 @@ alternating paired campaign under `gpu-quiescence-gate.sh` with the SM clock
 pinned is: 86 observations, a 2.3% control span, and paired ratio medians of
 1.136, 1.137, 1.088, and 1.053 at seventeen through twenty, so seventeen
 through nineteen are admitted under the contiguous rule and twenty is not.
-The selected threshold is nineteen. The exact nineteen-column closure
-`137b2a23a42c` launches MMVQ at nineteen and MMQ at twenty in the boundary
-audit, and the co-resident alternating tail campaign on the 0.8B and on the
-2B production control reads it as a no-regression control: 120
+The selected threshold is nineteen. The shipped nineteen-column closure
+`73af02b39194` launches MMVQ at nineteen and MMQ at twenty in the boundary
+audit, carries no twenty-column instantiation, and leaves the SASS of Q8_0
+one through sixteen identical to production; the co-resident alternating
+tail campaign on the nineteen-threshold diagnostic closure `137b2a23a42c` on the 0.8B and on the
+2B production control reads the threshold as a no-regression control: 120
 token-identical pairs per model, prefill and decode ratios at unity, and a
 request-level gain the tail's share bounds to about 1%, under the 5.1%
 floor. Production stays at sixteen until the ordinary promotion gate runs on

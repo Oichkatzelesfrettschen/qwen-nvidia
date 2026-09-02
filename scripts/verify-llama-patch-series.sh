@@ -80,9 +80,9 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # candidate touches, so the two stay independent while the list stays ordered.
 # llama-cuda-dispatch-census adds a hook line at the head of mmvq.cu's launcher
 # below the crossover patch's hunks, so it follows that patch.
-# llama-cuda-mmvq-ncols-20 widens the switch the crossover patch bounds and
+# llama-cuda-mmvq-ncols-19 widens the switch the crossover patch bounds and
 # sits below the census hook in mmvq.cu, so it follows both.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch llama-cuda-mmvq-ncols-20.patch"
+candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch llama-cuda-mmvq-ncols-19.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
 candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"

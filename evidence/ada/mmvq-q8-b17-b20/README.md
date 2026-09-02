@@ -3,12 +3,15 @@
 Two closures differ in one patch and one threshold. The promoted closure
 `88681bf4d161` dispatches Q8_0 to MMVQ through sixteen columns and to MMQ
 above, at the kernel ceiling `MMVQ_KERNEL_MAX_NCOLS` of sixteen; the subject
-closure `8680bc95e989` carries `patches/llama-cuda-mmvq-ncols-20.patch`,
-which raises that ceiling to twenty with cases 17 through 20 in the launch
-switch, `calc_nwarps`, and `calc_rows_per_block`, and it is built with the
-Q8_0 threshold at twenty and the Q6_K threshold unchanged at ten
-(`evidence/ada/mmvq-ncols-20-design.md`). Every other lever of the promoted
-configuration is shared. `scripts/ad104-q8-b17-b20-matrix.tsv` states the
+closure `8680bc95e989` carries the twenty-column diagnostic form of
+`patches/llama-cuda-mmvq-ncols-19.patch`, which raises that ceiling with
+cases 17 onward in the launch switch, `calc_nwarps`, and
+`calc_rows_per_block`, and it is built with the Q8_0 threshold at twenty and
+the Q6_K threshold unchanged at ten (`evidence/ada/mmvq-ncols-19-design.md`).
+Every other lever of the promoted configuration is shared. The shipped patch
+ends the instantiated range at nineteen, the width this campaign selects, and
+the twenty-column closure is retained here as the rejected boundary arm.
+`scripts/ad104-q8-b17-b20-matrix.tsv` states the
 eight arms, control and subject alternating at each width, and
 `scripts/run-ad104-b789-calibration.sh` ran them through the served flags on
 CUDA0 mirrored forward and reverse with the opening arm repeated last.
@@ -66,16 +69,39 @@ outside the tree. The control at seventeen and at twenty launches
 `mul_mat_vec_q<Q8_0, 17>` and `mul_mat_vec_q<Q8_0, 20>` for the prefill, 186
 launches each, which is every trunk weight of the 0.8B once. All four arms
 agree with the matrix expectation. `boundary-audit/` repeats the read on the
-exact nineteen-column closure `137b2a23a42c`, the closure the tails serve:
-it launches `mul_mat_vec_q<Q8_0, 19>` at nineteen and `mul_mat_q` at twenty
-where the control launches `mul_mat_q` at both, so that closure dispatches
-exactly at the selected threshold.
+shipped nineteen-column closure `73af02b39194`: it launches
+`mul_mat_vec_q<Q8_0, 19>` at nineteen and `mul_mat_q` at twenty where the
+control launches `mul_mat_q` at both, so that closure dispatches exactly at
+the selected threshold and MMQ takes over at the first width past the
+instantiated range. `boundary-audit-137b2a23a42c/` is the same read on the
+twenty-column diagnostic tree built at the same thresholds, the closure the
+served tails ran against, with the same four verdicts.
+
+## The shipped closure
+
+`73af02b39194` is the closure the pull request names: the pinned commit
+with the series, the crossover patch, and `llama-cuda-mmvq-ncols-19.patch`,
+built `89-real` with Q6_K at ten and Q8_0 at nineteen and every other lever
+at the production value. `kernel-resources.tsv` reads its Q8_0
+instantiations from `cuobjdump -res-usage`: nineteen columns hold 152
+registers with zero local memory and 4864 bytes of shared memory, the same
+figures the twenty-column diagnostic tree produced for that width, and the
+library carries no twenty-column instantiation of any type.
+`sass-identity-q8_0-1-16.tsv` compares the SASS of `mul_mat_vec_q<Q8_0, N>`
+for N of one through sixteen between the production closure `88681bf4d161`
+and this one with the instruction addresses stripped: 10288 instruction
+lines on each side and every function identical, so the wider ceiling
+changes no kernel a production request already runs. Q6_K stays at ten and
+the Q4_K, Q5_K, and Q2_K crossovers are untouched, since the patch adds
+cases and moves one constant and the thresholds enter through the build
+alone.
 
 ## Served request tails
 
 `request-tails/qwen35-08b/` and `request-tails/qwen38-2b-distill/` are
-`scripts/run-mmvq-width-request-tails.sh` on the exact nineteen-column
-closure `137b2a23a42c` against the production closure `88681bf4d161`: both
+`scripts/run-mmvq-width-request-tails.sh` on the nineteen-threshold
+closure `137b2a23a42c`, the twenty-column diagnostic tree built with Q8_0 at
+nineteen, against the production closure `88681bf4d161`: both
 llama-servers resident on CUDA0 at the row's served tuple, the SM clock
 pinned at 2835 MHz, and at each of 512+B, 1024+B, and 2048+B for B of
 nineteen and twenty ten alternating pairs of one fixed-seed greedy completion
@@ -189,17 +215,51 @@ threshold is nineteen.
 
 `Q8_0 = 19` is the threshold this campaign selects: the greatest width with
 every width below it admitted, `mul_mat_vec_q<Q8_0, 19>` observed on the
-exact closure with MMQ at twenty, registers held without a spill, and a
-zero kernel-ring delta on every run. The exact closure passes the served
+shipped closure `73af02b39194` with MMQ at twenty, registers held without a spill, and a
+zero kernel-ring delta on every run. The nineteen-threshold diagnostic closure passes the served
 tail controls on the 0.8B and on the 2B production control as a
 no-regression control with exact tokens and unchanged decode; the
 request-level prefill gain the promotion design asked for is bounded by the
 tail's share of the request to about 1% and is unreadable against a 5.1%
 floor, so the gain rests on the pinned paired campaign alone. Production
-stays at sixteen: promotion is the ordinary `promote-llama-build.sh` and
-`admit-cuda-router-serving.sh` step on the nineteen-column closure and it
-has not run. MMVQ loses its margin at twenty here, so the search ends at
+stays at sixteen: promotion is a fresh `89-real` closure from merged main at Q6_K ten and
+Q8_0 nineteen through `promote-llama-build.sh` and
+`admit-cuda-router-serving.sh`, and it has not run. MMVQ loses its margin at twenty here, so the search ends at
 nineteen rather than extending to twenty-four.
+
+## Protocol amendment
+
+The promotion design preregistered a request-level gate in these words:
+"a request-level prefill improvement, unchanged decode, exact tokens, no
+recapture anomaly, strict CUDA0, clean teardown, zero hazard" on the served
+tails at 512, 1024, and 2048 plus B and plus B+1, judged against the 5.1%
+floor. The preregistered request-level gain criterion was not met and is
+retired for this threshold decision because the changed pass contributes
+less than that floor to total request time. At 512+19 the candidate changes
+one residual nineteen-column pass and leaves the 512-column ubatch,
+tokenization, graph preparation, attention, every non-Q8_0 tensor, the
+server's own work, decode, and every other microbatch as they were, so an
+8.8% gain on that pass is about 1% of the request and a 5.1% whole-request
+floor asked for several times the saving available. The floor stays at 5.1%
+and is not lowered to fit the result; the retained request-level experiment
+is interpreted only as a bounded no-regression and integration control, and
+the promotion case rests on the pinned alternating kernel-level campaign.
+
+The claims separate as follows.
+
+```text
+Measured:
+    B17, B18, B19 kernel-path improvement over MMQ, contiguous, pinned clock
+
+Observed:
+    exact token identity across 120 alternating pairs per model
+    no request-level prefill or decode regression beyond pair scatter
+    no graph fallback, recapture, or CPU placement line
+    MMVQ at nineteen and MMQ at twenty on the exact closure
+
+Not established:
+    user-visible whole-request latency improvement
+```
 
 ## Falsifiers
 
