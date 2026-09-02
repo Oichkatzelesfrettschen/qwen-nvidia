@@ -16,6 +16,13 @@
 # therefore bracket the two thresholds this device carries: Q4_K and Q5_K leave
 # MMVQ between B7 and B8, Q6_K between B8 and B9.
 #
+# expected_kernel_family of MMQ admits a mul_mat_q_stream_k_fixup launch beside
+# the mat-mul, because mmq.cuh:1463 reaches that reduction only from the call
+# that already launched mul_mat_q. MMQ+FIXUP requires it, and no row here
+# carries that token: fixup_needed at mmq.cuh:1440 turns on the tile count
+# against the SM count rather than on B or the quantization type, so the
+# reduction is observable rather than derivable from this matrix.
+#
 # MMVQ multiplies through packed __dp4a; MMQ on a Turing-or-later part takes the
 # integer mma path. The math column names that consequence rather than a second
 # measurement.

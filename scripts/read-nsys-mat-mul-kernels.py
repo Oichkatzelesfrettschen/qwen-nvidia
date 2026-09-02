@@ -10,6 +10,19 @@ demangles to `mul_mat_q<(ggml_type)T, (int)mmq_x, (bool)need_check>`, whose
 second parameter is the tile width rather than ne11, so an MMQ launch is read
 for its type alone.
 
+MMQ partitions its work stream-k and reduces the partial tiles in a second
+kernel. `ggml/src/ggml-cuda/mmq.cuh:1233-1235` declares
+`template <ggml_type type, int J, bool fallback> __global__ void
+mul_mat_q_stream_k_fixup`, the same template parameter list `mul_mat_q` carries
+at `mmq.cuh:946-948`, and `mmq.cuh:1463` launches it inside the same call that
+launched `mul_mat_q` whenever `fixup_needed` at `mmq.cuh:1440` holds. The
+symbol therefore demangles to `mul_mat_q_stream_k_fixup<(ggml_type)8, (int)16,
+(bool)0>`, whose leading argument names the quantization type and whose second
+is the tile width `J` rather than ne11. FIXUP is its own family because the
+launch is a reduction of MMQ's partial tiles rather than a mat-mul path a
+dispatch chooses, and it reads its type from the symbol and reports no ncols
+for the same reason an MMQ row does.
+
 The reader queries the SQLite export rather than `nsys stats --report
 cuda_gpu_kern_sum`. That report returns a header and no rows against the
 capture this repository takes with Nsight Systems 2026.1.3, while
@@ -34,6 +47,7 @@ GGML_TYPE_NAMES = {
 
 MMVQ = re.compile(r"\bmul_mat_vec_q<\(ggml_type\)(\d+),\s*\(int\)(\d+)")
 MMQ = re.compile(r"\bmul_mat_q<\(ggml_type\)(\d+)")
+FIXUP = re.compile(r"\bmul_mat_q_stream_k_fixup<\(ggml_type\)(\d+)")
 CUBLAS = re.compile(r"gemm|xmma|cutlass|_tn_|_nn_|_nt_", re.IGNORECASE)
 
 KERNEL_QUERY = """
@@ -45,10 +59,20 @@ group by s.value
 
 
 def classify(name):
-    """Return (family, type_number, ncols_dst) for a mat-mul kernel, or None."""
+    """Return (family, type_number, ncols_dst) for a mat-mul kernel, or None.
+
+    ncols_dst is the MMVQ template argument alone. MMQ and FIXUP both carry the
+    tile width in that position, so both report None and the column keeps one
+    meaning across the retained rows.
+    """
     match = MMVQ.search(name)
     if match:
         return "MMVQ", int(match.group(1)), int(match.group(2))
+    # FIXUP is tested ahead of MMQ so the ordering states the separation
+    # rather than resting on `mul_mat_q` being followed by `_stream` here.
+    match = FIXUP.search(name)
+    if match:
+        return "FIXUP", int(match.group(1)), None
     match = MMQ.search(name)
     if match:
         return "MMQ", int(match.group(1)), None

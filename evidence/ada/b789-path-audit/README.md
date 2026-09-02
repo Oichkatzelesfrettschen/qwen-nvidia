@@ -62,6 +62,16 @@ parameter holds, rather than across two tile widths. An MMQ symbol's second
 parameter is `mmq_x` in every case and never `ne11`, which is why an MMQ row
 reads its type from the symbol and its B from the arm.
 
+The MMQ rows above are silent on `mul_mat_q_stream_k_fixup`, the stream-k
+reduction `mmq.cuh:1463` launches beside `mul_mat_q` whenever `fixup_needed` at
+`mmq.cuh:1440` holds: the reader that produced `kernel-observations.tsv`
+matched `mul_mat_q<(ggml_type)N` alone, which cannot reach that symbol, so a
+fixup launch in these captures was dropped without a row rather than counted at
+zero. `removed-raw-reports.sha256` records that the raw Nsight Systems reports
+left the tree, so the exports cannot be re-read and whether these arms executed
+the reduction is unrecoverable from this run. A capture taken after
+`scripts/read-nsys-mat-mul-kernels.py` gained the `FIXUP` family answers it.
+
 ## The report is not the authority
 
 `nsys stats --report cuda_gpu_kern_sum` returns a header and no rows against
