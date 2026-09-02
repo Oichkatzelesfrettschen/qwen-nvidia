@@ -18,8 +18,8 @@ the tracked `benchmarks/` and `evidence/` trees, and `--check` exits non-zero
 on drift. A surface it omits is retained without a replay authority.
 
 The Git copies replace the private hostname with `qwen-laptop`, the
-machine-local home prefix with `$HOME`, and network MAC addresses with
-`<mac>`.
+machine-local home prefix with `$HOME`, the harness output directory a run
+wrote under with `$SCRATCH`, and network MAC addresses with `<mac>`.
 
 `evidence/legacy/raven2/` retains one README stating what the prior host was
 and one table of individual conclusions worth carrying forward from it. About
