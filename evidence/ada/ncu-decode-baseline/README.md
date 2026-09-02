@@ -13,10 +13,11 @@ own bytes would take to stream at the DRAM roofline. That gap is roofline slack
 under an assumed bandwidth rather than measured overhead, and the assumption
 decides the shape: at 504 GB/s theoretical the slack reads 1567 us on the 0.8B
 Q8_0, 1719 us on the 2B Q4_K_M, 3285 us on the 4B, and 3257 us on the 9B, which
-looks like two clusters; recomputed at a sustainable 440 GB/s the same rates
-give 1326, 1339, 2481, and 1589 us and the clustering dissolves, leaving the 4B
-alone as anomalous. A structure that inverts on the choice of divisor is a
-property of the divisor, so no fixed-against-per-layer overhead split is
+looks like two clusters; recomputed near the 442.61 GB/s this device's own
+bandwidth-bound smoke kernel achieved (`profiling-permission/`) the same rates
+give approximately 1326, 1339, 2481, and 1589 us and the clustering dissolves,
+leaving the 4B alone as anomalous. A structure that inverts on the choice of
+divisor is a property of the divisor, so no fixed-against-per-layer overhead split is
 inferred from it.
 
 GGUF byte count is not DRAM traffic per decoded token in either direction. It
@@ -105,15 +106,50 @@ kernel change addresses it.
 
 ## Preconditions this arm needs
 
-`RmProfilingAdminOnly` reads 1 in `/proc/driver/nvidia/params` on this host, so
-an unprivileged `ncu` collects no performance counters and ends on
-`ERR_NVGPUCTRPERM`. Tracing is unaffected, which is why every Nsight Systems
-capture in this tree succeeded and no counter campaign has run. Two remedies
-exist and the arm names which it took: `NVreg_RestrictProfilingToAdminUsers=0`
-in a modprobe configuration, which needs a module reload or a reboot and is the
-durable form, or running `ncu` under `sudo`, which also runs the profiled
-`llama-*` process as root. No modprobe configuration on this host sets the
-parameter today.
+Profiling permission is resolved and the resolution corrects a reading this
+record first carried. `RmProfilingAdminOnly` reads 1 in
+`/proc/driver/nvidia/params`, which on driver 610 reports the state of the
+legacy registry key alone and says nothing about a capability grant, so it is
+not sufficient grounds to refuse the campaign. The R610 capability system is
+what decides it: `/proc/driver/nvidia-caps/sys-minors` names `profiler-device`
+at minor 4324, `nvidia-modprobe -f` creates the node, read permission on
+`/dev/nvidia-caps/nvidia-cap4324` grants the capability, and writing
+`DeviceFileModify: 0` to the capability's proc entry keeps a later NVIDIA
+user-space tool from recreating the node over that permission state.
+
+The grant is narrow by construction. `profiler-device` alone carries the ACL
+and already subsumes `profiler-context`; `profiler-context` at 4325 and
+`trace-device` at 4326 stay root-only, since Nsight Systems tracing already
+works and a tracing capability is a separate authority admitted separately if
+an experiment ever needs it. The legacy key stays at 1, so no other local user
+gains counter access and the global restriction is unchanged.
+
+The functional proof is the authority rather than the file mode, because a
+permission bit states configuration while a collection states capability.
+`profiling-permission/` retains it: uid 1000 running `ncu` as an ordinary user
+against an ordinary-user CUDA binary completed nine replay passes and collected
+`SpeedOfLight` and `MemoryWorkloadAnalysis` with `ERR_NVGPUCTRPERM` absent.
+`profiling_permission=accepted`,
+`permission_source=nvidia-profiler-device-capability`.
+
+The smoke also answers a question this arm was going to carry as an assumption.
+Its kernel is bandwidth-bound by construction -- 8.75% SM throughput against
+90.20% DRAM throughput -- and it achieved 442.61 GB/s. The sustainable figure
+this record contrasts against the 504 GB/s theoretical is therefore measured on
+this device rather than borrowed, under the desktop client set this host always
+carries, from a single isolated kernel that `ncu` serialized. A decode kernel
+reaching a fraction of 442.61 GB/s is the comparison the arms below make.
+
+No reboot precedes the first window. Neither
+`NVreg_RestrictProfilingToAdminUsers=0` nor `sudo ncu` is used: the first
+widens the grant to every local user and needs a module reload, and the second
+would run the profiled `llama-*` process as root, contaminating process
+ownership, output ownership, and the GPU-client classification that
+`scripts/gpu-workloads.tsv` enforces, which is the ordinary-user serving
+condition these arms exist to characterize. The capability grant is temporary
+until it is packaged as a boot-time oneshot resolving the minor dynamically
+from `sys-minors` and applying the ACL to a dedicated group, and this record
+names the packaging as unrun.
 
 `ncu` serializes and replays kernels, so its timings are not rates. The arm
 runs under the GPU owner lock as its own campaign, never inside a rate arm, and
