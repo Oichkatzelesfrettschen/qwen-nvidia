@@ -1,0 +1,47 @@
+==PROF== Connected to process 483056 (/tmp/claude-1000/-home-eirikr-Github-qwen-nvidia/0e615f62-2cd2-4ec4-aee0-798bd92f10d1/scratchpad/ncu-smoke)
+==PROF== Profiling "saxpy_smoke": 0%....50%....100% - 9 passes
+smoke_kernel=no error
+==PROF== Disconnected from process 483056
+[483056] ncu-smoke@127.0.0.1
+  saxpy_smoke(float *, const float *, float, int) (4096, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 8.9
+    Section: GPU Speed Of Light Throughput
+    ----------------------- ----------- ------------
+    Metric Name             Metric Unit Metric Value
+    ----------------------- ----------- ------------
+    DRAM Frequency                  Ghz        10.22
+    SM Frequency                    Ghz         2.60
+    Elapsed Cycles                cycle       57,973
+    Memory Throughput                 %        90.20
+    DRAM Throughput                   %        90.20
+    Duration                         us        22.30
+    L1/TEX Cache Throughput           %        11.21
+    L2 Cache Throughput               %        22.97
+    SM Active Cycles              cycle    47,778.05
+    Compute (SM) Throughput           %         8.75
+    ----------------------- ----------- ------------
+
+    INF   This workload is utilizing greater than 80.0% of the available compute or memory performance of this device.  
+          To further improve performance, work will likely need to be shifted from the most utilized to another unit.   
+          Start by analyzing DRAM in the Memory Workload Analysis section.                                              
+
+    Section: Memory Workload Analysis
+    --------------------------------------- ----------- ------------
+    Metric Name                             Metric Unit Metric Value
+    --------------------------------------- ----------- ------------
+    Local Memory Spilling Requests                                 0
+    Local Memory Spilling Request Overhead            %            0
+    L2 Sector Promotion Misses                        %            0
+    Shared Memory Spilling Requests                                0
+    Shared Memory Spilling Request Overhead           %            0
+    Memory Throughput                           Gbyte/s       442.61
+    Mem Busy                                          %        17.40
+    Max Bandwidth                                     %        90.20
+    L1/TEX Hit Rate                                   %        32.78
+    L2 Persisting Size                            Mbyte         9.44
+    L2 Compression Success Rate                       %            0
+    L2 Compression Ratio                                           0
+    L2 Compression Input Sectors                 sector            0
+    L2 Hit Rate                                       %        32.26
+    Mem Pipes Busy                                    %         8.75
+    --------------------------------------- ----------- ------------
+
