@@ -83,7 +83,7 @@ done
 # a fixture holds no CUDA context, and matching its name refused this sweep
 # against a device only the compositor was using.
 . "$script_directory/gpu-workload-ownership.sh"
-gpu_ownership_require || exit 2
+gpu_ownership_require || exit $?
 
 mkdir -p "$output_directory"
 summary=$output_directory/baseline-summary.tsv
@@ -141,14 +141,14 @@ run_arm() {
     printf 'arm_start_utc=%s slot=%s direction=%s model=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$slot_index" "$direction" "$model_id"
 
-    "$clock_sampler" "$arm_samples" 1 &
+    "$clock_sampler" "$arm_samples" 1 9>&- &
     sampler_pid=$!
     set +e
     "$runtime_wrapper" "$bench" -m "$model_path" --device "$bench_device" \
         -ngl 99 -ot ".*=$bench_device" -fa "$flash_attention" \
         -ctk "$cache_type_k" -ctv "$cache_type_v" \
         -p "$prefill_tokens" -n "$generate_tokens" \
-        -r "$bench_repeats" -t "$bench_threads" -o md >"$arm_log" 2>&1
+        -r "$bench_repeats" -t "$bench_threads" -o md >"$arm_log" 2>&1 9>&-
     arm_status=$?
     set -e
     stop_sampler

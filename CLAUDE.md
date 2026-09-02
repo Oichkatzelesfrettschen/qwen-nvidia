@@ -116,6 +116,24 @@ decision, at `mmq.cu:260`, and `QWEN_FORCE_CUBLAS=ON` builds that tree.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
+A move of that crossover is measured as pairs.
+`scripts/run-mmvq-paired-crossover.sh` compares two llama-bench closures width
+by width and `scripts/run-mmvq-width-request-tails.sh` asks the same question of
+the served path, each alternating which closure runs first so drift and order
+bias cancel inside the pair, each observation admitted by
+`scripts/gpu-quiescence-gate.sh` against the client set and counter medians
+registered at the start of the campaign. Both refuse below four pairs with exit
+2 ahead of the ownership claim and either launch, since `statistics.quantiles`
+needs four points and the control-drift slices coincide below that, and both
+summaries carry `sample_count_valid`, `promotion_eligible`, and
+`ineligibility_reason` beside `clears_floor`, so a sample too small to decide
+reads `n/a` and `insufficient_pairs` while a measured absence of gain reads `no`
+and `below_floor`. `scripts/probe-mmvq-tail-logit-margin.sh` reads the distance
+in nats between the top two candidates at one named position per prompt, and it
+compares the two closures only where both reached that position under the same
+preceding token history, because two free-running greedy samplers that have
+already parted condition their later logits on different prefixes.
+
 Speculation is where the throughput is. A resident 0.8B draft loses on every
 class here -- 0.42, 0.61, and 0.75 of baseline on the 2B, 4B, and 9B --
 while the multi-token-prediction block each distill already ships wins on all
@@ -980,6 +998,14 @@ scripts/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
 scripts/run-cuda-dispatch-census.sh OUT [ARM_ID...]
                                                 # where every mat-mul launch goes, per arm, census closure only
 scripts/summarize-dispatch-census.py OUT        # census rows joined to the requests that produced them
+scripts/gpu-quiescence-gate.sh baseline|wait BASELINE_TSV [LABEL]
+                                                # the device state each observation is admitted against
+scripts/run-mmvq-paired-crossover.sh CONTROL_BENCH SUBJECT_BENCH MODEL_ID OUT
+                                                # two closures width by width, alternating, four pairs least
+scripts/run-mmvq-width-request-tails.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
+                                                # the same pairs on the served path, with reply identity
+scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
+                                                # the top-two candidate margin under one shared history
 
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
@@ -1041,6 +1067,9 @@ scripts/test-admit-candidate-static.py
 scripts/test-one-token-admission.sh
 scripts/test-fetch-candidate-artifact.sh
 scripts/test-run-graph-alias-ab.sh
+scripts/test-gpu-quiescence-gate.sh
+scripts/test-mmvq-width-request-tails.sh
+scripts/test-mmvq-tail-logit-margin.sh
 scripts/verify-llama-patch-series.sh
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
 GGUF_PY_PATH=~/src/llama.cpp-qwen-nvidia/gguf-py \

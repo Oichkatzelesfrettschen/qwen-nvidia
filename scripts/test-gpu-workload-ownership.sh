@@ -1,8 +1,9 @@
 #!/bin/sh
 set -eu
 
-# Prove the two device-ownership authorities decide the seven cases that separate
-# a name from a CUDA context. Every case runs against a fake nvidia-smi and a
+# Prove the three device-ownership authorities decide the cases that separate a
+# name from a CUDA context, a held lock from a free one, and an inherited locked
+# descriptor from every forgery of one. Every case runs against a fake nvidia-smi and a
 # fake /proc, so the harness answers on a host with no device and never depends
 # on what the workstation happens to be running.
 
@@ -191,5 +192,122 @@ else
     report refused electron-gpu-process-records
 fi
 
+# The inherited-descriptor capability replaces a boolean marker, so each case
+# below runs the authority as its own process with descriptor 9 in one
+# controlled state and reads the exit status and the named reason.
+require_case() {
+    require_case_name=$1
+    require_case_root=$work/$require_case_name
+    mkdir -p "$require_case_root"
+    set +e
+    QWEN_GPU_OWNERSHIP_FIXTURE=$work/compositor \
+    QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+    QWEN_GPU_OWNERSHIP_PROCFS=$work/compositor/proc \
+    QWEN_GPU_OWNERSHIP_FD=${REQUIRE_FD:-} \
+        "$authority" require "$2" \
+        >"$require_case_root/stdout" 2>"$require_case_root/stderr"
+    require_case_status=$?
+    set -e
+}
+
+fd_lock=$work/fd-campaign.lock
+: >"$fd_lock"
+fd_other=$work/fd-other.file
+: >"$fd_other"
+
+# 10. The variable names a descriptor this process never opened, which is the
+# bare marker the boolean was.
+REQUIRE_FD=9 require_case fd-absent "$fd_lock"
+if [ "$require_case_status" -eq 75 ] &&
+    grep -q 'descriptor 9 is closed in this process' "$work/fd-absent/stderr"; then
+    report accepted inherited-fd-absent-refuses
+else
+    report refused inherited-fd-absent-refuses
+fi
+
+# 11. The descriptor is open and locked, on another file entirely.
+(
+    exec 9>"$fd_other"
+    flock -n 9
+    REQUIRE_FD=9 require_case fd-foreign-file "$fd_lock"
+    [ "$require_case_status" -eq 75 ] &&
+        grep -q 'inode mismatch' "$work/fd-foreign-file/stderr"
+) && report accepted inherited-fd-wrong-inode-refuses ||
+    report refused inherited-fd-wrong-inode-refuses
+
+# 12. The descriptor was opened and locked, then closed before the nested call.
+(
+    exec 9>"$fd_lock"
+    flock -n 9
+    exec 9>&-
+    REQUIRE_FD=9 require_case fd-closed "$fd_lock"
+    [ "$require_case_status" -eq 75 ] &&
+        grep -q 'descriptor 9 is closed in this process' "$work/fd-closed/stderr"
+) && report accepted inherited-fd-closed-refuses ||
+    report refused inherited-fd-closed-refuses
+
+# 13. The inherited descriptor is open on the lock file and holds it, which is
+# the one state a nested stage runs in.
+(
+    exec 9>"$fd_lock"
+    flock -n 9
+    REQUIRE_FD=9 require_case fd-inherited "$fd_lock"
+    [ "$require_case_status" -eq 0 ] &&
+        grep -q 'gpu_ownership_lock=inherited fd=9' "$work/fd-inherited/stdout"
+) && report accepted inherited-fd-locked-accepted ||
+    report refused inherited-fd-locked-accepted
+
+# 14. A workload child that retains the descriptor retains the lock with it, so
+# the claim outlives the campaign that took it. The subshell holding descriptor 9
+# exits and the lock still refuses the next campaign, which is the leak `9>&-`
+# exists to prevent.
+leak_lock=$work/leaked-child.lock
+(
+    exec 9>"$leak_lock"
+    flock -n 9
+    sleep 30 &
+    printf '%s\n' "$!" >"$work/leak.pid"
+)
+set +e
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+QWEN_GPU_OWNERSHIP_FIXTURE=$work/compositor \
+QWEN_GPU_OWNERSHIP_PROCFS=$work/compositor/proc \
+    "$authority" acquire "$leak_lock" >"$work/leak-stdout" 2>"$work/leak-stderr"
+leak_status=$?
+set -e
+kill "$(cat "$work/leak.pid")" 2>/dev/null || :
+wait "$(cat "$work/leak.pid")" 2>/dev/null || :
+if [ "$leak_status" -eq 75 ] &&
+    grep -q 'another qwen CUDA campaign owns GPU 0' "$work/leak-stderr"; then
+    report accepted retained-descriptor-child-holds-the-lock
+else
+    report refused retained-descriptor-child-holds-the-lock
+fi
+
+# 15. The same child launched with `9>&-` holds no descriptor, so the lock
+# releases with the campaign and the next one is admitted.
+closed_lock=$work/closed-child.lock
+(
+    exec 9>"$closed_lock"
+    flock -n 9
+    sleep 30 9>&- &
+    printf '%s\n' "$!" >"$work/closed.pid"
+)
+set +e
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+QWEN_GPU_OWNERSHIP_FIXTURE=$work/compositor \
+QWEN_GPU_OWNERSHIP_PROCFS=$work/compositor/proc \
+    "$authority" acquire "$closed_lock" >"$work/closed-stdout" 2>"$work/closed-stderr"
+closed_status=$?
+set -e
+kill "$(cat "$work/closed.pid")" 2>/dev/null || :
+wait "$(cat "$work/closed.pid")" 2>/dev/null || :
+if [ "$closed_status" -eq 0 ] &&
+    grep -q 'gpu_ownership_lock=held' "$work/closed-stdout"; then
+    report accepted closing-child-releases-the-lock
+else
+    report refused closing-child-releases-the-lock
+fi
+
 [ "$failures" -eq 0 ] || exit 1
-printf 'gpu_workload_ownership=accepted cases=9 lock=flock-exclusive clients=driver-resolved\n'
+printf 'gpu_workload_ownership=accepted cases=15 lock=flock-exclusive-inherited-fd clients=driver-resolved\n'
