@@ -82,15 +82,15 @@ if [ ! -x "$production_build_directory/$server_relative_path" ]; then
     exit 2
 fi
 
-# A concurrent llama-server contends for the two Vega compute units and the one
-# DDR4 controller, and a second process holding the device turns a correctness
-# question into a scheduling one. The process check comes first because a
-# foreign server on another port contends just as much as one on 8080.
-if command -v pgrep >/dev/null 2>&1 && pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'llama-server is running; run %s after qwen-teardown.sh\n' \
-        "$(basename "$0")" >&2
-    exit 1
-fi
+# A second process holding the device turns a correctness question into a
+# scheduling one, and it contends from any port. The campaign authority answers
+# both parts: the driver's compute-app list reports every CUDA client whatever
+# port it bound, and the exclusive lock serializes this comparison against the
+# sweeps and probes. The arms below launch llama-server in the background and
+# tear it down inside the run, so each one closes descriptor 9 with `9>&-` and
+# the claim releases with this harness rather than with a server it left behind.
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_require || exit $?
 if curl --silent --fail --max-time 2 \
     "http://127.0.0.1:$appliance_port/health" >/dev/null 2>&1; then
     printf 'a server answers /health on port %s; run %s after qwen-teardown.sh\n' \
@@ -243,7 +243,7 @@ start_server() {
             --no-context-shift \
             --offline \
             --log-verbosity 4 \
-            >"$arm_log" 2>&1 &
+            >"$arm_log" 2>&1 9>&- &
     else
         LLAMA_NO_CPU_FALLBACK=1 \
             "$arm_build_directory/$server_relative_path" \
@@ -267,7 +267,7 @@ start_server() {
             --no-context-shift \
             --offline \
             --log-verbosity 4 \
-            >"$arm_log" 2>&1 &
+            >"$arm_log" 2>&1 9>&- &
     fi
     server_pid=$!
 

@@ -62,34 +62,70 @@ run_harness() {
     QWEN_ALIAS_AB_READY_SECONDS=30 \
     QWEN_FAKE_SERVER_PORT=$fake_port \
     QWEN_FAKE_SERVER_STATE_DIRECTORY=$harness_output_directory/argv \
+    QWEN_GPU_OWNERSHIP_LOCK=$campaign_lock \
+    QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$fake_nvidia_smi \
+    QWEN_GPU_OWNERSHIP_CLIENTS=${QWEN_GPU_OWNERSHIP_CLIENTS:-} \
+    QWEN_GPU_COMPUTE_LEASE=$temporary_directory/absent-lease.lock \
     "$@" \
         "$harness" "$harness_output_directory" "$model_id"
 }
+
+# The harness takes the campaign authority, so this test names its own lock file
+# and its own driver. Both are inside the temporary directory, which keeps the
+# run off /tmp/qwen-ad104-gpu-0.lock and off whatever the workstation's real
+# device is doing.
+campaign_lock=$temporary_directory/campaign.lock
+fake_nvidia_smi=$temporary_directory/nvidia-smi
+cat >"$fake_nvidia_smi" <<'SMI'
+#!/bin/sh
+printf '%s' "${QWEN_GPU_OWNERSHIP_CLIENTS:-}"
+SMI
+chmod +x "$fake_nvidia_smi"
 
 fake_port=${QWEN_ALIAS_AB_TEST_PORT:-8137}
 unused_port=${QWEN_ALIAS_AB_TEST_UNUSED_PORT:-8138}
 
 # A server holding the device turns a correctness question into a scheduling
-# one, so the harness refuses rather than measuring through the contention. A
-# copy of a real executable named llama-server is what `pgrep -x` matches.
-if command -v pgrep >/dev/null 2>&1 && [ -x /usr/bin/sleep ]; then
+# one, so the harness refuses rather than measuring through the contention. What
+# decides holding is the driver's compute-app list rather than a process name:
+# the fake driver reports a foreign llama-server and the run ends before any arm.
+refusal_status=0
+QWEN_GPU_OWNERSHIP_CLIENTS='5200, llama-server, 5307 MiB
+'
+export QWEN_GPU_OWNERSHIP_CLIENTS
+run_harness "$temporary_directory/refusal" \
+    env QWEN_PRODUCTION_BUILD_DIR="$production_build" \
+    >"$temporary_directory/refusal.log" 2>&1 || refusal_status=$?
+QWEN_GPU_OWNERSHIP_CLIENTS=''
+export QWEN_GPU_OWNERSHIP_CLIENTS
+if [ "$refusal_status" -ne 0 ] &&
+    grep -q 'verdict=refuse-project' "$temporary_directory/refusal.log"; then
+    report 0 'refuses to run while a llama-server holds a CUDA context'
+else
+    report 1 "refuses to run while a llama-server holds a CUDA context (status $refusal_status)"
+fi
+
+# A process merely named llama-server holds no CUDA context, so the driver lists
+# nothing and the run proceeds. That is the case the removed `pgrep -x` check
+# refused and the reason a name was never the ownership authority.
+if [ -x /usr/bin/sleep ]; then
     cp /usr/bin/sleep "$temporary_directory/llama-server"
     "$temporary_directory/llama-server" 20 &
     residue_pid=$!
-    refusal_status=0
-    run_harness "$temporary_directory/refusal" \
+    name_status=0
+    run_harness "$temporary_directory/name-only" \
         env QWEN_PRODUCTION_BUILD_DIR="$production_build" \
-        >"$temporary_directory/refusal.log" 2>&1 || refusal_status=$?
+        >"$temporary_directory/name-only.log" 2>&1 || name_status=$?
     kill "$residue_pid" 2>/dev/null || true
     wait "$residue_pid" 2>/dev/null || true
-    if [ "$refusal_status" -eq 1 ] &&
-        grep -q 'llama-server is running' "$temporary_directory/refusal.log"; then
-        report 0 'refuses to run while llama-server holds the device'
+    if [ "$name_status" -eq 0 ] &&
+        grep -q 'cuda_clients=none' "$temporary_directory/name-only.log"; then
+        report 0 'a process named llama-server with no context admits the run'
     else
-        report 1 "refuses to run while llama-server holds the device (status $refusal_status)"
+        report 1 "a process named llama-server with no context admits the run (status $name_status)"
     fi
 else
-    printf 'skip refusal check: pgrep or /usr/bin/sleep is absent\n'
+    printf 'skip name-only check: /usr/bin/sleep is absent\n'
 fi
 
 # The optimizer arm returns a sequence that first differs at generated token 3,

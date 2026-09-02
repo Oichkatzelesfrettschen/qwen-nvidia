@@ -23,10 +23,15 @@ if [ ! -x "$bench" ]; then
     printf 'llama-bench is not built at %s\n' "$bench" >&2
     exit 2
 fi
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'a llama-server is running and would contend for the device\n' >&2
-    exit 2
-fi
+# The campaign authority replaces the process-name check. A name is not a device
+# client and a device client need not carry a name this sweep knows, so the
+# driver's compute-app list decides residency while the exclusive lock serializes
+# this sweep against every other campaign in the tree. Every llama-bench arm below
+# runs in the foreground and ends before the sweep does, so the descriptor rides
+# into each one and dies with it.
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_require || exit $?
 
 mkdir -p "$(dirname -- "$output")"
 : >"$output"

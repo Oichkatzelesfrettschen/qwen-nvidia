@@ -183,44 +183,38 @@ if [ "$validate_only" -eq 1 ]; then
     exit $?
 fi
 
-# The lock is the one every campaign in this tree takes through
-# gpu-workload-ownership.sh, so it serializes this calibration against the
-# depth probes, the sweeps, and the census as well as against a second
-# calibration; the process and compute-client checks below are what exclude
-# the appliance. The descriptor is held for the whole campaign including the
-# closing control and the post-run health read, so it is opened here and
-# never closed explicitly. flock is per-process and the baseline sweep each
-# arm runs calls gpu_ownership_require, which would ask this same path of its
-# own parent and be refused, so the descriptor number is exported as
-# QWEN_GPU_OWNERSHIP_FD and the nested sweep proves the inherited descriptor is
-# this lock file and holds it before it inspects the driver's client list.
-calibration_lock=${QWEN_CALIBRATION_LOCK:-/tmp/qwen-ad104-gpu-0.lock}
-exec 9>"$calibration_lock"
-flock -n 9 || {
-    printf 'refused: the AD104 calibration lock is held: %s\n' "$calibration_lock" >&2
-    exit 75
-}
-QWEN_GPU_OWNERSHIP_FD=9
-export QWEN_GPU_OWNERSHIP_FD
+# The campaign authority runs at the top level rather than one stage down. The
+# lock is the one every campaign in this tree takes, so it serializes this
+# calibration against the depth probes, the sweeps, the census, and a second
+# calibration, and the classification that excludes a running server now happens
+# here instead of inside the first nested sweep. The descriptor is held for the
+# whole campaign including the closing control and the post-run health read, so
+# it is opened here and never closed explicitly. flock is per-process and the
+# baseline sweep each arm runs calls gpu_ownership_require, which would ask this
+# same path of its own parent and be refused, so gpu_ownership_require exports
+# the descriptor number as QWEN_GPU_OWNERSHIP_FD and the nested sweep proves the
+# inherited descriptor is this lock file and holds it before it inspects the
+# driver's client list.
+QWEN_GPU_OWNERSHIP_LOCK=${QWEN_CALIBRATION_LOCK:-${QWEN_GPU_OWNERSHIP_LOCK:-/tmp/qwen-ad104-gpu-0.lock}}
+export QWEN_GPU_OWNERSHIP_LOCK
+# One driver answers both readers, so QWEN_NVIDIA_SMI selects the binary the
+# authority queries as well as the one the health reads query.
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$nvidia_smi
+export QWEN_GPU_OWNERSHIP_NVIDIA_SMI
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_require || exit $?
 
 # Preconditions. Each one is the confound the clean boot exists to remove, so a
 # failure here ends the run rather than annotating it.
 "$latch" require-clear || fail 'the GPU state latch refuses this run'
-if pgrep -x llama-server >/dev/null 2>&1; then
-    fail 'llama-server holds the device; run qwen-teardown.sh first'
-fi
-# The desktop is a live consumer of the same device and its clients are the
-# covariate every recorded rate carries, so the compositor and its graphics
-# peers are recorded rather than excluded. A project workload is the confound
-# the clean boot exists to remove, so a client whose name matches one ends the
-# run.
+# gpu_ownership_require above already read the driver's compute-app list, resolved
+# each pid through /proc, recorded the desktop as the covariate this workstation
+# carries, and refused a project or unnamed client, so the residency decision is
+# made once by the authority rather than twice by two patterns that can drift.
+# The same list is read again here for the retained evidence alone.
 compute_client_rows=$("$nvidia_smi" \
     --query-compute-apps=pid,process_name,used_memory --format=csv,noheader \
     2>/dev/null || :)
-project_clients=$(printf '%s\n' "$compute_client_rows" |
-    grep -E 'llama|nsys|ncu|python|image-service' || :)
-[ -z "$project_clients" ] ||
-    fail "a project CUDA workload holds the device: $project_clients"
 printf '# pid, process_name, used_memory\n%s\n' "$compute_client_rows" \
     >"$output_directory/resident-compute-clients.txt"
 "$nvidia_smi" -q >/dev/null 2>&1 || fail 'nvidia-smi does not answer'
