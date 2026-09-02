@@ -2,20 +2,61 @@
 set -eu
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-llama_server=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwen-cuda-sm89/bin/llama-server"}
-model_path=${2:-"${HOME:?}/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf"}
-static_path=${3:-"$script_directory/../webui"}
-# The 4K allocation rung consumes 2,724 MiB of measured Vulkan memory and uses
-# the admitted 4,096 MiB preflight gate. Interactive serving starts from that
-# measured APU rung instead of importing another host's placement profile.
-context_size=${4:-4096}
-required_vulkan_mib=${5:-4096}
+
+usage() {
+    printf 'usage: %s LLAMA_SERVER MODEL_PATH STATIC_PATH CONTEXT_SIZE REQUIRED_DEVICE_MIB [PORT [STATE_DIRECTORY [PROFILE]]]\n' \
+        "$0" >&2
+    exit 2
+}
+
+# Depth and the memory the load requires are registry claims rather than session
+# defaults. qwen-capacity-policy.sh reads context_default, context_ceiling, and
+# validated_filled_depth from scripts/models.tsv and model-memory-preflight.sh
+# reads the artifact, so a session that supplied its own numbers would serve a
+# depth no row admits and gate a load against a figure no closure measured. Both
+# are required arguments for that reason, and every caller in the tree passes all
+# eight.
+[ "$#" -ge 5 ] || usage
+llama_server=$1
+model_path=$2
+static_path=$3
+context_size=$4
+required_device_mib=$5
 server_port=${6:-8080}
 state_directory=${7:-"${HOME:?}/qwen-webui-state"}
 runtime_profile=${8:-default}
+for session_required in "$context_size" "$required_device_mib"; do
+    case $session_required in
+        '' | *[!0-9]*) usage ;;
+    esac
+    [ "$session_required" -gt 0 ] || usage
+done
 
 umask 077
 mkdir -p "$state_directory"
+
+# This session is the top-level GPU owner and it takes the owner authority from
+# scripts/gpu-workload-ownership.sh before it starts anything. It owns the
+# serving lifetime: it outlives llama-server, tears down the broker, the image
+# service, the probe, the watcher, and the monitor, and only then exits, which
+# releases the lock. Taking it here rather than deeper in the chain is what makes
+# the claim last exactly as long as the session does; tmux starts this script
+# from its own server process, so no descriptor from the launcher reaches here
+# and the lock has to be opened on this side of that boundary.
+#
+# Every child closes the descriptor with `9>&-`, including the broker and the
+# telemetry sampler that open no CUDA context of their own. An inherited
+# descriptor keeps the owner claim alive after this session exits, so a child
+# that outlives the teardown would lock out the next serving session and every
+# campaign against a device nothing is using. Closing it costs a child nothing:
+# none of them is the owner.
+#
+# The inspection this call performs runs before the broker and the control
+# services start, so what the driver reports is the state the session found
+# rather than the state it created.
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_require || exit $?
+
 server_log=$state_directory/server.log
 telemetry_log=$state_directory/telemetry.log
 graphics_latency_log=$state_directory/graphics-latency.log
@@ -202,7 +243,7 @@ if [ "$broker_enabled" = 1 ]; then
         --image-profile "${QWEN_IMAGE_PROFILE:-}" \
         --provider "${QWEN_WEB_PROVIDER:-exa}" \
         --api-key-file "$api_key_file" \
-        >"$broker_log" 2>&1 &
+        >"$broker_log" 2>&1 9>&- &
     broker_pid=$!
     if ! process_running "$broker_pid"; then
         printf 'state=failed reason=authorization_broker_exited broker_pid=%s utc=%s\n' \
@@ -313,7 +354,7 @@ if [ "$image_service_enabled" = 1 ]; then
         --api-key-file "$api_key_file" \
         --origin "$image_service_origin" \
         --http-host 127.0.0.1 \
-        >"$image_service_log" 2>&1 &
+        >"$image_service_log" 2>&1 9>&- &
     image_service_pid=$!
     image_service_ready=0
     attempt=0
@@ -357,8 +398,8 @@ esac
 env "$runtime_profile_variable=$runtime_profile" \
 QWEN_WEBUI_STATE_DIRECTORY=$state_directory \
 "$script_directory/run-qwen-capacity-server.sh" \
-    "$llama_server" "$model_path" "$context_size" "$required_vulkan_mib" \
-    "$server_port" "$static_path" "$api_key_file" >"$server_log" 2>&1 &
+    "$llama_server" "$model_path" "$context_size" "$required_device_mib" \
+    "$server_port" "$static_path" "$api_key_file" >"$server_log" 2>&1 9>&- &
 server_pid=$!
 printf '%s\n' "$server_pid" >"$pid_file"
 
@@ -411,8 +452,17 @@ while [ "$attempt" -lt 1200 ]; do
 done
 
 if [ "$ready_for_monitor" -ne 1 ]; then
-    printf 'state=failed reason=server_policy_not_active utc=%s\n' \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+    # run-qwen-capacity-server.sh takes the campaign lock ahead of the memory
+    # preflight and exits 75 when a measurement campaign already holds the
+    # device, which is a different operator action from a policy that failed to
+    # come up, so the refusal reaches the status file under its own reason.
+    server_failure_reason=server_policy_not_active
+    if grep -q 'another qwen CUDA campaign owns GPU 0\|a foreign CUDA client holds GPU 0\|lock order inversion' \
+        "$server_log" 2>/dev/null; then
+        server_failure_reason=gpu_ownership_refused
+    fi
+    printf 'state=failed reason=%s utc=%s\n' \
+        "$server_failure_reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
     wait "$server_pid" 2>/dev/null || true
     server_pid=""
     exit 1
@@ -465,7 +515,7 @@ fi
     exec ionice -c 3 "$latency_probe" \
         --log "$graphics_latency_log" --watch-pid "$server_pid" \
         --interval-ms 16 --deadline-us 20000 $latency_probe_mode_argument
-) &
+) 9>&- &
 latency_watchdog_pid=$!
 
 latency_ready=0
@@ -489,7 +539,7 @@ if [ "$latency_ready" -ne 1 ]; then
 fi
 
 "$script_directory/watch-qwen-kernel-hazards.sh" \
-    "$server_pid" "$kernel_hazard_log" &
+    "$server_pid" "$kernel_hazard_log" 9>&- &
 kernel_hazard_watchdog_pid=$!
 
 kernel_watch_ready=0
@@ -514,7 +564,7 @@ fi
 
 "$script_directory/monitor-qwen-runtime.sh" "$server_pid" "$telemetry_log" \
     "$runtime_profile" "$latency_watchdog_pid" \
-    "$kernel_hazard_watchdog_pid" &
+    "$kernel_hazard_watchdog_pid" 9>&- &
 monitor_pid=$!
 require_broker_running
 # The paced profile uses the aggregate busy ceiling. The serialized LOW
@@ -539,6 +589,14 @@ printf 'state=running server_pid=%s monitor_pid=%s latency_watchdog_pid=%s kerne
     "${QWEN_BIND_HOST:-127.0.0.1}" "$server_port" "$context_size" \
     "$latency_probe_mode" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+# The owner claim is recorded on its own line so an admission harness has status
+# proof to wait on: it launches the session, waits for this line, and drives its
+# test through the session that holds the lock rather than holding one itself.
+# The line follows the `state=running` write because that write truncates the
+# file.
+printf 'gpu_owner lock=%s pid=%s fd=%s\n' \
+    "$(gpu_ownership_lock_path)" "$$" "${QWEN_GPU_OWNERSHIP_FD:-9}" \
+    >>"$status_file"
 # The speculation settings occupy a second line because the control script and
 # the teardown script both read the first line alone, the teardown to recover
 # the guard PIDs before `stop` rewrites the file.
