@@ -213,6 +213,17 @@ width-24 class lost 23.3%. A fixup is therefore worth removing exactly where the
 alternative grid's own tail is shorter than the reduction it eliminates, which
 is the population threshold 80 selects and threshold 1 deliberately does not.
 
+Gate 4 rejected it. `phase-c-identity/` ran the 2B primary against the
+production closure and the candidate diverged on three of six prompts, first at
+token 16, 35, and 146, with the closing control agreeing with the opening
+control on all six and placement, client set, and kernel ring holding across
+the run. `promotion_status=rejected`,
+`failure_class=deterministic-grid-reduction-output-divergence`. The 0.8B
+secondary and the 4B null never ran and no rate matrix followed, because a
+failed identity gate spends no further device time.
+`patches/llama-cuda-mmq-stream-k-grid.patch` stays a rejected artifact and
+`build-llama-cuda.sh` keeps its tiling default at 90.
+
 Identity is expected to fail. The patch reorders floating-point accumulation by
 construction: a tile split across blocks sums two slice partials through
 `tmp_fixup` where the tiling grid keeps one running sum, so the summation order
