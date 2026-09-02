@@ -23,6 +23,17 @@ if [ -n "${QWEN_POLICY_TEST_HTTP_PORT:-}" ] && [ -n "${QWEN_FAKE_SERVER_PORT:-}"
     exit 2
 fi
 serving_port=${QWEN_POLICY_TEST_HTTP_PORT:-${QWEN_FAKE_SERVER_PORT:-}}
+# A harness that starts two servers at once names each listener on its argv,
+# the way the real server takes it, so under QWEN_FAKE_SERVER_PORT_FROM_ARGV
+# the port follows --port. The opt-in keeps a policy test's recorded argv,
+# which also carries --port, from turning the recorder into a listener.
+if [ -z "$serving_port" ] && [ -n "${QWEN_FAKE_SERVER_PORT_FROM_ARGV:-}" ]; then
+    previous_argument=''
+    for argument in "$@"; do
+        [ "$previous_argument" = --port ] && serving_port=$argument
+        previous_argument=$argument
+    done
+fi
 
 # The argv record has two destinations because it has two readers. A single
 # launch under test writes one file named by QWEN_POLICY_TEST_OUTPUT; a sweep
@@ -110,10 +121,15 @@ fi
 # outcome without a device.
 fake_build_directory=$(dirname -- "$(dirname -- "$0")")
 fake_tokens=${QWEN_FAKE_SERVER_TOKENS:-'10 11 12 13 14 15 16 17'}
+# The completion text follows the same two variables, so a caller that digests
+# the reply text beside the id array reaches a divergent content digest from the
+# same build separation. Each optimize variable defaults to its own base value,
+# which leaves a caller naming one of them alone with the other unchanged.
+fake_content=${QWEN_FAKE_SERVER_CONTENT:-}
 if [ -z "${GGML_VK_DISABLE_GRAPH_OPTIMIZE:-}" ] &&
-    [ ! -e "$fake_build_directory/alias-marker" ] &&
-    [ -n "${QWEN_FAKE_SERVER_TOKENS_OPTIMIZE:-}" ]; then
-    fake_tokens=$QWEN_FAKE_SERVER_TOKENS_OPTIMIZE
+    [ ! -e "$fake_build_directory/alias-marker" ]; then
+    fake_tokens=${QWEN_FAKE_SERVER_TOKENS_OPTIMIZE:-$fake_tokens}
+    fake_content=${QWEN_FAKE_SERVER_CONTENT_OPTIMIZE:-$fake_content}
 fi
 
 # The load banner llama-server prints for a fully offloaded model. A caller that
@@ -145,6 +161,9 @@ if [ -n "$banner_device" ]; then
     printf 'llama_kv_cache: %s KV buffer size = 56.00 MiB\n' "$banner_device"
     printf 'llama_context: %s compute buffer size = 78.00 MiB\n' "$banner_device"
 fi
+# The readiness line llama-server prints once the listener is bound; a caller
+# that reads readiness from the banner and this line together sees both here.
+printf 'main: server is listening on http://127.0.0.1:%s\n' "$serving_port"
 
 # One whitespace-separated word stands for one token and each image part
 # contributes a fixed lump, which is the shape a projector-loaded prompt has:
@@ -152,9 +171,13 @@ fi
 # tokens beside it.
 QWEN_FAKE_SERVER_RESOLVED_PORT=$serving_port \
 QWEN_FAKE_SERVER_RESOLVED_TOKENS=$fake_tokens \
+QWEN_FAKE_SERVER_RESOLVED_CONTENT=$fake_content \
 QWEN_POLICY_TEST_IMAGE_TOKENS=${QWEN_POLICY_TEST_IMAGE_TOKENS:-300} \
 QWEN_POLICY_TEST_REPLY=${QWEN_POLICY_TEST_REPLY:-JUN} \
 QWEN_POLICY_TEST_PREDICTED_CAP=${QWEN_POLICY_TEST_PREDICTED_CAP:-0} \
+QWEN_FAKE_SERVER_TOP_LOGPROBS=${QWEN_FAKE_SERVER_TOP_LOGPROBS:-present} \
+QWEN_FAKE_SERVER_CHOSEN_IN_TOP=${QWEN_FAKE_SERVER_CHOSEN_IN_TOP:-1} \
+QWEN_FAKE_SERVER_TOKEN_COUNT_SKEW=${QWEN_FAKE_SERVER_TOKEN_COUNT_SKEW:-0} \
     exec python3 - <<'PY'
 import json
 import os
@@ -165,11 +188,18 @@ tokens = [int(value) for value in os.environ["QWEN_FAKE_SERVER_RESOLVED_TOKENS"]
 image_tokens = int(os.environ["QWEN_POLICY_TEST_IMAGE_TOKENS"])
 reply = os.environ["QWEN_POLICY_TEST_REPLY"]
 # The completion text a strict-placement check compares across two requests.
-content = os.environ.get("QWEN_FAKE_SERVER_CONTENT", "")
+content = os.environ["QWEN_FAKE_SERVER_RESOLVED_CONTENT"]
 # A positive cap stops the reply short of the requested length, which is the
 # shape a fixed-length decode fails in: the answer arrives and carries fewer
 # tokens than the caller asked for.
 predicted_cap = int(os.environ["QWEN_POLICY_TEST_PREDICTED_CAP"])
+# The three defects a logit-margin reader has to refuse, each selected on its
+# own so one request carries one fault: the top-candidate list absent from a
+# position, the sampled id missing from that list, and a token array whose
+# length disagrees with the predicted_n reported beside it.
+top_logprobs_present = os.environ["QWEN_FAKE_SERVER_TOP_LOGPROBS"] == "present"
+chosen_in_top = os.environ["QWEN_FAKE_SERVER_CHOSEN_IN_TOP"] == "1"
+token_count_skew = int(os.environ["QWEN_FAKE_SERVER_TOKEN_COUNT_SKEW"])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -197,14 +227,46 @@ class Handler(BaseHTTPRequestHandler):
             words = len(str(body.get("content", "")).split())
             self.respond({"tokens": list(range(words))})
             return
+        # The inverse of the word-per-token rule above: one word per id, so a
+        # prompt cut to N ids tokenizes back to N.
+        if self.path.startswith("/detokenize"):
+            self.respond({"content": " ".join(f"w{i}" for i in body.get("tokens") or [])})
+            return
         # The token-identity route. A fixed cycle over the configured array
         # fills the requested length, so the reply is exactly as long as
         # n_predict asked and differs between arms only where the array does.
+        # The id array is present only under return_tokens, which is the
+        # contract server-task.h states with its false default and
+        # server-context.cpp enforces where it appends generated_tokens; a
+        # caller digesting the array without asking for it reads its absence.
         if self.path.startswith("/completion"):
             predict = int(body.get("n_predict") or len(tokens))
             emitted = [tokens[index % len(tokens)] for index in range(predict)]
-            self.respond({"content": content, "tokens": emitted,
-                          "tokens_predicted": predict})
+            payload = {"content": content, "tokens_predicted": predict,
+                       "timings": {"prompt_n": len(str(body.get("prompt", "")).split()),
+                                   "prompt_ms": 10.0, "predicted_n": predict,
+                                   "predicted_ms": 20.0}}
+            if body.get("return_tokens") is True:
+                payload["tokens"] = emitted[:predict + token_count_skew]
+            # n_probs asks for the per-position candidate vectors, and the
+            # sampled id leads its own list at a fixed 1.5 nat margin, so a
+            # reader that computes the distance between the top two candidates
+            # reads the same number at every position of an undefective reply.
+            probabilities = int(body.get("n_probs") or 0)
+            if probabilities > 0:
+                positions = []
+                for index, chosen in enumerate(emitted):
+                    candidates = [{"id": chosen + 1000 * rank, "token": f"t{chosen + 1000 * rank}",
+                                   "logprob": -0.1 - 1.5 * rank} for rank in range(probabilities)]
+                    if not chosen_in_top:
+                        candidates[0] = {"id": chosen + 500000, "token": "foreign",
+                                         "logprob": candidates[0]["logprob"]}
+                    position = {"id": chosen, "token": f"t{chosen}"}
+                    if top_logprobs_present:
+                        position["top_logprobs"] = candidates
+                    positions.append(position)
+                payload["completion_probabilities"] = positions
+            self.respond(payload)
             return
         if not self.path.startswith("/v1/chat/completions"):
             self.send_error(404)
