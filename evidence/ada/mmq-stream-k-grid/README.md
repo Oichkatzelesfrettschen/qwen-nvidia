@@ -133,13 +133,24 @@ campaign.
 ## How a subject closure is built
 
 The patch guards its default with `#ifndef`, so a subject closure is configured
-by defining the macro on the compiler command line:
-`-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=80` on the
-`cmake` invocation at `scripts/build-llama-cuda.sh:283`. That script passes no
-`CMAKE_CUDA_FLAGS` today, so adding the pass-through is the campaign's first
-step and it is open work rather than a capability this tree already has. The
-`static_assert` beside the default refuses a value outside 1 through 100 at
-compile time.
+by defining the macro on the compiler command line. The patch carries a hunk
+for `ggml/src/ggml-cuda/mmq.cuh` alone and adds no cache-to-define bridge of
+the kind `llama-cuda-mmvq-crossover-ad104.patch` puts in
+`ggml/src/ggml-cuda/CMakeLists.txt`, so the value travels as
+`-DCMAKE_CUDA_FLAGS=-DGGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT=80` rather
+than as a cmake cache entry the MMVQ ceilings use.
+`scripts/build-llama-cuda.sh` carries that pass-through as
+`QWEN_CUDA_MMQ_TILING_PERCENT`, which defaults to 90, enters the configuration
+digest as `mmq_tiling_percent`, and therefore names each subject closure its
+own build directory. The `static_assert` beside the default refuses a value
+outside 1 through 100 at compile time and the builder refuses one outside that
+range before configuring. A value beside 90 against a tree whose `mmq.cuh`
+lacks the macro is refused by name, since a `-D` no source reads would give a
+subject closure the control's own dispatch; 90 builds against any tree, which
+is what keeps the unpatched control buildable.
+`scripts/test-cuda-build-tiling-threshold.sh` proves those relations through
+the builder's `QWEN_BUILD_DRY_RUN` path, which resolves the digest and the
+configure argv while compiling nothing.
 
 ## Gates, in order
 

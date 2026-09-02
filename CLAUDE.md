@@ -113,6 +113,20 @@ arm whose executed family differs from the matrix expectation;
 mixed forward pass where Q4_K runs MMQ beside Q6_K on MMVQ.
 `GGML_CUDA_FORCE_CUBLAS` is the one build-time flag that reaches the same
 decision, at `mmq.cu:260`, and `QWEN_FORCE_CUBLAS=ON` builds that tree.
+Three candidate-patch levers move a dispatch threshold from
+`scripts/build-llama-cuda.sh`, and each takes the route its own patch opens.
+`QWEN_CUDA_MMVQ_Q6K_MAX` and `QWEN_CUDA_MMVQ_Q8_0_MAX` ride cmake cache
+entries, because `llama-cuda-mmvq-crossover-ad104.patch` carries a
+`ggml/src/ggml-cuda/CMakeLists.txt` hunk bridging each entry into a compile
+definition. `QWEN_CUDA_MMQ_TILING_PERCENT` rides `CMAKE_CUDA_FLAGS`, because
+`llama-cuda-mmq-stream-k-grid.patch` touches `mmq.cuh` alone and its `#ifndef`
+reads a preprocessor macro no cache entry reaches. All three enter the
+configuration digest, so two closures differing by one threshold carry
+different build directories and different names. The tiling default of 90
+reproduces the upstream stream-K grid selection and builds against any tree; a
+value beside 90 against a tree whose `mmq.cuh` lacks the macro is refused by
+name, since an ignored `-D` would give a subject closure the control's
+dispatch.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
@@ -1137,6 +1151,7 @@ scripts/test-exec-profiler-clean-env.sh
 scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
+scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-repository-quality-gates-host-role.sh
