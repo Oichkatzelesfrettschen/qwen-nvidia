@@ -101,3 +101,31 @@ if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
 else
     printf 'candidate_patches=not_run reason=QWEN_LLAMA_CANDIDATE_PATCHES_unset\n'
 fi
+
+# A rejected patch is neither a production member nor a candidate under
+# measurement: its campaign closed against it, so it applies to no tree this
+# repository builds and contributes no digest a promotion could move into
+# verify_source. llama-cuda-mmvq-ncols-19 raises the Q8_0 MMVQ column ceiling
+# to nineteen and failed the exact-token-identity gate on the 0.8B
+# (evidence/ada/mmvq-q8-b17-b20/). Its hunks sit below those of
+# llama-cuda-mmvq-crossover-ad104 and llama-cuda-dispatch-census in mmvq.cu, so
+# the tree it would apply against is the one the candidate stage produces, and
+# the check runs only where that stage ran. `apply --check` reports whether the
+# diff still lands and writes nothing, so the replay tree the candidate digests
+# were taken from stays as those digests found it. Setting
+# QWEN_LLAMA_REJECTED_PATCHES=1 beside QWEN_LLAMA_CANDIDATE_PATCHES=1 proves the
+# retained diff still applies against the pinned commit; every other setting
+# prints the refusal alone.
+rejected_patch_names="llama-cuda-mmvq-ncols-19.patch"
+for rejected_name in $rejected_patch_names; do
+    if [ "${QWEN_LLAMA_REJECTED_PATCHES:-0}" = 1 ] &&
+        [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
+        git -C "$temporary_directory/llama.cpp" apply --check \
+            "$patch_directory/$rejected_name"
+        printf 'rejected_patch=%s applies=yes promotion=refused reason=numerical_gate_failed\n' \
+            "$rejected_name"
+    else
+        printf 'rejected_patch=%s applies=not_checked promotion=refused reason=numerical_gate_failed\n' \
+            "$rejected_name"
+    fi
+done

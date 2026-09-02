@@ -1,0 +1,15 @@
+# The boundary of the selected Q8_0 threshold. The exact closure 73af02b39194
+# carries patches/llama-cuda-mmvq-ncols-19.patch with the Q8_0 threshold at
+# nineteen, the width the alternating paired campaign selected, and the Q6_K
+# threshold unchanged at ten; the retained boundary-audit run on the
+# twenty-column diagnostic tree at the same thresholds, 137b2a23a42c, is the
+# earlier reading of the same boundary. Under it a nineteen-column prefill runs MMVQ and
+# a twenty-column one runs MMQ; under the promoted closure 88681bf4d161 both
+# run MMQ. The audit reads the executed kernel on all four arms and decides
+# nothing about rate.
+#
+# arm_id	model_id	quant_family	b_definition	ne11	bench_binary	bench_sha256	source_revision	build_configuration	environment	expected_kernel_family	expected_math_path	path_evidence	prediction	falsifier	note
+control-b19	qwen35-08b	Q8_0	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	19	$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-bench	28266b1589d52d9ce6e7fd7eb9c4c97dbd6655d85d09385e6353e1fcf440f741	f280b2698	89-real Q6_K MMVQ 10 Q8_0 MMVQ 16, configuration 88681bf4d161	-	MMQ	INT8_MMA	observed	Q8_0 above sixteen columns takes MMQ on the promoted closure	an MMVQ launch at nineteen columns	the production dispatch at B=19
+selected-b19	qwen35-08b	Q8_0	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	19	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-73af02b39194/bin/llama-bench	ad7a39b12adf7f91e7b551be0799552113cb6a433a759027ac4105cee1c08fe1	f280b2698	89-real Q6_K MMVQ 10 Q8_0 MMVQ 19 with llama-cuda-mmvq-ncols-19.patch, configuration 73af02b39194	-	MMVQ	DP4A	observed	nineteen columns is the last width inside the selected threshold and runs MMVQ	an MMQ launch at nineteen columns	the selected dispatch at B=19
+control-b20	qwen35-08b	Q8_0	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	20	$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-bench	28266b1589d52d9ce6e7fd7eb9c4c97dbd6655d85d09385e6353e1fcf440f741	f280b2698	89-real Q6_K MMVQ 10 Q8_0 MMVQ 16, configuration 88681bf4d161	-	MMQ	INT8_MMA	observed	Q8_0 above sixteen columns takes MMQ on the promoted closure	an MMVQ launch at twenty columns	the production dispatch at B=20
+selected-b20	qwen35-08b	Q8_0	ne11, the column count of the mat-mul second operand, set by a single-ubatch prefill of that many tokens	20	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-73af02b39194/bin/llama-bench	ad7a39b12adf7f91e7b551be0799552113cb6a433a759027ac4105cee1c08fe1	f280b2698	89-real Q6_K MMVQ 10 Q8_0 MMVQ 19 with llama-cuda-mmvq-ncols-19.patch, configuration 73af02b39194	-	MMQ	INT8_MMA	observed	twenty columns lies past the selected threshold and the instantiated range, so it runs MMQ	an MMVQ launch at twenty columns, which would mean the threshold did not bind	the selected dispatch at B=20

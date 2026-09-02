@@ -134,6 +134,23 @@ compares the two closures only where both reached that position under the same
 preceding token history, because two free-running greedy samplers that have
 already parted condition their later logits on different prefixes.
 
+That harness measured one candidate and rejected it. Q8_0 serves at sixteen on
+closure `88681bf4d161`, which is the kernel ceiling `MMVQ_KERNEL_MAX_NCOLS`
+sets, and `patches/llama-cuda-mmvq-ncols-19.patch` raises that ceiling to
+nineteen. The pinned alternating campaign admitted seventeen through nineteen
+on rate, the Nsight read confirmed `mul_mat_vec_q<Q8_0, 19>` with MMQ at
+twenty, and the served tails refused the candidate on exact greedy token
+identity: the 0.8B reply parts from the production closure at every
+nineteen-column tail where its top two candidates sit under 0.1 nats apart.
+The whole-request gain the tail's share allows is about 1%, under the 5.1%
+floor, so the identity clause decides it and the gate is retained rather than
+relaxed. `evidence/ada/mmvq-q8-b17-b20/` carries the record.
+`verify-llama-patch-series.sh` names the patch on a `rejected_patch=` line and
+applies it to no tree unless a caller sets both
+`QWEN_LLAMA_CANDIDATE_PATCHES=1` and `QWEN_LLAMA_REJECTED_PATCHES=1`, which
+runs `apply --check` alone; `build-llama-cuda.sh` still bounds an MMVQ
+threshold at sixteen, so no build or launch reaches nineteen.
+
 Speculation is where the throughput is. A resident 0.8B draft loses on every
 class here -- 0.42, 0.61, and 0.75 of baseline on the 2B, 4B, and 9B --
 while the multi-token-prediction block each distill already ships wins on all
