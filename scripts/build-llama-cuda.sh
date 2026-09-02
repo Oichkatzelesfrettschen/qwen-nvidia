@@ -447,4 +447,14 @@ printf 'cuda_payload=verified arch=%s cubin=%s ptx=%s library=%s\n' \
 
 printf 'cuda_build=complete configuration=%s tree=%s\n' \
     "$configuration_id" "$build_directory"
-"$build_directory/bin/llama-bench" --version 2>&1 | head -2
+
+# The build lane executes no artifact it just built. `llama-bench --version`
+# stood here and read like a version print, but tools/llama-bench/llama-bench.cpp
+# calls ggml_backend_load_all() before it parses argv, so the call opened a CUDA
+# context and made a compile a device client. scripts/gpu-workloads.tsv states
+# this entry point as non-gpu-helper with execution_policy=none, and that row is
+# what the claim below reports. Runtime version, device, placement, and
+# one-token admission belong to promote-llama-build.sh, the strict placement
+# check, the router admission, and the diagnostic campaigns, each of which takes
+# the GPU owner authority first.
+printf 'runtime_execution=not_run reason=build_only\n'

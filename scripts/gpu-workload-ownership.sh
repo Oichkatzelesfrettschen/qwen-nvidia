@@ -63,7 +63,16 @@ GPU_OWNERSHIP_LOCK_DEFAULT=/tmp/qwen-ad104-gpu-0.lock
 # compute-app list at 594 MiB under its own name and nothing else in the
 # pattern. Matching the flag classifies the whole family at once, and a project
 # workload never carries it.
-GPU_OWNERSHIP_PROJECT_PATTERN='llama-server|llama-bench|llama-cli|llama-mtmd-cli|llama-quantize|nsys|ncu|nv-nsight|image-service|coding-agent|qwen-'
+#
+# The graphics-latency probe is named here by its own basename because the
+# driver reports it as a compute client. The classification arm retained in
+# evidence/ada/graphics-probe-classification/ measured it at type C+G in all ten
+# samples of `nvidia-smi -q -d PIDS` at 5 MiB, so the compute-app query does
+# list a Vulkan submitter that reaches the graphics queue alone. Ahead of that
+# name the probe matched this pattern through the `qwen-` fragment of the
+# checkout path, which made the verdict a property of the directory the tree
+# sits in rather than of the process.
+GPU_OWNERSHIP_PROJECT_PATTERN='llama-server|llama-bench|llama-cli|llama-mtmd-cli|llama-quantize|nsys|ncu|nv-nsight|image-service|coding-agent|vulkan-graphics-service-probe|qwen-'
 GPU_OWNERSHIP_DESKTOP_PATTERN='kwin_wayland|kwin_x11|Xorg|Xwayland|plasmashell|gnome-shell|sway|wayfire|mutter|firefox|chromium|chrome|msedge|brave|vivaldi|opera|electron|obs|--type=gpu-process'
 
 gpu_ownership_nvidia_smi() {

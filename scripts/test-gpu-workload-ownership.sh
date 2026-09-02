@@ -634,5 +634,49 @@ else
     report refused orphan-cuda-child-refuses-on-the-driver
 fi
 
+# 29. The graphics-latency probe is a project client by its own name. The driver
+# reports it at type C+G, so a probe surviving one session reaches the next
+# campaign's compute-app list, and the fixture places it outside any qwen-named
+# directory so the verdict cannot come from the checkout path.
+mkdir -p "$work/probe/proc"
+printf '4101, kwin_wayland, 2510 MiB\n8100, vulkan-graphics-service-probe, 5 MiB\n' \
+    >"$work/probe/clients.csv"
+make_proc_entry "$work/probe/proc" 4101 /usr/bin/kwin_wayland kwin_wayland
+make_proc_entry "$work/probe/proc" 8100 \
+    /srv/build/vulkan-graphics-service-probe vulkan-graphics-service-probe
+status=$(SELF_PIDS='' run_case probe)
+if [ "$status" != '0' ] &&
+    grep -q 'verdict=refuse-project' "$work/probe/stdout"; then
+    report accepted graphics-probe-refuses-outside-the-checkout
+else
+    report refused graphics-probe-refuses-outside-the-checkout
+fi
+
+# 30. A non-gpu-helper row claims execution_policy=none, and the claim is read
+# out of the script rather than trusted. build-llama-cuda.sh ended with
+# `"$build_directory/bin/llama-bench" --version`, which reads like a version
+# print and is not one: llama-bench calls ggml_backend_load_all() ahead of
+# parsing argv, so a compile opened a CUDA context while its ledger row said the
+# entry point reaches no device. The scan reads a device binary standing as the
+# first word of a line, which is the shape an execution takes in these scripts;
+# a command substitution assigning one would pass it, so this establishes the
+# claim for the direct call rather than for every reachable spelling.
+device_binaries='llama-bench|llama-server|llama-cli|llama-mtmd-cli|llama-quantize'
+build_only_faults=$work/build-only-faults
+: >"$build_only_faults"
+awk -F'\t' '$2 == "non-gpu-helper" { print $1 }' "$ledger" |
+    while IFS= read -r helper; do
+        [ -f "$script_directory/$helper" ] || continue
+        grep -nE "^[[:space:]]*\"?[^ \"]*($device_binaries)\"?[[:space:]]" \
+            "$script_directory/$helper" |
+            sed "s#^#$helper:#" >>"$build_only_faults" || :
+    done
+if [ ! -s "$build_only_faults" ]; then
+    report accepted non-gpu-helper-executes-no-device-binary
+else
+    cat "$build_only_faults" >&2
+    report refused non-gpu-helper-executes-no-device-binary
+fi
+
 [ "$failures" -eq 0 ] || exit 1
-printf 'gpu_workload_ownership=accepted cases=28 lock=flock-exclusive-inherited-fd order=owner-lease-job-artifact coverage=gpu-workloads.tsv clients=driver-resolved\n'
+printf 'gpu_workload_ownership=accepted cases=30 lock=flock-exclusive-inherited-fd order=owner-lease-job-artifact coverage=gpu-workloads.tsv clients=driver-resolved\n'
