@@ -1,0 +1,104 @@
+# The coverage authority for GPU serialization. One row per entry point that
+# names a CUDA-opening command or a local wrapper of one -- llama-server,
+# llama-bench, llama-cli, llama-mtmd-cli, llama-quantize, nsys, ncu, the pinned
+# image runtime, and vulkan-graphics-service-probe -- so a new entry point that
+# reaches the device is a missing row rather than an unserialized client. A
+# regular expression over the tree grew a name at a time and answered nothing
+# about which authority a script takes; this file answers that per entry point
+# and scripts/test-gpu-workload-ownership.sh enumerates it.
+#
+# role states what the entry point is. `serving-session` and
+# `measurement-campaign` are the two top-level orchestrators, and exactly one of
+# them holds the owner lock at a time. `nested-orchestrator` launches a
+# top-level owner and drives it without holding a claim, which is what an
+# admission harness across the tmux boundary has to do. `active-workload`
+# executes compute under an owner and takes the compute lease around it.
+# `authorized-monitor` observes the device under an owner without running
+# compute; the graphics-latency probe belongs here rather than in the desktop
+# pattern, because its submissions are project-generated traffic even on the
+# graphics queue. `non-gpu-helper` names a device binary and reaches none.
+#
+# top_level_owner    the entry point calls gpu_ownership_require as the owner.
+# nested_owner_capability
+#                    it verifies an inherited QWEN_GPU_OWNERSHIP_FD when one is
+#                    present rather than opening a second claim.
+# active_compute_lease
+#                    yes takes QWEN_GPU_COMPUTE_LEASE around its compute,
+#                    exports names the file for the process that will take it.
+# may_overlap_compute
+#                    it may run beside other compute under one owner.
+# child_closes_owner_fd
+#                    its long-lived children are launched with `9>&-`. The rule
+#                    is asymmetric by role: a campaign's server must close it or
+#                    the claim outlives the campaign, and n-a marks an entry
+#                    point that leaves no long-lived child behind.
+# execution_policy   acquires, inherits, delegates, monitored, or none.
+entrypoint	role	backend	top_level_owner	nested_owner_capability	active_compute_lease	may_overlap_compute	child_closes_owner_fd	execution_policy
+cuda-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
+image-review.py	active-workload	cuda	no	yes	no	yes	no	inherits
+image-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+qwen-capacity-policy.sh	active-workload	cuda	no	yes	exports	yes	no	inherits
+qwen-router-exec-guard.sh	active-workload	cuda	no	yes	no	yes	no	inherits
+run-qwen-capacity-server.sh	active-workload	cuda	no	yes	no	yes	no	inherits
+vulkan-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
+build-vulkan-graphics-service-probe.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+check-nvidia-authority.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+gpu-state-latch.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+model-memory-preflight.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+monitor-qwen-runtime.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+sample-nvidia-clocks.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+vulkan-graphics-service-probe.c	authorized-monitor	vulkan	no	no	no	yes	n-a	monitored
+watch-qwen-kernel-hazards.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+admit-representation-row.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+probe-depth-projector.sh	measurement-campaign	cuda	yes	no	no	no	yes	acquires
+probe-filled-depth.sh	measurement-campaign	cuda	yes	no	no	no	yes	acquires
+probe-mmvq-tail-logit-margin.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+promote-llama-build.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
+run-ad104-b789-calibration.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
+run-ad104-path-audit.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
+run-cuda-baseline-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+run-cuda-dispatch-census.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+run-cuda-lever-campaign.sh	measurement-campaign	cuda	yes	no	no	no	yes	acquires
+run-graph-alias-ab.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+run-mmvq-paired-crossover.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+run-mmvq-width-request-tails.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+run-one-token-admission.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
+run-placement-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
+run-speculation-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+admit-cuda-router-serving.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-evict-first-transition.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-image-router.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-router-speculation-roster.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-web-router-fake.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+compare-model-candidate.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+measure-served-decode.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+qwen-image-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+qwen-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+qwen-web-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+qwen-webui-control.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+run-depth-ladder.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+run-guarded-webui-benchmark.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+run-quality-roster.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+run-vision-review-control.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-coding-chain.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+build-llama-cuda.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+build-llama-ui.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+build-router-presets.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+build-web-presets.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+check-tracked-artifacts.py	non-gpu-helper	none	no	no	no	yes	n-a	none
+derive-f16-artifact.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+download-ministral3-3b-q4km.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+download-qwen38-2b-distill-bf16.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+exec-profiler-clean-env.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+fetch-candidate-artifact.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+gguf-tensor-census.py	non-gpu-helper	none	no	no	no	yes	n-a	none
+gpu-workload-ownership.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+image-teardown-check.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+qwen-teardown.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+read-nsys-mat-mul-kernels.py	non-gpu-helper	none	no	no	no	yes	n-a	none
+repository-quality-gates.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+run-qwen-code.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+setup-coding-egress.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+verify-llama-patch-series.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+verify-runtime-artifacts.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+qwen-webui-session.sh	serving-session	cuda	yes	yes	no	yes	yes	acquires

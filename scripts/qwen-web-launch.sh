@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session, which takes the owner lock on
+# the far side of the tmux boundary qwen-webui-control.sh opens.
+
 # Start the appliance in router mode against the web preset file that
 # scripts/build-web-presets.sh produces, on the loopback alone.
 #

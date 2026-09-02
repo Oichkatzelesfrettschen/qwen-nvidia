@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session the control arms drive.
+# Every arm posts to a router and an artifact listener that are already running,
+# so the session holds the owner lock and this harness holds none.
+
 # Four reviews of one artifact that turn a passing verdict into a causal claim.
 # scripts/image-review.py bounds the reply's shape with a grammar and refuses
 # every other shape, so a 4/4 result states that the model answered inside the

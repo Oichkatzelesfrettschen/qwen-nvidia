@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session the roster drives.
+# The roster grades an appliance that is already serving and launches no device
+# work of its own, so the session holds the owner lock and a claim here would
+# refuse the appliance the run requires.
+
 # Grade every servable checkpoint against scripts/quality-suite.tsv through one
 # router listener, so a row's grade differs by the checkpoint alone.
 #

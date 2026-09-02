@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving chain.
+# This harness reaches the device only through qwen-launch.sh, and
+# qwen-webui-control.sh puts a tmux boundary between itself and
+# qwen-webui-session.sh. tmux starts a session from its own server process, so no
+# descriptor this harness opens reaches the capacity server on the far side.
+# run-qwen-capacity-server.sh takes the campaign lock there instead, and a claim
+# held here would refuse the very session this harness launches.
+
 # Drive one evict-first transition through the assembled chain and record the
 # device memory trajectory across it. The router at --models-max 1 already
 # serializes evict-before-load on the victim child's process exit

@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session, which takes the owner lock on
+# the far side of the tmux boundary qwen-webui-control.sh opens. The image lane
+# runs under that owner and takes the compute lease around each generation.
+
 # Start the appliance in web router mode with the image generation lane armed,
 # on the loopback alone.
 #

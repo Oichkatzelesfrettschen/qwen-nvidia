@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: none, the default chain reaches no device.
+# QWEN_CODING_ROUTER_COMMAND defaults to
+# scripts/test-fixtures/fake-router-server.py, so the admitted chain runs on the
+# workstation against a fixture and allocates nothing. Gating it on the campaign
+# authority would refuse a fixture run whenever the workstation is serving, which
+# is the case this harness is meant to be runnable in. Pointing the variable at a
+# real llama-server makes the run a campaign, and that caller takes the authority
+# around it.
+
 # Admit one full worktree-edit-test-diff-teardown chain through the router
 # surface: the router (or its fixture), the approval broker, the coding MCP
 # child, the coding-agent service, and the agent runtime (or its fixture)

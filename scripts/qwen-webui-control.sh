@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session it starts.
+# tmux starts the session from its own server process, so a descriptor opened
+# here reaches nothing; qwen-webui-session.sh opens the owner lock on that side
+# and holds it for the whole serving lifetime.
+
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     printf 'usage: %s start [default|no-graphs|no-fusion|pdl|unified]|status|stop|key\n' \
         "$0" >&2
