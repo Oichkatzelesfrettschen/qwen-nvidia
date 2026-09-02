@@ -409,6 +409,9 @@ ledger=$script_directory/gpu-workloads.tsv
 ledger_faults=$work/ledger-faults
 : >"$ledger_faults"
 ledger_rows=0
+# backend and overlap are read to consume their columns; the ledger's own
+# column count is what this loop asserts, so every field is named.
+# shellcheck disable=SC2034
 while IFS="$(printf '\t')" read -r entrypoint role backend top_level nested \
     lease overlap closes_fd policy; do
     case $entrypoint in '' | '#'* | entrypoint) continue ;; esac
@@ -497,6 +500,7 @@ split_b=$work/lease-split-b
 : >"$split_b"
 set +e
 (
+    # shellcheck source=scripts/gpu-workload-ownership.sh
     . "$authority"
     QWEN_GPU_COMPUTE_LEASE=$split_a QWEN_VULKAN_WORKLOAD_LOCK=$split_b \
         gpu_ownership_lease_path
@@ -512,6 +516,7 @@ fi
 
 # 24. One file under both names is the transition configuration and resolves.
 if (
+    # shellcheck source=scripts/gpu-workload-ownership.sh
     . "$authority"
     QWEN_GPU_COMPUTE_LEASE=$split_a QWEN_VULKAN_WORKLOAD_LOCK=$split_a \
         gpu_ownership_lease_path

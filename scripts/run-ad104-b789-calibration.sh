@@ -275,7 +275,7 @@ baseline_signatures=$(ring_signatures)
     printf 'compositor_occupancy_before_mib=%s\n' \
         "$("$nvidia_smi" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)"
     printf 'baseline_ring_signatures=%s\n' "$baseline_signatures"
-    printf 'calibration_lock=%s\n' "$calibration_lock"
+    printf 'calibration_lock=%s\n' "$(gpu_ownership_lock_path)"
     printf 'bar1_total_mib=%s bar1_used_mib_before=%s\n' \
         "$(bar1_field Total)" "$(bar1_field Used)"
     printf 'host_mapping_before=%s\n' "$(host_mapping_line)"
