@@ -108,6 +108,9 @@ scripts/test-quality-roster.sh
 scripts/test-qwen-runtime-guards.sh
 scripts/test-exec-profiler-clean-env.sh
 scripts/test-gpu-workload-ownership.sh
+scripts/test-gpu-quiescence-gate.sh
+scripts/test-mmvq-width-request-tails.sh
+scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-text-policy.py
