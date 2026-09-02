@@ -52,12 +52,23 @@ gpu_ownership_procfs() {
 # when the process exits, which is what keeps the claim over server launch,
 # cache fill, needle decode, server stop, and the post-arm health reads.
 #
-# Every long-lived child the harness launches must close it with `9>&-`. A child
-# inherits the open descriptor and therefore the lock, so a server that outlives
-# the probe holds the claim against the next campaign; that leak made a second
-# probe exit 75 against a device nothing was using.
+# Every long-lived child the harness launches must close it with `9>&-`. The
+# open descriptor is a transferable capability rather than a record of a past
+# decision: a child inherits it, holds the lock through it, and satisfies the
+# inherited-descriptor check gpu_ownership_require performs, so a server that
+# outlives the probe both holds the claim against the next campaign and carries
+# the ownership grant into whatever it launches; that leak made a second probe
+# exit 75 against a device nothing was using.
+
+# One resolution of the lock path serves both the acquire path and the
+# inherited-descriptor comparison, so an explicit argument or
+# QWEN_GPU_OWNERSHIP_LOCK names the same file in each.
+gpu_ownership_lock_path() {
+    printf '%s\n' "${1:-${QWEN_GPU_OWNERSHIP_LOCK:-$GPU_OWNERSHIP_LOCK_DEFAULT}}"
+}
+
 gpu_ownership_acquire() {
-    gpu_ownership_lock_path=${1:-${QWEN_GPU_OWNERSHIP_LOCK:-$GPU_OWNERSHIP_LOCK_DEFAULT}}
+    gpu_ownership_lock_path=$(gpu_ownership_lock_path "${1:-}")
     exec 9>"$gpu_ownership_lock_path"
     if ! flock -n 9; then
         printf 'refused: another qwen CUDA campaign owns GPU 0 (lock %s)\n' \
@@ -68,18 +79,89 @@ gpu_ownership_acquire() {
     return 0
 }
 
-# Take the claim where no ancestor holds it, and inspect either way. A campaign
-# that already acquired the lock exports QWEN_GPU_OWNERSHIP_HELD, because flock
-# is per-process: a nested sweep asking for the same path would be refused by the
-# very campaign that launched it. The inspection is unconditional, since external
+# Prove that an inherited descriptor is the campaign lock and that the lock is
+# held. QWEN_GPU_OWNERSHIP_FD names the descriptor number an ancestor opened on
+# the lock path and locked, and each check below establishes one property and
+# refuses one forgery:
+#
+#   shape       the value is a decimal integer, so it reaches /proc/self/fd and
+#               the flock argv as a descriptor number rather than as a path
+#               fragment or an option.
+#   open        /proc/self/fd/N resolves, so the descriptor exists in this
+#               process. This refuses the bare marker the boolean was: a caller
+#               who exports the variable and opens nothing is rejected here.
+#   identity    `stat -L -c %d:%i` of /proc/self/fd/N equals that of the lock
+#               path, so the descriptor refers to the lock file itself by device
+#               and inode. This refuses a descriptor open on some other file,
+#               which is otherwise open, lockable, and meaningless.
+#   held        a fresh `flock -n` on a separate open of the lock path fails, so
+#               some open file description exclusively holds the lock. This
+#               refuses an unlocked open of the right file, and it runs before
+#               the next check because `flock -n N` on an unlocked inherited
+#               descriptor would acquire the lock and manufacture the very
+#               holder this check looks for.
+#   ours        `flock -n N` succeeds, so the holder is reachable through this
+#               descriptor rather than being a foreign campaign: flock(2) grants
+#               a request that the calling open file description already holds
+#               and refuses one another description holds. This refuses a second
+#               unlocked open of the lock file made while a foreign campaign
+#               holds it.
+#
+# The pair proves that the lock is held and that this descriptor's own
+# description holds it; the open file description is compared by its lock
+# behavior rather than by an identity the kernel exports. Any failure refuses
+# with a named reason and the caller exits 75, and an unset variable takes the
+# acquire path instead. The inspection is unconditional, since external
 # interference is what each nested stage still has to rule out.
+gpu_ownership_verify_inherited() {
+    gpu_ownership_verify_path=$1
+    gpu_ownership_verify_fd=${QWEN_GPU_OWNERSHIP_FD:-}
+    case $gpu_ownership_verify_fd in
+        '' | *[!0-9]*)
+            printf 'refused: QWEN_GPU_OWNERSHIP_FD is not a descriptor number: %s\n' \
+                "$gpu_ownership_verify_fd" >&2
+            return 1
+            ;;
+    esac
+    gpu_ownership_verify_link=/proc/self/fd/$gpu_ownership_verify_fd
+    if [ ! -e "$gpu_ownership_verify_link" ]; then
+        printf 'refused: descriptor %s is closed in this process (%s)\n' \
+            "$gpu_ownership_verify_fd" "$gpu_ownership_verify_link" >&2
+        return 1
+    fi
+    gpu_ownership_verify_fd_id=$(stat -L -c '%d:%i' \
+        "$gpu_ownership_verify_link" 2>/dev/null || printf 'unreadable')
+    gpu_ownership_verify_path_id=$(stat -L -c '%d:%i' \
+        "$gpu_ownership_verify_path" 2>/dev/null || printf 'absent')
+    if [ "$gpu_ownership_verify_fd_id" != "$gpu_ownership_verify_path_id" ] ||
+        [ "$gpu_ownership_verify_fd_id" = unreadable ]; then
+        printf 'refused: descriptor %s inode mismatch: fd=%s lock=%s (%s)\n' \
+            "$gpu_ownership_verify_fd" "$gpu_ownership_verify_fd_id" \
+            "$gpu_ownership_verify_path_id" "$gpu_ownership_verify_path" >&2
+        return 1
+    fi
+    if flock -n -x "$gpu_ownership_verify_path" true 2>/dev/null; then
+        printf 'refused: the campaign lock is unheld: %s\n' \
+            "$gpu_ownership_verify_path" >&2
+        return 1
+    fi
+    if ! flock -n "$gpu_ownership_verify_fd"; then
+        printf 'refused: descriptor %s does not hold the campaign lock: %s\n' \
+            "$gpu_ownership_verify_fd" "$gpu_ownership_verify_path" >&2
+        return 1
+    fi
+    return 0
+}
+
 gpu_ownership_require() {
-    if [ -z "${QWEN_GPU_OWNERSHIP_HELD:-}" ]; then
-        gpu_ownership_acquire "${1:-}" || return $?
-        QWEN_GPU_OWNERSHIP_HELD=1
-        export QWEN_GPU_OWNERSHIP_HELD
+    gpu_ownership_require_path=$(gpu_ownership_lock_path "${1:-}")
+    if [ -z "${QWEN_GPU_OWNERSHIP_FD:-}" ]; then
+        gpu_ownership_acquire "$gpu_ownership_require_path" || return $?
+        QWEN_GPU_OWNERSHIP_FD=9
+        export QWEN_GPU_OWNERSHIP_FD
     else
-        printf 'gpu_ownership_lock=inherited\n'
+        gpu_ownership_verify_inherited "$gpu_ownership_require_path" || return 75
+        printf 'gpu_ownership_lock=inherited fd=%s\n' "$QWEN_GPU_OWNERSHIP_FD"
     fi
     gpu_ownership_inspect
 }
@@ -187,8 +269,9 @@ case ${0##*/} in
         case ${1:-} in
             inspect) gpu_ownership_inspect ;;
             acquire) gpu_ownership_acquire "${2:-}" && gpu_ownership_inspect ;;
+            require) gpu_ownership_require "${2:-}" ;;
             *)
-                printf 'usage: %s inspect|acquire [LOCK_PATH]\n' "$0" >&2
+                printf 'usage: %s inspect|acquire|require [LOCK_PATH]\n' "$0" >&2
                 exit 2
                 ;;
         esac
