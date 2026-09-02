@@ -113,8 +113,39 @@ arm whose executed family differs from the matrix expectation;
 mixed forward pass where Q4_K runs MMQ beside Q6_K on MMVQ.
 `GGML_CUDA_FORCE_CUBLAS` is the one build-time flag that reaches the same
 decision, at `mmq.cu:260`, and `QWEN_FORCE_CUBLAS=ON` builds that tree.
+Three candidate-patch levers move a dispatch threshold from
+`scripts/build-llama-cuda.sh`, and each takes the route its own patch opens.
+`QWEN_CUDA_MMVQ_Q6K_MAX` and `QWEN_CUDA_MMVQ_Q8_0_MAX` ride cmake cache
+entries, because `llama-cuda-mmvq-crossover-ad104.patch` carries a
+`ggml/src/ggml-cuda/CMakeLists.txt` hunk bridging each entry into a compile
+definition. `QWEN_CUDA_MMQ_TILING_PERCENT` rides `CMAKE_CUDA_FLAGS`, because
+`llama-cuda-mmq-stream-k-grid.patch` touches `mmq.cuh` alone and its `#ifndef`
+reads a preprocessor macro no cache entry reaches. All three enter the
+configuration digest, so two closures differing by one threshold carry
+different build directories and different names. The tiling default of 90
+reproduces the upstream stream-K grid selection and builds against any tree; a
+value beside 90 against a tree whose `mmq.cuh` lacks the macro is refused by
+name, since an ignored `-D` would give a subject closure the control's
+dispatch.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
+
+Stream-K is the MMQ decomposition on this device rather than a decision:
+`ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
+Volta or later into the Ampere table and all 352 of its `CASE` rows set
+`stream_k` true. What varies at run time is the grid at `mmq.cuh:1436`, which
+takes the destination tile count where tiling efficiency reaches 90% and the
+multiprocessor count otherwise, and `fixup_needed` at `mmq.cuh:1440`, which
+holds where the tile count fails to divide that grid and launches
+`mul_mat_q_stream_k_fixup` at `mmq.cuh:1463` over the partial tiles
+`write_back` sent to `tmp_fixup` at `mmq.cuh:936`.
+`patches/llama-cuda-mmq-stream-k-grid.patch` makes that 90 a build-configured
+value on Ada Lovelace alone, `scripts/ad104-stream-k-matrix.tsv` is the arm
+matrix `run-ad104-path-audit.sh` reads for it, and
+`evidence/ada/mmq-stream-k-grid/` preregisters the campaign. Nothing is
+measured yet: the fixup pass reorders floating-point accumulation, so exact
+greedy token identity is tested rather than promised and failing it rejects the
+candidate the way `evidence/ada/mmvq-q8-b17-b20/` rejected the MMVQ width.
 
 A move of that crossover is measured as pairs.
 `scripts/run-mmvq-paired-crossover.sh` compares two llama-bench closures width
@@ -721,13 +752,27 @@ that log: the listing and the search post name the router port with the
 model beside the tool, the grant comes from the broker, no request leaves
 those two origins, and the transcript carries the Result ID. A router
 serving any other page fails the run. The generated MCP configuration
-carries the names `server.py` reads -- `QWEN_WEB_EXA_KEY_FILE`,
-`QWEN_WEB_FAKE_FIXTURES`, `QWEN_WEB_MAX_FETCHES_PER_SEARCH`,
-`QWEN_WEB_MAX_RESULTS`, `QWEN_WEB_MAX_CHARS_PER_FETCH` -- so the ledger's
-per-profile budgets bound the child rather than describing it, and its
-`timeout_ms` of 30000 sits between the provider's 20 s request timeout inside
-`server.py` and the router's 3600 s proxy read timeout, so a stalled provider
-is answered by the child's own deadline rather than abandoned by the router.
+carries the names `server.py` reads -- `QWEN_WEB_PROFILE`,
+`QWEN_WEB_PROVIDER`, `QWEN_WEB_MAX_RESULTS`,
+`QWEN_WEB_MAX_FETCHES_PER_SEARCH`, `QWEN_WEB_MAX_CHARS_PER_FETCH`,
+`QWEN_WEB_SEARCH_AUTH` written as `required`, `QWEN_WEB_STATE_DIR`, the
+optional `QWEN_WEB_TOKEN_KEY_FILE`, and the one provider key the `case` on
+`QWEN_WEB_PROVIDER` selects: `QWEN_WEB_FAKE_FIXTURES`, the
+`QWEN_WEB_SEARXNG_*` instance and category set, or `QWEN_WEB_EXA_KEY_FILE`
+-- so the ledger's per-profile budgets bound the child rather than describing
+it, and its `timeout_ms` of 30000 sits between the provider's 20 s request
+timeout inside `server.py` and the router's 3600 s proxy read timeout, so a
+stalled provider is answered by the child's own deadline rather than abandoned
+by the router. `server.py` reads six further names from its own environment
+that the generator emits for no section: `QWEN_WEB_DAILY_BUDGET`,
+`QWEN_WEB_DAILY_PAGE_BUDGET`, `QWEN_WEB_SEARCH_PER_MINUTE`,
+`QWEN_WEB_FETCH_PER_MINUTE`, `QWEN_WEB_TOKEN_LIFETIME_SECONDS`, and
+`QWEN_WEB_RATE_WINDOW_EPOCH`, which pins the instant every rate bucket floors
+its window from so a harness spending one allowance across several spawned
+children measures the limit rather than a wall-clock boundary.
+`_resolve_pinned_rate_window` returns `None` unless `QWEN_WEB_PROVIDER` reads
+`fake`, so the epoch is inert against a served profile naming `exa` or
+`searxng`.
 
 An image generation reaches the device the way a search reaches the network,
 and one lease separates the two. `scripts/image_protocol.py` freezes the job
@@ -1125,48 +1170,94 @@ qwen-coder account the host holds, `runner` reports both `not_run` with reason
 `runner_host` because a GitHub runner carries no such principal, and any other
 value is a usage error.
 
-Tests are standalone POSIX shell scripts that exit non-zero on failure. Run one
-directly:
+Tests are standalone scripts that exit non-zero on failure, invoked directly, or
+through `python3`, or through `node`. `scripts/repository-quality-gates.sh` runs
+the clone-local set unattended and its header states the boundary: hardware,
+model files, and the pinned llama.cpp source are separate integration surfaces,
+so the gate runs only tests whose complete fixtures live in this repository.
+Beside these tests it runs `sh -n` or `bash -n` over every `scripts/*.sh`,
+`shellcheck -S warning`, `ruff check scripts`, the authority verifiers
+`check-nvidia-authority.sh`, `check-validated-tuples.sh`, and
+`check-authority-consistency.py`, `refresh-evidence-manifest.sh --check`, and
+the two text and artifact policy checks. The list below is in gate order, so a
+member added to the script and left undocumented shows up as a diff between the
+two:
 
 ```sh
-scripts/test-qwen-runtime-guards.sh
-scripts/test-repository-quality-gates-host-role.sh
-scripts/test-model-registry.sh
-scripts/test-model-tiers.sh
-scripts/test-strict-cuda-placement-fixture.sh
-scripts/test-dispatch-census-summary.sh
-python3 scripts/test-read-nsys-mat-mul-kernels.py
-scripts/test-probe-depth-projector.sh
-scripts/test-web-presets.sh
-scripts/test-qwen-web-launch.sh
-scripts/test-image-registry.sh
-scripts/test-qwen-image-launch.sh
-scripts/test-admit-image-router.sh
-scripts/test-vulkan-workload-lease.sh
-scripts/test-exec-idle-priority.sh
-scripts/test-gpu-state-latch.sh
-scripts/test-fallback-webui-image-authorization.sh
-python3 scripts/test-image-protocol.py
-python3 scripts/test-image-service.py
-python3 scripts/image-mcp/test-image-mcp.py
-python3 scripts/test-image-review.py
-python3 scripts/web-mcp/test-fallback-page-image.py
-scripts/test-quality-suite.py
-scripts/test-quality-roster.sh
-scripts/test-promote-llama-build.sh
-scripts/generate-quality-images.py --check
-scripts/test-gguf-tokenizer-identity.py
-scripts/test-admit-candidate-static.py
+python3 scripts/test-quality-suite.py
+python3 scripts/test-regrade-quality-roster.py
+python3 scripts/test-gguf-tokenizer-identity.py
+python3 scripts/test-admit-candidate-static.py
+python3 scripts/test-verify-representation-pair.py
+python3 scripts/web-mcp/test-web-mcp.py
+python3 scripts/web-mcp/test-authorize-broker.py
+scripts/test-fallback-webui-model-selection.sh
+scripts/test-fallback-webui-web-authorization.sh
+scripts/test-fallback-webui-code-authorization.sh
+scripts/test-web-tools-roundtrip.sh
+node scripts/test-fallback-webui-model-state.mjs
 scripts/test-one-token-admission.sh
 scripts/test-fetch-candidate-artifact.sh
-scripts/test-run-graph-alias-ab.sh
+scripts/test-model-registry.sh
+scripts/test-model-tiers.sh
+scripts/test-exec-idle-priority.sh
+python3 scripts/test-authority-consistency.py
+scripts/test-qwen-code-pin.sh
+scripts/test-coding-principal.sh            # appliance host role alone
+python3 scripts/test-coding-agent-service.py
+python3 scripts/coding-mcp/test-coding-mcp.py
+scripts/test-coding-agent-launch.sh
+scripts/test-coding-principal-path.sh       # appliance host role alone
+scripts/test-admit-coding-chain.sh
+scripts/test-projector-fetch-dispatch.sh
+scripts/test-projector-pairing.sh
+scripts/test-probe-depth-projector.sh
+scripts/test-promote-llama-build.sh
+scripts/test-qwen-launch-router-preflight.sh
+scripts/test-qwen-capacity-policy.sh
+scripts/test-web-presets.sh
+scripts/test-qwen-web-launch.sh
+scripts/test-prepare-llama-vulkan-source.sh
+scripts/test-qwen-session-signals.sh
+scripts/test-admit-web-router-fake.sh
+scripts/test-quality-roster.sh
+scripts/test-qwen-runtime-guards.sh
+scripts/test-exec-profiler-clean-env.sh
+scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
+python3 scripts/test-read-nsys-mat-mul-kernels.py
+scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
-scripts/verify-llama-patch-series.sh
+scripts/test-repository-quality-gates-host-role.sh
+```
+
+These tests run by hand, and each entry names why the gate leaves it out. A
+lane held outside the unattended set is a scoping choice rather than a
+technical barrier, and the entry says so where that is the whole reason:
+
+```sh
+scripts/test-strict-cuda-placement-fixture.sh    # device-placement lane, held outside the unattended set
+scripts/test-dispatch-census-summary.sh          # dispatch-census lane, held outside the unattended set
+scripts/test-gpu-state-latch.sh                  # driver-failure latch lane, held outside the unattended set
+scripts/test-run-graph-alias-ab.sh               # graph-alias lane, held outside the unattended set
+scripts/generate-quality-images.py --check       # vision fixtures, held outside the unattended set
+scripts/test-image-registry.sh                   # image lane, held outside the unattended set
+scripts/test-qwen-image-launch.sh                # image lane, held outside the unattended set
+scripts/test-admit-image-router.sh               # image lane, held outside the unattended set
+scripts/test-fallback-webui-image-authorization.sh  # image lane, held outside the unattended set
+python3 scripts/test-image-protocol.py           # image lane, held outside the unattended set
+python3 scripts/test-image-service.py            # image lane, held outside the unattended set
+python3 scripts/image-mcp/test-image-mcp.py      # image lane, held outside the unattended set
+python3 scripts/test-image-review.py             # image lane, held outside the unattended set
+python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
+scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
+scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
+                                                 # the same source tree, candidate patches included
 GGUF_PY_PATH=~/src/llama.cpp-qwen-nvidia/gguf-py \
     scripts/test-gguf-tensor-census.py [MODEL...]
+                                                 # needs the pinned gguf-py, and GGUF files for the optional arms
 ```
 
 `scripts/test-fixtures/fake-llama-server.sh` stands in for the real server so a

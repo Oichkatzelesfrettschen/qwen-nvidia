@@ -1,0 +1,39 @@
+diff --git a/ggml/src/ggml-cuda/mmq.cuh b/ggml/src/ggml-cuda/mmq.cuh
+index 2eb15fdfa..937d40335 100644
+--- a/ggml/src/ggml-cuda/mmq.cuh
++++ b/ggml/src/ggml-cuda/mmq.cuh
+@@ -6,6 +6,18 @@
+ #include <cstdint>
+ 
+ #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
++// The tiling efficiency at which the stream-k launcher sets one CUDA block per
++// destination tile rather than one per multiprocessor. Reaching it makes the
++// tile count divide the grid, so fixup_needed is false and the reduction pass
++// is skipped. The threshold is build-configurable on Ada Lovelace alone, so a
++// control and a subject closure differ by one named value and the default of
++// 90 reproduces the upstream selection on every part.
++#ifndef GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT
++#define GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT 90
++#endif
++static_assert(GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT >= 1 &&
++    GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT <= 100,
++    "the Ada tiling threshold names a percentage the efficiency can reach");
+ #define MMQ_ITER_K             256
+ #define MMQ_ITER_K_FP4         512
+ #define MMQ_NWARPS               8
+@@ -1433,7 +1445,14 @@ static void launch_mul_mat_q(ggml_backend_cuda_context & ctx, const mmq_args & a
+     const int ntiles_dst = ntx * nty * ntzw;
+     const int tiles_nwaves = (ntiles_dst + nsm - 1) / nsm;
+     const int tiles_efficiency_percent = 100 * ntiles_dst / (nsm*tiles_nwaves);
+-    const dim3 block_nums_stream_k(GGML_CUDA_CC_IS_NVIDIA(cc) && tiles_efficiency_percent >= 90 ? ntiles_dst : nsm, 1, 1);
++    // Ada Lovelace reads the build-configured threshold and every other part
++    // reads the upstream 90, on the compute-capability guard
++    // ggml_cuda_should_use_mmvq takes at mmvq.cu:295.
++    const int tiles_efficiency_threshold_percent =
++        GGML_CUDA_CC_IS_NVIDIA(cc) && cc == GGML_CUDA_CC_ADA_LOVELACE ?
++        GGML_CUDA_ADA_MMQ_TILING_EFFICIENCY_PERCENT : 90;
++    const dim3 block_nums_stream_k(GGML_CUDA_CC_IS_NVIDIA(cc) &&
++        tiles_efficiency_percent >= tiles_efficiency_threshold_percent ? ntiles_dst : nsm, 1, 1);
+ 
+     GGML_ASSERT(ntiles_dst * blocks_per_ne00_fd.z < (1 << 30)); // Assert that variable kbc will not overflow.
+ 

@@ -188,6 +188,25 @@ check, and one strict CUDA0 load
 (`evidence/ada/representation-admission/qwen35-08b-bf16/`), at tier candidate
 with its ceiling at 8192 and every rate field empty.
 
+### The stream-K grid threshold
+
+`evidence/ada/mmq-stream-k-grid/` preregisters the next arm on that dispatch
+and no part of it has run. `patches/llama-cuda-mmq-stream-k-grid.patch` gates
+the tiling-efficiency threshold at `mmq.cuh:1436` on
+`cc == GGML_CUDA_CC_ADA_LOVELACE` and defaults it to the upstream 90, so an
+unpatched tree and every other part keep their selection, and
+`scripts/verify-llama-patch-series.sh` carries it last among the candidates
+with `ggml/src/ggml-cuda/mmq.cuh` added to the digest list it is the first
+candidate to rewrite. `scripts/ad104-stream-k-matrix.tsv` carries thirteen arms
+at `ne11` 17 -- the first width at which Q4_K, Q6_K, and Q8_0 all reach MMQ
+under the promoted thresholds -- across four closures differing by that one
+value: the promoted control, the patch inert at 90, the candidate at 80, and 1,
+where every shape takes the tiling grid and no fixup launches. The regimes are
+fixed from the artifacts' own tensor shapes, which is what makes the 4B at 80 a
+null: it carries no 48-tile class for that threshold to flip. The open work is
+three builds, the audit, and the identity gate, which the accumulation reorder
+is expected to fail.
+
 ## Device ownership for depth campaigns
 
 `scripts/gpu-workload-ownership.sh` is the authority the depth probes take, and

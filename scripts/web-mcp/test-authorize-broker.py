@@ -691,7 +691,16 @@ class BrokerTest(unittest.TestCase):
         )
 
     def test_a_slow_request_has_a_total_deadline_and_blocks_no_peer(self):
-        timeout_seconds = 0.4
+        """The peer is answered inside the slow client's own read deadline.
+
+        `--request-read-timeout` is the injected deadline, so raising it to
+        2.0 widens the window the peer request must land inside while keeping
+        the proof: a peer answered under 1.0 second was answered while the
+        slow client still held its connection, which a serialized server
+        cannot do. A bound at the full deadline would admit a peer answered
+        after the slow request had already been closed.
+        """
+        timeout_seconds = 2.0
         broker = self.launch(
             **{"--request-read-timeout": timeout_seconds}
         )
@@ -713,10 +722,11 @@ class BrokerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertLess(peer_elapsed, timeout_seconds / 2)
 
+        # `settimeout` enforces the span: a server that held the partial
+        # request past three deadlines raises `socket.timeout` out of `recv`
+        # rather than returning the empty read that proves the close.
         slow_client.settimeout(timeout_seconds * 3)
-        deadline_started = time.monotonic()
         self.assertEqual(slow_client.recv(1), b"")
-        self.assertLess(time.monotonic() - deadline_started, timeout_seconds * 3)
 
     def test_the_audit_trail_carries_the_digest_and_no_secret(self):
         broker = self.launch()

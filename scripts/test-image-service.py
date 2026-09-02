@@ -541,8 +541,19 @@ class ImageServiceTest(unittest.TestCase):
         self.assertTrue(session.lease_is_free())
 
     def test_hang_reaches_the_timeout_and_the_kill(self):
-        """A runtime ignoring SIGTERM is ended by SIGKILL after the grace."""
-        profiles = {"sdxs-512-a": build_profile(FAKE_RUNTIME_PATH, timeout_s=2)}
+        """A runtime ignoring SIGTERM is ended by SIGKILL after the grace.
+
+        `reason` and the lower bound carry the timeout itself. The upper bound
+        guards the SIGKILL escalation instead: the job deadline the profile
+        injects plus `image-service.py`'s own
+        `TERMINATION_GRACE_SECONDS` of 5.0 is the whole span, and the twenty
+        seconds over it absorb host scheduling while still landing inside the
+        control socket's REQUEST_SECONDS so an escalation that never fired is
+        read here rather than as a socket timeout.
+        """
+        timeout_s = 2
+        runtime_termination_grace_seconds = 5.0
+        profiles = {"sdxs-512-a": build_profile(FAKE_RUNTIME_PATH, timeout_s=timeout_s)}
         session = self.start(
             profiles=profiles,
             runtime_environment={"QWEN_FAKE_IMAGE_MODE": "hang"},
@@ -552,8 +563,8 @@ class ImageServiceTest(unittest.TestCase):
         elapsed = time.time() - started
         self.assertEqual(response["status"], "failed", response)
         self.assertEqual(response["reason"], "runtime_timeout")
-        self.assertGreaterEqual(elapsed, 2.0)
-        self.assertLess(elapsed, 40.0)
+        self.assertGreaterEqual(elapsed, float(timeout_s))
+        self.assertLess(elapsed, timeout_s + runtime_termination_grace_seconds + 20.0)
         self.assertTrue(session.lease_is_free())
         self.assertEqual(
             [name for name in os.listdir(session.artifact_directory())
