@@ -17,6 +17,33 @@ set -eu
 # Source this file to use gpu_ownership_acquire and gpu_ownership_inspect, or
 # run it with `inspect` to read the classification alone.
 
+# Four kernel locks order this device and the order is fixed: the top-level owner
+# lock this file holds, then the active-compute lease, then a service-local job
+# lock, then an artifact or output lock. Each level is acquired while holding the
+# levels above it and released before them.
+#
+# The owner lock is held for the whole lifetime of exactly one top-level
+# orchestrator -- one serving session, one measurement campaign, or one
+# standalone image, PhysX, or OptiX campaign. The compute lease at
+# $QWEN_GPU_COMPUTE_LEASE is inner because it covers work that intentionally
+# coexists under one serving session: model load, evaluation and decode, image
+# load and generation, vision review, and the PhysX, OptiX, and TensorRT
+# execution that follows. It leaves out the broker, the HTTP listener, telemetry,
+# the kernel watcher, ordinary file work, an idle resident process, and the
+# graphics-latency monitor, none of which run active compute.
+#
+# The order follows from how each acquire behaves rather than from granularity.
+# The lease acquire blocks on a bounded deadline while the owner lock refuses at
+# once with status 75, so a blocking acquire taken above a contended non-blocking
+# lock converts a refusal into a wait the refusal exists to replace, and the lease
+# is taken and released many times inside one owner hold.
+#
+# gpu_ownership_assert_order enforces the one inversion that can be constructed:
+# a process holding the compute lease and then asking for the owner lock. It runs
+# on the acquire path and refuses deterministically rather than waiting.
+# Inheriting the owner lock and then taking the lease is the sanctioned sequence,
+# so the check never fires on the inherited path.
+
 GPU_OWNERSHIP_LOCK_DEFAULT=/tmp/qwen-ad104-gpu-0.lock
 
 # A project workload is the confound a campaign exists to remove, so its pattern
@@ -52,7 +79,14 @@ gpu_ownership_procfs() {
 # when the process exits, which is what keeps the claim over server launch,
 # cache fill, needle decode, server stop, and the post-arm health reads.
 #
-# Every long-lived child the harness launches must close it with `9>&-`. The
+# Which children close the descriptor follows from which process is the device
+# client, and the two lanes answer oppositely. A measurement harness closes it
+# on every long-lived child with `9>&-`, because the harness itself is the
+# campaign and a child outliving it holds the claim against the next one. The
+# serving chain keeps it open all the way to llama-server, because there the
+# server's own residency is the claim and the harness process is gone by then.
+#
+# Every long-lived child a harness launches must close it with `9>&-`. The
 # open descriptor is a transferable capability rather than a record of a past
 # decision: a child inherits it, holds the lock through it, and satisfies the
 # inherited-descriptor check gpu_ownership_require performs, so a server that
@@ -67,8 +101,74 @@ gpu_ownership_lock_path() {
     printf '%s\n' "${1:-${QWEN_GPU_OWNERSHIP_LOCK:-$GPU_OWNERSHIP_LOCK_DEFAULT}}"
 }
 
+# The active-compute lease path. QWEN_GPU_COMPUTE_LEASE is the name; the lease
+# carried QWEN_VULKAN_WORKLOAD_LOCK while Vulkan was the only accelerated path
+# this tree had, and that name is accepted for one transition release only where
+# both variables resolve to the same file by device and inode. A configuration
+# naming two different files is refused rather than silently serialized on one of
+# them, because two lease inodes is the split this rename exists to prevent.
+gpu_ownership_lease_path() {
+    gpu_ownership_lease_new=${QWEN_GPU_COMPUTE_LEASE:-}
+    gpu_ownership_lease_legacy=${QWEN_VULKAN_WORKLOAD_LOCK:-}
+    if [ -n "$gpu_ownership_lease_new" ] && [ -n "$gpu_ownership_lease_legacy" ]; then
+        gpu_ownership_lease_new_id=$(stat -L -c '%d:%i' \
+            "$gpu_ownership_lease_new" 2>/dev/null || printf 'absent-new')
+        gpu_ownership_lease_legacy_id=$(stat -L -c '%d:%i' \
+            "$gpu_ownership_lease_legacy" 2>/dev/null || printf 'absent-legacy')
+        if [ "$gpu_ownership_lease_new_id" != "$gpu_ownership_lease_legacy_id" ] &&
+            [ "$gpu_ownership_lease_new" != "$gpu_ownership_lease_legacy" ]; then
+            printf 'refused: QWEN_GPU_COMPUTE_LEASE and QWEN_VULKAN_WORKLOAD_LOCK name two files: %s (%s) and %s (%s)\n' \
+                "$gpu_ownership_lease_new" "$gpu_ownership_lease_new_id" \
+                "$gpu_ownership_lease_legacy" "$gpu_ownership_lease_legacy_id" >&2
+            return 1
+        fi
+    fi
+    if [ -n "$gpu_ownership_lease_new" ]; then
+        printf '%s\n' "$gpu_ownership_lease_new"
+        return 0
+    fi
+    if [ -n "$gpu_ownership_lease_legacy" ]; then
+        printf '%s\n' "$gpu_ownership_lease_legacy"
+        return 0
+    fi
+    # The fallback names the file image-service.py's LEASE_FILE_NAME and
+    # qwen-capacity-policy.sh both resolve under the session state directory. The
+    # session takes the owner lock above the policy, so neither lease variable is
+    # set yet at the one acquire where the order check has to fire; a fallback
+    # naming any other basename would stat a file that never exists and return
+    # no violation. scripts/test-vulkan-workload-lease.sh compares the three.
+    printf '%s/vulkan-workload.lock\n' \
+        "${QWEN_WEBUI_STATE_DIRECTORY:-${HOME:-/nonexistent}/qwen-webui-state}"
+}
+
+# Refuse the owner lock to a caller already inside the compute lease. Every
+# descriptor this process holds is compared against the lease file by device and
+# inode, the same identity comparison gpu_ownership_verify_inherited applies to
+# the owner lock, so an inherited lease descriptor is caught as well as one this
+# process opened. The refusal is immediate, which is what keeps the inversion a
+# named error rather than a wait. An absent lease file is no violation, since a
+# workstation that has never served has nothing to invert against.
+gpu_ownership_assert_order() {
+    gpu_ownership_order_lease=$(gpu_ownership_lease_path) || return 1
+    [ -e "$gpu_ownership_order_lease" ] || return 0
+    gpu_ownership_order_lease_id=$(stat -L -c '%d:%i' \
+        "$gpu_ownership_order_lease" 2>/dev/null || printf 'absent')
+    [ "$gpu_ownership_order_lease_id" != absent ] || return 0
+    for gpu_ownership_order_link in /proc/self/fd/*; do
+        [ -e "$gpu_ownership_order_link" ] || continue
+        gpu_ownership_order_id=$(stat -L -c '%d:%i' \
+            "$gpu_ownership_order_link" 2>/dev/null || printf 'unreadable')
+        [ "$gpu_ownership_order_id" = "$gpu_ownership_order_lease_id" ] || continue
+        printf 'refused: lock order inversion: descriptor %s already holds the GPU compute lease %s, which is inner to the owner lock\n' \
+            "${gpu_ownership_order_link##*/}" "$gpu_ownership_order_lease" >&2
+        return 1
+    done
+    return 0
+}
+
 gpu_ownership_acquire() {
     gpu_ownership_lock_path=$(gpu_ownership_lock_path "${1:-}")
+    gpu_ownership_assert_order || return 75
     exec 9>"$gpu_ownership_lock_path"
     if ! flock -n 9; then
         printf 'refused: another qwen CUDA campaign owns GPU 0 (lock %s)\n' \

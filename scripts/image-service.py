@@ -41,6 +41,25 @@ the two lanes exclude each other through the kernel once that candidate patch
 is admitted on the appliance; a server built without it leaves this an
 image-side lease that serializes generations against each other alone.
 
+This lease is second in a fixed order of four: the top-level owner lock in
+`scripts/gpu-workload-ownership.sh`, then this active-compute lease, then the
+service-local job lock, then the artifact lock. The order follows from how each
+acquire behaves. This acquire blocks on a bounded deadline while the owner lock
+refuses at once with status 75, and the lease is taken and released once per job
+inside one owner hold. The service takes no owner lock and never inherits one:
+`qwen-webui-session.sh` owns the serving lifetime and starts this service with
+`9>&-`, so an image service that outlives a teardown holds no claim over the next
+session. `gpu_ownership_assert_order` refuses the one inversion that can be
+constructed -- acquiring the owner lock from a process already holding a
+descriptor on this lease -- deterministically rather than waiting.
+
+The lease covers model load, evaluation and decode, image load and generation,
+vision review, and the PhysX, OptiX, and TensorRT execution that follows. It
+leaves out the broker, the HTTP listener, telemetry, the kernel watcher, ordinary
+file work, an idle resident process, and the graphics-latency monitor.
+`QWEN_GPU_COMPUTE_LEASE` is the name and `QWEN_VULKAN_WORKLOAD_LOCK` is accepted
+beside it for one transition release where both resolve to one file.
+
 Two seams are injected because two other lanes own them. `--verifier
 MODULE:FUNCTION` names the signed-request verifier, whose contract is
 `verify(request) -> profile_parameters`: it receives the whole request

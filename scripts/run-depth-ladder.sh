@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session.
+# This harness starts qwen-webui-session.sh, which is the top-level GPU owner and
+# takes the owner lock itself for the whole serving lifetime. The harness holds
+# no claim of its own -- one would refuse the session it launched -- and instead
+# waits for the `gpu_owner` line the session writes to session.status as proof
+# that the lock is held, then drives its arms through that session.
+
 # Drive the exact-token prefill ladder against a single guarded server load.
 # One model load serves every rung, so the retained per-rung timings differ
 # only by prompt depth rather than by allocation or warm-up state.
@@ -83,10 +90,6 @@ if [ ! -x "$llama_server" ] || [ ! -f "$model_path" ] || [ ! -s "$corpus" ]; the
     printf 'server, model, and corpus must exist before a ladder run\n' >&2
     exit 2
 fi
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'another llama-server process is already running\n' >&2
-    exit 2
-fi
 
 for depth in $depths; do
     case $depth in
@@ -118,6 +121,8 @@ ready=0
 attempt=0
 while [ "$attempt" -lt 6000 ]; do
     if grep -F 'state=running ' "$state_directory/session.status" \
+        >/dev/null 2>&1 && \
+       grep -F 'gpu_owner lock=' "$state_directory/session.status" \
         >/dev/null 2>&1 && \
        curl --silent --fail "http://127.0.0.1:$server_port/health" \
         >/dev/null 2>&1; then

@@ -179,6 +179,15 @@ if [ ! -f "$promotion_vision_model" ] || [ ! -f "$promotion_projector" ] ||
     exit 1
 fi
 
+# Both smoke stages below load a model onto the named device with one token
+# decoded through it, so promotion takes the campaign authority. It is taken here
+# rather than at argument validation because everything above reads files: the
+# closure hash, the manifest comparison, and the backend-library check answer
+# without the device, and a build inspected while the workstation serves stays
+# answerable.
+. "$script_directory/gpu-workload-ownership.sh"
+gpu_ownership_require || exit $?
+
 "$server_path" --version >/dev/null 2>&1 || {
     printf 'llama-server does not report a version: %s\n' "$server_path" >&2
     exit 1

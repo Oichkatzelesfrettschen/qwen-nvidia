@@ -1193,21 +1193,27 @@ printf 'runtime_environment backend=%s wrapper=%s profile=%s\n' \
     "${QWEN_SERVING_BACKEND:-cuda}" "$(basename "$runtime_environment_wrapper")" \
     "${QWEN_CUDA_PROFILE:-${QWEN_VULKAN_PROFILE:-default}}"
 
-# The appliance admits one active qwen-owned device workload, and
-# ~/qwen-webui-state/vulkan-workload.lock is the kernel lock that carries it.
+# This is the active-compute lease, second in the fixed order below the
+# top-level owner lock qwen-webui-session.sh holds for the whole serving
+# lifetime. The lease covers active compute alone -- model load, evaluation and
+# decode, image load and generation, vision review -- so an idle loaded server
+# competes with nothing while every decoding pass excludes a generation.
 # scripts/image-service.py takes it across one generation and llama-server holds
-# it from the first busy slot to the last idle one, so a resident idle server
-# competes with nothing while active prompt processing and decode exclude a
-# generation. The lock keeps its name because
-# patches/llama-server-vulkan-workload-lease.patch reads
-# QWEN_VULKAN_WORKLOAD_LOCK, and neither wrapper scrubs it, so the variable
-# crosses the exec boundary untouched. In router mode server-models.cpp snapshots environ into base_env
-# at server_models_routes construction and spawns every child with that copy, so
-# the child executing the graphs opens the lock; the router parent leaves
+# it from the first busy slot to the last idle one.
+#
+# QWEN_GPU_COMPUTE_LEASE is the name. patches/llama-server-vulkan-workload-lease.patch
+# still reads QWEN_VULKAN_WORKLOAD_LOCK, so both are exported over one file for
+# this transition release; gpu_ownership_lease_path refuses a configuration whose
+# two names resolve to different inodes, which is the split the rename exists to
+# prevent. Neither wrapper scrubs either name, so both cross the exec boundary
+# untouched. In router mode server-models.cpp snapshots environ into base_env at
+# server_models_routes construction and spawns every child with that copy, so the
+# child executing the graphs opens the lease; the router parent leaves
 # server_context uninitialised and opens nothing.
 workload_lease_state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-webui-state"}
-export QWEN_VULKAN_WORKLOAD_LOCK="$workload_lease_state_directory/vulkan-workload.lock"
-printf 'vulkan_workload_lease path=%s\n' "$QWEN_VULKAN_WORKLOAD_LOCK"
+export QWEN_GPU_COMPUTE_LEASE="$workload_lease_state_directory/vulkan-workload.lock"
+export QWEN_VULKAN_WORKLOAD_LOCK="$QWEN_GPU_COMPUTE_LEASE"
+printf 'gpu_compute_lease path=%s legacy_name=QWEN_VULKAN_WORKLOAD_LOCK\n' "$QWEN_GPU_COMPUTE_LEASE"
 
 # The registry decides what the picker offers, so the roster carries the preset
 # and nothing else. server-models.cpp calls load_from_cache() and cascades its

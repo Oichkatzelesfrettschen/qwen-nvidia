@@ -562,6 +562,81 @@ qwen-launch.sh            waits for /health, prints reachable addresses
             qwen-router-exec-guard.sh  rechecks authority identities, execs
 ```
 
+`qwen-webui-session.sh` is the top-level GPU owner and takes the owner lock in
+`scripts/gpu-workload-ownership.sh` before it starts anything: it acquires,
+inspects the CUDA clients the driver already reports, starts the broker and the
+control services, starts llama-server, and releases the lock last by exiting
+after every child is stopped. It is that link because tmux starts the session
+from its own server process, so no descriptor opened above
+`qwen-webui-control.sh` reaches the far side, and because the session is the
+process whose lifetime equals the serving lifetime. Every child is launched with
+`9>&-` -- llama-server, the image service, the broker, the graphics-latency
+probe, the kernel watcher, and the telemetry sampler alike, including the ones
+that open no CUDA context -- because an inherited descriptor keeps the owner
+claim alive after the session exits and would lock out the next session against
+a device nothing is using. The session records the claim on a `gpu_owner` line in
+`session.status`, which is the status proof an admission harness waits for
+instead of holding a lock it cannot pass through tmux. `qwen-webui-session.sh`
+requires depth and the load's memory figure as arguments rather than defaulting
+them, since `qwen-capacity-policy.sh` reads both from the registry and the
+closure and a session default would serve a depth no row admits.
+
+Four locks order the device and the order is fixed: the top-level owner lock,
+then the active-compute lease, then a service-local job lock, then an artifact
+lock. Exactly one top-level orchestrator holds the owner lock for its whole
+lifetime -- one serving session, one measurement campaign, or one standalone
+image, PhysX, or OptiX campaign. The compute lease is inner because it covers
+work that intentionally coexists under one serving session: model load,
+evaluation and decode, image load and generation, vision review, and the PhysX,
+OptiX, and TensorRT execution that follows. It leaves out the broker, the HTTP
+listener, telemetry, the kernel watcher, ordinary file work, an idle resident
+process, and the graphics-latency monitor. The order follows from how each
+acquire behaves rather than from granularity: the lease acquire blocks on a
+bounded deadline while the owner lock refuses at once with status 75, so a
+blocking acquire above a contended non-blocking lock converts a refusal into a
+wait the refusal exists to replace. `gpu_ownership_assert_order` enforces the one
+inversion that can be constructed -- a process holding the compute lease then
+asking for the owner lock -- as a deterministic refusal on the acquire path,
+comparing every descriptor in `/proc/self/fd` against the lease file by device
+and inode. `QWEN_GPU_COMPUTE_LEASE` is the lease name;
+`QWEN_VULKAN_WORKLOAD_LOCK` is accepted beside it for one transition release
+where both resolve to one file, and a configuration naming two files is refused
+rather than serialized on one of them.
+
+`scripts/gpu-workloads.tsv` is the coverage authority that replaces a regular
+expression grown one name at a time. One row per entry point naming a
+CUDA-opening command or a local wrapper of one -- llama-server, llama-bench,
+llama-cli, llama-mtmd-cli, llama-quantize, nsys, ncu, the pinned image runtime,
+and `vulkan-graphics-service-probe` -- carrying `role`, `backend`,
+`top_level_owner`, `nested_owner_capability`, `active_compute_lease`,
+`may_overlap_compute`, `child_closes_owner_fd`, and `execution_policy`. The
+roles are `serving-session`, `measurement-campaign`, `nested-orchestrator`,
+`active-workload`, `authorized-monitor`, and `non-gpu-helper`. The
+graphics-latency probe is an authorized monitor under the owner rather than an
+entry in the desktop pattern, because its submissions are project-generated
+traffic even on the graphics queue; what it costs a concurrent campaign is
+unmeasured and needs one arm on the device.
+`scripts/test-gpu-workload-ownership.sh` enumerates the ledger and requires every
+listed entry point to exist, every top-level owner to take the authority, every
+nested capability to verify an inherited descriptor rather than open a second
+claim, every workload child to close it, every active-compute row to name the
+lease, and every delegating row to name the lane holding the claim in its place;
+an entry point that names a device command and appears in no row fails the gate.
+
+An admission harness that reaches the device through `qwen-launch.sh` cannot hold
+the lock, because the session takes it on the far side of tmux. It launches the
+session, waits for the `gpu_owner` line, and drives its test through that
+session. A direct non-tmux runner takes the lock itself and passes the capability
+down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
+`run-mmvq-paired-crossover.sh`, `run-mmvq-width-request-tails.sh`,
+`probe-mmvq-tail-logit-margin.sh`, `run-cuda-dispatch-census.sh`,
+`admit-representation-row.sh`, `probe-filled-depth.sh`,
+`probe-depth-projector.sh`, `run-cuda-lever-campaign.sh`,
+`run-ad104-path-audit.sh`, `run-ad104-b789-calibration.sh`,
+`run-placement-sweep.sh`, `run-graph-alias-ab.sh`, `run-one-token-admission.sh`
+at its load stage, and `promote-llama-build.sh`. Every other audited entry point
+carries a `# gpu-ownership:` line naming the lane that holds the claim instead.
+
 `QWEN_SERVING_BACKEND` selects the wrapper on that second-to-last line and the
 device the argv names. `cuda` is the default and yields `cuda-runtime-env.sh`
 with `--device CUDA0`; `vulkan` yields `vulkan-runtime-env.sh` with

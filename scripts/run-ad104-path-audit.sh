@@ -33,12 +33,13 @@ device executed. Naming no ARM_ID audits every row of the matrix.
 --dry-run resolves the matrix, the binaries, and the artifacts and runs
 nothing on the device.
 
-  QWEN_AUDIT_LOCK      GPU lock path, default /tmp/qwen-ad104-gpu-0.lock
+  QWEN_AUDIT_LOCK      campaign lock path, default /tmp/qwen-ad104-gpu-0.lock
   QWEN_AUDIT_NSYS      nsys binary, default the one on PATH
   QWEN_AUDIT_GENERATE  generated tokens per arm, default 1
 
-The audit refuses to start while a qwen server holds the device, holds the
-same lock the calibration holds, and halts on a new kernel-ring signature.
+The audit takes the campaign authority in scripts/gpu-workload-ownership.sh,
+which holds the same lock the calibration holds and reads device residency from
+the driver's compute-app list, and it halts on a new kernel-ring signature.
 USAGE
     exit 2
 }
@@ -102,15 +103,21 @@ matrix_rows=$(
 [ -n "$matrix_rows" ] || fail "no matrix row matches the requested arms"
 
 if [ "$dry_run" -eq 0 ]; then
-    if pgrep -f 'llama-server' >/dev/null 2>&1; then
-        fail 'a llama-server holds the device; tear the appliance down first'
-    fi
-    audit_lock=${QWEN_AUDIT_LOCK:-/tmp/qwen-ad104-gpu-0.lock}
-    exec 9>"$audit_lock"
-    flock -n 9 || {
-        printf 'refused: the AD104 calibration lock is held: %s\n' "$audit_lock" >&2
-        exit 75
-    }
+    # The authority answers both questions this stage used to answer with a raw
+    # flock beside a process-name match. The lock it takes is the same inode the
+    # calibration and every sweep take, so exclusion is unchanged, and the
+    # driver's own compute-app list now decides residency. `pgrep -f` matches the
+    # whole command line rather than the executable name, so any process whose
+    # argv carries the string refuses the run, and reading pgrep as the ownership
+    # authority is what TASK_TRACKER.md records probe-depth-projector.sh
+    # refusing against a device nothing held. gpu_ownership_inspect
+    # still prints `named_llama_server_pids=` from `pgrep -x`, so the diagnostic
+    # survives without deciding the run. The descriptor is exported so the nested
+    # arms verify this lock rather than asking for it again.
+    QWEN_GPU_OWNERSHIP_LOCK=${QWEN_AUDIT_LOCK:-${QWEN_GPU_OWNERSHIP_LOCK:-/tmp/qwen-ad104-gpu-0.lock}}
+    export QWEN_GPU_OWNERSHIP_LOCK
+    . "$script_directory/gpu-workload-ownership.sh"
+    gpu_ownership_require || exit $?
     [ ! -x "$latch" ] || "$latch" require-clear ||
         fail 'the GPU state latch is set'
 fi

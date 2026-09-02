@@ -44,7 +44,7 @@ pass() {
 # QWEN_WEBUI_STATE_DIRECTORY, so the two sides agree exactly when the policy's
 # basename equals image-service.py's LEASE_FILE_NAME.
 policy_lock_expression=$(sed -n \
-    's/^export QWEN_VULKAN_WORKLOAD_LOCK="\$workload_lease_state_directory\/\(.*\)"$/\1/p' \
+    's/^export QWEN_GPU_COMPUTE_LEASE="\$workload_lease_state_directory\/\(.*\)"$/\1/p' \
     "$script_directory/qwen-capacity-policy.sh")
 service_lock_name=$(sed -n 's/^LEASE_FILE_NAME = "\(.*\)"$/\1/p' \
     "$script_directory/image-service.py")
@@ -68,11 +68,92 @@ pass 'both writers resolve the lock under the session state directory'
 
 # vulkan-runtime-env.sh scrubs the ambient environment before the exec, so a
 # name it unsets would never reach the server.
-if grep -q '^unset QWEN_VULKAN_WORKLOAD_LOCK$' \
-    "$script_directory/vulkan-runtime-env.sh"; then
-    fail 'vulkan-runtime-env.sh scrubs the workload lock variable'
+for lease_variable in QWEN_GPU_COMPUTE_LEASE QWEN_VULKAN_WORKLOAD_LOCK; do
+    if grep -q "^unset $lease_variable\$" \
+        "$script_directory/vulkan-runtime-env.sh"; then
+        fail "vulkan-runtime-env.sh scrubs $lease_variable"
+    fi
+done
+pass 'both lease variable names survive the environment scrub'
+
+# QWEN_GPU_COMPUTE_LEASE is the name and QWEN_VULKAN_WORKLOAD_LOCK is the one the
+# candidate patch still reads, so the policy exports both over one file for this
+# transition release. Two names resolving to two inodes is the split the rename
+# exists to prevent, and gpu_ownership_lease_path refuses it by name.
+if ! grep -q '^export QWEN_VULKAN_WORKLOAD_LOCK="\$QWEN_GPU_COMPUTE_LEASE"$' \
+    "$script_directory/qwen-capacity-policy.sh"; then
+    fail 'the policy exports the two lease names over two values'
 fi
-pass 'the workload lock variable survives the environment scrub'
+pass 'the legacy lease name aliases the new one over one file'
+
+# The order check fires at the session's acquire, where neither lease variable is
+# set yet, so gpu_ownership_lease_path's own fallback has to name the file the
+# policy and the service resolve. A fallback naming any other basename stats a
+# file that never exists and reports no inversion in the one place it matters.
+authority_fallback=$(
+    . "$script_directory/gpu-workload-ownership.sh"
+    QWEN_WEBUI_STATE_DIRECTORY=/fixture-state gpu_ownership_lease_path
+)
+[ "$authority_fallback" = "/fixture-state/$service_lock_name" ] ||
+    fail "the authority fallback names $authority_fallback, not $service_lock_name"
+pass 'the authority fallback resolves the lease the policy and the service share\'
+
+lease_split_stderr=$temporary_directory/lease-split.stderr
+: >"$temporary_directory/lease-a"
+: >"$temporary_directory/lease-b"
+if (
+    . "$script_directory/gpu-workload-ownership.sh"
+    QWEN_GPU_COMPUTE_LEASE=$temporary_directory/lease-a \
+    QWEN_VULKAN_WORKLOAD_LOCK=$temporary_directory/lease-b \
+        gpu_ownership_lease_path
+) >/dev/null 2>"$lease_split_stderr"; then
+    fail 'two lease files resolved without a refusal'
+fi
+grep -q 'name two files' "$lease_split_stderr" ||
+    fail 'the two-lease refusal names no reason'
+pass 'two distinct lease paths are refused'
+
+# The lease is bidirectional and bounded in both directions. A holder makes the
+# other lane wait for its deadline and then refuse, rather than blocking without
+# end. Both arms run against flock(2) on one file with no device, which is the
+# same kernel object image-service.py and the patched update_slots take.
+contended_lease=$temporary_directory/contended.lease
+: >"$contended_lease"
+lease_wait_seconds=${QWEN_LEASE_TEST_WAIT_SECONDS:-2}
+lease_contention_arm() {
+    arm_name=$1
+    flock --close "$contended_lease" sleep 6 &
+    lease_holder=$!
+    arm_attempts=0
+    while [ "$arm_attempts" -lt 50 ]; do
+        if ! flock -n -x "$contended_lease" true 2>/dev/null; then break; fi
+        arm_attempts=$((arm_attempts + 1))
+        sleep 0.1
+    done
+    arm_started=$(date +%s)
+    arm_status=0
+    flock -x -w "$lease_wait_seconds" "$contended_lease" true || arm_status=$?
+    arm_elapsed=$(( $(date +%s) - arm_started ))
+    kill "$lease_holder" 2>/dev/null || true
+    wait "$lease_holder" 2>/dev/null || true
+    if [ "$arm_status" -ne 0 ] && [ "$arm_elapsed" -ge "$lease_wait_seconds" ] &&
+        [ "$arm_elapsed" -lt 6 ]; then
+        pass "$arm_name waits its deadline and then refuses"
+    else
+        fail "$arm_name status=$arm_status elapsed=${arm_elapsed}s"
+    fi
+}
+lease_contention_arm 'an llama workload against a held image lease'
+lease_contention_arm 'an image generation against a held llama lease'
+
+# The lease releases with its holder, so the other lane proceeds at once.
+flock --close "$contended_lease" sleep 1 &
+release_holder=$!
+wait "$release_holder" 2>/dev/null || true
+flock -n -x "$contended_lease" true ||
+    fail 'the lease stayed held after its holder exited'
+pass 'a released lease admits the other lane'
+
 
 candidate_report=$temporary_directory/candidate-patches.log
 if ! QWEN_LLAMA_CANDIDATE_PATCHES=1 \
@@ -108,7 +189,7 @@ server_log=$temporary_directory/server.log
 server_port=${QWEN_LEASE_TEST_PORT:-18471}
 hold_seconds=${QWEN_LEASE_TEST_HOLD_SECONDS:-6}
 
-QWEN_VULKAN_WORKLOAD_LOCK=$lock_path \
+QWEN_GPU_COMPUTE_LEASE=$lock_path QWEN_VULKAN_WORKLOAD_LOCK=$lock_path \
     "$llama_server" \
     --model "$model_path" \
     --host 127.0.0.1 \

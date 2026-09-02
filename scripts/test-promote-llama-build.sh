@@ -16,6 +16,17 @@ fi
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 promoter=$script_directory/promote-llama-build.sh
 work_directory=$(mktemp -d)
+# Promotion takes the campaign authority ahead of its two smoke stages, so this
+# test names its own lock file and its own driver. The production lock at
+# /tmp/qwen-ad104-gpu-0.lock stays untouched and a serving workstation does not
+# decide what a fixture promotion reports.
+QWEN_GPU_OWNERSHIP_LOCK=$work_directory/campaign.lock
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work_directory/nvidia-smi
+QWEN_GPU_COMPUTE_LEASE=$work_directory/absent-lease.lock
+printf '#!/bin/sh\nexit 0\n' >"$QWEN_GPU_OWNERSHIP_NVIDIA_SMI"
+chmod +x "$QWEN_GPU_OWNERSHIP_NVIDIA_SMI"
+export QWEN_GPU_OWNERSHIP_LOCK QWEN_GPU_OWNERSHIP_NVIDIA_SMI \
+    QWEN_GPU_COMPUTE_LEASE
 trap 'rm -rf "$work_directory"' EXIT INT TERM
 failures=0
 

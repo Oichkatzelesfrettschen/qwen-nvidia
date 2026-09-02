@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session.
+# This harness starts qwen-webui-session.sh, which is the top-level GPU owner and
+# takes the owner lock itself for the whole serving lifetime. The harness holds
+# no claim of its own -- one would refuse the session it launched -- and instead
+# waits for the `gpu_owner` line the session writes to session.status as proof
+# that the lock is held, then drives its arms through that session.
+
 if [ "$#" -ne 7 ]; then
     printf 'usage: %s PROFILE MODEL_PATH CONTEXT_SIZE REQUIRED_VULKAN_MIB REQUEST_JSON STATE_DIRECTORY TIMEOUT_SECONDS\n' \
         "$0" >&2
@@ -55,10 +62,6 @@ if [ ! -x "$llama_server" ] || [ ! -f "$model_path" ] || \
     printf 'server, model, and request must exist before a benchmark\n' >&2
     exit 2
 fi
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'another llama-server process is already running\n' >&2
-    exit 2
-fi
 
 umask 077
 mkdir -p "$state_directory"
@@ -75,6 +78,8 @@ ready=0
 attempt=0
 while [ "$attempt" -lt 3000 ]; do
     if grep -F 'state=running ' "$state_directory/session.status" \
+        >/dev/null 2>&1 && \
+       grep -F 'gpu_owner lock=' "$state_directory/session.status" \
         >/dev/null 2>&1 && \
        curl --silent --fail http://127.0.0.1:8080/health >/dev/null 2>&1; then
         ready=1

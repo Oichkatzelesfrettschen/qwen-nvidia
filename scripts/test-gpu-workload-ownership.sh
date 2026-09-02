@@ -309,5 +309,330 @@ else
     report refused closing-child-releases-the-lock
 fi
 
+# 16. The lock order is owner lock outer, Vulkan workload lease inner. A
+# process already holding a descriptor on the lease and then asking for the
+# owner lock is the inversion, and the acquire path refuses it by name.
+order_lock=$work/order-campaign.lock
+order_lease=$work/order-lease.lock
+: >"$order_lease"
+set +e
+(
+    exec 8>"$order_lease"
+    flock -n 8
+    QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+    QWEN_GPU_OWNERSHIP_FIXTURE=$work/compositor \
+    QWEN_GPU_OWNERSHIP_PROCFS=$work/compositor/proc \
+    QWEN_GPU_COMPUTE_LEASE=$order_lease \
+        "$authority" acquire "$order_lock"
+) >"$work/order-stdout" 2>"$work/order-stderr"
+order_status=$?
+set -e
+if [ "$order_status" -eq 75 ] &&
+    grep -q 'lock order inversion' "$work/order-stderr"; then
+    report accepted lease-held-refuses-the-campaign-lock
+else
+    report refused lease-held-refuses-the-campaign-lock
+fi
+
+# 17. The sanctioned sequence is the reverse one: the owner lock is taken
+# first and the lease opened inside it, which is what llama-server and
+# image-service.py do. The order check runs on the acquire path alone, so an
+# inherited claim beside an open lease descriptor is admitted.
+inherit_lock=$work/order-inherit.lock
+: >"$inherit_lock"
+(
+    exec 9>"$inherit_lock"
+    flock -n 9
+    exec 8>"$order_lease"
+    QWEN_GPU_COMPUTE_LEASE=$order_lease \
+    REQUIRE_FD=9 require_case order-inherited "$inherit_lock"
+    [ "$require_case_status" -eq 0 ] &&
+        grep -q 'gpu_ownership_lock=inherited fd=9' "$work/order-inherited/stdout"
+) && report accepted campaign-first-then-lease-accepted ||
+    report refused campaign-first-then-lease-accepted
+
+# 18. A lease file that was never created is no inversion, because a workstation
+# that has never served has nothing to invert against.
+absent_lock=$work/order-absent.lock
+if QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+    QWEN_GPU_OWNERSHIP_FIXTURE=$work/compositor \
+    QWEN_GPU_OWNERSHIP_PROCFS=$work/compositor/proc \
+    QWEN_GPU_COMPUTE_LEASE=$work/never-created.lock \
+    "$authority" acquire "$absent_lock" >/dev/null 2>&1; then
+    report accepted absent-lease-file-is-no-inversion
+else
+    report refused absent-lease-file-is-no-inversion
+fi
+
+# 19. The serving session launches every child with `9>&-`, including the broker
+# and the telemetry sampler that open no CUDA context. An inherited descriptor
+# keeps the owner claim alive after the session exits, so a child that outlives
+# teardown would lock out the next session and every campaign against a device
+# nothing is using. Case 14 proves the mechanism; this reads the session's own
+# launch sites, since a single missed `9>&-` is silent until the next run.
+session_source=$script_directory/qwen-webui-session.sh
+# grep -n prefixes a line number, so the comment filter matches after it.
+unclosed=$(grep -n '&$' "$session_source" |
+    grep -v '9>&-' | grep -v '&&$' | grep -v '^[0-9]*: *#' || :)
+if [ -z "$unclosed" ]; then
+    report accepted session-children-close-the-owner-descriptor
+else
+    printf 'session child launched without 9>&-:\n%s\n' "$unclosed" >&2
+    report refused session-children-close-the-owner-descriptor
+fi
+
+# 20. The serving chain below the session opens no second claim. The session is
+# the owner and llama-server holds a closed descriptor, so a capacity server that
+# took the lock itself would refuse the session that started it.
+for chain_link in run-qwen-capacity-server.sh qwen-capacity-policy.sh \
+    cuda-runtime-env.sh vulkan-runtime-env.sh qwen-router-exec-guard.sh; do
+    if grep -q 'gpu_ownership_acquire\|gpu_ownership_require' \
+        "$script_directory/$chain_link"; then
+        printf '%s opens a second owner claim under the session\n' \
+            "$chain_link" >&2
+        report refused serving-chain-opens-no-second-claim
+        chain_faulted=1
+        break
+    fi
+done
+[ "${chain_faulted:-0}" = 1 ] ||
+    report accepted serving-chain-opens-no-second-claim
+
+# 21. scripts/gpu-workloads.tsv is the coverage authority and the gate enumerates
+# it. Every listed entry point exists, every top-level owner takes the authority,
+# every nested capability verifies an inherited descriptor rather than opening a
+# second claim, a workload child closes the descriptor, an active-compute row
+# names the lease, and a delegating row states the lane holding the claim in its
+# place.
+ledger=$script_directory/gpu-workloads.tsv
+[ -r "$ledger" ] || { printf 'missing ledger: %s\n' "$ledger" >&2; exit 1; }
+ledger_faults=$work/ledger-faults
+: >"$ledger_faults"
+ledger_rows=0
+# backend and overlap are read to consume their columns; the ledger's own
+# column count is what this loop asserts, so every field is named.
+# shellcheck disable=SC2034
+while IFS="$(printf '\t')" read -r entrypoint role backend top_level nested \
+    lease overlap closes_fd policy; do
+    case $entrypoint in '' | '#'* | entrypoint) continue ;; esac
+    ledger_rows=$((ledger_rows + 1))
+    entry_path=$script_directory/$entrypoint
+    if [ ! -r "$entry_path" ]; then
+        printf '%s absent\n' "$entrypoint" >>"$ledger_faults"
+        continue
+    fi
+    case $role in
+        serving-session | measurement-campaign | nested-orchestrator | \
+        active-workload | authorized-monitor | non-gpu-helper) ;;
+        *) printf '%s unknown role %s\n' "$entrypoint" "$role" >>"$ledger_faults" ;;
+    esac
+    case $policy in
+        acquires | inherits | delegates | monitored | none) ;;
+        *) printf '%s unknown execution_policy %s\n' "$entrypoint" "$policy" \
+            >>"$ledger_faults" ;;
+    esac
+    if [ "$top_level" = yes ] &&
+        ! grep -q 'gpu_ownership_require\|gpu_ownership_acquire' "$entry_path"; then
+        printf '%s claims top_level_owner and takes no authority\n' \
+            "$entrypoint" >>"$ledger_faults"
+    fi
+    # gpu_ownership_require is the one call that verifies an inherited
+    # descriptor, so a row claiming the capability without naming it is a row
+    # that would open a second claim under a parent campaign.
+    if [ "$nested" = yes ] && [ "$role" != active-workload ] &&
+        ! grep -q 'gpu_ownership_require' "$entry_path"; then
+        printf '%s claims nested_owner_capability and verifies nothing\n' \
+            "$entrypoint" >>"$ledger_faults"
+    fi
+    if [ "$closes_fd" = yes ] && ! grep -q '9>&-' "$entry_path"; then
+        printf '%s claims child_closes_owner_fd and closes nothing\n' \
+            "$entrypoint" >>"$ledger_faults"
+    fi
+    case $lease in
+        yes | exports)
+            grep -q 'QWEN_GPU_COMPUTE_LEASE' "$entry_path" ||
+                printf '%s claims the compute lease and names none\n' \
+                    "$entrypoint" >>"$ledger_faults"
+            ;;
+    esac
+    if [ "$policy" = delegates ] &&
+        ! grep -q '^# gpu-ownership:' "$entry_path"; then
+        printf '%s delegates and names no lane\n' "$entrypoint" >>"$ledger_faults"
+    fi
+done <"$ledger"
+if [ ! -s "$ledger_faults" ] && [ "$ledger_rows" -gt 0 ]; then
+    report accepted ledger-rows-hold-their-claims
+else
+    cat "$ledger_faults" >&2
+    report refused ledger-rows-hold-their-claims
+fi
+
+# 22. An entry point that names a CUDA-opening command and appears in no ledger
+# row is an undocumented GPU entry point, which is the drift the ledger replaces
+# a regular expression to catch. Fixture harnesses are outside the set by
+# construction: a `test-` script runs against fakes and opens no context.
+device_commands='llama-server|llama-bench|llama-cli|llama-mtmd-cli|llama-quantize|nsys|ncu|vulkan-graphics-service-probe'
+undocumented=''
+for candidate in "$script_directory"/*.sh "$script_directory"/*.py \
+    "$script_directory"/*.c; do
+    [ -r "$candidate" ] || continue
+    candidate_name=${candidate##*/}
+    case $candidate_name in test-*) continue ;; esac
+    grep -Eq "$device_commands" "$candidate" || continue
+    if awk -F'\t' -v want="$candidate_name" \
+        '$1 == want { found = 1 } END { exit found ? 0 : 1 }' "$ledger"; then
+        continue
+    fi
+    undocumented="$undocumented $candidate_name"
+done
+if [ -z "$undocumented" ]; then
+    report accepted every-device-entrypoint-is-declared
+else
+    printf 'undocumented device entry points:%s\n' "$undocumented" >&2
+    report refused every-device-entrypoint-is-declared
+fi
+
+# 23. Two lease names resolving to two files is the split the rename exists to
+# prevent, so gpu_ownership_lease_path refuses it rather than serializing on one.
+split_a=$work/lease-split-a
+split_b=$work/lease-split-b
+: >"$split_a"
+: >"$split_b"
+set +e
+(
+    # shellcheck source=scripts/gpu-workload-ownership.sh
+    . "$authority"
+    QWEN_GPU_COMPUTE_LEASE=$split_a QWEN_VULKAN_WORKLOAD_LOCK=$split_b \
+        gpu_ownership_lease_path
+) >/dev/null 2>"$work/lease-split.stderr"
+split_status=$?
+set -e
+if [ "$split_status" -ne 0 ] &&
+    grep -q 'name two files' "$work/lease-split.stderr"; then
+    report accepted two-lease-paths-refuse
+else
+    report refused two-lease-paths-refuse
+fi
+
+# 24. One file under both names is the transition configuration and resolves.
+if (
+    # shellcheck source=scripts/gpu-workload-ownership.sh
+    . "$authority"
+    QWEN_GPU_COMPUTE_LEASE=$split_a QWEN_VULKAN_WORKLOAD_LOCK=$split_a \
+        gpu_ownership_lease_path
+) >/dev/null 2>&1; then
+    report accepted one-file-under-both-lease-names-resolves
+else
+    report refused one-file-under-both-lease-names-resolves
+fi
+
+# 25. The serving session refuses when a campaign owns the device, and it does so
+# before it starts the broker or any control service. The paths below are absent:
+# reaching them at all would prove the gate ran too late.
+session_script=$script_directory/qwen-webui-session.sh
+session_lock=$work/session-campaign.lock
+flock --close "$session_lock" sleep 30 &
+session_holder=$!
+attempts=0
+while [ "$attempts" -lt 50 ]; do
+    if ! flock -n -x "$session_lock" true 2>/dev/null; then break; fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+done
+set +e
+QWEN_GPU_OWNERSHIP_LOCK=$session_lock \
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+QWEN_GPU_OWNERSHIP_FIXTURE=$work/compositor \
+QWEN_GPU_OWNERSHIP_PROCFS=$work/compositor/proc \
+QWEN_GPU_COMPUTE_LEASE=$work/never-created.lock \
+    "$session_script" "$work/absent-server" "$work/absent-model" \
+    "$work/absent-static" 4096 4096 18999 "$work/session-state" default \
+    >"$work/session-stdout" 2>"$work/session-stderr"
+session_status=$?
+set -e
+kill "$session_holder" 2>/dev/null || :
+wait "$session_holder" 2>/dev/null || :
+if [ "$session_status" -eq 75 ] &&
+    grep -q 'another qwen CUDA campaign owns GPU 0' "$work/session-stderr"; then
+    report accepted serving-session-refuses-a-held-campaign
+else
+    report refused serving-session-refuses-a-held-campaign
+fi
+
+# 26. A campaign refuses when the driver reports the serving session's own
+# llama-server, which is the reverse direction of case 25 and the half that was
+# missing while the serving chain took no authority.
+mkdir -p "$work/serving/proc"
+printf '4101, kwin_wayland, 2510 MiB\n5300, llama-server, 5307 MiB\n' \
+    >"$work/serving/clients.csv"
+make_proc_entry "$work/serving/proc" 4101 /usr/bin/kwin_wayland kwin_wayland
+make_proc_entry "$work/serving/proc" 5300 /opt/qwen/bin/llama-server llama-server
+status=$(SELF_PIDS='' run_case serving)
+if [ "$status" != '0' ] &&
+    grep -q 'verdict=refuse-project' "$work/serving/stdout"; then
+    report accepted campaign-refuses-a-serving-session
+else
+    report refused campaign-refuses-a-serving-session
+fi
+
+# 27. The kernel releases the lock when its owner dies, with no unlock in the
+# owner's own code. An owner killed outright leaves the next campaign admitted.
+kernel_lock=$work/kernel-release.lock
+(
+    exec 9>"$kernel_lock"
+    flock -n 9
+    sleep 30 9>&- &
+    printf '%s\n' "$!" >"$work/kernel-sleep.pid"
+    printf '%s\n' "$$" >"$work/kernel-owner.pid"
+    sleep 30
+) &
+kernel_owner=$!
+attempts=0
+while [ "$attempts" -lt 50 ]; do
+    if ! flock -n -x "$kernel_lock" true 2>/dev/null; then break; fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+done
+kill -9 "$kernel_owner" 2>/dev/null || :
+wait "$kernel_owner" 2>/dev/null || :
+attempts=0
+kernel_released=0
+while [ "$attempts" -lt 50 ]; do
+    if flock -n -x "$kernel_lock" true 2>/dev/null; then kernel_released=1; break; fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+done
+kill "$(cat "$work/kernel-sleep.pid" 2>/dev/null)" 2>/dev/null || :
+if [ "$kernel_released" -eq 1 ]; then
+    report accepted kernel-releases-the-lock-on-owner-death
+else
+    report refused kernel-releases-the-lock-on-owner-death
+fi
+
+# 28. An orphan CUDA child that survives its owner's death holds no lock, since
+# the owner closed the descriptor on it, and the driver is what still reports it.
+# The next campaign therefore refuses on classification rather than on the lock,
+# which is the reason both authorities run and neither substitutes for the other.
+mkdir -p "$work/orphan/proc"
+printf '6200, llama-server, 5307 MiB\n' >"$work/orphan/clients.csv"
+make_proc_entry "$work/orphan/proc" 6200 /opt/qwen/bin/llama-server llama-server
+orphan_lock=$work/orphan.lock
+set +e
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$work/nvidia-smi \
+QWEN_GPU_OWNERSHIP_FIXTURE=$work/orphan \
+QWEN_GPU_OWNERSHIP_PROCFS=$work/orphan/proc \
+QWEN_GPU_COMPUTE_LEASE=$work/never-created.lock \
+    "$authority" acquire "$orphan_lock" \
+    >"$work/orphan-stdout" 2>"$work/orphan-stderr"
+orphan_status=$?
+set -e
+if [ "$orphan_status" -ne 0 ] &&
+    grep -q 'verdict=refuse-project' "$work/orphan-stdout" &&
+    ! grep -q 'another qwen CUDA campaign owns GPU 0' "$work/orphan-stderr"; then
+    report accepted orphan-cuda-child-refuses-on-the-driver
+else
+    report refused orphan-cuda-child-refuses-on-the-driver
+fi
+
 [ "$failures" -eq 0 ] || exit 1
-printf 'gpu_workload_ownership=accepted cases=15 lock=flock-exclusive-inherited-fd clients=driver-resolved\n'
+printf 'gpu_workload_ownership=accepted cases=28 lock=flock-exclusive-inherited-fd order=owner-lease-job-artifact coverage=gpu-workloads.tsv clients=driver-resolved\n'

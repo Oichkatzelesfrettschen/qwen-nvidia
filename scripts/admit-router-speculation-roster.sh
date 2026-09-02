@@ -23,6 +23,11 @@
 # The figure bounds the settled pair rather than naming the switch peak.
 set -eu
 
+# gpu-ownership: held by the router this harness reads.
+# The roster drives a router that is already serving and launches nothing. That
+# router holds the campaign lock through run-qwen-capacity-server.sh, so a claim
+# taken here would refuse against the exact appliance the run requires.
+
 usage() {
     printf 'usage: %s OUTPUT_DIRECTORY\n' "$0" >&2
     printf '  QWEN_ADMISSION_ORIGIN   router origin, default http://127.0.0.1:8080\n' >&2

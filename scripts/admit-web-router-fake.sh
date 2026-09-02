@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving chain.
+# This harness reaches the device only through qwen-launch.sh and qwen-web-launch.sh, and
+# qwen-webui-control.sh puts a tmux boundary between itself and
+# qwen-webui-session.sh. tmux starts a session from its own server process, so no
+# descriptor this harness opens reaches the capacity server on the far side.
+# run-qwen-capacity-server.sh takes the campaign lock there instead, and a claim
+# held here would refuse the very session this harness launches.
+
 # Admit the web router on the appliance against the fake provider: the
 # production llama-server, a real router child, the approval broker, and the
 # MCP child all run, and nothing reaches a network. The harness owns one

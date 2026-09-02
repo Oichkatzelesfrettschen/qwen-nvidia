@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving session.
+# The launcher starts qwen-webui-control.sh, which puts a tmux boundary between
+# itself and qwen-webui-session.sh. tmux starts a session from its own server
+# process, so no descriptor opened here reaches the far side. The session is the
+# top-level GPU owner and takes the owner lock there; a claim held here would
+# refuse the session it launched.
+
 # Start the guarded Web UI and return only once it answers HTTP. The service
 # exists for as long as this script's session lives in tmux and no longer: no
 # unit file, no crontab entry, and no login hook starts it, so a reboot leaves

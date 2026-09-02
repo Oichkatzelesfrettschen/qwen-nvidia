@@ -29,6 +29,19 @@ cleanup_fixture() {
 trap cleanup_fixture EXIT HUP INT TERM
 
 mkdir -p "$fixture_scripts"
+# The session sources the ownership authority from its own directory and takes
+# the owner lock, so the fixture directory carries the authority and the test
+# names its own lock file and driver. The production lock at
+# /tmp/qwen-ad104-gpu-0.lock stays untouched.
+cp "$script_directory/gpu-workload-ownership.sh" \
+    "$fixture_scripts/gpu-workload-ownership.sh"
+QWEN_GPU_OWNERSHIP_LOCK=$temporary_directory/owner.lock
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$temporary_directory/nvidia-smi
+QWEN_GPU_COMPUTE_LEASE=$temporary_directory/absent.lease
+printf '#!/bin/sh\nexit 0\n' >"$QWEN_GPU_OWNERSHIP_NVIDIA_SMI"
+chmod +x "$QWEN_GPU_OWNERSHIP_NVIDIA_SMI"
+export QWEN_GPU_OWNERSHIP_LOCK QWEN_GPU_OWNERSHIP_NVIDIA_SMI QWEN_GPU_COMPUTE_LEASE
+
 cp "$script_directory/qwen-webui-session.sh" \
     "$fixture_scripts/qwen-webui-session.sh"
 cat >"$fixture_scripts/run-qwen-capacity-server.sh" <<'SERVER'

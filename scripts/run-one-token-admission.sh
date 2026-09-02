@@ -76,6 +76,13 @@ case $stages in
             printf 'control model is absent: %s\n' "$control_model" >&2
             exit 2
         }
+        # The load stage brings a strict server up on the device once per
+        # candidate, so it takes the campaign authority. The gate sits inside
+        # this case because the fetch stage moves gigabytes over the network and
+        # allocates nothing: gating the whole run would stop a transfer that is
+        # designed to happen while the workstation still serves.
+        . "$script_directory/gpu-workload-ownership.sh"
+        gpu_ownership_require || exit $?
         ;;
 esac
 

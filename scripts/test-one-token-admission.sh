@@ -85,6 +85,20 @@ candidate_ledger=$temporary_directory/candidate-ledger.tsv
     printf 'theta\tstatic-admitted\n'
 } >"$candidate_ledger"
 
+# The load stage takes the campaign authority, so this test names its own lock
+# file and its own driver inside the temporary directory. The production lock at
+# /tmp/qwen-ad104-gpu-0.lock stays untouched and a serving workstation does not
+# decide what this fixture run reports.
+campaign_lock=$temporary_directory/campaign.lock
+fake_nvidia_smi=$temporary_directory/nvidia-smi
+printf '#!/bin/sh\nexit 0\n' >"$fake_nvidia_smi"
+chmod +x "$fake_nvidia_smi"
+QWEN_GPU_OWNERSHIP_LOCK=$campaign_lock
+QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$fake_nvidia_smi
+QWEN_GPU_COMPUTE_LEASE=$temporary_directory/absent-lease.lock
+export QWEN_GPU_OWNERSHIP_LOCK QWEN_GPU_OWNERSHIP_NVIDIA_SMI \
+    QWEN_GPU_COMPUTE_LEASE
+
 output_directory=$temporary_directory/out
 fetch_calls=$temporary_directory/fetch-calls
 QWEN_LLAMA_SERVER=$fake_server QWEN_CONTROL_MODEL=$control_model \

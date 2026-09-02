@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: delegated to the serving chain.
+# This harness reaches the device only through qwen-launch.sh, and
+# qwen-webui-control.sh puts a tmux boundary between itself and
+# qwen-webui-session.sh. tmux starts a session from its own server process, so no
+# descriptor this harness opens reaches the capacity server on the far side.
+# run-qwen-capacity-server.sh takes the campaign lock there instead, and a claim
+# held here would refuse the very session this harness launches.
+
 # Load one checkpoint under the guarded launch path and record the properties a
 # throughput number alone cannot show: whether the chat template still gates
 # reasoning, whether a projector is bound to this checkpoint, what the load
