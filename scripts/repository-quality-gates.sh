@@ -11,6 +11,25 @@ if [ "$#" -ne 0 ]; then
     exit 2
 fi
 
+# The two coding-principal tests read the qwen-coder account out of the host
+# passwd database, which only the appliance holds, so the caller declares the
+# host role and the gate dispatches on it. QWEN_GATE_HOST_ROLE=appliance is the
+# default and requires the principal; runner reports the pair not_run and runs
+# every remaining gate.
+gate_host_role=${QWEN_GATE_HOST_ROLE:-appliance}
+case $gate_host_role in
+    appliance | runner) ;;
+    *)
+        printf 'usage: QWEN_GATE_HOST_ROLE is appliance or runner, not %s\n' \
+            "$gate_host_role" >&2
+        exit 2
+        ;;
+esac
+if [ "$gate_host_role" = runner ]; then
+    printf 'coding_principal=not_run reason=runner_host\n'
+    printf 'coding_principal_path=not_run reason=runner_host\n'
+fi
+
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 cd "$repository_root"
@@ -64,11 +83,15 @@ scripts/check-validated-tuples.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-authority-consistency.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-authority-consistency.py
 scripts/test-qwen-code-pin.sh
-scripts/test-coding-principal.sh
+if [ "$gate_host_role" = appliance ]; then
+    scripts/test-coding-principal.sh
+fi
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-coding-agent-service.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
-scripts/test-coding-principal-path.sh
+if [ "$gate_host_role" = appliance ]; then
+    scripts/test-coding-principal-path.sh
+fi
 scripts/test-admit-coding-chain.sh
 scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh
@@ -85,6 +108,7 @@ scripts/test-quality-roster.sh
 scripts/test-qwen-runtime-guards.sh
 scripts/test-exec-profiler-clean-env.sh
 scripts/test-gpu-workload-ownership.sh
+scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-text-policy.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-tracked-artifacts.py
