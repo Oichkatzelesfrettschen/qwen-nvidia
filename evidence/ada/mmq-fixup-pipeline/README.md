@@ -102,4 +102,6 @@ order is rejected on identity whatever it measures, which is how
 arm. This patch claims identity by construction, so identity is the cheapest
 falsifier and it runs first.
 
-Nothing is measured on the device yet.
+README-RESULTS.md carries what the device answered. The identity gate and
+the sanitizer passed and the falsifier above fired, so the patch is rejected on
+measurement rather than on arithmetic.
