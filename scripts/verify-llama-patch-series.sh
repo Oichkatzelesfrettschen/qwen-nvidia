@@ -80,15 +80,17 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # candidate touches, so the two stay independent while the list stays ordered.
 # llama-cuda-dispatch-census adds a hook line at the head of mmvq.cu's launcher
 # below the crossover patch's hunks, so it follows that patch and takes the
-# last position.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch"
+# last position among the mmvq members. llama-cuda-mmq-fixup-pipeline rewrites
+# the stream-K fixup reduction loop in mmq.cuh, which no other candidate
+# touches, so its position is free and it takes the end of the list.
+candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch llama-cuda-mmq-fixup-pipeline.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
-# mmq.cuh left the list with llama-cuda-mmq-stream-k-grid, its sole writer: the
-# census patch names mmq.cu rather than the header, so no remaining candidate
-# rewrites it and a digest of an unmodified file states nothing about the
-# series.
-candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"
+# mmq.cuh rejoins the list with llama-cuda-mmq-fixup-pipeline, which is again
+# its sole writer after llama-cuda-mmq-stream-k-grid was rejected. Two closures
+# differing by the fixup loop would otherwise share a digest, because the
+# census patch names mmq.cu rather than the header.
+candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmq.cuh ggml/src/ggml-cuda/mmvf.cu"
 if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     for candidate_name in $candidate_patch_names; do
         git -C "$temporary_directory/llama.cpp" apply --check \
