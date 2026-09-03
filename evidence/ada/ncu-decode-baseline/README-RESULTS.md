@@ -98,3 +98,13 @@ far more than either varies.
 
 `profiler_device_minor=4324` with the ordinary account reading the capability
 node; `RmProfilingAdminOnly` stayed 1 and no process ran as root.
+
+## A later arm corrected the #102 branch above
+
+`../mmq-fixup-pipeline/` took the memory-latency branch this file selected,
+implemented it, and measured 1.3% of the `long_scoreboard` it targeted with
+identity and compute-sanitizer both clean. In that capture the stall
+anti-correlates with the duration across the J=24 launches, so it reports
+idleness rather than cost, and the 0.33-wave launch geometry this file called
+secondary is the constraint. The measurements here stand as taken; the branch
+ordering they set does not.

@@ -84,10 +84,11 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
-# mmq.cuh left the list with llama-cuda-mmq-stream-k-grid, its sole writer: the
-# census patch names mmq.cu rather than the header, so no remaining candidate
-# rewrites it and a digest of an unmodified file states nothing about the
-# series.
+# mmq.cuh belongs in the list exactly while a candidate rewrites it, and no
+# candidate does: llama-cuda-mmq-stream-k-grid and llama-cuda-mmq-fixup-pipeline
+# were each its sole writer in turn and both were rejected. The census patch
+# names mmq.cu rather than the header, so a digest of an unmodified file would
+# state nothing about the series.
 candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"
 if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     for candidate_name in $candidate_patch_names; do
@@ -127,16 +128,26 @@ fi
 # QWEN_LLAMA_REJECTED_PATCHES=1 beside QWEN_LLAMA_CANDIDATE_PATCHES=1 proves the
 # retained diff still applies against the pinned commit; every other setting
 # prints the refusal alone.
-rejected_patch_names="llama-cuda-mmvq-ncols-19.patch llama-cuda-mmq-stream-k-grid.patch"
+# The reason is per patch, because a campaign closes against a candidate for
+# more than one kind of reason and a shared string would misattribute them. Two
+# patches changed the emitted tokens and lost the exact-identity gate; one held
+# identity, passed compute-sanitizer, and moved no counter it was built to move
+# (evidence/ada/mmq-fixup-pipeline/), which is a different verdict about a
+# different property and steers a later reader differently.
+rejected_patch_names="llama-cuda-mmvq-ncols-19.patch llama-cuda-mmq-stream-k-grid.patch llama-cuda-mmq-fixup-pipeline.patch"
 for rejected_name in $rejected_patch_names; do
+    case $rejected_name in
+    llama-cuda-mmq-fixup-pipeline.patch) rejected_reason=no_measured_gain ;;
+    *) rejected_reason=numerical_gate_failed ;;
+    esac
     if [ "${QWEN_LLAMA_REJECTED_PATCHES:-0}" = 1 ] &&
         [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
         git -C "$temporary_directory/llama.cpp" apply --check \
             "$patch_directory/$rejected_name"
-        printf 'rejected_patch=%s applies=yes promotion=refused reason=numerical_gate_failed\n' \
-            "$rejected_name"
+        printf 'rejected_patch=%s applies=yes promotion=refused reason=%s\n' \
+            "$rejected_name" "$rejected_reason"
     else
-        printf 'rejected_patch=%s applies=not_checked promotion=refused reason=numerical_gate_failed\n' \
-            "$rejected_name"
+        printf 'rejected_patch=%s applies=not_checked promotion=refused reason=%s\n' \
+            "$rejected_name" "$rejected_reason"
     fi
 done

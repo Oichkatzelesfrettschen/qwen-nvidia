@@ -184,10 +184,19 @@ fi
 check "the grid patch joined the rejected list" \
     grep -q '^rejected_patch_names=.*llama-cuda-mmq-stream-k-grid' "$series_script"
 
-if grep -q '^candidate_digest_paths=.*mmq\.cuh' "$series_script"; then
-    report 1 "mmq.cuh left the candidate digest paths with its sole writer"
+# mmq.cuh belongs in the digest paths exactly while a candidate rewrites it.
+# The grid patch was its sole writer and left with it; the fixup-pipeline patch
+# is its writer now, so the path returns and two closures differing by the
+# reduction loop carry different names.
+if grep -q '^candidate_patch_names=.*llama-cuda-mmq-fixup-pipeline' \
+    "$series_script"
+then
+    check "mmq.cuh is a candidate digest path while a candidate writes it" \
+        grep -q '^candidate_digest_paths=.*mmq\.cuh' "$series_script"
+elif grep -q '^candidate_digest_paths=.*mmq\.cuh' "$series_script"; then
+    report 1 "mmq.cuh leaves the candidate digest paths with its last writer"
 else
-    report 0 "mmq.cuh left the candidate digest paths with its sole writer"
+    report 0 "mmq.cuh leaves the candidate digest paths with its last writer"
 fi
 
 check "the rejected patch is retained rather than deleted" \
