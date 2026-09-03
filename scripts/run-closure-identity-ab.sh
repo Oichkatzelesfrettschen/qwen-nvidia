@@ -40,6 +40,8 @@ Naming no MODEL_ID runs qwen38-2b-distill.
   QWEN_IDENTITY_SEED     sampling seed, default 1
   QWEN_IDENTITY_THREADS  host threads, default 1
   QWEN_IDENTITY_PROMPTS  prompt TSV, default the six state-carrying prompts
+  QWEN_IDENTITY_CONTROL_ARGS  extra llama-server arguments for both control arms
+  QWEN_IDENTITY_SUBJECT_ARGS  extra llama-server arguments for the subject arm
 USAGE
     exit 2
 }
@@ -59,6 +61,10 @@ server_port=${QWEN_IDENTITY_PORT:-8099}
 predict_tokens=${QWEN_IDENTITY_PREDICT:-256}
 sampling_seed=${QWEN_IDENTITY_SEED:-1}
 thread_count=${QWEN_IDENTITY_THREADS:-1}
+# Naming the same build for control and subject and differing by these turns
+# the harness into a runtime-flag comparison on one closure.
+control_arguments=${QWEN_IDENTITY_CONTROL_ARGS:-}
+subject_arguments=${QWEN_IDENTITY_SUBJECT_ARGS:-}
 readiness_seconds=${QWEN_IDENTITY_READY_SECONDS:-300}
 request_seconds=${QWEN_IDENTITY_REQUEST_SECONDS:-1800}
 appliance_port=${QWEN_SERVER_PORT:-8080}
@@ -218,9 +224,18 @@ start_server() {
     arm_cache_v=$7
     arm_flash_attention=$8
     arm_log=$9
+    shift 9
+    arm_extra_arguments=$1
 
+    # The extra arguments are the axis that lets one closure answer for a
+    # runtime flag. A flag that moves where a computation runs -- backend
+    # sampling moving argmax and softmax from the host into the graph, say --
+    # has to answer the identity question before it answers the rate question,
+    # and without this the harness could only compare two builds. Both arms are
+    # empty by default, so a two-closure run is unchanged.
+    # shellcheck disable=SC2086
     LLAMA_NO_CPU_FALLBACK=1 \
-        "$arm_build/$server_relative_path" \
+        "$arm_build/$server_relative_path" $arm_extra_arguments \
         --model "$arm_model_path" \
         --host 127.0.0.1 \
         --port "$server_port" \
@@ -341,10 +356,14 @@ for model_id in "$@"; do
             break
         fi
 
+        case $arm_name in
+        subject) arm_extra=$subject_arguments ;;
+        *) arm_extra=$control_arguments ;;
+        esac
         start_server "$arm_build" "$model_path" "$model_context" \
             "$model_batch" "$model_ubatch" "$model_cache_k" \
             "$model_cache_v" "$model_flash_attention" \
-            "$arm_directory/server.log" || {
+            "$arm_directory/server.log" "$arm_extra" || {
             printf 'closure_identity\t%s\t%s\trefused\tserver_start\n' \
                 "$model_id" "$arm_name" >>"$summary_file"
             refusals=$((refusals + 1))

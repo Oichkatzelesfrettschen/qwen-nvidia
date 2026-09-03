@@ -1,0 +1,15 @@
+model	arm	n_requests	median_decode_tok_s	min	max
+qwen35-08b	control-close	6	295.02	275.65	301.00
+qwen35-08b	control-open	6	295.75	291.69	304.43
+qwen35-08b	subject	6	316.37	307.84	319.78
+qwen38-2b-distill	control-close	6	224.31	203.60	228.64
+qwen38-2b-distill	control-open	6	225.75	215.22	228.38
+qwen38-2b-distill	subject	6	230.38	212.80	237.27
+qwen38-4b-distill	control-close	6	111.75	107.84	114.03
+qwen38-4b-distill	control-open	6	112.97	107.59	116.36
+qwen38-4b-distill	subject	6	113.48	112.71	115.77
+
+model	control_median	subject_median	delta_pct	control_drift_pct
+qwen35-08b	295.02	316.37	+7.24%	-0.25%
+qwen38-2b-distill	225.28	230.38	+2.26%	-0.64%
+qwen38-4b-distill	112.32	113.48	+1.03%	-1.08%
