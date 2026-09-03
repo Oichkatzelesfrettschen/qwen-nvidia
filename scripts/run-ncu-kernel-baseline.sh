@@ -132,7 +132,16 @@ ring_open=$(ring_signatures)
 clients_open=$(client_set)
 printf 'kernel_ring\topen\t%s\n' "$ring_open" >>"$summary"
 printf 'clients\topen\t%s\n' "$clients_open" >>"$summary"
+# Two identities, because a reader greps for one of them. The configuration
+# digest names the build directory and is what every other record in this tree
+# calls the closure; the executable digest states which bytes ran. Printing the
+# executable digest alone under the name `closure` puts an arm outside every
+# search for the closure it profiled.
+build_configuration_sha256=$(cut -d ' ' -f 1 \
+    "$build_directory/build-configuration.sha256" 2>/dev/null || echo unavailable)
 printf 'closure\t%s\t%s\n' "$build_directory" \
+    "$build_configuration_sha256" >>"$summary"
+printf 'bench_binary_sha256\t%s\n' \
     "$(sha256sum "$bench_binary" | cut -d ' ' -f 1)" >>"$summary"
 printf 'ncu_version\t%s\n' \
     "$("$ncu_binary" --version 2>/dev/null | awk '/^Version/ { print $2 }')" >>"$summary"

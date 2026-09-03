@@ -1,6 +1,6 @@
 # What the counters say: decode is at the roofline, and the fixup stalls on memory
 
-Three arms ran on the production closure `28266b1589d5` with no candidate patch,
+Three arms ran on the promoted closure `88681bf4d161` with no candidate patch,
 under the owner lock with the appliance stopped, the kernel ring at 44
 signatures before and after, and the same three desktop clients throughout.
 `run-01/` holds the fixup arm and `run-02/` the two decode arms.
@@ -98,6 +98,15 @@ far more than either varies.
 
 `profiler_device_minor=4324` with the ordinary account reading the capability
 node; `RmProfilingAdminOnly` stayed 1 and no process ran as root.
+
+The `closure` line in `run-01/summary.tsv` and `run-02/summary.tsv` carries
+`28266b1589d5...`, which is the SHA-256 of the `llama-bench` executable rather
+than the configuration digest that names the build directory. Both arms ran
+`build-appliance-current`, which resolves to `build-qwen-cuda-88681bf4d161`, the
+promoted closure every other record in this tree names. `run-ncu-kernel-baseline.sh`
+now prints the configuration digest as `closure` and the executable digest as
+`bench_binary_sha256`, so a later arm's summary is greppable by the id the rest
+of the tree uses; these two retained summaries keep the field as written.
 
 ## A later arm corrected the #102 branch above
 
