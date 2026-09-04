@@ -276,22 +276,30 @@ against the 5.1% floor, with the untouched levels 7 and 11 reading 1.0000 and
 reading that raised the candidate was the artifact of comparing two uncalibrated
 saturation trajectories, and the subject closure is rejected.
 
-Exact greedy token identity is a batch-1 gate and stops meaning anything at
-concurrency. `ne11` is the count of slots holding a token to decode, so it varies
-with arrival timing as requests join and leave the batch, `ggml_cuda_should_use_mmvq`
-selects the mat-mul family from `ne11`, and MMVQ and MMQ reduce in different
-orders as does one MMVQ column count against another; a sequence therefore meets
-a different sequence of reduction orders depending on what else was in flight
-beside it. One `--parallel 7` burst of seven requests carrying one prompt at
-temperature 0 with `ignore_eos` returned six distinct replies on one closure,
-28 requests over four repeats returned ten, and no request index was stable
-across repeats. The same two closures through the same harness at `--parallel 1`
-read identical over four pairs, which is the control that isolates the slot count
-as the cause. The gate decided `evidence/ada/mmvq-q8-b17-b20/` and
+Greedy decoding stops being reproducible above two sequences, and the boundary is
+sharp. `mul_mat_vec_q` is templated on the column count (`mmvq.cu:544`) and the
+column count is the number of slots holding a token to decode, so a sequence's
+arithmetic depends on how many sequences share its pass. One request and two
+requests each answer reproducibly and differ from each other; three identical
+simultaneous requests return three different replies in every one of four
+repeats, parting at generated token 2, and seven return five to six.
+`evidence/ada/concurrent-q6k-threshold/2b-identity-control/` reads identical
+across closures at `--parallel 1`, which isolates the slot count as the changed
+dimension. The in-kernel cause is unlocated: the server at `-lv 10` logs per-slot
+prompt lengths and startup graph reservations rather than the composition of each
+runtime ubatch, so a per-iteration trace is what would locate it.
+
+That makes exact greedy token identity a batch-1 gate. It decided
+`evidence/ada/mmvq-q8-b17-b20/` and
 `evidence/ada/mmq-stream-k-grid/phase-c-identity/`, both batch-1 comparisons where
-it means what it says; a concurrency candidate needs a distributional quality
-comparison instead, and this tree holds no such instrument. The appliance serves
-`--parallel 1`, so nothing shipped is affected.
+it means what it says, and above two sequences it fails against itself because
+one closure compared with itself does not pass it. A concurrency candidate needs
+a distributional quality comparison and this tree holds no such instrument.
+It is also the second reason `qwen-capacity-policy.sh:1140` sets `--parallel 1`
+beside placement and memory: above one, two identical requests can receive
+different replies, and the graded quality suite would sample a distribution
+rather than read a reply, which is what the 3.89x aggregate throughput above
+costs.
 
 Stream-K is the MMQ decomposition on this device rather than a decision:
 `ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
