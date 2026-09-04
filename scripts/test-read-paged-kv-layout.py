@@ -57,12 +57,12 @@ def control_log():
             "llama_memory_recurrent:      CUDA0 RS buffer size =    32.50 MiB\n")
 
 
-def run(text, expect):
+def run(text, expect, extra=()):
     with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as handle:
         handle.write(text)
         path = handle.name
     try:
-        result = subprocess.run([sys.executable, SCRIPT, path, "--expect", expect],
+        result = subprocess.run([sys.executable, SCRIPT, path, "--expect", expect, *extra],
                                 capture_output=True, text=True, check=False)
     finally:
         os.unlink(path)
@@ -119,6 +119,32 @@ check("overlapping extents refused", code == 1 and any("overlap" in f for f in f
 
 code, rows, faults = run(subject_log().replace("RS buffer size", "XX buffer size"), "paged_kv_vmm")
 check("absent recurrent store refused", code == 1 and any("RS buffer size" in f for f in faults))
+
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-tensors", "12"))
+check("census count of twelve agrees", code == 0, "; ".join(faults))
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-tensors", "14"))
+check("census count of fourteen refused", code == 1 and any("census predicts 14" in f for f in faults))
+
+only_k = [tensor_line("cache_k_l3", "q8_0", K_ROW, K_BYTES, 0)]
+code, rows, faults = run(subject_log(tensors=only_k), "paged_kv_vmm")
+check("a lone tensor fails coverage", code == 1 and any("padded tensor extents sum" in f for f in faults)
+      and any("without both K and V" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("nbytes=35651584", "nbytes=1"), "paged_kv_vmm")
+check("nbytes disagreeing with the geometry refused", code == 1 and any("disagrees with row_bytes" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("row_bytes=544", "row_bytes=512"), "paged_kv_vmm")
+check("row size disagreeing with the type refused", code == 1 and any("disagrees with type q8_0" in f for f in faults))
+
+zero = subject_log().replace("unit_bytes=%d" % UNIT, "unit_bytes=0").replace("granularity_minimum=%d" % UNIT, "granularity_minimum=0")
+code, rows, faults = run(zero, "paged_kv_vmm")
+check("zero unit refused", code == 1 and any("reads zero" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("paged_kv_tensor name=cache_v_l23 type=q4_0", "paged_kv_tensor name=cache_v_l23 type="), "paged_kv_vmm")
+check("a malformed record line refused", code == 1 and any("match no record pattern" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("312.00 MiB", "310.00 MiB"), "paged_kv_vmm")
+check("KV size line disagreeing with the reservation refused", code == 1 and any("KV buffer size line" in f for f in faults))
 
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)

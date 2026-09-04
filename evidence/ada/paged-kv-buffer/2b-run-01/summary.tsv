@@ -1,17 +1,20 @@
 model_id	qwen38-2b-distill
-build_directory	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-9a1c6a42dc40
-server_sha256	2e13247df995e977a6c2d8566087ae4dcee92d25ec78f22f35fe31b5b3278e0e
+build_directory	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-385e13f0df08
+server_sha256	fad93f3ec419979c8bfefb8c2c68f27e68fd7ee55185371ab0cf61280bfd7718
 subject_environment	LLAMA_KV_PAGED_BUFFER=1
 stage:probe	completed
 probe:granularity_minimum	2097152
 probe:granularity_recommended	2097152
 probe:vmm_supported	yes
 probe:probe_client_samples	0
+probe:probe_alive_samples	3
+expected_tensors	12
 stage:identity	completed
 identity_verdict	identical	subject_divergences=0 control_divergences=0 refusals=0
 identity_tokens_identical	12
 identity_states_identical	12
 identity_placement	subject=same control-close=same 
+identity_comparisons	expected=12 tokens_identical=12 states_identical=12 models_requested=1 models_run=1
 layout:control-open	layout_holds
 layout:subject	layout_holds
 layout:control-close	layout_holds
@@ -25,9 +28,10 @@ subject:vmm_granularity_recommended	2097152
 subject:attention_layer_count	6
 subject:memory_saved_bytes	0
 stage:primed	completed
-primed:level-1	reply_identity=identical delivered_ratio=1.0000 pairs=4
-primed:level-3	reply_identity=identical delivered_ratio=0.9997 pairs=4
+primed:level-1	reply_identity=identical delivered_ratio=1.0023 pairs=4
+primed:level-3	reply_identity=identical delivered_ratio=1.0003 pairs=4
 primed_reply_identity	identical
+primed_levels_complete	1 3
 layout:primed-1	layout_holds
 layout:primed-3	layout_holds
 verdict	admitted

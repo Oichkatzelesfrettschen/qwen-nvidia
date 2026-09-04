@@ -34,6 +34,10 @@ qwen38-2b-distill. OUTPUT_DIRECTORY must be absent or empty.
   QWEN_PAGED_KV_WIDTHS    concurrency levels for the primed sweep, default "1 3"
   QWEN_PAGED_KV_REPEATS   bursts per level, default 4
   QWEN_PAGED_KV_SKIP_SWEEP  1 runs the probe and the batch-1 arms alone
+
+The verdict reads admitted only where the batch-1 arms are complete and the
+sweep ran widths 1 and 3 with every pair; a narrower run that refuses
+nothing reads partial.
 USAGE
     exit 2
 }
@@ -91,9 +95,16 @@ stage() {
 }
 
 stage probe "$script_directory/probe-cuda-vmm-layout.sh" "$output_directory/probe" "$model_id"
-for key in granularity_minimum granularity_recommended vmm_supported probe_client_samples; do
+for key in granularity_minimum granularity_recommended vmm_supported probe_client_samples probe_alive_samples; do
     record "probe:$key" "$(sed -n "s/^$key=//p" "$output_directory/probe/probe.txt" 2>/dev/null || :)"
 done
+# The probe's geometry pass is the independent census of the attention KV
+# tensors the reader holds every paged log to: one row per operand per
+# attention layer at the minimum unit.
+expected_tensors=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { count++ } END { print count + 0 }' \
+    "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || echo 0)
+record expected_tensors "$expected_tensors"
+[ "$expected_tensors" -gt 0 ] || refusals=$((refusals + 1))
 
 stage identity env QWEN_IDENTITY_SUBJECT_ENV=LLAMA_KV_PAGED_BUFFER=1 QWEN_IDENTITY_SLOT_STATE=1 \
     "$script_directory/run-closure-identity-ab.sh" "$build_directory" "$build_directory" \
@@ -104,13 +115,16 @@ if [ -s "$identity_summary" ]; then
     record identity_tokens_identical "$(awk -F'\t' '$1 == "identity" && $5 == "identical" { count++ } END { print count + 0 }' "$identity_summary")"
     record identity_states_identical "$(awk -F'\t' '$1 == "state_identity" && $5 == "identical" { count++ } END { print count + 0 }' "$identity_summary")"
     record identity_placement "$(awk -F'\t' '$1 == "placement_match" { print $3 "=" $4 }' "$identity_summary" | tr '\n' ' ')"
+    record identity_comparisons "$(awk -F'\t' '$1 == "comparisons" { print $2 }' "$identity_summary")"
 fi
 
 for arm in control-open subject control-close; do
     arm_log=$output_directory/identity/$model_id/$arm/server.log
     [ -s "$arm_log" ] || { record "layout:$arm" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
     case $arm in subject) expect=paged_kv_vmm ;; *) expect=device_default ;; esac
-    if python3 "$script_directory/read-paged-kv-layout.py" "$arm_log" --expect "$expect" \
+    case $expect in paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors" ;; *) expect_tensors='' ;; esac
+    # shellcheck disable=SC2086
+    if python3 "$script_directory/read-paged-kv-layout.py" "$arm_log" --expect "$expect" $expect_tensors \
         >"$output_directory/layout-$arm.tsv" 2>&1; then
         record "layout:$arm" layout_holds
     else
@@ -136,14 +150,21 @@ if [ "$skip_sweep" = 0 ]; then
         awk -F'\t' 'NR > 1 { print "primed:level-" $1 "\treply_identity=" $4 " delivered_ratio=" $2 " pairs=" $5 }' \
             "$paired" >>"$summary"
         primed_identity=$(awk -F'\t' 'NR > 1 && $4 != "identical" { bad++ } NR > 1 { seen++ } END { print (seen > 0 && bad == 0) ? "identical" : "diverged" }' "$paired")
+        # Complete means every requested width has a row carrying every
+        # requested pair; a width the sweep dropped or a burst it lost reads
+        # as a shortfall rather than as an absent divergence.
+        primed_levels_complete=$(awk -F'\t' -v repeats="$repeats" 'NR > 1 && $5 == repeats { print $1 }' "$paired" | sort -n | tr '\n' ' ' | sed 's/ $//')
     else
         primed_identity=absent
+        primed_levels_complete=''
     fi
     record primed_reply_identity "$primed_identity"
+    record primed_levels_complete "${primed_levels_complete:--}"
     for level in $widths; do
         level_log=$output_directory/primed/level-$level.subject.log
-        [ -s "$level_log" ] || continue
+        [ -s "$level_log" ] || { record "layout:primed-$level" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
         if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect paged_kv_vmm \
+            --expect-tensors "$expected_tensors" \
             >"$output_directory/layout-primed-$level.tsv" 2>&1; then
             record "layout:primed-$level" layout_holds
         else
@@ -157,12 +178,19 @@ fi
 
 identity_verdict=$(awk -F'\t' '$1 == "identity_verdict" { print $2 }' "$summary")
 primed_identity=$(awk -F'\t' '$1 == "primed_reply_identity" { print $2 }' "$summary")
+primed_levels_complete=$(awk -F'\t' '$1 == "primed_levels_complete" { print $2 }' "$summary")
+gate_widths_complete=yes
+for gate_width in 1 3; do
+    printf ' %s ' "$primed_levels_complete" | grep -q " $gate_width " || gate_widths_complete=no
+done
 if [ "$refusals" -gt 0 ]; then
     verdict=refused
-elif [ "$identity_verdict" != identical ]; then
+elif [ "$identity_verdict" = subject-divergent ] || [ "$identity_verdict" = control-drift ]; then
     verdict=rejected
-elif [ "$skip_sweep" = 0 ] && [ "$primed_identity" != identical ]; then
+elif [ "$skip_sweep" = 0 ] && [ "$primed_identity" = diverged ]; then
     verdict=rejected
+elif [ "$identity_verdict" != identical ] || [ "$skip_sweep" = 1 ] || [ "$gate_widths_complete" = no ]; then
+    verdict=partial
 else
     verdict=admitted
 fi

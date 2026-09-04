@@ -58,29 +58,54 @@ cc -std=c11 -Wall -Wextra -Werror -I"$cuda_include" \
     -o "$probe_binary" "$script_directory/probe-cuda-vmm-layout.c" -lcuda
 
 # The probe holds for 1500 ms after its reads; three samples of the compute
-# client list inside that hold are what prove it opened no context.
+# client list inside that hold are what prove it opened no context. A sample
+# counts only where nvidia-smi answered and the probe was alive at the
+# instant of the query, since an unanswered query or a sample after exit
+# states nothing about the probe; the probe is identified by its pid rather
+# than by a name a foreign process could share.
 QWEN_PROBE_HOLD_MS=1500 "$probe_binary" "$device_index" >"$output_directory/probe.txt" 2>&1 &
 probe_pid=$!
 : >"$output_directory/clients.txt"
 sample=0
+samples_answered=0
+samples_alive=0
+probe_client_lines=0
 while [ "$sample" -lt 3 ]; do
     sleep 0.4
     printf 'sample=%s\n' "$sample" >>"$output_directory/clients.txt"
-    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader \
-        >>"$output_directory/clients.txt" 2>&1 || printf 'nvidia-smi=unavailable\n' >>"$output_directory/clients.txt"
+    alive_before=0; kill -0 "$probe_pid" 2>/dev/null && alive_before=1
+    if nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader \
+        >"$output_directory/clients.sample" 2>&1; then
+        samples_answered=$((samples_answered + 1))
+        alive_after=0; kill -0 "$probe_pid" 2>/dev/null && alive_after=1
+        if [ "$alive_before" -eq 1 ] && [ "$alive_after" -eq 1 ]; then
+            samples_alive=$((samples_alive + 1))
+        fi
+        probe_client_lines=$((probe_client_lines + $(awk -F', ' -v pid="$probe_pid" '$1 == pid { count++ } END { print count + 0 }' "$output_directory/clients.sample")))
+        printf 'answered=yes alive_before=%s alive_after=%s\n' "$alive_before" "$alive_after" >>"$output_directory/clients.txt"
+        cat "$output_directory/clients.sample" >>"$output_directory/clients.txt"
+    else
+        printf 'answered=no\n' >>"$output_directory/clients.txt"
+    fi
     sample=$((sample + 1))
 done
+rm -f "$output_directory/clients.sample"
 probe_status=0
 wait "$probe_pid" || probe_status=$?
-probe_client_lines=$(grep -c "$probe_binary\|probe-cuda-vmm-layout" "$output_directory/clients.txt" || :)
-printf 'probe_exit=%s\nprobe_client_samples=%s\n' "$probe_status" "$probe_client_lines" \
+printf 'probe_exit=%s\nprobe_samples_answered=%s\nprobe_alive_samples=%s\nprobe_client_samples=%s\n' \
+    "$probe_status" "$samples_answered" "$samples_alive" "$probe_client_lines" \
     >>"$output_directory/probe.txt"
 [ "$probe_status" -eq 0 ] || {
     printf 'refused: the probe exited %s; see %s\n' "$probe_status" "$output_directory/probe.txt" >&2
     exit 1
 }
+[ "$samples_answered" -eq 3 ] && [ "$samples_alive" -eq 3 ] || {
+    printf 'refused: %s of 3 client samples answered and %s found the probe alive; absence is unmeasured\n' \
+        "$samples_answered" "$samples_alive" >&2
+    exit 1
+}
 [ "$probe_client_lines" -eq 0 ] || {
-    printf 'refused: the probe appeared in the compute client list %s times\n' "$probe_client_lines" >&2
+    printf 'refused: the probe pid appeared in the compute client list %s times\n' "$probe_client_lines" >&2
     exit 1
 }
 minimum=$(sed -n 's/^granularity_minimum=//p' "$output_directory/probe.txt")

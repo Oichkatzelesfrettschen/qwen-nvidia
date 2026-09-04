@@ -213,7 +213,7 @@ ordinary buffer; `llama_memory_recurrent` reads none of it.
 with slot 0's state saved and compared byte for byte after every prompt,
 `scripts/read-paged-kv-layout.py` over every log, and the primed width-1 and
 width-3 sweep. `evidence/ada/paged-kv-buffer/2b-run-01/` admits it on the
-2B under closure `9a1c6a42dc40`: 12 of 12 token arms and 12 of 12 state
+2B under closure `385e13f0df08`: 12 of 12 token arms and 12 of 12 state
 files identical, one placement fingerprint across the three arms, 327155712
 bytes logical, virtual, and mapped with zero padding, six attention layers
 and no recurrent tensor in the buffer, and every primed reply identical at

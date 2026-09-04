@@ -13,6 +13,11 @@ mapping unit, a mapped byte count under the virtual reservation, an attention
 tensor outside the paged buffer, or a recurrent tensor inside it.
 
 Usage: read-paged-kv-layout.py LOG --expect paged_kv_vmm|device_default
+       [--expect-tensors N]
+
+``--expect-tensors`` names the tensor count an independent census of the
+checkpoint predicts, so a log that records fewer tensors than the model has
+attention K and V operands is refused rather than read as complete.
 """
 
 import argparse
@@ -35,10 +40,14 @@ KIND_LINE = re.compile(r"kv_buffer_kind=(?P<kind>\S+) buffer=(?P<buffer>\S+)")
 KV_SIZE_LINE = re.compile(r"(?P<buffer>\S+) KV buffer size = +(?P<mib>[0-9.]+) MiB")
 RS_SIZE_LINE = re.compile(r"(?P<buffer>\S+) RS buffer size = +(?P<mib>[0-9.]+) MiB")
 KV_TENSOR_NAME = re.compile(r"^cache_[kv]_l(?P<layer>\d+)$")
+# Bytes per block and elements per block, from ggml's type traits, for the
+# row-size check; a type outside the table is reported rather than guessed.
+TYPE_BLOCKS = {"q8_0": (34, 32), "q4_0": (18, 32), "q4_1": (20, 32), "q5_0": (22, 32),
+               "q5_1": (24, 32), "f16": (2, 1), "bf16": (2, 1), "f32": (4, 1)}
 
 
 def read_log(path):
-    buffers, tensors, kinds, kv_sizes, rs_sizes = [], [], [], [], []
+    buffers, tensors, kinds, kv_sizes, rs_sizes, malformed = [], [], [], [], [], []
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             match = BUFFER_LINE.search(line)
@@ -53,6 +62,12 @@ def read_log(path):
                     record[key] = int(record[key])
                 tensors.append(record)
                 continue
+            # A record line the pattern rejects is a fault rather than a
+            # line to skip: a truncated or hand-edited accounting line would
+            # otherwise remove a tensor from the sum it belongs to.
+            if "paged_kv_buffer " in line or "paged_kv_tensor " in line:
+                malformed.append(line.rstrip("\n"))
+                continue
             match = KIND_LINE.search(line)
             if match:
                 kinds.append(match.groupdict())
@@ -64,18 +79,21 @@ def read_log(path):
             match = RS_SIZE_LINE.search(line)
             if match:
                 rs_sizes.append(match.groupdict())
-    return buffers, tensors, kinds, kv_sizes, rs_sizes
+    return buffers, tensors, kinds, kv_sizes, rs_sizes, malformed
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("log")
     parser.add_argument("--expect", required=True, choices=("paged_kv_vmm", "device_default"))
+    parser.add_argument("--expect-tensors", type=int, default=None)
     arguments = parser.parse_args()
 
-    buffers, tensors, kinds, kv_sizes, rs_sizes = read_log(arguments.log)
+    buffers, tensors, kinds, kv_sizes, rs_sizes, malformed = read_log(arguments.log)
     faults = []
     rows = []
+    if malformed:
+        faults.append("%d accounting lines match no record pattern" % len(malformed))
 
     def add(key, value):
         rows.append((key, value))
@@ -121,6 +139,13 @@ def main():
         add("kv_virtual_reserved_bytes", virtual)
         add("kv_physical_mapped_bytes", mapped)
         add("kv_alignment_padding_bytes", virtual - logical)
+        # The KV buffer size line is the constructor's own view of the same
+        # buffer to two decimals of a MiB, and the two have to agree.
+        for size_record in kv_sizes:
+            printed_mib = float(size_record["mib"])
+            if abs(printed_mib - virtual / 1048576.0) > 0.01:
+                faults.append("the KV buffer size line reads %.2f MiB where the reservation is %.2f MiB"
+                              % (printed_mib, virtual / 1048576.0))
         add("kv_tensor_padded_bytes", padded)
         add("unit_bytes", ",".join(str(value) for value in sorted(units)) or "-")
         add("vmm_granularity_minimum", ",".join(str(value) for value in sorted(minima)) or "-")
@@ -129,6 +154,45 @@ def main():
         if len(units) != 1:
             faults.append("the buffer and tensor lines name %d distinct mapping units" % len(units))
         unit = next(iter(units)) if units else 0
+        if unit <= 0 or any(record["minimum"] <= 0 or record["recommended"] <= 0 for record in buffers):
+            faults.append("a mapping unit or granularity reads zero")
+        if arguments.expect_tensors is not None and len(tensors) != arguments.expect_tensors:
+            faults.append("the log records %d paged tensors where the census predicts %d"
+                          % (len(tensors), arguments.expect_tensors))
+        # Coverage: the allocator's requested size is the sum of every padded
+        # extent, so a tensor whose record is absent leaves a gap the sum
+        # cannot close, and each record's own geometry has to agree with its
+        # type and shape.
+        if buffers and padded != requested:
+            faults.append("padded tensor extents sum to %d where the buffer requested %d" % (padded, requested))
+        names = [record["name"] for record in tensors]
+        if len(set(names)) != len(names):
+            faults.append("a tensor name repeats in the paged buffer")
+        for record in tensors:
+            blocks = TYPE_BLOCKS.get(record["type"])
+            if blocks is None:
+                faults.append("tensor %s has a type outside the row-size table: %s" % (record["name"], record["type"]))
+                continue
+            block_bytes, block_elements = blocks
+            if record["ne0"] % block_elements != 0 or record["row"] != record["ne0"] // block_elements * block_bytes:
+                faults.append("tensor %s row_bytes=%d disagrees with type %s at ne0=%d"
+                              % (record["name"], record["row"], record["type"], record["ne0"]))
+            if record["nbytes"] != record["row"] * record["ne1"] * record["ne2"]:
+                faults.append("tensor %s nbytes=%d disagrees with row_bytes * ne1 * ne2" % (record["name"], record["nbytes"]))
+            if record["nbytes"] > record["alloc"]:
+                faults.append("tensor %s nbytes exceeds alloc_bytes" % record["name"])
+            if unit and record["padded"] != -(-record["alloc"] // unit) * unit:
+                faults.append("tensor %s padded_bytes is not alloc_bytes rounded to the unit" % record["name"])
+        # Every attention layer carries both operands, since the cache
+        # allocates K and V of one layer together.
+        per_layer = {}
+        for record in tensors:
+            match = KV_TENSOR_NAME.match(record["name"])
+            if match:
+                per_layer.setdefault(int(match.group("layer")), set()).add(record["name"][6])
+        odd = [layer for layer, operands in per_layer.items() if operands != {"k", "v"}]
+        if odd:
+            faults.append("layers without both K and V in the paged buffer: %s" % ",".join(str(layer) for layer in sorted(odd)))
         if buffers and any(record["mapped"] != record["virtual"] for record in buffers):
             faults.append("physical_mapped_bytes differs from virtual_reserved_bytes on a fully backed buffer")
         if buffers and any(record["mapped"] < record["requested"] for record in buffers):

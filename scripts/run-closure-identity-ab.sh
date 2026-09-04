@@ -180,6 +180,21 @@ constraints	Five houses in a row are numbered 1 to 5. Each has one colour from r
 PROMPTS
 fi
 
+# The verdict divides by the prompt set, so the set is validated before a
+# server starts: at least one row, every row carrying an id and a text, and
+# no id repeated, since a repeated id would overwrite its own tokens file and
+# a blank file would let zero comparisons read as identical.
+prompt_count=$(awk -F'\t' 'NF >= 2 && $1 != "" && $2 != "" { count++ } END { print count + 0 }' "$prompt_file")
+prompt_rows=$(awk 'NF > 0 { count++ } END { print count + 0 }' "$prompt_file")
+prompt_unique=$(awk -F'\t' 'NF >= 2 && $1 != "" && $2 != "" { print $1 }' "$prompt_file" | sort -u | wc -l)
+if [ "$prompt_count" -eq 0 ] || [ "$prompt_count" -ne "$prompt_rows" ] ||
+    [ "$prompt_unique" -ne "$prompt_count" ]; then
+    printf 'refused: prompt file needs unique id<TAB>text rows on every line: %s\n' \
+        "$prompt_file" >&2
+    exit 2
+fi
+printf 'prompt_count\t%s\n' "$prompt_count" >>"$summary_file"
+
 request_builder=$output_directory/build-request.py
 cat >"$request_builder" <<'PYTHON'
 import json
@@ -565,12 +580,34 @@ control_divergences=$(awk -F'\t' \
     '($1 == "identity" || $1 == "state_identity") && $3 == "control-close" && $5 == "divergent" { count++ } END { print count + 0 }' \
     "$summary_file")
 
+# The verdict is complete only where every (model, arm, prompt) tuple read
+# identical: a not_run row, a missing model, or an absent state comparison
+# leaves the count short and the run reads incomplete rather than identical.
+models_run=$(awk -F'\t' '$1 == "geometry" { count++ } END { print count + 0 }' "$summary_file")
+expected_comparisons=$((models_run * 2 * prompt_count))
+token_identical=$(awk -F'\t' \
+    '$1 == "identity" && $5 == "identical" { count++ } END { print count + 0 }' "$summary_file")
+state_identical=$(awk -F'\t' \
+    '$1 == "state_identity" && $5 == "identical" { count++ } END { print count + 0 }' "$summary_file")
+if [ "$slot_state" = 1 ]; then
+    expected_state=$expected_comparisons
+else
+    expected_state=0
+fi
+printf 'comparisons\texpected=%s tokens_identical=%s states_identical=%s models_requested=%s models_run=%s\n' \
+    "$expected_comparisons" "$token_identical" "$state_identical" "$#" "$models_run" \
+    >>"$summary_file"
+
 if [ "$refusals" -gt 0 ]; then
     verdict=refused
 elif [ "$control_divergences" -gt 0 ]; then
     verdict=control-drift
 elif [ "$subject_divergences" -gt 0 ]; then
     verdict=subject-divergent
+elif [ "$models_run" -ne "$#" ] || [ "$expected_comparisons" -eq 0 ] ||
+    [ "$token_identical" -ne "$expected_comparisons" ] ||
+    [ "$state_identical" -ne "$expected_state" ]; then
+    verdict=incomplete
 else
     verdict=identical
 fi
