@@ -78,22 +78,19 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # The order is the apply order: llama-server-vulkan-workload-lease encodes
 # post-series offsets in tools/server/server-context.cpp, which no earlier
 # candidate touches, so the two stay independent while the list stays ordered.
-# llama-cuda-dispatch-census adds a hook line at the head of mmvq.cu's launcher
-# below the crossover patch's hunks, so it follows that patch and takes the
-# last position.
-# llama-cuda-graph-lifecycle hooks the graph compute decision path the census
-# patch already hooks, and its ggml-cuda.cu hunks were cut against the tree the
-# census patch produces, so it follows the census patch and takes the last
-# position.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch llama-cuda-graph-lifecycle.patch"
+# llama-cuda-paged-kv-buffer adds a KV buffer type in the buffer section of
+# ggml-cuda.cu and a proc-address entry at its registry, regions no other
+# candidate writes, and takes the last position because the diagnostic stage
+# below cuts its ggml-cuda.cu hunks against the tree this stage produces.
+candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
 # mmq.cuh belongs in the list exactly while a candidate rewrites it, and no
 # candidate does: llama-cuda-mmq-stream-k-grid and llama-cuda-mmq-fixup-pipeline
-# were each its sole writer in turn and both were rejected. The census patch
-# names mmq.cu rather than the header, so a digest of an unmodified file would
-# state nothing about the series.
-candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/graph-lifecycle.cu ggml/src/ggml-cuda/graph-lifecycle.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"
+# were each its sole writer in turn and both were rejected. mmf.cu, mmq.cu, and
+# mmvf.cu left the list with the census patch, whose hook lines were their only
+# candidate-stage writer.
+candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/ggml-cuda.cu src/llama-kv-cache.cpp"
 if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     for candidate_name in $candidate_patch_names; do
         git -C "$temporary_directory/llama.cpp" apply --check \
@@ -110,6 +107,43 @@ if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     done
 else
     printf 'candidate_patches=not_run reason=QWEN_LLAMA_CANDIDATE_PATCHES_unset\n'
+fi
+
+# A diagnostic patch is instrumentation whose campaign has closed or whose
+# output is a record rather than a serving change: it applies to a closure
+# built to answer a question and to no closure this repository promotes, so it
+# earns no promotion_candidate line and its digests name diagnostic closures
+# alone. llama-cuda-dispatch-census counts where every quantized mat-mul
+# launch goes (evidence/ada/cuda-dispatch-census/), and
+# llama-cuda-graph-lifecycle records every CUDA graph decision the backend
+# takes (evidence/ada/graph-lifecycle/, which closed #43 on measurement).
+# Both hook ggml-cuda.cu, and the lifecycle hunks were cut against the tree the
+# census produces, so the two stay ordered. The census hunks in mmvq.cu sit
+# below the crossover patch's, so the stage requires the candidate stage and
+# applies on top of it; QWEN_LLAMA_DIAGNOSTIC_PATCHES=1 beside
+# QWEN_LLAMA_CANDIDATE_PATCHES=1 arms it.
+diagnostic_patch_names="llama-cuda-dispatch-census.patch llama-cuda-graph-lifecycle.patch"
+diagnostic_digest_paths="ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/graph-lifecycle.cu ggml/src/ggml-cuda/graph-lifecycle.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu ggml/src/ggml-cuda/mmvq.cu"
+if [ "${QWEN_LLAMA_DIAGNOSTIC_PATCHES:-0}" = 1 ] &&
+    [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
+    for diagnostic_name in $diagnostic_patch_names; do
+        git -C "$temporary_directory/llama.cpp" apply --check \
+            "$patch_directory/$diagnostic_name"
+        git -C "$temporary_directory/llama.cpp" apply \
+            "$patch_directory/$diagnostic_name"
+        git -C "$temporary_directory/llama.cpp" diff --check
+        printf 'diagnostic_patch=%s applies=yes promotion_candidate=no\n' \
+            "$diagnostic_name"
+    done
+    for diagnostic_digest_path in $diagnostic_digest_paths; do
+        printf 'diagnostic_sha256=%s path=%s\n' \
+            "$(sha256sum "$temporary_directory/llama.cpp/$diagnostic_digest_path" | cut -d ' ' -f 1)" \
+            "$diagnostic_digest_path"
+    done
+elif [ "${QWEN_LLAMA_DIAGNOSTIC_PATCHES:-0}" = 1 ]; then
+    printf 'diagnostic_patches=not_run reason=QWEN_LLAMA_CANDIDATE_PATCHES_unset\n'
+else
+    printf 'diagnostic_patches=not_run reason=QWEN_LLAMA_DIAGNOSTIC_PATCHES_unset\n'
 fi
 
 # A rejected patch is neither a production member nor a candidate under
