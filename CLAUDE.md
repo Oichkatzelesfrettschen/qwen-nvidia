@@ -255,15 +255,36 @@ and it buys more than all of them together. `update_slots` builds one batch
 across every slot holding a token to decode, so N decoding slots make one ubatch
 of N columns, `ne11` equals the slot count, and the Nsight symbol names that
 count: `mul_mat_vec_q<Q4_K, 7>` at seven slots against `mul_mat_q<Q4_K>` at
-eight. `scripts/run-concurrent-sequence-sweep.sh` sweeps it, and eleven
-concurrent sequences read 3.89 times the aggregate decode throughput of one on
-the 2B and 3.88 on the 0.8B while the per-request rate falls to 0.399 and 0.393
-of its single-sequence value; the appliance serves `--parallel 1`, so the trade
-is available rather than taken. An iteration at eleven slots costs 2.83 times an
-iteration at one and produces eleven tokens, and the two checkpoints agree on
-that growth within 2% at every level, so a lever removing a fixed per-iteration
-cost has its share divided by it: the projection fan-out merge falls from 3.08%
-to 1.09% on the 2B and the bounded graph loop from 3.26% to 1.15%.
+eight. That holds in a pass every member of the burst decodes in, and the
+server's own `-lv 10` log states which passes those are: one `decode:` line
+per `llama_decode` call and one `slot decode token` line per slot per pass, so
+`scripts/read-server-decode-iterations.py` reads every pass's width and every
+slot's sampled ids out of a retained log. `n_batch` bounds how many prompts one
+pass carries, so a burst whose prompts exceed it decodes its first members
+beside the others' prefill. `scripts/run-concurrent-sequence-sweep.sh` sweeps
+the slot count through `scripts/concurrent-burst-client.py`, which pins each
+request to its slot with `id_slot`, releases N requests from one barrier,
+validates every reply, and under its default primed admission fills each
+slot's cache ahead of the burst so every member reaches its first decode pass
+together; a primed burst whose log shows a pass below full width fails the
+level. The full-width decode rate divides the tokens of those passes by their
+span, the delivered rate divides every generated token by the client's window,
+and the two answer different questions.
+
+`evidence/ada/concurrent-sequences/` is provisional: it ran under cold
+admission with the delivered window, and its decode figures are read back
+from the retained logs. On those, an iteration at eleven slots costs 2.380
+times the single-sequence iteration on the 2B and 2.426 on the 0.8B, and the
+full-width decode rate reads 4.62 and 4.53 times the single-sequence rate,
+while the generation rate one request sees falls to 0.399 and 0.393 of its
+single-sequence value; the appliance serves `--parallel 1`, so the trade is
+available rather than taken. A lever removing a fixed per-iteration cost has
+its share divided by that growth: the projection fan-out merge falls from
+3.08% to 1.29% on the 2B and the bounded graph loop from 3.26% to 1.37%. The
+4096 per-slot figure in that record is an allocation the 468-token prompt and
+128-token reply filled to about 596 positions, so the harness now cuts the
+prompt in tokens through the server's tokenizer and states `filled_depth`
+beside `slot_depth`.
 
 `llama_context` sets `cparams.n_ctx_seq = cparams.n_ctx / cparams.n_seq_max`
 (`src/llama-context.cpp:293`), so a concurrency sweep holding `--ctx-size` fixed
@@ -274,40 +295,47 @@ depth back out of the server's own load line. Every request in a burst carries
 its tail at a column count the arm did not ask for.
 
 `evidence/ada/mmvq-crossover-ad104/` selected the Q6_K threshold of ten from
-llama-bench `-p N` arms, which issue one mat-mul of N columns in isolation, and
-that threshold transfers to N decoding sequences. `evidence/ada/concurrent-q6k-threshold/`
-served closure `4db51fb538cf` at `Q6_K_MAX = 7` against production's 10, which
-differ in that one integer and dispatch identically outside `ne11` of 8, 9, and
-10: the paired aggregate ratio reads 0.9932 to 1.0070 across levels 7 through 11
-against the 5.1% floor, with the untouched levels 7 and 11 reading 1.0000 and
-1.0040 as the null controls the arm carries itself. The cross-model marginal-gain
-reading that raised the candidate was the artifact of comparing two uncalibrated
-saturation trajectories, and the subject closure is rejected.
+llama-bench `-p N` arms, which issue one mat-mul of N columns in isolation.
+`evidence/ada/concurrent-q6k-threshold/` served closure `4db51fb538cf` at
+`Q6_K_MAX = 7` against production's 10, which differ in that one integer and
+dispatch identically outside `ne11` of 8, 9, and 10: the paired delivered ratio
+reads 0.9932 to 1.0070 across levels 7 through 11 against the 5.1% floor, with
+the untouched levels 7 and 11 reading 1.0000 and 1.0040 as the null controls
+the arm carries itself. The candidate is `promotion_status=not_supported` with
+`observed_gain=inside_measurement_floor` and
+`mechanistic_refutation=not_established`, because the bursts mixed widths and
+the clock lock was unproven; it is retired rather than rescued, since
+production serves `--parallel 1`.
 
-Greedy decoding stops being reproducible above two sequences, and the boundary is
-sharp. `mul_mat_vec_q` is templated on the column count (`mmvq.cu:544`) and the
-column count is the number of slots holding a token to decode, so a sequence's
-arithmetic depends on how many sequences share its pass. One request and two
-requests each answer reproducibly and differ from each other; three identical
-simultaneous requests return three different replies in every one of four
-repeats, parting at generated token 2, and seven return five to six.
-`evidence/ada/concurrent-q6k-threshold/2b-identity-control/` reads identical
-across closures at `--parallel 1`, which isolates the slot count as the changed
-dimension. The in-kernel cause is unlocated: the server at `-lv 10` logs per-slot
-prompt lengths and startup graph reservations rather than the composition of each
-runtime ubatch, so a per-iteration trace is what would locate it.
+A concurrent greedy reply is a function of slot position, and the retained
+logs state it. At three and four slots on the 2B every prompt entered one
+prefill pass and every decode pass held every slot, the slots still parted at
+the third token, and each slot's reply is identical in every burst of its width
+and across two server launches on different days, so the effect is
+deterministic arithmetic rather than a race and schedule history is not its
+cause in that regime. One burst whose prompts prefilled three and then one
+reproduced the width-3 replies exactly in the three slots that shared the
+first pass, over 127 decode passes at width four, so the reply follows the
+prefill composition rather than the decode width. The 0.8B agrees across four
+slots at width four and parts at width two, so the boundary is a property of
+the model and the width. Above `n_batch` divided by the prompt length, arrival
+order decides which prompts share a pass and per-slot replies vary between
+bursts, which is the schedule-history regime.
 
-That makes exact greedy token identity a batch-1 gate. It decided
+Free-running exact-token identity is therefore a valid numerical gate only
+after the control demonstrates self-reproducibility in the same execution
+regime. One sequence is self-reproducible and decided
 `evidence/ada/mmvq-q8-b17-b20/` and
-`evidence/ada/mmq-stream-k-grid/phase-c-identity/`, both batch-1 comparisons where
-it means what it says, and above two sequences it fails against itself because
-one closure compared with itself does not pass it. A concurrency candidate needs
-a distributional quality comparison and this tree holds no such instrument.
-It is also the second reason `qwen-capacity-policy.sh:1140` sets `--parallel 1`
-beside placement and memory: above one, two identical requests can receive
-different replies, and the graded quality suite would sample a distribution
-rather than read a reply, which is what the 3.89x aggregate throughput above
-costs.
+`evidence/ada/mmq-stream-k-grid/phase-c-identity/`; two are self-reproducible
+in this harness; three or more under cold admission are not, so the gate is
+inapplicable there rather than failed. Primed admission removes the
+prefill-composition term by prefilling each slot alone, and whether the decode
+pass then reproduces the width-1 reply in every slot is the arm that separates
+the prefill geometry from the decode column, which has not run. It is also
+the second reason `qwen-capacity-policy.sh:1140` sets `--parallel 1` beside
+placement and memory: above one, the reply a request receives depends on the
+slot it landed in and the prompts that shared its prefill pass, and the graded
+quality suite would read a position rather than a reply.
 
 Stream-K is the MMQ decomposition on this device rather than a decision:
 `ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
@@ -1336,7 +1364,9 @@ scripts/run-vision-review-control.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
 scripts/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
                                                 # token identity across the graph optimizer
 scripts/run-concurrent-sequence-sweep.sh SERVER MODEL_ID OUT
-                                                # aggregate and per-request decode at N concurrent slots
+                                                # full-width decode, delivered rate, and per-slot replies at N slots
+scripts/read-server-decode-iterations.py SERVER_LOG [--passes|--bursts]
+                                                # every pass's width and every slot's reply, out of a -lv 10 log
 scripts/run-cuda-dispatch-census.sh OUT [ARM_ID...]
                                                 # where every mat-mul launch goes, per arm, census closure only
 scripts/summarize-dispatch-census.py OUT        # census rows joined to the requests that produced them
@@ -1437,6 +1467,8 @@ scripts/test-exec-profiler-clean-env.sh
 scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
+python3 scripts/test-read-server-decode-iterations.py
+python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh

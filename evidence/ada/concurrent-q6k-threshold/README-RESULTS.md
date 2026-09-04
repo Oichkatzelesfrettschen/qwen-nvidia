@@ -1,26 +1,26 @@
-# The threshold transfers, and the identity gate does not survive concurrency
+# The candidate is inside the floor, and concurrent greedy replies are a function of slot position
 
-Two results, and the second was not the question this arm was built to ask.
+**Status: provisional.** The paired arm ran under cold admission, so above
+four slots its bursts entered decode through a mixed-width prefix, the clock
+lock was read once, and no during-run operating-state series exists. The rate
+verdict stands as a bounded null; the mechanistic claim it was written to
+carry does not.
 
-The Q6_K MMVQ ceiling of ten holds in the served concurrent regime. Moving it to
-seven, which sends Q6_K to MMQ at eight columns alongside Q4_K, moves aggregate
-throughput by less than a percent in either direction at every level. The
-candidate `../concurrent-sequences/` raised is refuted on its own preregistered
-floor.
-
-Exact greedy token identity, the gate this tree applies to every dispatch
-candidate, cannot be evaluated at concurrency at all. Seven identical requests
-answered simultaneously by one server on one closure returned six distinct
-replies.
+```text
+candidate=Q6_K_MAX 7 against 10, closure 4db51fb538cf against 88681bf4d161
+promotion_status=not_supported
+observed_gain=inside_measurement_floor
+mechanistic_refutation=not_established
+```
 
 ## The rate verdict
 
-Control is the promoted closure `88681bf4d161` at `Q6_K_MAX = 10`; subject is
-`4db51fb538cf`, identical in every configuration field but that one, which reads
-7. Both carry `Q8_0_MAX = 16`. Four alternating pairs per level, per-slot depth
-4096, clock lock requested at 2835 MHz.
+Control is the promoted closure at `Q6_K_MAX = 10`; subject is `4db51fb538cf`,
+identical in every configuration field but that one, which reads 7. Both carry
+`Q8_0_MAX = 16`. Four alternating pairs per level, per-slot allocation 4096,
+prompt 468 tokens, reply 128.
 
-| level | aggregate ratio, subject over control | clears 5.1% floor |
+| level | delivered ratio, subject over control | clears 5.1% floor |
 | ---: | ---: | --- |
 | 7 | 1.0000 | no |
 | 8 | 0.9970 | no |
@@ -28,96 +28,108 @@ Control is the promoted closure `88681bf4d161` at `Q6_K_MAX = 10`; subject is
 | 10 | 1.0070 | no |
 | 11 | 1.0040 | no |
 
-Levels 7 and 11 are the null controls the arm carries itself: the two closures
-dispatch identically there, and they read 1.0000 and 1.0040. The harness is
-therefore measuring the threshold rather than itself, and falsifier 1 is
-answered.
+Levels 7 and 11 are the null controls the arm carries itself, since the two
+closures dispatch identically there, and they read 1.0000 and 1.0040. Levels 8,
+9, and 10 are the whole blast radius of the change and move 0.9932 to 1.0070
+against a floor of 1.051. The candidate has no demonstrated benefit and reaches
+no promotion path.
 
-Levels 8, 9, and 10 are the whole blast radius of the change, and the band moves
-0.9932 to 1.0070 against a floor of 1.051. **This is falsifier 2.**
+What the arm does not establish is that the llama-bench crossover fails to
+transfer, or that it transfers: the bursts mixed widths, the lock was unproven,
+and a difference under a percent is inside what this run can resolve. The
+candidate is retired because production serves `--parallel 1` and the setting
+has no serving role, and it is revisited only if concurrent serving becomes a
+target after the boundary below is located.
 
-The clock lock did not hold on this arm and the verdict is a null, which is the
-pairing where that matters most. `nvidia-smi` accepted
+The clock lock did not hold on this arm. `nvidia-smi` accepted
 `(gpuClkMin 2835, gpuClkMax 2835)` and the harness's single reading two seconds
-later, on an idle device with persistence mode disabled, was 2535; no during-run
-series was recorded, so whether the clock stayed there is unknown. What protects
-the ratio is the alternation, since both arms of every pair met whatever clock
-the device held, and the control closure's level-7 aggregate of 779.74 sits 0.19%
-from the 781.21 `../concurrent-sequences/2b-run-01/` measured. A reader revisiting
-this threshold should weigh the null against that rather than against a lock the
-run proved. The threshold
-`../mmvq-crossover-ad104/` selected with llama-bench `-p N` transfers to N
-decoding sequences, and the cross-model marginal-gain reading that raised the
-question was the artifact of comparing two uncalibrated saturation trajectories,
-which is what `../concurrent-sequences/` said it might be. The subject closure is
-rejected and reaches no promotion path.
+later, on an idle device with persistence mode off, was 2535; no during-run
+series exists. The alternation protects the ratio, since both arms of every pair
+met whatever clock the device held, and the control's level-7 delivered rate of
+779.74 sits 0.19% from the 781.21 `../concurrent-sequences/2b-run-01/` measured.
 
-## Greedy decoding stops being reproducible above two sequences
+## Reply identity is a function of slot position
 
 The identity clause returned `diverged` at every level including both null
 controls, which is impossible if it were measuring the closures. It was not.
-
-`2b-divergence-onset/` sweeps the small levels on the control closure alone,
-with every request carrying one prompt at temperature 0 and `ignore_eos`, and
-finds a sharp boundary:
-
-| slots | distinct replies per burst | repeats agreeing | first divergence |
-| ---: | ---: | --- | ---: |
-| 1 | 1 of 1 | 4 of 4 | none |
-| 2 | 1 of 2 | 4 of 4 | none |
-| 3 | 3 of 3 | 0 of 4 | token 2 |
-| 4 | 4 of 4 | 0 of 4 | token 2 |
-| 7 | 5 to 6 of 7 | 0 of 4 | token 2 to 4 |
-
-Two sequences answer identically to each other and reproducibly across all four
-repeats: eight responses, one distinct reply. Three sequences give three
-different replies to three identical simultaneous requests, in every repeat.
-
-The slot count changes the answer before it destroys reproducibility. The N=2
-reply is stable but differs from the N=1 reply, so a sequence's own arithmetic
-already depends on how many sequences share its pass, which follows from
-`mul_mat_vec_q` being templated on the column count at `mmvq.cu:544`. What
-happens at three is that the dependence stops being the same for every sequence
-in one pass: at N=3 no reply matches the N=1 reply and the three part from it at
-tokens 43, 2, and 10 respectively.
-
-The paired closures corroborate the boundary from the other side.
 `2b-identity-control/` runs both closures at `--parallel 1` and reads
 **identical** over four pairs, so the closure pair is numerically sound and the
 slot count is the changed dimension.
 
-**The in-kernel cause is unlocated.** The server at `-lv 10` logs per-slot prompt
-lengths and startup graph reservations rather than the composition of each
-runtime ubatch, so which sequences shared which pass is not readable from what
-this run retained. A per-iteration ubatch trace is what would locate it, and
-this arm did not take one.
+`2b-divergence-onset/` sweeps two, three, and four slots on the control closure
+alone, and its `-lv 10` logs state the composition of every pass.
+`../../../scripts/read-server-decode-iterations.py` reads them, and the
+`reply` rows are a twelve-hex digest of each slot's 127 sampled ids per burst:
 
-**The consequence does not wait on the cause.** Exact greedy token identity
-decided `../mmvq-q8-b17-b20/` and `../mmq-stream-k-grid/phase-c-identity/`, both
-batch-1 comparisons where the gate means what it says. Above two sequences the
-gate fails against itself: its control arm, one closure compared with itself,
-does not pass. No concurrency candidate can be gated that way, and a
-distributional quality comparison is the instrument that would replace it. This
-tree holds none.
+| slots | prefill passes | full-width history | slot replies, every burst | matches width 1 |
+| ---: | ---: | --- | --- | --- |
+| 1 | 1 | yes | `ef3619eee1d3` | itself |
+| 2 | 1 | yes | `9b3ee873f6dd` `9b3ee873f6dd` | none |
+| 3 | 1 | yes | `7a6441910d35` `03f484e6d7bf` `4f6277a6fa35` | none |
+| 4 | 1 | yes | `9b3ee873f6dd` `940927d55a58` `4deddc010209` `03f484e6d7bf` | none |
 
-It is also a reason the serving default holds rather than a footnote about blast
-radius. `qwen-capacity-policy.sh:1140` sets `--parallel 1`, recorded against
-placement and memory; above one, two identical requests can receive different
-replies, and the graded quality suite would sample a distribution rather than
-read a reply. Raising the setting for the 3.89x aggregate throughput
-`../concurrent-sequences/` measured costs that, and the cost is now measured
-rather than suspected.
+Three facts sit in that table.
+
+**The effect is deterministic per position, so it is not a race.** Every slot
+answers the same way in every burst of its width, and the width-4 row is
+identical across `2b-divergence-onset/level-4` and
+`../concurrent-sequences/2b-run-01/level-4`, two server launches on different
+days. Three identical simultaneous requests return three different replies, and
+they return the same three every time.
+
+**Schedule history is not the cause at three and four.** Every prompt of every
+burst entered one prefill pass, and every decode pass held every slot, which
+the `history_full_width` column reads as `yes`. The three sequences ran the
+same widths through the same passes and still parted at the third token.
+
+**The prefill composition is what the reply follows.** One burst of the width-4
+run prefilled in two passes, three prompts and then one. Its first three slots
+reproduced the width-3 replies `7a64`, `03f4`, `4f62` exactly, over 127 decode
+passes at width four rather than three, and the fourth slot answered a reply
+seen nowhere else. A change of decode width from three to four flipped no token
+in three replies, while a change of prefill composition flipped one by the
+third token in every case observed. That points at the geometry each prompt's
+tokens occupied in the shared prefill ubatches, which is where a sequence's KV
+cache is written, rather than at the column each slot occupied in the decode
+mat-mul.
+
+The boundary is a property of the model and the width rather than of three:
+the 0.8B agrees across all four slots at width four in every burst and parts at
+token 15 at width two. A numerical difference flips a greedy token only where
+the top-two margin is small, so a null token read at one width states nothing
+about numerical identity, and the logit margin is the instrument for a width
+where the tokens agree.
+
+Above four slots the second mechanism appears on top: `n_batch` admits four
+468-token prompts per pass, so the first four enter decode while the rest
+prefill, each burst's assignment of prompts to passes follows arrival order,
+and per-slot replies vary between bursts of one level. That regime is
+schedule-history and the harness now refuses it under primed admission.
+
+## What the identity gate now means
+
+Free-running exact-token identity is a valid numerical gate only after the
+control demonstrates self-reproducibility in the same execution regime. One
+sequence is self-reproducible, and it is the regime that decided
+`../mmvq-q8-b17-b20/` and `../mmq-stream-k-grid/phase-c-identity/`. Two
+sequences are self-reproducible in this harness. Three or more under cold
+admission are not, so the gate is inapplicable there rather than failed. Under
+primed admission every slot's prefill runs alone in its own pass, which removes
+the prefill-composition term; whether the decode pass then reproduces the
+width-1 reply in every slot is the arm that separates the two remaining
+readings, and it has not run.
+
+It is also a reason `qwen-capacity-policy.sh:1140` holds `--parallel 1`
+beside placement and memory: above one, the reply a request receives depends on
+which slot it landed in and on which prompts shared its prefill pass, and the
+graded quality suite would read a position rather than a reply.
 
 ## What this run is not
 
-The clock lock reported `observed=2535` against the requested 2835 on the paired
-run, with persistence mode disabled, while the batch-1 control read 2835. The
-alternation protects the ratio, since both arms of every pair met the same clock,
-and the control closure's level-7 aggregate of 779.74 sits 0.19% from the 781.21
-`../concurrent-sequences/2b-run-01/` measured at 2835. The absolute rates in this
-directory are the paired arm's own and the ratio is what it reports.
-
-The identity finding rests on one checkpoint at one per-slot depth with identical
-prompts. Requests differing in prompt length would change batch composition
-further rather than less, so the direction is not in question; the rate at which
-replies diverge is unmeasured.
+The identity finding rests on one checkpoint at one allocation with identical
+468-token prompts and one 0.8B comparison. The rate verdict is a delivered
+ratio inside a paired design, which cancels drift between arms and states
+nothing about the absolute rate at either. Neither the ubatch split rule the
+prefill applied nor the row offsets each prompt received are logged, so the
+prefill-composition reading is an inference from the split burst rather than
+an observation of the geometry itself.
