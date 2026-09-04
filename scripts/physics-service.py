@@ -291,14 +291,19 @@ class PhysicsService:
             returncode = self.child.returncode
             self.child = None
         stderr_text = stderr.decode("utf-8", "replace")[-2000:]
+        # The runtime's diagnostics are its own account of a refusal, so the
+        # last job's stderr is retained whole beside the audit log and a
+        # failure names the PhysX error lines ahead of the rejected line.
+        with contextlib.suppress(OSError):
+            with open(os.path.join(self.settings["state_dir"], "runtime-stderr.txt"), "w",
+                      encoding="utf-8") as handle:
+                handle.write("request=%s exit=%s\n%s" % (request_id, returncode, stderr_text))
         if len(stdout) > MAX_RUNTIME_OUTPUT_BYTES:
             raise RuntimeFailed("runtime output exceeds %d bytes" % MAX_RUNTIME_OUTPUT_BYTES)
         if returncode != 0:
-            reason = ""
-            for line in stderr_text.splitlines():
-                if line.startswith("physx_runtime=rejected"):
-                    reason = line
-            raise RuntimeFailed("runtime exited %d: %s" % (returncode, reason or stderr_text[-300:]))
+            named = [line for line in stderr_text.splitlines()
+                     if line.startswith(("physx_runtime=rejected", "physx: "))]
+            raise RuntimeFailed("runtime exited %d: %s" % (returncode, " | ".join(named[-4:]) or stderr_text[-300:]))
         lines = [line for line in stdout.decode("utf-8", "replace").splitlines() if line.strip()]
         if len(lines) != 1:
             raise RuntimeFailed("runtime printed %d lines rather than one" % len(lines))
