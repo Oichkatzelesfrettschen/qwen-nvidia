@@ -106,6 +106,12 @@ QWEN_GPU_OWNERSHIP_LOCK=${QWEN_GPU_OWNERSHIP_LOCK:-/tmp/qwen-ad104-gpu-0.lock}
 export QWEN_GPU_OWNERSHIP_LOCK
 . "$script_directory/gpu-workload-ownership.sh"
 gpu_ownership_require || exit $?
+
+# The identity of the device software stack the numbers below were taken under.
+# `build-configuration.sha256` names the closure that produced them and says
+# nothing about the driver that executed it, so the block is what makes a
+# retained figure and a later one comparable rather than assumed comparable.
+"$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
 [ ! -x "$latch" ] || "$latch" require-clear || fail 'the GPU state latch is set'
 
 if dmesg --color=never >/dev/null 2>&1; then

@@ -113,6 +113,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-nsys-mat-mul-kernels.py
 scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
+scripts/test-device-environment-identity.sh
 scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-text-policy.py

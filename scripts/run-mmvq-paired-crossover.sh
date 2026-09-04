@@ -71,6 +71,12 @@ scrub_home() { sed "s|${HOME:?}|\$HOME|g"; }
 gpu_ownership_require >"$output_directory/ownership-start.txt"
 "$script_directory/gpu-state-latch.sh" require-clear >"$output_directory/gpu-state-latch.txt"
 
+# The identity of the device software stack the numbers below were taken under.
+# `build-configuration.sha256` names the closure that produced them and says
+# nothing about the driver that executed it, so the block is what makes a
+# retained figure and a later one comparable rather than assumed comparable.
+"$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
+
 # A seventeen-column prefill of the 0.8B runs in about five milliseconds, and
 # the card ramps from its 1275 MHz idle to 2835 MHz over longer than that, so
 # a single observation on an idle card measures the ramp rather than the
