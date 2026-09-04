@@ -266,13 +266,32 @@ depth back out of the server's own load line. Every request in a burst carries
 its tail at a column count the arm did not ask for.
 
 `evidence/ada/mmvq-crossover-ad104/` selected the Q6_K threshold of ten from
-llama-bench `-p N` arms, which issue one mat-mul of N columns in isolation. The
-regime that produces `ne11 > 1` on the appliance is N decoding sequences with N
-separate KV caches, and the two regimes are unmeasured against each other; the
-served rate at the Q6_K crossing is consistent with MMQ leading earlier than ten
-there, and deciding it needs one closure at a lower threshold compared with the
-production closure on one model rather than the cross-model derivative that
-raised the question.
+llama-bench `-p N` arms, which issue one mat-mul of N columns in isolation, and
+that threshold transfers to N decoding sequences. `evidence/ada/concurrent-q6k-threshold/`
+served closure `4db51fb538cf` at `Q6_K_MAX = 7` against production's 10, which
+differ in that one integer and dispatch identically outside `ne11` of 8, 9, and
+10: the paired aggregate ratio reads 0.9932 to 1.0070 across levels 7 through 11
+against the 5.1% floor, with the untouched levels 7 and 11 reading 1.0000 and
+1.0040 as the null controls the arm carries itself. The cross-model marginal-gain
+reading that raised the candidate was the artifact of comparing two uncalibrated
+saturation trajectories, and the subject closure is rejected.
+
+Exact greedy token identity is a batch-1 gate and stops meaning anything at
+concurrency. `ne11` is the count of slots holding a token to decode, so it varies
+with arrival timing as requests join and leave the batch, `ggml_cuda_should_use_mmvq`
+selects the mat-mul family from `ne11`, and MMVQ and MMQ reduce in different
+orders as does one MMVQ column count against another; a sequence therefore meets
+a different sequence of reduction orders depending on what else was in flight
+beside it. One `--parallel 7` burst of seven requests carrying one prompt at
+temperature 0 with `ignore_eos` returned six distinct replies on one closure,
+28 requests over four repeats returned ten, and no request index was stable
+across repeats. The same two closures through the same harness at `--parallel 1`
+read identical over four pairs, which is the control that isolates the slot count
+as the cause. The gate decided `evidence/ada/mmvq-q8-b17-b20/` and
+`evidence/ada/mmq-stream-k-grid/phase-c-identity/`, both batch-1 comparisons where
+it means what it says; a concurrency candidate needs a distributional quality
+comparison instead, and this tree holds no such instrument. The appliance serves
+`--parallel 1`, so nothing shipped is affected.
 
 Stream-K is the MMQ decomposition on this device rather than a decision:
 `ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
