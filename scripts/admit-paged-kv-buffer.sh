@@ -134,8 +134,8 @@ for arm in control-open subject control-close; do
     # is bound to it; the primed arms serve level times slot depth and are
     # held to their own size line alone.
     case $expect in
-    paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors --expect-names $expected_names --expect-layout $expected_layout --expect-cells $expected_cells" ;;
-    *) expect_tensors="--expect-cells $expected_cells" ;;
+    paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors --expect-names $expected_names --expect-layout $expected_layout --expect-cells $expected_cells --expect-streams 1" ;;
+    *) expect_tensors="--expect-cells $expected_cells --expect-streams 1" ;;
     esac
     # shellcheck disable=SC2086
     if python3 "$script_directory/read-paged-kv-layout.py" "$arm_log" --expect "$expect" $expect_tensors \
@@ -174,12 +174,18 @@ if [ "$skip_sweep" = 0 ]; then
     fi
     record primed_reply_identity "$primed_identity"
     record primed_levels_complete "${primed_levels_complete:--}"
+    # A primed level N serves N slots of the sweep's slot depth, one stream
+    # each, so its cache holds slot_depth cells over N streams; the depth is
+    # read from the sweep's own summary rather than assumed.
+    primed_slot_depth=$(awk -F'\t' '$1 == "slot_depth" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
+    case $primed_slot_depth in '' | *[!0-9]*) primed_slot_depth=0 ;; esac
     for level in $widths; do
         level_log=$output_directory/primed/level-$level.subject.log
         [ -s "$level_log" ] || { record "layout:primed-$level" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
         if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect paged_kv_vmm \
             --expect-tensors "$expected_tensors" --expect-names "$expected_names" \
             --expect-layout "$expected_layout" \
+            --expect-cells "$primed_slot_depth" --expect-streams "$level" \
             >"$output_directory/layout-primed-$level.tsv" 2>&1; then
             record "layout:primed-$level" layout_holds
         else

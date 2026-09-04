@@ -130,6 +130,10 @@ case $slot_depth in '' | *[!0-9]* | 0) usage ;; esac
 case $slot_offset in '' | *[!0-9]*) usage ;; esac
 case $prompt_tokens in '' | *[!0-9]* | 0) usage ;; esac
 case $predict in '' | *[!0-9]* | 0) usage ;; esac
+# A measured burst is told from a priming request by its token count, so a
+# reply of one token would count as priming and leave every burst outside
+# the witness; the floor is two tokens.
+[ "$predict" -ge 2 ] || refuse "QWEN_CONCURRENCY_PREDICT must be at least 2 so a burst is distinguishable from a priming request"
 case $repeats in '' | *[!0-9]* | 0) usage ;; esac
 case $admission in primed | cold) ;; *) refuse "QWEN_CONCURRENCY_ADMISSION takes primed or cold: $admission" ;; esac
 [ "$repeats" -ge 3 ] || refuse "a per-level median needs at least three bursts"

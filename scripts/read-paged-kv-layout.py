@@ -39,7 +39,7 @@ TENSOR_LINE = re.compile(
     r"paged_kv_tensor name=(?P<name>\S+) type=(?P<type>\S+) ne0=(?P<ne0>\d+) ne1=(?P<ne1>\d+)"
     r" ne2=(?P<ne2>\d+) row_bytes=(?P<row>\d+) nbytes=(?P<nbytes>\d+) alloc_bytes=(?P<alloc>\d+)"
     r" padded_bytes=(?P<padded>\d+) offset=(?P<offset>\d+) unit_bytes=(?P<unit>\d+)"
-    r" start_aligned=(?P<start>yes|no) extent_aligned=(?P<extent>yes|no)(?!\S)"
+    r" start_aligned=(?P<start>yes|no) extent_aligned=(?P<extent>yes|no)\s*$"
 )
 KIND_LINE = re.compile(r"kv_buffer_kind=(?P<kind>\S+) buffer=(?P<buffer>\S+)")
 KV_SIZE_LINE = re.compile(r"(?P<buffer>\S+) KV buffer size = +(?P<mib>[0-9.]+) MiB")
@@ -103,6 +103,7 @@ def main():
     parser.add_argument("--expect-names", default=None)
     parser.add_argument("--expect-layout", default=None)
     parser.add_argument("--expect-cells", type=int, default=None)
+    parser.add_argument("--expect-streams", type=int, default=None)
     arguments = parser.parse_args()
 
     buffers, tensors, kinds, kv_sizes, rs_sizes, malformed, cells = read_log(arguments.log)
@@ -143,6 +144,9 @@ def main():
     if arguments.expect_cells is not None and (len(cells) != 1 or cells[0]["cells"] != arguments.expect_cells):
         faults.append("the cache reports %s cells where %d were expected"
                       % (cells[0]["cells"] if len(cells) == 1 else "no", arguments.expect_cells))
+    if arguments.expect_streams is not None and (len(cells) != 1 or cells[0]["streams"] != arguments.expect_streams):
+        faults.append("the cache reports %s streams where %d were expected"
+                      % (cells[0]["streams"] if len(cells) == 1 else "no", arguments.expect_streams))
     add("paged_buffer_lines", len(buffers))
     add("paged_tensor_lines", len(tensors))
 
@@ -281,7 +285,8 @@ def main():
             faults.append("physical_mapped_bytes falls under requested_bytes")
         if buffers and any(record["access"] != "device_rw" for record in buffers):
             faults.append("a paged buffer records access other than device_rw")
-        if unit and any(record["minimum"] % unit != 0 or unit % record["minimum"] != 0 for record in buffers):
+        if unit and any(record["minimum"] <= 0 or record["minimum"] % unit != 0 or unit % record["minimum"] != 0
+                        for record in buffers):
             faults.append("the mapping unit is not the driver's minimum granularity")
         if unit and virtual % unit != 0:
             faults.append("the virtual reservation is not a whole number of mapping units")

@@ -192,5 +192,16 @@ check("reservation above the rounded request refused", code == 1 and any("rounde
 code, rows, faults = run(subject_log().replace("extent_aligned=yes\n", "extent_aligned=yesBROKEN\n", 1), "paged_kv_vmm")
 check("a record with trailing garbage refused", code == 1 and any("match no record pattern" in f for f in faults))
 
+code, rows, faults = run(subject_log().replace("extent_aligned=yes\n", "extent_aligned=yes BROKEN\n", 1), "paged_kv_vmm")
+check("a record with trailing text after a space refused", code == 1 and any("match no record pattern" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("granularity_minimum=%d" % UNIT, "granularity_minimum=0"), "paged_kv_vmm")
+check("zero minimum with a positive unit refused without a crash", code == 1 and any("reads zero" in f for f in faults))
+
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-streams", "1"))
+check("stream count agreeing accepted", code == 0, "; ".join(faults))
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-streams", "3"))
+check("stream count differing from the caller refused", code == 1 and any("3 were expected" in f for f in faults))
+
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)
