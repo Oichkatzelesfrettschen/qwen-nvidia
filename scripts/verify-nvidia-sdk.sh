@@ -61,6 +61,18 @@ while IFS='	' read -r id vendor component version cuda_major arch artifact_name 
             [ -e "$install_prefix/lib/libcvcuda.so.$version" ] || { printf 'row %s: libcvcuda.so.%s is absent\n' "$id" "$version" >&2; failures=$((failures + 1)); }
             [ -e "$install_prefix/include/cvcuda/Version.h" ] || { printf 'row %s: cvcuda/Version.h is absent\n' "$id" >&2; failures=$((failures + 1)); }
             ;;
+        PhysX)
+            [ -e "$install_prefix/bin/linux.x86_64/release/libPhysXGpu_64.so" ] || { printf 'row %s: libPhysXGpu_64.so is absent\n' "$id" >&2; failures=$((failures + 1)); }
+            header=$install_prefix/include/foundation/PxPhysicsVersion.h
+            if [ -r "$header" ]; then
+                major=$(sed -n 's/^#define PX_PHYSICS_VERSION_MAJOR \([0-9]*\).*/\1/p' "$header")
+                minor=$(sed -n 's/^#define PX_PHYSICS_VERSION_MINOR \([0-9]*\).*/\1/p' "$header")
+                patch=$(sed -n 's/^#define PX_PHYSICS_VERSION_BUGFIX \([0-9]*\).*/\1/p' "$header")
+                [ "$major.$minor.$patch" = "$version" ] || { printf 'row %s: header states %s.%s.%s rather than %s\n' "$id" "$major" "$minor" "$patch" "$version" >&2; failures=$((failures + 1)); }
+            else
+                printf 'row %s: PxPhysicsVersion.h is absent\n' "$id" >&2; failures=$((failures + 1))
+            fi
+            ;;
         nvImageCodec)
             short=${version%.*}
             [ -e "$install_prefix/lib/libnvimgcodec.so.$short" ] || { printf 'row %s: libnvimgcodec.so.%s is absent\n' "$id" "$short" >&2; failures=$((failures + 1)); }

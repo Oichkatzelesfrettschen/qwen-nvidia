@@ -37,6 +37,9 @@ entrypoint	role	backend	top_level_owner	nested_owner_capability	active_compute_l
 cuda-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 image-review.py	active-workload	cuda	no	yes	no	yes	no	inherits
 image-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+physics-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+build-physics-runtime.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+physics-teardown-check.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
 qwen-capacity-policy.sh	active-workload	cuda	no	yes	exports	yes	no	inherits
 qwen-router-exec-guard.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 run-qwen-capacity-server.sh	active-workload	cuda	no	yes	no	yes	no	inherits
