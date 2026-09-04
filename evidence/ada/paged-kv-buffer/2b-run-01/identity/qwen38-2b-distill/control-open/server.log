@@ -3,7 +3,7 @@
 0.00.408.397 I cmn  common_param: device_info:
 0.00.489.511 I cmn  common_param:   - CUDA0   : NVIDIA GeForce RTX 4070 Ti (11880 MiB, 10248 MiB free)
 0.00.489.518 I cmn  common_param:   - CPU     : AMD Ryzen 5 5600X3D 6-Core Processor (31995 MiB, 31995 MiB free)
-0.00.492.679 I cmn  common_param: system_info: n_threads = 1 (n_threads_batch = 1) / 12 | CUDA : ARCHS = 890 | USE_GRAPHS = 1 | FA_ALL_QUANTS = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.00.492.679 I cmn  common_param: system_info: n_threads = 1 (n_threads_batch = 1) / 12 | CUDA : ARCHS = 890 | USE_GRAPHS = 1 | FA_ALL_QUANTS = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |
 0.00.492.712 I srv          init: running without SSL
 0.00.493.247 I srv          init: using 11 threads for HTTP server
 0.00.497.893 W srv  llama_server: -----------------
@@ -56,7 +56,7 @@
 0.00.593.579 I llama_model_loader: - type q6_K:   27 tensors
 0.00.593.581 I print_info: file format = GGUF V3 (latest)
 0.00.593.582 I print_info: file type   = Q4_K - Medium
-0.00.593.583 I print_info: file size   = 1.21 GiB (5.36 BPW) 
+0.00.593.583 I print_info: file size   = 1.21 GiB (5.36 BPW)
 0.00.593.626 I llama_prepare_model_devices: using device CUDA0 (NVIDIA GeForce RTX 4070 Ti) (0000:0b:00.0) - 10248 MiB free
 0.00.683.282 I load: 0 unused tokens
 0.00.704.706 I load: printing all EOG tokens:
@@ -234,8 +234,8 @@ How are you?<|im_end|>
 0.01.740.350 I srv          load:  - looking for better prompt, base f_keep = -1.000, f_sim = 0.000
 0.01.740.358 I srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 65536 tokens, 8589934592 est)
 0.01.740.360 I srv  get_availabl: prompt cache update took 0.01 ms
-0.01.740.385 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
-0.01.740.392 I slot launch_slot_: id  0 | task -1 | sampler params: 
+0.01.740.385 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+0.01.740.392 I slot launch_slot_: id  0 | task -1 | sampler params:
 	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
 	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
 	top_k = 1, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
@@ -263,8 +263,8 @@ How are you?<|im_end|>
 0.03.202.681 I srv        update:  - cache state: 1 prompts, 40.224 MiB (limits: 8192.000 MiB, 65536 tokens, 72094 est)
 0.03.202.682 I srv        update:    - prompt 0x55f746fed400:     354 tokens, checkpoints:  1,    40.224 MiB
 0.03.202.683 I srv  get_availabl: prompt cache update took 11.67 ms
-0.03.202.716 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
-0.03.202.721 I slot launch_slot_: id  0 | task -1 | sampler params: 
+0.03.202.716 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+0.03.202.721 I slot launch_slot_: id  0 | task -1 | sampler params:
 	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
 	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
 	top_k = 1, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
@@ -295,8 +295,8 @@ How are you?<|im_end|>
 0.04.342.044 I srv        update:    - prompt 0x55f746fed400:     354 tokens, checkpoints:  1,    40.224 MiB
 0.04.342.045 I srv        update:    - prompt 0x55f743eed700:     335 tokens, checkpoints:  1,    40.134 MiB
 0.04.342.045 I srv  get_availabl: prompt cache update took 10.22 ms
-0.04.342.067 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
-0.04.342.071 I slot launch_slot_: id  0 | task -1 | sampler params: 
+0.04.342.067 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+0.04.342.071 I slot launch_slot_: id  0 | task -1 | sampler params:
 	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
 	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
 	top_k = 1, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
@@ -329,8 +329,8 @@ How are you?<|im_end|>
 0.05.496.658 I srv        update:    - prompt 0x55f743eed700:     335 tokens, checkpoints:  1,    40.134 MiB
 0.05.496.659 I srv        update:    - prompt 0x55f743ea0ec0:     352 tokens, checkpoints:  1,    40.215 MiB
 0.05.496.660 I srv  get_availabl: prompt cache update took 11.39 ms
-0.05.496.693 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
-0.05.496.699 I slot launch_slot_: id  0 | task -1 | sampler params: 
+0.05.496.693 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+0.05.496.699 I slot launch_slot_: id  0 | task -1 | sampler params:
 	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
 	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
 	top_k = 1, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
@@ -365,8 +365,8 @@ How are you?<|im_end|>
 0.06.641.982 I srv        update:    - prompt 0x55f743ea0ec0:     352 tokens, checkpoints:  1,    40.215 MiB
 0.06.641.982 I srv        update:    - prompt 0x55f73a7cc5e0:     370 tokens, checkpoints:  1,    40.301 MiB
 0.06.641.984 I srv  get_availabl: prompt cache update took 10.30 ms
-0.06.642.006 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
-0.06.642.011 I slot launch_slot_: id  0 | task -1 | sampler params: 
+0.06.642.006 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+0.06.642.011 I slot launch_slot_: id  0 | task -1 | sampler params:
 	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
 	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
 	top_k = 1, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
@@ -403,8 +403,8 @@ How are you?<|im_end|>
 0.07.778.490 I srv        update:    - prompt 0x55f73a7cc5e0:     370 tokens, checkpoints:  1,    40.301 MiB
 0.07.778.491 I srv        update:    - prompt 0x55f746ffad40:     381 tokens, checkpoints:  1,    40.353 MiB
 0.07.778.491 I srv  get_availabl: prompt cache update took 10.57 ms
-0.07.778.512 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
-0.07.778.516 I slot launch_slot_: id  0 | task -1 | sampler params: 
+0.07.778.512 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> logit-bias -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist
+0.07.778.516 I slot launch_slot_: id  0 | task -1 | sampler params:
 	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
 	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
 	top_k = 1, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000

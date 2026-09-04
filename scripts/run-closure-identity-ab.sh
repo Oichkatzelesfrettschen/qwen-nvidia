@@ -556,13 +556,18 @@ for model_id in "$@"; do
 done
 
 # Retained evidence carries the checkout and model paths the run resolved, and
-# a Git copy replaces the home prefix with $HOME. Scrubbing every retained text
-# file at the end closes that at the source rather than leaving it to the
-# authority check to catch one directory at a time.
+# a Git copy replaces the home prefix with $HOME and a MAC address with <mac>,
+# since the kernel ring the harness reads carries firewall lines naming link
+# addresses. Scrubbing every retained text file at the end closes that at the
+# source rather than leaving it to the authority check to catch one directory
+# at a time, and trailing whitespace leaves with it.
 scrub_local_paths() {
     find "$1" -type f \( -name '*.txt' -o -name '*.json' -o -name '*.log' \
         -o -name '*.tsv' -o -name '*.stdout' -o -name '*.stderr' \) \
-        -exec sed -i "s#$HOME#\$HOME#g" {} +
+        -exec sed -i -E \
+            -e "s#$HOME#\$HOME#g" \
+            -e 's/([0-9A-Fa-f]{2}:){5,}[0-9A-Fa-f]{2}/<mac>/g' \
+            -e 's/[[:space:]]+$//' {} +
 }
 
 closing_clients=$(client_fingerprint)

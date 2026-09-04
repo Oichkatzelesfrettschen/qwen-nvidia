@@ -13,10 +13,11 @@ mapping unit, a mapped byte count under the virtual reservation, an attention
 tensor outside the paged buffer, or a recurrent tensor inside it.
 
 Usage: read-paged-kv-layout.py LOG --expect paged_kv_vmm|device_default
-       [--expect-tensors N]
+       [--expect-tensors N] [--expect-names NAME,NAME,...]
 
 ``--expect-tensors`` names the tensor count an independent census of the
-checkpoint predicts, so a log that records fewer tensors than the model has
+checkpoint predicts, and ``--expect-names`` the exact tensor names it
+predicts, so a log that records fewer or other tensors than the model has
 attention K and V operands is refused rather than read as complete.
 """
 
@@ -87,6 +88,7 @@ def main():
     parser.add_argument("log")
     parser.add_argument("--expect", required=True, choices=("paged_kv_vmm", "device_default"))
     parser.add_argument("--expect-tensors", type=int, default=None)
+    parser.add_argument("--expect-names", default=None)
     arguments = parser.parse_args()
 
     buffers, tensors, kinds, kv_sizes, rs_sizes, malformed = read_log(arguments.log)
@@ -108,6 +110,16 @@ def main():
         faults.append("kv_buffer_kind reads %s where %s was expected" % (",".join(kind_values), arguments.expect))
     add("kv_size_lines", len(kv_sizes))
     add("rs_size_lines", len(rs_sizes))
+    # One KV cache constructor prints one size line and one kind line for the
+    # same buffer, so the two have to agree in count and in buffer name; a
+    # log with neither or with a kind line naming another buffer than the
+    # one sized is a different run than the one claimed.
+    if len(kv_sizes) != 1 or len(kinds) != 1:
+        faults.append("expected exactly one KV buffer size line and one kv_buffer_kind line, found %d and %d"
+                      % (len(kv_sizes), len(kinds)))
+    elif kv_sizes[0]["buffer"] != kinds[0]["buffer"]:
+        faults.append("the KV buffer size line names %s where the kind line names %s"
+                      % (kv_sizes[0]["buffer"], kinds[0]["buffer"]))
     if not rs_sizes:
         faults.append("the log carries no RS buffer size line, so the recurrent store is unaccounted")
     add("paged_buffer_lines", len(buffers))
@@ -159,6 +171,19 @@ def main():
         if arguments.expect_tensors is not None and len(tensors) != arguments.expect_tensors:
             faults.append("the log records %d paged tensors where the census predicts %d"
                           % (len(tensors), arguments.expect_tensors))
+        if arguments.expect_names is not None:
+            expected_names = sorted(name for name in arguments.expect_names.split(",") if name)
+            found_names = sorted(record["name"] for record in tensors)
+            if expected_names != found_names:
+                faults.append("the paged tensor names differ from the census: missing %s, extra %s"
+                              % (",".join(sorted(set(expected_names) - set(found_names))) or "-",
+                                 ",".join(sorted(set(found_names) - set(expected_names))) or "-"))
+        # The buffer record names the device and the kind record names the
+        # buffer; a paged buffer on device N is the buffer "CUDA<N>".
+        for kind in kinds:
+            if buffers and kind["buffer"] != "CUDA%d" % buffers[0]["device"]:
+                faults.append("the kind line names buffer %s where the paged buffer sits on device %d"
+                              % (kind["buffer"], buffers[0]["device"]))
         # Coverage: the allocator's requested size is the sum of every padded
         # extent, so a tensor whose record is absent leaves a gap the sum
         # cannot close, and each record's own geometry has to agree with its
@@ -169,11 +194,25 @@ def main():
         if len(set(names)) != len(names):
             faults.append("a tensor name repeats in the paged buffer")
         for record in tensors:
+            if min(record["ne0"], record["ne1"], record["ne2"], record["row"], record["nbytes"]) <= 0:
+                faults.append("tensor %s records a zero dimension or byte count" % record["name"])
+                continue
             blocks = TYPE_BLOCKS.get(record["type"])
             if blocks is None:
                 faults.append("tensor %s has a type outside the row-size table: %s" % (record["name"], record["type"]))
                 continue
             block_bytes, block_elements = blocks
+            # The CUDA buffer type pads a quantized row whose ne0 is not a
+            # multiple of 512 by one padding row's worth of bytes and leaves
+            # every other tensor at ggml_nbytes, so alloc_bytes is determined
+            # by the type and ne0 rather than free to vary.
+            if block_elements > 1 and record["ne0"] % 512 != 0:
+                expected_alloc = record["nbytes"] + (512 - record["ne0"] % 512) // block_elements * block_bytes
+            else:
+                expected_alloc = record["nbytes"]
+            if record["alloc"] != expected_alloc:
+                faults.append("tensor %s alloc_bytes=%d disagrees with the backend padding rule (%d)"
+                              % (record["name"], record["alloc"], expected_alloc))
             if record["ne0"] % block_elements != 0 or record["row"] != record["ne0"] // block_elements * block_bytes:
                 faults.append("tensor %s row_bytes=%d disagrees with type %s at ne0=%d"
                               % (record["name"], record["row"], record["type"], record["ne0"]))

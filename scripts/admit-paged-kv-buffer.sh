@@ -103,7 +103,10 @@ done
 # attention layer at the minimum unit.
 expected_tensors=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { count++ } END { print count + 0 }' \
     "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || echo 0)
+expected_names=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { printf "%scache_%s_l%s", (n++ ? "," : ""), tolower($3), $2 }' \
+    "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || :)
 record expected_tensors "$expected_tensors"
+record expected_names "${expected_names:--}"
 [ "$expected_tensors" -gt 0 ] || refusals=$((refusals + 1))
 
 stage identity env QWEN_IDENTITY_SUBJECT_ENV=LLAMA_KV_PAGED_BUFFER=1 QWEN_IDENTITY_SLOT_STATE=1 \
@@ -114,7 +117,7 @@ if [ -s "$identity_summary" ]; then
     record identity_verdict "$(awk -F'\t' '$1 == "verdict" { print $2 "\t" $3 }' "$identity_summary")"
     record identity_tokens_identical "$(awk -F'\t' '$1 == "identity" && $5 == "identical" { count++ } END { print count + 0 }' "$identity_summary")"
     record identity_states_identical "$(awk -F'\t' '$1 == "state_identity" && $5 == "identical" { count++ } END { print count + 0 }' "$identity_summary")"
-    record identity_placement "$(awk -F'\t' '$1 == "placement_match" { print $3 "=" $4 }' "$identity_summary" | tr '\n' ' ')"
+    record identity_placement "$(awk -F'\t' '$1 == "placement_match" { print $3 "=" $4 }' "$identity_summary" | tr '\n' ' ' | sed 's/ $//')"
     record identity_comparisons "$(awk -F'\t' '$1 == "comparisons" { print $2 }' "$identity_summary")"
 fi
 
@@ -122,7 +125,7 @@ for arm in control-open subject control-close; do
     arm_log=$output_directory/identity/$model_id/$arm/server.log
     [ -s "$arm_log" ] || { record "layout:$arm" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
     case $arm in subject) expect=paged_kv_vmm ;; *) expect=device_default ;; esac
-    case $expect in paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors" ;; *) expect_tensors='' ;; esac
+    case $expect in paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors --expect-names $expected_names" ;; *) expect_tensors='' ;; esac
     # shellcheck disable=SC2086
     if python3 "$script_directory/read-paged-kv-layout.py" "$arm_log" --expect "$expect" $expect_tensors \
         >"$output_directory/layout-$arm.tsv" 2>&1; then
@@ -164,7 +167,7 @@ if [ "$skip_sweep" = 0 ]; then
         level_log=$output_directory/primed/level-$level.subject.log
         [ -s "$level_log" ] || { record "layout:primed-$level" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
         if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect paged_kv_vmm \
-            --expect-tensors "$expected_tensors" \
+            --expect-tensors "$expected_tensors" --expect-names "$expected_names" \
             >"$output_directory/layout-primed-$level.tsv" 2>&1; then
             record "layout:primed-$level" layout_holds
         else

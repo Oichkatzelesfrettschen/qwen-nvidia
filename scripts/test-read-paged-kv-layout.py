@@ -146,5 +146,26 @@ check("a malformed record line refused", code == 1 and any("match no record patt
 code, rows, faults = run(subject_log().replace("312.00 MiB", "310.00 MiB"), "paged_kv_vmm")
 check("KV size line disagreeing with the reservation refused", code == 1 and any("KV buffer size line" in f for f in faults))
 
+names = ",".join("cache_%s_l%d" % (operand, layer) for layer in LAYERS for operand in ("k", "v"))
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-names", names))
+check("census names agree", code == 0, "; ".join(faults))
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-names", names.replace("cache_v_l23", "cache_v_l24")))
+check("census names differing refused", code == 1 and any("differ from the census" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("KV buffer size", "XX buffer size"), "paged_kv_vmm")
+check("absent KV size line refused", code == 1 and any("exactly one KV buffer size line" in f for f in faults))
+code, rows, faults = run(control_log().replace("KV buffer size", "XX buffer size"), "device_default")
+check("absent KV size line refused on a control", code == 1)
+
+code, rows, faults = run(subject_log().replace("kv_buffer_kind=paged_kv_vmm buffer=CUDA0", "kv_buffer_kind=paged_kv_vmm buffer=CPU"), "paged_kv_vmm")
+check("kind line naming another buffer refused", code == 1 and any("names" in f and "CPU" in f for f in faults))
+
+zero_dims = subject_log().replace("ne0=512", "ne0=0").replace("row_bytes=544", "row_bytes=0").replace("row_bytes=288", "row_bytes=0")
+code, rows, faults = run(zero_dims, "paged_kv_vmm")
+check("zero dimensions refused", code == 1 and any("zero dimension" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("alloc_bytes=35651584", "alloc_bytes=35652128"), "paged_kv_vmm")
+check("alloc bytes outside the padding rule refused", code == 1 and any("padding rule" in f for f in faults))
+
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)
