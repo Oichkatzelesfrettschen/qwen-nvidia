@@ -465,6 +465,35 @@ def main():
               mut_closure_evidence_missing, expect_pass=False,
               expect_error="diagnostic configuration evidence")
 
+    # The promoted row's threshold pair is what README's clauses are held
+    # against, so moving the ledger value alone leaves every clause stale.
+    def mut_promoted_threshold_moved(root):
+        path = root / "scripts" / "serving-closures.tsv"
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("promoted\t"):
+                parts = line.split("\t")
+                parts[8] = "11"
+                lines[i] = "\t".join(parts)
+        path.write_text("\n".join(lines) + "\n")
+    test_case("promoted_threshold_moved_without_readme_fails",
+              mut_promoted_threshold_moved, expect_pass=False,
+              expect_error="expected every clause at 11")
+
+    # A threshold outside the kernel ceiling would refuse every bare build.
+    def mut_promoted_threshold_out_of_range(root):
+        path = root / "scripts" / "serving-closures.tsv"
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("promoted\t"):
+                parts = line.split("\t")
+                parts[9] = "17"
+                lines[i] = "\t".join(parts)
+        path.write_text("\n".join(lines) + "\n")
+    test_case("promoted_threshold_out_of_range_fails",
+              mut_promoted_threshold_out_of_range, expect_pass=False,
+              expect_error="not an integer from 1 to 16")
+
     # Swapping the rollback and diagnostic digests under each other's role
     # labels leaves both identities on the page, so only a role-qualified
     # comparison rejects it.

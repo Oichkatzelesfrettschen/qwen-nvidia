@@ -111,6 +111,7 @@ scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-nsys-mat-mul-kernels.py
 scripts/test-cuda-build-tiling-threshold.sh
+scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-device-environment-identity.sh

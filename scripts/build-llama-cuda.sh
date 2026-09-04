@@ -24,7 +24,14 @@ set -eu
 #
 # The two ADA MMVQ thresholds reach the source through the candidate patch
 # llama-cuda-mmvq-crossover-ad104.patch; against an unpatched tree they rest
-# as unused cache entries and the build reproduces upstream dispatch.
+# as unused cache entries and the build reproduces upstream dispatch. An
+# unset threshold resolves from the promoted row of serving-closures.tsv, the
+# pair the served closure's own CMakeCache.txt records, so a bare invocation
+# configures production dispatch and a candidate arm names the axis it moves.
+# A literal default here once read 8 for both while production served 10 and
+# 16, and a subject built with one variable set inherited the other from the
+# literal rather than from production, which made a one-axis comparison a
+# two-axis one (evidence/ada/concurrent-q6k-threshold/).
 #
 # The Ada MMQ tiling threshold is a constant rather than an input.
 # llama-cuda-mmq-stream-k-grid.patch made it configurable and lost its
@@ -54,8 +61,10 @@ usage() {
     printf '  QWEN_BUILD_UI              default ON, embedded server Web UI\n' >&2
     printf '  QWEN_LLAMA_OPENSSL         default ON, HTTPS support in the server\n' >&2
     printf '  QWEN_CUDA_NO_PEER_COPY     default OFF, single-GPU hygiene arm\n' >&2
-    printf '  QWEN_CUDA_MMVQ_Q6K_MAX     Ada Q6_K MMVQ ceiling, default 8, patched trees only\n' >&2
-    printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, default 8, patched trees only\n' >&2
+    printf '  QWEN_CUDA_MMVQ_Q6K_MAX     Ada Q6_K MMVQ ceiling, patched trees only;\n' >&2
+    printf '                             default is the promoted row of serving-closures.tsv\n' >&2
+    printf '  QWEN_CUDA_MMVQ_Q8_0_MAX    Ada Q8_0 MMVQ ceiling, patched trees only;\n' >&2
+    printf '                             default is the promoted row of serving-closures.tsv\n' >&2
     printf '  QWEN_FORCE_MMQ             ON builds the MMQ kernel-policy arm\n' >&2
     printf '  QWEN_FORCE_CUBLAS          ON builds the cuBLAS differential arm\n' >&2
     printf '  QWEN_HOST_COMPILER         C++ compiler, default g++-15\n' >&2
@@ -84,8 +93,8 @@ ggml_cpu_repack=${QWEN_GGML_CPU_REPACK:-ON}
 build_ui=${QWEN_BUILD_UI:-ON}
 llama_openssl=${QWEN_LLAMA_OPENSSL:-ON}
 cuda_no_peer_copy=${QWEN_CUDA_NO_PEER_COPY:-OFF}
-mmvq_q6k_max=${QWEN_CUDA_MMVQ_Q6K_MAX:-8}
-mmvq_q8_0_max=${QWEN_CUDA_MMVQ_Q8_0_MAX:-8}
+mmvq_q6k_max=${QWEN_CUDA_MMVQ_Q6K_MAX:-}
+mmvq_q8_0_max=${QWEN_CUDA_MMVQ_Q8_0_MAX:-}
 mmq_tiling_percent=90
 force_mmq=${QWEN_FORCE_MMQ:-OFF}
 force_cublas=${QWEN_FORCE_CUBLAS:-OFF}
@@ -126,11 +135,60 @@ case $cuda_compression in
     *) printf 'QWEN_CUDA_COMPRESSION_MODE takes size, speed, balance, or none: %s\n' \
         "$cuda_compression" >&2; exit 2 ;;
 esac
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+
+# The promoted row of the closure ledger supplies every threshold the caller
+# left unset. The ledger is read whole ahead of the value: a missing file, a
+# header without both columns, or a promoted row count other than one refuses
+# the build, because a default that fell back to a literal here is the trap
+# the ledger replaces.
+serving_closures=$script_directory/serving-closures.tsv
+[ -f "$serving_closures" ] || {
+    printf 'closure ledger is missing: %s\n' "$serving_closures" >&2
+    exit 1
+}
+# The column header is the final comment line shaped `# role<TAB>...`, the
+# same reading check-authority-consistency.py applies to every ledger.
+promoted_thresholds=$(awk -F '\t' '
+    $1 == "# role" {
+        for (column = 1; column <= NF; column++) index_of[$column] = column
+        index_of["role"] = 1
+        next
+    }
+    /^#/ || NF == 0 { next }
+    $1 == "promoted" {
+        promoted_rows++
+        q6k = ("mmvq_q6k_max" in index_of) ? $index_of["mmvq_q6k_max"] : ""
+        q8_0 = ("mmvq_q8_0_max" in index_of) ? $index_of["mmvq_q8_0_max"] : ""
+    }
+    END {
+        if (promoted_rows != 1) { print "rows=" promoted_rows + 0; exit 1 }
+        if (q6k == "" || q8_0 == "") { print "columns=absent"; exit 1 }
+        print q6k "\t" q8_0
+    }' "$serving_closures") || {
+    printf 'serving-closures.tsv names no single promoted closure carrying both MMVQ thresholds: %s\n' \
+        "$promoted_thresholds" >&2
+    exit 1
+}
+promoted_q6k_max=${promoted_thresholds%	*}
+promoted_q8_0_max=${promoted_thresholds#*	}
+mmvq_q6k_source=override
+mmvq_q8_0_source=override
+if [ -z "$mmvq_q6k_max" ]; then
+    mmvq_q6k_max=$promoted_q6k_max
+    mmvq_q6k_source=promoted-closure
+fi
+if [ -z "$mmvq_q8_0_max" ]; then
+    mmvq_q8_0_max=$promoted_q8_0_max
+    mmvq_q8_0_source=promoted-closure
+fi
+
 # The applied tree's MMVQ_KERNEL_MAX_NCOLS static_assert is the binding
 # ceiling: a threshold above the instantiated column count fails the compile
 # by name. This range admits the experimental 16-column tree beside the
-# production 12-column series.
-for threshold in "$mmvq_q6k_max" "$mmvq_q8_0_max"; do
+# production 12-column series, and it is applied to the ledger's own values
+# as well as to an override.
+for threshold in "$promoted_q6k_max" "$promoted_q8_0_max" "$mmvq_q6k_max" "$mmvq_q8_0_max"; do
     case $threshold in
         [1-9]|1[0-6]) ;;
         *) printf 'an MMVQ threshold takes an integer from 1 to 16: %s\n' \
@@ -155,8 +213,6 @@ if [ "$force_mmq" = ON ] && [ "$force_cublas" = ON ]; then
     printf 'QWEN_FORCE_MMQ and QWEN_FORCE_CUBLAS are exclusive arms\n' >&2
     exit 2
 fi
-
-script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 [ -d "$source_directory/.git" ] || {
     printf 'llama.cpp checkout is missing: %s\n' "$source_directory" >&2
@@ -327,6 +383,10 @@ if [ "${QWEN_BUILD_DRY_RUN:-0}" = 1 ]; then
         "$configuration_id" "$build_directory"
     printf '%s\n' "$configuration_tsv"
     printf 'mmq_tiling_percent=%s source=fixed\n' "$mmq_tiling_percent"
+    printf 'mmvq_q6k_max=%s source=%s promoted=%s\n' \
+        "$mmvq_q6k_max" "$mmvq_q6k_source" "$promoted_q6k_max"
+    printf 'mmvq_q8_0_max=%s source=%s promoted=%s\n' \
+        "$mmvq_q8_0_max" "$mmvq_q8_0_source" "$promoted_q8_0_max"
     printf 'cmake_argument=%s\n' "$@"
     exit 0
 fi

@@ -13,7 +13,15 @@
 # ptx_images counts the compute_89 images the payload carries, which is 0
 # for a `-real` arm. status is `promoted`, `retained`, or `superseded`.
 #
-# role	configuration_id	evidence_path	backend_set	architecture	cubin_images	ptx_images	status
-promoted	88681bf4d161	evidence/ada/promotion-88681bf4d161	cuda	89-real	187	0	promoted
-rollback	31d0775c5bc6	evidence/ada/promotion-31d0775c5bc6	cuda	89-real	187	0	superseded
-diagnostic	572951d25562	evidence/ada/promotion-572951d25562	cuda+vulkan	89	187	187	retained
+# mmvq_q6k_max and mmvq_q8_0_max are the Ada MMVQ ceilings the closure's own
+# CMakeCache.txt records as GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE and
+# GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE. The promoted row's pair is the
+# production dispatch policy: scripts/build-llama-cuda.sh resolves an unset
+# QWEN_CUDA_MMVQ_Q6K_MAX or QWEN_CUDA_MMVQ_Q8_0_MAX from it, so a bare build
+# configures the thresholds the appliance serves and a candidate arm names the
+# axis it moves. A promotion that changes a threshold changes this row.
+#
+# role	configuration_id	evidence_path	backend_set	architecture	cubin_images	ptx_images	status	mmvq_q6k_max	mmvq_q8_0_max
+promoted	88681bf4d161	evidence/ada/promotion-88681bf4d161	cuda	89-real	187	0	promoted	10	16
+rollback	31d0775c5bc6	evidence/ada/promotion-31d0775c5bc6	cuda	89-real	187	0	superseded	10	12
+diagnostic	572951d25562	evidence/ada/promotion-572951d25562	cuda+vulkan	89	187	187	retained	10	12

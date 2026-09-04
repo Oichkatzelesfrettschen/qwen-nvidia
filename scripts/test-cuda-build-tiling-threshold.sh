@@ -141,9 +141,13 @@ done
 
 # The MMVQ ceilings ride cache entries their own patch bridges into defines and
 # are unaffected by the tiling retirement, so the two mechanisms are asserted
-# apart.
+# apart. The value is the promoted row of serving-closures.tsv, which
+# test-cuda-build-threshold-authority.sh holds; this assertion reads the same
+# row so the two tests cannot disagree about it.
+promoted_q6k_max=$(awk -F '\t' '$1 == "promoted" { print $9 }' \
+    "$script_directory/serving-closures.tsv")
 check "the MMVQ ceiling stays a cache entry" \
-    grep -qx 'cmake_argument=-DGGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE=8' \
+    grep -qx "cmake_argument=-DGGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE=$promoted_q6k_max" \
         "$temporary_directory/default.out"
 
 # A tree carrying the rejected patch builds the same argv as one without it,

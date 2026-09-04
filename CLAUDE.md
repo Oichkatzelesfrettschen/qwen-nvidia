@@ -124,7 +124,15 @@ Two candidate-patch levers move a dispatch threshold from
 `llama-cuda-mmvq-crossover-ad104.patch` carries a
 `ggml/src/ggml-cuda/CMakeLists.txt` hunk bridging each entry into a compile
 definition. Both enter the configuration digest, so two closures differing by
-one threshold carry different build directories and different names. The Ada
+one threshold carry different build directories and different names. An
+unset threshold resolves from the promoted row of
+`scripts/serving-closures.tsv`, whose `mmvq_q6k_max` and `mmvq_q8_0_max`
+columns are read from each closure's own `CMakeCache.txt`, so a bare build
+configures the 10 and 16 the appliance serves and a candidate arm sets the one
+axis it moves while inheriting production on the other;
+`scripts/test-cuda-build-threshold-authority.sh` holds that against fixture
+ledgers. A literal default of 8 once made `QWEN_CUDA_MMVQ_Q6K_MAX=7` alone a
+two-axis subject (`evidence/ada/concurrent-q6k-threshold/`). The Ada
 MMQ stream-K tiling threshold was a third such lever and is now a constant at
 the upstream 90: its patch lost the identity gate, so the builder emits no
 tiling define on any tree and refuses `QWEN_CUDA_MMQ_TILING_PERCENT` at every
@@ -1430,6 +1438,7 @@ scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
 scripts/test-cuda-build-tiling-threshold.sh
+scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-device-environment-identity.sh
