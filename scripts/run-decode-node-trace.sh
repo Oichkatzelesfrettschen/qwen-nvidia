@@ -55,6 +55,7 @@ usage() {
     printf '  QWEN_TRACE_BUILD    closure directory holding bin/llama-bench\n' >&2
     printf '  QWEN_TRACE_TOKENS   decoded tokens per arm, default 64\n' >&2
     printf '  QWEN_TRACE_KEEP_REP 1 retains the raw .nsys-rep beside the export\n' >&2
+    printf '  QWEN_TRACE_KEEP_SQLITE 1 retains the .sqlite export after the readers\n' >&2
     printf '\n' >&2
     printf 'Each arm takes an untraced rate, a graph-granularity capture, and a\n' >&2
     printf 'node-granularity capture of one shape, so the instrument cost is\n' >&2
@@ -71,6 +72,7 @@ registry_reader=${QWEN_MODEL_REGISTRY_SCRIPT:-"$script_directory/model-registry.
 models_directory=${QWEN_MODELS_DIRECTORY:-"${HOME:?}/models"}
 sweep_wrapper=$script_directory/cuda-runtime-env.sh
 partition_reader=$script_directory/read-nsys-decode-partition.py
+duration_reader=$script_directory/read-nsys-kernel-durations.py
 latch=$script_directory/gpu-state-latch.sh
 nsys_binary=${QWEN_TRACE_NSYS:-$(command -v nsys 2>/dev/null || echo /usr/bin/nsys)}
 build_directory=${QWEN_TRACE_BUILD:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-appliance-current"}
@@ -81,6 +83,7 @@ bench_binary=$build_directory/bin/llama-bench
 # while giving the steady-state window room past the first replay.
 decode_tokens=${QWEN_TRACE_TOKENS:-64}
 keep_rep=${QWEN_TRACE_KEEP_REP:-0}
+keep_sqlite=${QWEN_TRACE_KEEP_SQLITE:-0}
 
 fail() {
     printf 'run-decode-node-trace: %s\n' "$1" >&2
@@ -227,6 +230,22 @@ print("%.2f" % max(warm) if warm else "-")
             break
         }
 
+        # Node granularity is what puts a per-symbol duration in the kernel
+        # table, and evidence/ada/projection-fan-out/ reads that duration as
+        # the per-launch fixed cost a merged launch removes. Graph granularity
+        # holds the replay in CUPTI_ACTIVITY_KIND_GRAPH_TRACE and names no
+        # node, so the reader runs on the node arm alone.
+        if [ "$granularity" = node ]; then
+            "$duration_reader" "$arm_directory/$granularity.sqlite" \
+                >"$arm_directory/$granularity-kernel-durations.tsv" \
+                2>"$arm_directory/$granularity-kernel-durations.stderr" || {
+                printf '%s\t%s\tdurations_failed\n' "$arm_id" "$granularity" \
+                    >>"$summary"
+                capture_failed=1
+                break
+            }
+        fi
+
         # The raw capture is a database rather than a measurement, and this
         # tree commits no raw Nsight database. The partition is what a later
         # reader needs; the digest states which bytes produced it.
@@ -237,7 +256,9 @@ print("%.2f" % max(warm) if warm else "-")
         fi
         sha256sum "$arm_directory/$granularity.sqlite" \
             >"$arm_directory/$granularity-removed-export.sha256"
-        rm -f "$arm_directory/$granularity.sqlite"
+        if [ "$keep_sqlite" != 1 ]; then
+            rm -f "$arm_directory/$granularity.sqlite"
+        fi
     done
     [ "$capture_failed" = 0 ] || continue
 

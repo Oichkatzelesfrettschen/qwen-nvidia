@@ -1,0 +1,27 @@
+model_id	block_count	linear_attention_layers	full_attention_layers	saved_mat_mul_launches	saved_quantize_launches	saved_launches_per_token	decode_token_microseconds	floor_percent	uniform_t0_microseconds_reaching_floor
+qwen38-2b-distill	25	18	7	55	68	123	4322.1	5.1	1.79
+qwen35-08b	25	18	7	68	68	136	3220.6	5.1	1.21
+qwen38-4b-distill	33	24	9	73	90	163	8807.5	5.1	2.76
+qwen38-9b-distill	33	24	9	73	90	163	14725.4	5.1	4.61
+
+model_id	layer	group	width	largest_same_type_subset	saved_launches	group_weight_bytes
+qwen38-2b-distill	0	linear-attention	4	3	5	12718080
+qwen38-2b-distill	3	full-attention	3	3	4	5898240
+qwen38-2b-distill	4	linear-attention	4	4	6	9474048
+qwen38-2b-distill	11	full-attention	3	2	3	6168576
+qwen35-08b	0	linear-attention	4	4	6	8947712
+qwen35-08b	3	full-attention	3	3	4	5570560
+qwen38-4b-distill	0	linear-attention	4	3	5	23193600
+qwen38-4b-distill	3	full-attention	3	2	3	15421440
+qwen38-4b-distill	4	linear-attention	4	4	6	17786880
+qwen38-4b-distill	7	full-attention	3	3	4	14745600
+qwen38-9b-distill	0	linear-attention	4	3	5	37109760
+qwen38-9b-distill	3	full-attention	3	2	3	24674304
+qwen38-9b-distill	4	linear-attention	4	4	6	28459008
+qwen38-9b-distill	7	full-attention	3	3	4	23592960
+
+model_id	mat_mul_saving_microseconds	quantize_saving_microseconds	total_saving_microseconds	saving_percent	clears_floor
+qwen38-2b-distill	67.2	66.0	133.1	3.08	no
+qwen35-08b	83.0	66.0	149.0	4.63	no
+qwen38-4b-distill	89.1	87.3	176.4	2.00	no
+qwen38-9b-distill	89.1	87.3	176.4	1.20	no

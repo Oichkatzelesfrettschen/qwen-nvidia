@@ -1,0 +1,31 @@
+capture	/srv/fasttmp/tmp/claude-1000/-home-eirikr-Github-qwen-nvidia/0e615f62-2cd2-4ec4-aee0-798bd92f10d1/scratchpad/fanout-t0-08b/decode-08b-q8/node.sqlite
+kernel_rows	46027
+graph_trace_rows	0
+distinct_symbols	25
+
+count	total_ns	median_ns	min_ns	max_ns	symbol
+10595	23213419	2432	960	1589512	quantize_q8_1(const float *, void *, long, long, long, long, long, unsigned int, uint3)
+7085	148112543	6336	1152	2082089	void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)
+3510	89502090	19936	6016	875300	void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)1, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)
+3185	15606659	5280	1920	1341798	void rms_norm_f32<(int)1024, (bool)1, (bool)0>(const float *, float *, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3)
+2340	5396065	2848	1088	5344	void l2_norm_f32<(int)32>(const float *, float *, int, long, long, long, float)
+2340	5604480	2656	1056	169185	void k_bin_bcast<&op_add, float, float, float, const float *>(const T2 *, const T3 *, T4 *, unsigned int, unsigned int, unsigned int, uint3, uint3, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, T5...)
+1950	6224873	3072	1216	483107	void rms_norm_f32<(int)256, (bool)1, (bool)0>(const float *, float *, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3)
+1560	4879000	3616	1312	9056	void cpy_scalar<&cpy_1_scalar<float, float>>(const char *, char *, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long)
+1235	3932671	3360	1248	468258	void k_get_rows_float<float, float>(const T1 *, const int *, T2 *, long, long, uint3, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)
+1170	3098827	3264	1216	11104	void concat_cont<unsigned int, (int)0>(const T1 *, const T1 *, T1 *, long, long, long, long, long, long)
+1170	8011049	7808	3456	286242	void k_get_rows_float_vec<float>(const T1 *, const int *, T1 *, long, long, uint3, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)
+1170	2979471	2656	1184	356418	void ssm_conv_f32<(bool)1, (unsigned long)128, (unsigned long)4>(const float *, const float *, const float *, int, int, int, int, float *, int, int, int, long)
+1170	2715903	2464	1024	366722	void unary_gated_op_kernel<&op_softplus, float>(const T2 *, const T2 *, T2 *, long, long, long, long)
+1170	1860841	1952	800	4352	void unary_op_kernel<&op_sigmoid, float>(const T2 *, T2 *, int)
+1170	6326238	5792	2080	444866	void gated_delta_net_cuda<(int)128, (bool)0, (bool)0>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int)
+1170	2188312	2336	896	5120	void unary_gated_op_kernel<&op_silu, float>(const T2 *, const T2 *, T2 *, long, long, long, long)
+780	2479663	2800	1056	362242	void rope_multi<(bool)1, (bool)0, float>(const T3 *, T3 *, int, int, int, int, int, int, int, int, int, int, int, const int *, float, float, float, rope_corr_dims, float, const float *, mrope_sections, bool, bool)
+780	1555689	2400	928	8800	void fwht_cuda<(int)256>(const float *, float *, long, float)
+780	1387399	2176	864	8416	void fwht_cuda<(int)64>(const float *, float *, long, float)
+390	1311622	4256	1568	10784	void k_set_rows_quant<long, block_q8_0, (int)32, &quantize_f32_q8_0_block>(const float *, const T1 *, T2 *, long, long, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, uint3, uint3, uint3)
+390	1320647	4352	1536	7072	void k_set_rows_quant<long, block_q4_0, (int)32, &quantize_f32_q4_0_block>(const float *, const T1 *, T2 *, long, long, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, uint3, uint3, uint3)
+390	12212946	33728	12928	1505479	void flash_attn_ext_vec<(int)256, (int)1, (ggml_type)8, (ggml_type)2, (bool)0>(const char *, const char *, const char *, const char *, const char *, const int *, float *, float2 *, float, float, float, float, unsigned int, float, int, uint3, int, int, int, int, int, int, int, int, int, int, int, long, int, int, long, int, int, int, int, int, long)
+390	736036	2320	928	8928	void unary_gated_op_kernel<&op_sigmoid, float>(const T2 *, const T2 *, T2 *, long, long, long, long)
+72	2236201	7872	3744	1697160	scale_f32(const float *, float *, float, float, long)
+65	289409	5248	1632	13248	void k_get_rows<(int)32, (int)1, &dequantize_q8_0, float>(const void *, const int *, T4 *, long, long, uint3, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)
