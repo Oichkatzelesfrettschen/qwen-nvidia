@@ -4,7 +4,8 @@
 A burst is N requests carrying one token-id prompt, one reply length, greedy
 sampling, and `ignore_eos`, each pinned to its own slot through `id_slot`, so
 the server holds N decoding slots for the whole reply and the request index
-is the slot id. The N connections are opened and the bodies are written from
+plus `--slot-offset` is the slot id, so a burst can occupy slots 1..N under a
+server at `--parallel N+1` and answer whether a reply follows the slot index. The N connections are opened and the bodies are written from
 N threads released by one barrier, so the requests leave inside the time a
 thread takes to wake rather than the time N processes take to start; the
 wall-clock window from the barrier to the last reply is retained beside the
@@ -15,15 +16,15 @@ burst's prompts enter the server's next batches and, above `n_batch / prompt
 tokens` slots, some members decode beside the others' prefill. `primed` first
 sends one request per slot in sequence with `cache_prompt` and a one-token
 reply, so every slot holds the prompt from a prefill it ran alone, and the
-burst then reuses each slot's cache: the server evaluates the final prompt
-token per slot, N tokens in one batch, and every member reaches its first
-decode pass together. Which shape a burst had is read back from the server
+burst then reuses each slot's cache: the server restores each slot's
+checkpoint, evaluates the final four prompt tokens per slot in one batch, and
+every member reaches its first decode pass together. Which shape a burst had is read back from the server
 log by read-server-decode-iterations.py rather than assumed here.
 
 Every reply is validated before the burst is accepted: HTTP 200, no `error`
 key, `timings.predicted_n` equal to the requested length, a `tokens` list of
 that length, and `timings.prompt_n` equal to the prompt length under `cold`
-or at most two under `primed`. One failing reply fails the burst, because a
+or at most four under `primed`. One failing reply fails the burst, because a
 rate over N-1 replies is not the rate the arm asked for.
 """
 
@@ -34,6 +35,14 @@ import pathlib
 import sys
 import threading
 import time
+
+# server-context.cpp breaks the prompt batch four tokens before its end where
+# context checkpoints are on (upstream PR 20288), so the checkpoint a primed
+# slot restores sits at prompt length minus four and the burst re-evaluates
+# those four tokens per slot. That is the server's own primed shape on a
+# hybrid model whose recurrent state cannot roll back, and the bound names it.
+PRIMED_PROMPT_BOUND = 4
+PRIME_SETTLE_SECONDS = 0.5
 
 
 def post(port, body, timeout):
@@ -73,8 +82,8 @@ def validate(record, predict, prompt_length, admission):
     prompt_n = timings.get("prompt_n")
     if admission == "cold" and prompt_n != prompt_length:
         return "prompt_n %s where the uncached prompt holds %s" % (prompt_n, prompt_length)
-    if admission == "primed" and not (isinstance(prompt_n, int) and prompt_n <= 2):
-        return "prompt_n %s where a primed slot evaluates at most two" % prompt_n
+    if admission == "primed" and not (isinstance(prompt_n, int) and prompt_n <= PRIMED_PROMPT_BOUND):
+        return "prompt_n %s where a primed slot evaluates at most %d" % (prompt_n, PRIMED_PROMPT_BOUND)
     return ""
 
 
@@ -87,6 +96,8 @@ def main():
                         help="JSON file holding the prompt as a token-id array")
     parser.add_argument("--output", required=True)
     parser.add_argument("--admission", choices=("cold", "primed"), default="primed")
+    parser.add_argument("--slot-offset", type=int, default=0,
+                        help="first slot id; the burst pins slots OFFSET .. OFFSET+LEVEL-1")
     parser.add_argument("--timeout", type=float, default=600.0)
     args = parser.parse_args()
 
@@ -96,8 +107,11 @@ def main():
     output = pathlib.Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
 
+    if args.slot_offset < 0:
+        sys.exit("slot offset is negative")
+    slots = list(range(args.slot_offset, args.slot_offset + args.level))
     if args.admission == "primed":
-        for slot in range(args.level):
+        for slot in slots:
             status, payload = post(args.port, request_body(prompt_tokens, slot, 1, True),
                                    args.timeout)
             record = json.loads(payload) if status == 200 else {}
@@ -105,7 +119,12 @@ def main():
                 sys.exit("priming slot %d answered %s: %s" % (slot, status, payload[:200]))
             (output / ("prime-%d.json" % slot)).write_bytes(payload)
 
-    results = [None] * args.level
+        # read-server-decode-iterations.py groups requests into bursts by a
+        # 0.25 s arrival gap, so the priming requests and the burst are kept
+        # apart in the log by a pause twice that long.
+        time.sleep(PRIME_SETTLE_SECONDS)
+
+    results = {}
     barrier = threading.Barrier(args.level + 1)
 
     def worker(slot):
@@ -117,7 +136,7 @@ def main():
         except Exception as error:  # noqa: BLE001 -- recorded as the failure
             results[slot] = (0, str(error).encode())
 
-    threads = [threading.Thread(target=worker, args=(slot,)) for slot in range(args.level)]
+    threads = [threading.Thread(target=worker, args=(slot,)) for slot in slots]
     for thread in threads:
         thread.start()
     start = time.time()
@@ -128,7 +147,8 @@ def main():
     (output / "window.txt").write_text("%.6f %.6f\n" % (start, end))
 
     failures = []
-    for slot, (status, payload) in enumerate(results):
+    for slot in slots:
+        status, payload = results[slot]
         (output / ("request-%d.json" % slot)).write_bytes(payload)
         if status != 200:
             failures.append("slot %d answered HTTP %s" % (slot, status))

@@ -328,10 +328,17 @@ regime. One sequence is self-reproducible and decided
 `evidence/ada/mmvq-q8-b17-b20/` and
 `evidence/ada/mmq-stream-k-grid/phase-c-identity/`; two are self-reproducible
 in this harness; three or more under cold admission are not, so the gate is
-inapplicable there rather than failed. Primed admission removes the
-prefill-composition term by prefilling each slot alone, and whether the decode
-pass then reproduces the width-1 reply in every slot is the arm that separates
-the prefill geometry from the decode column, which has not run. It is also
+inapplicable there rather than failed. Primed admission prefills each slot
+alone and `evidence/ada/concurrent-sequences/README-PRIMED.md` carries the
+arm: at widths 3 and 4 every slot returns one reply in every burst, the same
+reply at both widths, and the same reply with the burst moved to slots 1..N
+under a wider server, so the per-slot term is prefill geometry and neither
+the decode column nor the slot index. Cache reuse on this hybrid model goes
+through a context checkpoint the server places four tokens before the prompt
+end, so the sweep serves `--ctx-checkpoints 8` under primed admission and a
+primed burst re-evaluates four tokens per slot; that joint pass is a
+composition of its own, and the width-1 primed reply differs from the cold
+one. It is also
 the second reason `qwen-capacity-policy.sh:1140` sets `--parallel 1` beside
 placement and memory: above one, the reply a request receives depends on the
 slot it landed in and the prompts that shared its prefill pass, and the graded

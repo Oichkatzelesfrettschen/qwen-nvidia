@@ -57,14 +57,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
-def run_client(port, directory, admission, predict=4, level=3):
+def run_client(port, directory, admission, predict=4, level=3, slot_offset=0):
     prompt = pathlib.Path(directory) / "prompt.json"
     prompt.write_text(json.dumps([1, 2, 3, 4, 5]))
     output = pathlib.Path(directory) / ("burst-" + admission + "-" + str(State.defect))
     return subprocess.run(
         [sys.executable, str(CLIENT), "--port", str(port), "--level", str(level),
          "--predict", str(predict), "--prompt-tokens", str(prompt),
-         "--output", str(output), "--admission", admission],
+         "--output", str(output), "--admission", admission, "--slot-offset", str(slot_offset)],
         capture_output=True, text=True), output
 
 
@@ -106,6 +106,17 @@ def main():
               "a cold burst sends no cached prompt")
         check(not any(body["n_predict"] == 1 for _t, body in State.requests),
               "a cold burst primes nothing")
+
+        State.requests = []
+        State.defect = "offset"
+        result, output = run_client(port, directory, "primed", slot_offset=2)
+        primes = [body for _t, body in State.requests if body["n_predict"] == 1]
+        check(result.returncode == 0, "a burst at slot offset 2 is accepted")
+        check([body["id_slot"] for body in primes] == [2, 3, 4],
+              "priming under an offset reaches slots 2, 3, 4 and no other")
+        check(all((output / ("request-%d.json" % slot)).exists() for slot in (2, 3, 4)),
+              "the replies are filed under the slot ids the burst occupied")
+        State.defect = None
 
         for defect, phrase in (("short", "tokens holds 3 ids"),
                                ("error", "server error"),

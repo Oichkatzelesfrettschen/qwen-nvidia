@@ -115,9 +115,9 @@ sequence is self-reproducible, and it is the regime that decided
 sequences are self-reproducible in this harness. Three or more under cold
 admission are not, so the gate is inapplicable there rather than failed. Under
 primed admission every slot's prefill runs alone in its own pass, which removes
-the prefill-composition term; whether the decode pass then reproduces the
-width-1 reply in every slot is the arm that separates the two remaining
-readings, and it has not run.
+the prefill-composition term, and `../concurrent-sequences/README-PRIMED.md`
+carries that arm: every slot of a width-3 or width-4 burst returns one reply,
+so the two remaining readings resolve to prefill geometry.
 
 It is also a reason `qwen-capacity-policy.sh:1140` holds `--parallel 1`
 beside placement and memory: above one, the reply a request receives depends on

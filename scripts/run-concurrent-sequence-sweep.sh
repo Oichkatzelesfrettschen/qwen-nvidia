@@ -21,7 +21,7 @@ set -eu
 # admits each burst in one of two shapes and reads the shape back from the
 # server's own log with read-server-decode-iterations.py rather than assuming
 # it: `primed` fills every slot's cache with the prompt ahead of the burst,
-# each slot prefilling alone, so the burst evaluates one token per slot and
+# each slot prefilling alone, so the burst evaluates the last four prompt tokens per slot and
 # every member reaches its first decode pass together; `cold` sends the prompt
 # uncached, which is the shape a served appliance sees. A `primed` burst whose
 # log shows a pass below full width, or more than one prefill pass, fails the
@@ -52,6 +52,7 @@ usage() {
     printf '             QWEN_CONCURRENCY_PREDICT       tokens per request, default 128\n' >&2
     printf '             QWEN_CONCURRENCY_REPEATS       measured bursts per level, default 4\n' >&2
     printf '             QWEN_CONCURRENCY_ADMISSION     primed (default) or cold\n' >&2
+    printf '             QWEN_CONCURRENCY_SLOT_OFFSET   first slot id of every burst, default 0; the server serves level + offset slots\n' >&2
     printf '             QWEN_CONCURRENCY_PASSAGE       prose file the prompt is cut from, default CLAUDE.md\n' >&2
     printf '             QWEN_CONCURRENCY_SUBJECT       second closure, paired against SERVER per level\n' >&2
     printf '             QWEN_CONCURRENCY_FLOOR         paired-gain floor, default 0.051\n' >&2
@@ -76,6 +77,19 @@ prompt_tokens=${QWEN_CONCURRENCY_PROMPT_TOKENS:-448}
 predict=${QWEN_CONCURRENCY_PREDICT:-128}
 repeats=${QWEN_CONCURRENCY_REPEATS:-4}
 admission=${QWEN_CONCURRENCY_ADMISSION:-primed}
+slot_offset=${QWEN_CONCURRENCY_SLOT_OFFSET:-0}
+# Qwen3.5's linear-attention layers hold a recurrent state the server cannot
+# roll back, and server-context.cpp creates a context checkpoint at the prompt
+# end only where n_ctx_checkpoints is positive. A primed slot reuses its cache
+# by restoring that checkpoint and re-evaluating the last token; with the
+# count at zero the same request reprocesses the whole prompt and reads as
+# cold. Cold admission keeps the count at zero so no checkpoint copy sits
+# inside a measured prefill.
+case $admission in
+    primed) context_checkpoints=8 ;;
+    cold) context_checkpoints=0 ;;
+    *) context_checkpoints="" ;;
+esac
 passage=${QWEN_CONCURRENCY_PASSAGE:-"$script_directory/../CLAUDE.md"}
 subject_server=${QWEN_CONCURRENCY_SUBJECT:-}
 floor=${QWEN_CONCURRENCY_FLOOR:-0.051}
@@ -108,6 +122,7 @@ unique_count=$(printf '%s\n' $levels | sort -n | uniq | wc -l)
 printf '%s\n' $levels | grep -qx 1 || refuse "QWEN_CONCURRENCY_LEVELS holds no level 1, the arm every ratio divides by"
 levels=$(printf '%s\n' $levels | sort -n | tr '\n' ' ' | sed 's/ $//')
 case $slot_depth in '' | *[!0-9]* | 0) usage ;; esac
+case $slot_offset in '' | *[!0-9]*) usage ;; esac
 case $prompt_tokens in '' | *[!0-9]* | 0) usage ;; esac
 case $predict in '' | *[!0-9]* | 0) usage ;; esac
 case $repeats in '' | *[!0-9]* | 0) usage ;; esac
@@ -156,7 +171,7 @@ deepest=0
 for value in $levels $nsys_levels; do
     [ "$value" -gt "$deepest" ] && deepest=$value
 done
-requested_ceiling=$((deepest * slot_depth))
+requested_ceiling=$(((deepest + slot_offset) * slot_depth))
 [ "$requested_ceiling" -le "$context_ceiling" ] ||
     refuse "$deepest slots at depth $slot_depth asks for $requested_ceiling, above the $model_id ceiling $context_ceiling"
 
@@ -263,6 +278,8 @@ if [ -n "$subject_server" ]; then
     printf 'subject_path\t%s\n' "$(printf '%s' "$subject_server" | scrub_home)" >>"$summary"
 fi
 printf 'slot_depth\t%s\n' "$slot_depth" >>"$summary"
+printf 'slot_offset\t%s\n' "$slot_offset" >>"$summary"
+printf 'context_checkpoints\t%s\n' "$context_checkpoints" >>"$summary"
 printf 'prompt_tokens_requested\t%s\n' "$prompt_tokens" >>"$summary"
 printf 'predict\t%s\n' "$predict" >>"$summary"
 printf 'filled_depth\t%s\n' $((prompt_tokens + predict)) >>"$summary"
@@ -288,6 +305,7 @@ serve() {
     serve_binary=$3
     serve_port=$4
     serve_profile=${5:-}
+    serve_level=$((serve_level + slot_offset))
     serve_ctx=$((serve_level * slot_depth))
     if [ -n "$serve_profile" ]; then
         # The clean-environment wrapper is outermost because Nsight records
@@ -307,7 +325,7 @@ serve() {
             --ctx-size "$serve_ctx" --batch-size "$batch" --ubatch-size "$ubatch" \
             --cache-type-k "$cache_type_k" --cache-type-v "$cache_type_v" \
             --flash-attn "$flash_attention" \
-            --cache-ram 0 --ctx-checkpoints 0 --no-context-shift --no-warmup -lv 10 \
+            --cache-ram 0 --ctx-checkpoints "$context_checkpoints" --no-context-shift --no-warmup -lv 10 \
             >"$serve_log" 2>&1 9>&- &
     else
         QWEN_CUDA_PROFILE=default "$wrapper" "$serve_binary" \
@@ -317,7 +335,7 @@ serve() {
             --ctx-size "$serve_ctx" --batch-size "$batch" --ubatch-size "$ubatch" \
             --cache-type-k "$cache_type_k" --cache-type-v "$cache_type_v" \
             --flash-attn "$flash_attention" \
-            --cache-ram 0 --ctx-checkpoints 0 --no-context-shift --no-warmup -lv 10 \
+            --cache-ram 0 --ctx-checkpoints "$context_checkpoints" --no-context-shift --no-warmup -lv 10 \
             >"$serve_log" 2>&1 9>&- &
     fi
     served_pid=$!
@@ -373,7 +391,7 @@ burst() {
     # burst LEVEL PREDICT DIRECTORY PORT
     "$burst_client" --port "$4" --level "$1" --predict "$2" \
         --prompt-tokens "$output_directory/prompt-tokens.json" \
-        --output "$3" --admission "$admission" \
+        --output "$3" --admission "$admission" --slot-offset "$slot_offset" \
         >"$3.client.log" 2>&1 || {
         printf 'burst at level %s rejected:\n' "$1" >&2
         cat "$3.client.log" >&2
@@ -439,9 +457,11 @@ read_level_bursts() {
     "$iteration_reader" --bursts "$3" | awk -F '\t' -v level="$1" -v arm="$2" -v OFS='\t' \
         '$1 == "burst" { $1 = ""; print level, arm, substr($0, 2) }' >>"$bursts"
     if [ "$admission" = primed ]; then
-        # The warm-up burst is the first row and is not held to the claim.
+        # The priming requests form their own one-token rows ahead of each
+        # burst and are not measured; the warm-up burst is the first measured
+        # row and is not held to the claim.
         if "$iteration_reader" --bursts "$3" | awk -F '\t' '
-            $1 == "burst" { n++; if (n > 1 && ($4 != 1 || $10 != "yes")) bad++ }
+            $1 == "burst" && $6 > 1 { n++; if (n > 1 && ($4 != 1 || $10 != "yes")) bad++ }
             END { exit !(bad > 0) }'
         then
             printf 'level %s %s: a primed burst ran below full width or prefilled in two passes\n' "$1" "$2" >&2
@@ -522,8 +542,11 @@ for repeat in range(1, repeats + 1):
         burst = directory / (pattern % repeat)
         start, end = (float(value) for value in (burst / "window.txt").read_text().split())
         window = end - start
-        for slot in range(level):
-            record = json.loads((burst / ("request-%d.json" % slot)).read_text())
+        # The client files each reply under the slot id it occupied, which
+        # starts at the slot offset rather than at zero.
+        for path in sorted(burst.glob("request-*.json"), key=lambda p: int(p.stem.split("-")[1])):
+            slot = int(path.stem.split("-")[1])
+            record = json.loads(path.read_text())
             timings = record["timings"]
             print("\t".join(str(value) for value in (
                 level, arm, repeat, slot,
@@ -666,8 +689,11 @@ floor = float(sys.argv[4])
 def read(burst, level):
     start, end = (float(v) for v in (burst / "window.txt").read_text().split())
     tokens, replies = 0, []
-    for slot in range(level):
-        record = json.loads((burst / ("request-%d.json" % slot)).read_text())
+    paths = sorted(burst.glob("request-*.json"), key=lambda p: int(p.stem.split("-")[1]))
+    if len(paths) != level:
+        sys.exit("%s holds %d replies where the level is %d" % (burst, len(paths), level))
+    for path in paths:
+        record = json.loads(path.read_text())
         ids = record.get("tokens")
         if not isinstance(ids, list) or not ids:
             raise SystemExit("slot %s in %s returned no token ids" % (slot, burst))
