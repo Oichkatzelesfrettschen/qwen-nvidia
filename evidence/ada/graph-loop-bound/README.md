@@ -34,13 +34,15 @@ each class's own token:
 | --- | ---: | ---: | ---: |
 | qwen35-08b | 140.0 us | 3062.2 us | **4.57%** |
 | qwen38-2b-distill | 139.1 us | 4261.2 us | **3.26%** |
-| qwen38-4b-distill | unmeasured | 8807.5 us | under 1.6% |
+| qwen38-4b-distill | unmeasured | 8807.5 us, registry | under 1.6% |
 
-The 4B ran no node-trace arm, so its round trip is unmeasured and the row states
-what the two measured values bound rather than a third figure: at 139 to 140
-microseconds the ceiling on an 8807-microsecond token is 1.58 to 1.59%, and the
-term would have to more than triple against both measured classes to reach the
-floor.
+The first two denominators are the graph-granularity spans those captures
+measured, which sit above each class's registry token; the 4B ran no node-trace
+arm, so its row divides the measured constant by the registry figure instead and
+is not comparable to the two above it at the third decimal. What it states is
+the ordering: at 139 to 140 microseconds the ceiling on a token twice the 2B's
+is about 1.6%, and the round trip would have to more than triple against both
+measured classes to reach the floor.
 
 Every one is under the 5.1% promotion floor, and each is the ceiling at an
 unbounded loop length. A loop of N tokens removes N-1 of every N round trips, so

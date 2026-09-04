@@ -34,9 +34,13 @@ Per-model tuning that this tree does perform lives in `scripts/models.tsv`,
 where `batch`, `ubatch`, the cache triple, Flash Attention, and the context
 fields are per-row and measured per row, and in
 `scripts/validated-tuples.tsv`, which keys a measured arm by model, runtime
-mode, submission geometry, cache triple, and backend. **The autotuning half of
-the task is refuted: the thresholds are build-time constants per quantization
-type, and the per-model surface is a registry this tree already keeps.**
+mode, submission geometry, cache triple, and backend. **What is refuted is per-model threshold
+compilation, rather than per-model caching.** A threshold is a compile input and
+keying it to a checkpoint multiplies closures; a measured serving tuple is a
+result and keying it to a checkpoint is what `scripts/validated-tuples.tsv`
+already does, by model, runtime mode, submission geometry, cache triple, and
+backend. The registry is the cache the task asks for, holding the results that
+vary per model rather than the constants that do not.
 
 ## The environment a number was taken under went unrecorded
 
