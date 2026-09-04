@@ -262,6 +262,10 @@ burst() {
     burst_directory=$3
     mkdir -p "$burst_directory"
     burst_index=0
+    # Each request pid is collected and waited on by name. A bare `wait` waits
+    # for every background child of this shell, and the server is one of them,
+    # so it blocks until the server exits rather than until the burst ends.
+    burst_pids=''
     burst_start=$(date +%s.%N)
     while [ "$burst_index" -lt "$burst_level" ]; do
         curl --silent --show-error --max-time 600 \
@@ -270,9 +274,12 @@ burst() {
             "http://127.0.0.1:$port/completion" \
             >"$burst_directory/request-$burst_index.json" \
             2>"$burst_directory/request-$burst_index.err" &
+        burst_pids="$burst_pids $!"
         burst_index=$((burst_index + 1))
     done
-    wait
+    for burst_pid in $burst_pids; do
+        wait "$burst_pid" || :
+    done
     burst_end=$(date +%s.%N)
     printf '%s\n' "$burst_start $burst_end" >"$burst_directory/window.txt"
 }
