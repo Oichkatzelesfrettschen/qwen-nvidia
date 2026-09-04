@@ -46,6 +46,7 @@ run-qwen-capacity-server.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 vulkan-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 build-vulkan-graphics-service-probe.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
 check-nvidia-authority.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
+probe-cuda-vmm-layout.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
 gpu-state-latch.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
 model-memory-preflight.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
 monitor-qwen-runtime.sh	authorized-monitor	cuda	no	no	no	yes	n-a	monitored
@@ -75,6 +76,7 @@ admit-cuda-router-serving.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-evict-first-transition.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-image-router.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-router-speculation-roster.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-paged-kv-buffer.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-web-router-fake.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 compare-model-candidate.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 measure-served-decode.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates

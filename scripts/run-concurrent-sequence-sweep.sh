@@ -92,6 +92,11 @@ case $admission in
 esac
 passage=${QWEN_CONCURRENCY_PASSAGE:-"$script_directory/../CLAUDE.md"}
 subject_server=${QWEN_CONCURRENCY_SUBJECT:-}
+# NAME=VALUE words exported to the subject arm's server alone, so one closure
+# can answer for a switch the library reads from its environment; with a word
+# set the subject may name the control's own binary, since the environment is
+# then what varies.
+subject_environment=${QWEN_CONCURRENCY_SUBJECT_ENV:-}
 floor=${QWEN_CONCURRENCY_FLOOR:-0.051}
 nsys_levels=${QWEN_CONCURRENCY_NSYS_LEVELS:-}
 nsys_predict=${QWEN_CONCURRENCY_NSYS_PREDICT:-24}
@@ -135,7 +140,14 @@ case $admission in primed | cold) ;; *) refuse "QWEN_CONCURRENCY_ADMISSION takes
     refuse "prompt $prompt_tokens plus reply $predict does not fit a slot of $slot_depth"
 if [ -n "$subject_server" ]; then
     [ -x "$subject_server" ] || refuse "subject closure is unusable: $subject_server"
-    [ "$subject_server" != "$server_binary" ] || refuse "the two arms name one closure, so nothing varies"
+    [ "$subject_server" != "$server_binary" ] || [ -n "$subject_environment" ] ||
+        refuse "the two arms name one closure and no subject environment, so nothing varies"
+    for environment_word in $subject_environment; do
+        case $environment_word in
+        [A-Za-z_]*=*) ;;
+        *) refuse "subject environment word is not NAME=VALUE: $environment_word" ;;
+        esac
+    done
     [ "$repeats" -ge 4 ] || refuse "a paired closure comparison requires at least four repeats"
 fi
 if [ -n "$nsys_levels" ]; then
@@ -276,6 +288,7 @@ printf 'control_path\t%s\n' "$(printf '%s' "$server_binary" | scrub_home)" >>"$s
 if [ -n "$subject_server" ]; then
     printf 'subject_sha256\t%s\n' "$(sha256sum "$subject_server" | cut -d' ' -f1)" >>"$summary"
     printf 'subject_path\t%s\n' "$(printf '%s' "$subject_server" | scrub_home)" >>"$summary"
+    printf 'subject_environment\t%s\n' "${subject_environment:--}" >>"$summary"
 fi
 printf 'slot_depth\t%s\n' "$slot_depth" >>"$summary"
 printf 'slot_offset\t%s\n' "$slot_offset" >>"$summary"
@@ -305,6 +318,7 @@ serve() {
     serve_binary=$3
     serve_port=$4
     serve_profile=${5:-}
+    serve_environment=${6:-}
     serve_level=$((serve_level + slot_offset))
     serve_ctx=$((serve_level * slot_depth))
     if [ -n "$serve_profile" ]; then
@@ -318,7 +332,7 @@ serve() {
         "$profiler_wrapper" "$nsys_binary" profile \
             --trace=cuda --cuda-graph-trace=node --sample=none --cpuctxsw=none \
             --output "$serve_profile" --force-overwrite true \
-            -- "$wrapper" "$serve_binary" \
+            -- env $serve_environment "$wrapper" "$serve_binary" \
             --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
@@ -328,7 +342,8 @@ serve() {
             --cache-ram 0 --ctx-checkpoints "$context_checkpoints" --no-context-shift --no-warmup -lv 10 \
             >"$serve_log" 2>&1 9>&- &
     else
-        QWEN_CUDA_PROFILE=default "$wrapper" "$serve_binary" \
+        # shellcheck disable=SC2086
+        env $serve_environment QWEN_CUDA_PROFILE=default "$wrapper" "$serve_binary" \
             --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
@@ -488,7 +503,7 @@ for level in $levels; do
         prompt_cut=1
     fi
     if [ -n "$subject_server" ]; then
-        serve "$level" "$subject_log" "$subject_server" "$subject_port"
+        serve "$level" "$subject_log" "$subject_server" "$subject_port" '' "$subject_environment"
         subject_pid=$served_pid
         ready "$subject_log" "$subject_pid" "$subject_port"
         assert_placement "$subject_log" "level $level subject load"
