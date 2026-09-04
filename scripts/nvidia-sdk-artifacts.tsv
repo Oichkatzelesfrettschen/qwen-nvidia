@@ -1,0 +1,26 @@
+# The NVIDIA SDK archives this tree builds against, one row per artifact. Each
+# row pins the vendor's own release digest, so an installed prefix is verified
+# against what the vendor published rather than against what a download
+# happened to produce. Installation goes through the PKGBUILDs under the
+# workstation's PKGBUILD monorepo (local/cvcuda-bin, local/nvimgcodec-bin),
+# which carry the same digests; fetch-nvidia-sdk.sh retrieves an archive into a
+# directory and verifies it, and verify-nvidia-sdk.sh reads the installed
+# prefix, the package manager's record, and the archive's own version header.
+#
+# id             a name the tree refers to
+# vendor         who publishes it
+# component      the SDK
+# version        the vendor's version string, as spelled in the artifact name
+# cuda_major     the CUDA major the archive was built against
+# arch           target architecture
+# artifact_name  the archive file name
+# source_url     where the archive is fetched from, without credentials
+# sha256         the vendor-published digest of the archive
+# install_prefix where the package installs the archive's tree
+# package        the pacman package that installs it
+# status         pinned, candidate, or retired
+#
+# id	vendor	component	version	cuda_major	arch	artifact_name	source_url	sha256	install_prefix	package	status
+cvcuda-lib	NVIDIA	CV-CUDA	0.17.0	13	x86_64	cvcuda-lib-0.17.0-cuda13-x86_64-linux.tar.xz	https://github.com/CVCUDA/CV-CUDA/releases/download/v0.17.0/cvcuda-lib-0.17.0-cuda13-x86_64-linux.tar.xz	369ac567e72eb4e0c93ecb8acdaee09c4829329fa6fbc213bbd4228070b3860b	/opt/nvidia/cvcuda0	cvcuda-bin	pinned
+cvcuda-dev	NVIDIA	CV-CUDA	0.17.0	13	x86_64	cvcuda-dev-0.17.0-cuda13-x86_64-linux.tar.xz	https://github.com/CVCUDA/CV-CUDA/releases/download/v0.17.0/cvcuda-dev-0.17.0-cuda13-x86_64-linux.tar.xz	e6e74d6522374736ce780ccc88718f9d6e75913ced678a80d9da61f7265ecda2	/opt/nvidia/cvcuda0	cvcuda-bin	pinned
+nvimgcodec	NVIDIA	nvImageCodec	0.9.0.20	13	x86_64	nvimgcodec-linux-x86_64-0.9.0.20_cuda13-archive.tar.xz	https://developer.download.nvidia.com/compute/nvimgcodec/redist/nvimgcodec/linux-x86_64/nvimgcodec-linux-x86_64-0.9.0.20_cuda13-archive.tar.xz	dd6328a217324d87673391ab7436c89fa66a8945ca2557ab75fe57fd69fef8cb	/opt/nvidia/nvimgcodec	nvimgcodec-bin	pinned
