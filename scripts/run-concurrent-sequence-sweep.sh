@@ -13,47 +13,54 @@ set -eu
 # The measurement rests on one mechanism. `update_slots` builds one batch across
 # every slot with a token to decode, so N decoding slots make one ubatch of N
 # columns and `ne11` equals the slot count; `ggml_cuda_should_use_mmvq` reads
-# `ne11` and picks the mat-mul family from it. On the promoted closure Q4_K
-# leaves MMVQ above seven columns at the upstream constant, Q6_K above ten and
-# Q8_0 above sixteen through the AD104 crossover patch's cmake entries, so a 2B
-# sweep crosses twice and a Q8_0 0.8B sweep crosses not at all. The 0.8B is
-# therefore the control that separates a dispatch effect from a roofline or host
-# effect: a kink both checkpoints share belongs to neither dispatch nor the
-# quantization type.
+# `ne11` and picks the mat-mul family from it. That holds only in a pass every
+# member of the burst decodes in. A prompt enters the batch its request reaches,
+# and `n_batch` bounds how many prompts one pass carries, so a burst whose
+# prompts exceed it decodes its first members beside the others' prefill and
+# every earlier pass runs below the level's width. The harness therefore
+# admits each burst in one of two shapes and reads the shape back from the
+# server's own log with read-server-decode-iterations.py rather than assuming
+# it: `primed` fills every slot's cache with the prompt ahead of the burst,
+# each slot prefilling alone, so the burst evaluates one token per slot and
+# every member reaches its first decode pass together; `cold` sends the prompt
+# uncached, which is the shape a served appliance sees. A `primed` burst whose
+# log shows a pass below full width, or more than one prefill pass, fails the
+# level rather than being averaged in.
 #
 # `llama_context` sets `cparams.n_ctx_seq = cparams.n_ctx / cparams.n_seq_max`
 # (src/llama-context.cpp:293), so a fixed `--ctx-size` across the sweep shrinks
-# each slot's depth as 1/N and lets KV traffic per sequence fall exactly as
-# concurrency rises. Each arm therefore asks for `N * QWEN_CONCURRENCY_SLOT_DEPTH`
-# and reads the per-slot depth back out of the server's own load line rather
-# than assuming the division. Weight traffic is amortized across the ubatch and
-# is constant in N while KV traffic is per-sequence and linear in it, which is
-# the mechanism any scaling curve here decomposes into, so depth is an axis
-# rather than a nuisance.
+# each slot's depth as 1/N. Each arm asks for `N * QWEN_CONCURRENCY_SLOT_DEPTH`
+# and reads the per-slot depth back out of the server's load line. That depth
+# is an allocation: the depth attention reads is the prompt plus the reply, so
+# the summary carries `filled_depth` beside `slot_depth` and the prompt is cut
+# to a token count rather than to a character count, through the server's own
+# tokenizer, so a run can fill the slot it allocated by asking for it.
 #
-# Every request in a burst carries the same prompt, the same `n_predict`, and
-# `ignore_eos`, because a request that stops early drops the batch to N-1 and
-# decodes its tail at a column count the arm did not ask for. The window the
-# aggregate rate divides by is the wall time from the first request leaving to
-# the last returning, and the per-request rate comes from the server's own
-# `predicted_ms`; they answer different questions and the summary carries both.
+# Three rates answer three questions and the summary names each. The
+# full-width decode rate divides the tokens of the passes every member decoded
+# in by the span of those passes, read from the log, which is the iteration
+# cost at exactly N columns. The delivered rate divides every generated token by
+# the wall time from the burst's release to its last reply, which is what a
+# client population receives. The per-request wait is the server's own
+# `prompt_ms` plus `predicted_ms`, which is what one client waits through.
 
 usage() {
     printf 'usage: %s SERVER MODEL_ID OUTPUT_DIRECTORY\n' "$0" >&2
-    printf 'environment: QWEN_CONCURRENCY_LEVELS       slot counts, default "1 2 4 7 8 10 11"\n' >&2
-    printf '             QWEN_CONCURRENCY_SLOT_DEPTH   per-slot context, default 4096\n' >&2
-    printf '             QWEN_CONCURRENCY_PREDICT      tokens per request, default 128\n' >&2
-    printf '             QWEN_CONCURRENCY_REPEATS      measured bursts per level, default 4\n' >&2
-    printf '             QWEN_CONCURRENCY_PROMPT_CHARS prompt cut length, default 2048\n' >&2
-    printf '             QWEN_CONCURRENCY_PASSAGE      prose file the prompt is cut from, default CLAUDE.md\n' >&2
-    printf '             QWEN_CONCURRENCY_SUBJECT      second closure, paired against SERVER per level\n' >&2
-    printf '             QWEN_CONCURRENCY_FLOOR        paired-gain floor, default 0.051\n' >&2
-    printf '             QWEN_CONCURRENCY_NSYS_LEVELS  levels to capture the dispatch of, default empty\n' >&2
-    printf '             QWEN_CONCURRENCY_NSYS_PREDICT tokens per captured request, default 24\n' >&2
-    printf '             QWEN_CONCURRENCY_NSYS         nsys, default the one on PATH\n' >&2
-    printf '             QWEN_CONCURRENCY_PORT         default 18160\n' >&2
-    printf '             QWEN_CONCURRENCY_LOCK_CLOCKS  SM MHz to pin through sudo -n nvidia-smi, default unset\n' >&2
-    printf '             QWEN_MODEL_ROOT               default $HOME/models\n' >&2
+    printf 'environment: QWEN_CONCURRENCY_LEVELS        slot counts, unique, holding 1, default "1 2 4 7 8 10 11"\n' >&2
+    printf '             QWEN_CONCURRENCY_SLOT_DEPTH    per-slot allocation, default 4096\n' >&2
+    printf '             QWEN_CONCURRENCY_PROMPT_TOKENS prompt length in tokens, default 448\n' >&2
+    printf '             QWEN_CONCURRENCY_PREDICT       tokens per request, default 128\n' >&2
+    printf '             QWEN_CONCURRENCY_REPEATS       measured bursts per level, default 4\n' >&2
+    printf '             QWEN_CONCURRENCY_ADMISSION     primed (default) or cold\n' >&2
+    printf '             QWEN_CONCURRENCY_PASSAGE       prose file the prompt is cut from, default CLAUDE.md\n' >&2
+    printf '             QWEN_CONCURRENCY_SUBJECT       second closure, paired against SERVER per level\n' >&2
+    printf '             QWEN_CONCURRENCY_FLOOR         paired-gain floor, default 0.051\n' >&2
+    printf '             QWEN_CONCURRENCY_NSYS_LEVELS   levels to capture the dispatch of, default empty\n' >&2
+    printf '             QWEN_CONCURRENCY_NSYS_PREDICT  tokens per captured request, default 24\n' >&2
+    printf '             QWEN_CONCURRENCY_NSYS          nsys, default the one on PATH\n' >&2
+    printf '             QWEN_CONCURRENCY_PORT          default 18160\n' >&2
+    printf '             QWEN_CONCURRENCY_LOCK_CLOCKS   SM MHz to pin through sudo -n nvidia-smi, default unset\n' >&2
+    printf '             QWEN_MODEL_ROOT                default $HOME/models\n' >&2
     exit 2
 }
 [ "$#" -eq 3 ] || usage
@@ -65,9 +72,10 @@ output_directory=$3
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 levels=${QWEN_CONCURRENCY_LEVELS:-"1 2 4 7 8 10 11"}
 slot_depth=${QWEN_CONCURRENCY_SLOT_DEPTH:-4096}
+prompt_tokens=${QWEN_CONCURRENCY_PROMPT_TOKENS:-448}
 predict=${QWEN_CONCURRENCY_PREDICT:-128}
 repeats=${QWEN_CONCURRENCY_REPEATS:-4}
-prompt_chars=${QWEN_CONCURRENCY_PROMPT_CHARS:-2048}
+admission=${QWEN_CONCURRENCY_ADMISSION:-primed}
 passage=${QWEN_CONCURRENCY_PASSAGE:-"$script_directory/../CLAUDE.md"}
 subject_server=${QWEN_CONCURRENCY_SUBJECT:-}
 floor=${QWEN_CONCURRENCY_FLOOR:-0.051}
@@ -78,36 +86,56 @@ port=${QWEN_CONCURRENCY_PORT:-18160}
 lock_clocks=${QWEN_CONCURRENCY_LOCK_CLOCKS:-}
 model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
 wrapper=$script_directory/cuda-runtime-env.sh
+profiler_wrapper=$script_directory/exec-profiler-clean-env.sh
 kernel_reader=$script_directory/read-nsys-mat-mul-kernels.py
+iteration_reader=$script_directory/read-server-decode-iterations.py
+burst_client=$script_directory/concurrent-burst-client.py
+telemetry_sampler=$script_directory/sample-nvidia-clocks.sh
 
-for value in $levels; do
+refuse() { printf 'refused: %s\n' "$1" >&2; exit 2; }
+
+for value in $levels $nsys_levels; do
     case $value in
-        '' | *[!0-9]* | 0) printf 'refused: a concurrency level is a positive integer: %s\n' "$value" >&2; exit 2 ;;
+        '' | *[!0-9]* | 0) refuse "a concurrency level is a positive integer: $value" ;;
     esac
 done
+# Every level names one arm and level 1 is the arm every ratio divides by: a
+# repeated level would enter the reducer twice under one key, and a sweep
+# without 1 would report its smallest level as a 1.0000 that names nothing.
+level_count=$(printf '%s\n' $levels | wc -l)
+unique_count=$(printf '%s\n' $levels | sort -n | uniq | wc -l)
+[ "$level_count" -eq "$unique_count" ] || refuse "QWEN_CONCURRENCY_LEVELS repeats a level: $levels"
+printf '%s\n' $levels | grep -qx 1 || refuse "QWEN_CONCURRENCY_LEVELS holds no level 1, the arm every ratio divides by"
+levels=$(printf '%s\n' $levels | sort -n | tr '\n' ' ' | sed 's/ $//')
 case $slot_depth in '' | *[!0-9]* | 0) usage ;; esac
+case $prompt_tokens in '' | *[!0-9]* | 0) usage ;; esac
 case $predict in '' | *[!0-9]* | 0) usage ;; esac
 case $repeats in '' | *[!0-9]* | 0) usage ;; esac
-# Three bursts is the floor a median over repeats needs to be a median rather
-# than a midpoint between two observations.
-[ "$repeats" -ge 3 ] || { printf 'refused: a per-level median needs at least three bursts\n' >&2; exit 2; }
-[ -r "$passage" ] || { printf 'passage file is not readable: %s\n' "$passage" >&2; exit 2; }
+case $admission in primed | cold) ;; *) refuse "QWEN_CONCURRENCY_ADMISSION takes primed or cold: $admission" ;; esac
+[ "$repeats" -ge 3 ] || refuse "a per-level median needs at least three bursts"
+[ -r "$passage" ] || refuse "passage file is not readable: $passage"
+# A prompt at or above the slot's depth evicts rather than decodes, and the
+# reply has to fit after it.
+[ $((prompt_tokens + predict)) -lt "$slot_depth" ] ||
+    refuse "prompt $prompt_tokens plus reply $predict does not fit a slot of $slot_depth"
 if [ -n "$subject_server" ]; then
-    [ -x "$subject_server" ] || { printf 'subject closure is unusable: %s\n' "$subject_server" >&2; exit 2; }
-    if [ "$subject_server" = "$server_binary" ]; then
-        printf 'refused: the two arms name one closure, so nothing varies\n' >&2
-        exit 2
-    fi
-    # Four repeats is what statistics.quantiles needs and what the paired
-    # campaigns in this tree already require before spending device time.
-    [ "$repeats" -ge 4 ] || {
-        printf 'refused: a paired closure comparison requires at least four repeats\n' >&2
-        exit 2
-    }
+    [ -x "$subject_server" ] || refuse "subject closure is unusable: $subject_server"
+    [ "$subject_server" != "$server_binary" ] || refuse "the two arms name one closure, so nothing varies"
+    [ "$repeats" -ge 4 ] || refuse "a paired closure comparison requires at least four repeats"
 fi
 if [ -n "$nsys_levels" ]; then
-    [ -x "$nsys_binary" ] || { printf 'nsys is unusable: %s\n' "$nsys_binary" >&2; exit 2; }
-    [ -x "$kernel_reader" ] || { printf 'kernel reader is unusable: %s\n' "$kernel_reader" >&2; exit 2; }
+    [ -x "$nsys_binary" ] || refuse "nsys is unusable: $nsys_binary"
+    [ -x "$kernel_reader" ] || refuse "kernel reader is unusable: $kernel_reader"
+    [ -x "$profiler_wrapper" ] || refuse "profiler wrapper is unusable: $profiler_wrapper"
+fi
+for helper in "$iteration_reader" "$burst_client" "$telemetry_sampler" "$wrapper"; do
+    [ -x "$helper" ] || refuse "helper is unusable: $helper"
+done
+# A run writes into a directory of its own. An existing directory can hold
+# another run's paired ratios, subject logs, or dispatch captures that this
+# run never rewrites, and a reader could not tell the two apart.
+if [ -e "$output_directory" ] && [ -n "$(ls -A "$output_directory" 2>/dev/null)" ]; then
+    refuse "output directory exists and is not empty: $output_directory"
 fi
 
 row=$("$script_directory/model-registry.sh" id "$model_id")
@@ -119,50 +147,75 @@ flash_attention=$(field flash_attention)
 batch=$(field batch)
 ubatch=$(field ubatch)
 context_ceiling=$(field context_ceiling)
-[ -r "$model_path" ] || { printf 'model file is not readable: %s\n' "$model_path" >&2; exit 2; }
+[ -r "$model_path" ] || refuse "model file is not readable: $model_path"
 
 # The deepest arm asks for level * slot_depth, and a depth above the registry
-# ceiling is a tuple no row admits. The refusal is here rather than at the load,
-# because the load would succeed and serve a depth the registry rejects.
+# ceiling is a tuple no row admits. Both level sets are bounded here, because
+# the profiler loop starts a server of its own.
 deepest=0
-for value in $levels; do
+for value in $levels $nsys_levels; do
     [ "$value" -gt "$deepest" ] && deepest=$value
 done
 requested_ceiling=$((deepest * slot_depth))
-if [ "$requested_ceiling" -gt "$context_ceiling" ]; then
-    printf 'refused: %s slots at depth %s asks for %s, above the %s ceiling %s admits\n' \
-        "$deepest" "$slot_depth" "$requested_ceiling" "$model_id" "$context_ceiling" >&2
-    exit 2
+[ "$requested_ceiling" -le "$context_ceiling" ] ||
+    refuse "$deepest slots at depth $slot_depth asks for $requested_ceiling, above the $model_id ceiling $context_ceiling"
+
+# A paired campaign holds both closures resident so the arms can alternate
+# inside a repeat, which is what cancels drift between them; two copies of the
+# weights beside the desktop's own allocation have to fit the carve-out.
+if [ -n "$subject_server" ]; then
+    model_bytes=$(stat -c %s "$model_path")
+    device_mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+    case $device_mib in '' | *[!0-9]*) refuse "device memory is unreadable through nvidia-smi" ;; esac
+    if [ $((2 * model_bytes / 1048576)) -gt $((device_mib * 6 / 10)) ]; then
+        refuse "two resident copies of $model_id exceed six tenths of the $device_mib MiB device; run the arms as two campaigns"
+    fi
 fi
 
 mkdir -p "$output_directory"
 scrub_home() { sed "s|${HOME:?}|\$HOME|g"; }
+# The ownership record keeps what a comparison between runs reads -- the lock
+# state, each client's command basename, its device memory, and its verdict --
+# and drops the pid, the executable path, the start time, the cgroup, and the
+# command line, which name this machine's session rather than a covariate.
+scrub_ownership() {
+    sed -E \
+        -e 's|^(cuda_client) pid=[0-9]+ name=([^ ]+).* used=([0-9]+ MiB) .* verdict=(.*)$|\1 name=\2 used=\3 verdict=\4|' \
+        -e 's|name=[^ ]*/([^ /]+)|name=\1|' \
+        -e 's|^(named_llama_server_pids)=.*$|\1=redacted|' |
+        scrub_home
+}
 . "$script_directory/gpu-workload-ownership.sh"
 gpu_ownership_require >"$output_directory/ownership.txt.raw"
-scrub_home <"$output_directory/ownership.txt.raw" >"$output_directory/ownership.txt"
+scrub_ownership <"$output_directory/ownership.txt.raw" >"$output_directory/ownership.txt"
 rm -f "$output_directory/ownership.txt.raw"
 "$script_directory/gpu-state-latch.sh" require-clear >"$output_directory/gpu-state-latch.txt"
 "$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
 
-# One prompt, cut once, shared by every request of every arm: two arms differing
-# in prompt differ in prefill, and prefill is not what a concurrency sweep asks
-# about.
-prompt_text=$(head -c "$prompt_chars" "$passage" | tr '\n\t"\\' '    ' | sed 's/  */ /g')
-printf '%s' "$prompt_text" >"$output_directory/prompt.txt"
-
 server_pid=''
 subject_pid=''
 served_pid=''
+profiled_child=''
+telemetry_pid=''
 clocks_locked=0
 cleanup() {
-    for cleanup_pid in "$server_pid" "$subject_pid"; do
+    for cleanup_pid in "$profiled_child" "$server_pid" "$subject_pid"; do
         [ -n "$cleanup_pid" ] || continue
         kill "$cleanup_pid" 2>/dev/null || true
+    done
+    for cleanup_pid in "$server_pid" "$subject_pid"; do
+        [ -n "$cleanup_pid" ] || continue
         wait "$cleanup_pid" 2>/dev/null || true
     done
+    profiled_child=''
     server_pid=''
     subject_pid=''
-    for raw in "$output_directory"/*.server.log.raw; do
+    if [ -n "$telemetry_pid" ]; then
+        kill "$telemetry_pid" 2>/dev/null || true
+        wait "$telemetry_pid" 2>/dev/null || true
+        telemetry_pid=''
+    fi
+    for raw in "$output_directory"/*.log.raw; do
         [ -f "$raw" ] || continue
         scrub_home <"$raw" >"${raw%.raw}"
         rm -f "$raw"
@@ -173,7 +226,19 @@ cleanup() {
         printf 'gpu_clocks=released\n'
     fi
 }
-trap cleanup EXIT HUP INT TERM
+# A signal ends the campaign with a nonzero status rather than returning into
+# the loop with the clocks released and the servers gone, so a run cut short
+# never prints the completion line.
+trap 'cleanup' EXIT
+trap 'cleanup; trap - EXIT; exit 129' HUP
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM
+
+# One-second operating-state rows span the whole campaign, and every burst's
+# window is retained beside them, so a rate joins to the clock, temperature,
+# power, and throttle state it ran under.
+"$telemetry_sampler" "$output_directory/telemetry.tsv" 1 9>&- &
+telemetry_pid=$!
 
 if [ -n "$lock_clocks" ]; then
     { sudo -n nvidia-smi --lock-gpu-clocks="$lock_clocks,$lock_clocks"; } \
@@ -191,15 +256,27 @@ fi
 summary=$output_directory/summary.tsv
 : >"$summary"
 printf 'model_id\t%s\n' "$model_id" >>"$summary"
-printf 'server_sha256\t%s\n' "$(sha256sum "$server_binary" | cut -d' ' -f1)" >>"$summary"
+printf 'control_sha256\t%s\n' "$(sha256sum "$server_binary" | cut -d' ' -f1)" >>"$summary"
+printf 'control_path\t%s\n' "$(printf '%s' "$server_binary" | scrub_home)" >>"$summary"
+if [ -n "$subject_server" ]; then
+    printf 'subject_sha256\t%s\n' "$(sha256sum "$subject_server" | cut -d' ' -f1)" >>"$summary"
+    printf 'subject_path\t%s\n' "$(printf '%s' "$subject_server" | scrub_home)" >>"$summary"
+fi
 printf 'slot_depth\t%s\n' "$slot_depth" >>"$summary"
+printf 'prompt_tokens_requested\t%s\n' "$prompt_tokens" >>"$summary"
 printf 'predict\t%s\n' "$predict" >>"$summary"
+printf 'filled_depth\t%s\n' $((prompt_tokens + predict)) >>"$summary"
+printf 'admission\t%s\n' "$admission" >>"$summary"
 printf 'repeats\t%s\n' "$repeats" >>"$summary"
 printf 'levels\t%s\n' "$levels" >>"$summary"
+printf 'batch\t%s\nubatch\t%s\n' "$batch" "$ubatch" >>"$summary"
 
 observations=$output_directory/observations.tsv
-printf 'level\trepeat\trequest\tprompt_n\tpredicted_n\tprompt_ms\tpredicted_ms\twindow_s\n' \
+printf 'level\tarm\trepeat\tslot\tprompt_n\tpredicted_n\tprompt_ms\tpredicted_ms\twindow_s\n' \
     >"$observations"
+bursts=$output_directory/bursts.tsv
+printf 'level\tarm\tburst\twidth\tprefill_passes\tprefill_split\treply_tokens\tdistinct_replies\tfirst_divergence\tdivergence_pass_width\thistory_full_width\tdecode_passes\tfull_width_passes\tfull_width_span_s\n' \
+    >"$bursts"
 
 # The server is started in this shell rather than in a command substitution, so
 # its pid is this shell's child and `wait` in the teardown blocks until it has
@@ -213,14 +290,17 @@ serve() {
     serve_profile=${5:-}
     serve_ctx=$((serve_level * slot_depth))
     if [ -n "$serve_profile" ]; then
-        # Node granularity is what puts graph nodes in CUPTI_ACTIVITY_KIND_KERNEL,
-        # which is where the mat-mul symbol and its column count are readable at
-        # all; graph granularity records the replay as one row and names no
-        # kernel inside it.
-        "$wrapper" "$nsys_binary" profile \
+        # The clean-environment wrapper is outermost because Nsight records
+        # the capturing process's environment into the report, and the
+        # allowlist is what keeps a credential the calling shell exported
+        # out of a file that outlives the run on any failure ahead of its
+        # deletion. Node granularity is what puts graph nodes in
+        # CUPTI_ACTIVITY_KIND_KERNEL, where the mat-mul symbol and its
+        # column count are readable at all.
+        "$profiler_wrapper" "$nsys_binary" profile \
             --trace=cuda --cuda-graph-trace=node --sample=none --cpuctxsw=none \
             --output "$serve_profile" --force-overwrite true \
-            -- "$serve_binary" \
+            -- "$wrapper" "$serve_binary" \
             --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
@@ -264,6 +344,17 @@ ready() {
     return 1
 }
 
+# Placement is read after the work rather than after the load alone: the load
+# line names where the weights sit, and a fallback line names a graph the
+# backend refused at run time, which only a burst can provoke.
+assert_placement() {
+    if grep -q 'CPU fallback rejected\|CPU_Mapped model buffer' "$1"; then
+        printf '%s left a tensor or a graph on the host\n' "$2" >&2
+        return 1
+    fi
+    return 0
+}
+
 # The per-slot depth is read out of the server's own load line rather than
 # derived from the argv, because `n_ctx / n_seq_max` is the division the claim
 # rests on and an argv the server rounded is not what its slots hold.
@@ -278,56 +369,109 @@ assert_slot_depth() {
     return 0
 }
 
-# A burst is N concurrent requests carrying one prompt, one reply length, and
-# ignore_eos, so every slot decodes for the whole window and the column count
-# the arm names is the column count every pass sees.
 burst() {
-    burst_level=$1
-    burst_predict=$2
-    burst_directory=$3
-    burst_port=$4
-    mkdir -p "$burst_directory"
-    burst_index=0
-    # Each request pid is collected and waited on by name. A bare `wait` waits
-    # for every background child of this shell, and the server is one of them,
-    # so it blocks until the server exits rather than until the burst ends.
-    burst_pids=''
-    burst_start=$(date +%s.%N)
-    while [ "$burst_index" -lt "$burst_level" ]; do
-        curl --silent --show-error --max-time 600 \
-            --header 'Content-Type: application/json' \
-            --data "{\"prompt\":\"$prompt_text\",\"n_predict\":$burst_predict,\"temperature\":0,\"ignore_eos\":true,\"stream\":false,\"cache_prompt\":false,\"return_tokens\":true}" \
-            "http://127.0.0.1:$burst_port/completion" \
-            >"$burst_directory/request-$burst_index.json" \
-            2>"$burst_directory/request-$burst_index.err" &
-        burst_pids="$burst_pids $!"
-        burst_index=$((burst_index + 1))
+    # burst LEVEL PREDICT DIRECTORY PORT
+    "$burst_client" --port "$4" --level "$1" --predict "$2" \
+        --prompt-tokens "$output_directory/prompt-tokens.json" \
+        --output "$3" --admission "$admission" \
+        >"$3.client.log" 2>&1 || {
+        printf 'burst at level %s rejected:\n' "$1" >&2
+        cat "$3.client.log" >&2
+        return 1
+    }
+}
+
+stop_server() {
+    # stop_server PID_VARIABLE
+    eval "stop_pid=\$$1"
+    [ -n "${stop_pid:-}" ] || return 0
+    kill "$stop_pid" 2>/dev/null || true
+    wait "$stop_pid" 2>/dev/null || true
+    eval "$1=''"
+}
+
+scrub_level_logs() {
+    # The log is scrubbed here rather than only in the teardown trap. A trap
+    # covers every signal that runs it and SIGKILL runs none, so a campaign
+    # killed hard leaves whatever logs it had written naming the home
+    # directory; scrubbing per level bounds that to the one level still open.
+    for raw in "$@"; do
+        [ -f "$raw" ] || continue
+        scrub_home <"$raw" >"${raw%.raw}"
+        rm -f "$raw"
     done
-    for burst_pid in $burst_pids; do
-        wait "$burst_pid" || :
-    done
-    burst_end=$(date +%s.%N)
-    printf '%s\n' "$burst_start $burst_end" >"$burst_directory/window.txt"
+}
+
+# The prompt is cut in tokens through the server's own tokenizer, once, on the
+# level-1 control server, and every request of every arm carries the resulting
+# id array. Two arms differing in prompt differ in prefill, and a token count
+# is what a filled depth is stated in.
+cut_prompt() {
+    python3 - "$passage" "$prompt_tokens" "$1" "$output_directory/prompt-tokens.json" <<'PY'
+import http.client
+import json
+import pathlib
+import sys
+
+passage, wanted, port, destination = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+text = pathlib.Path(passage).read_text(encoding="utf-8", errors="replace")
+connection = http.client.HTTPConnection("127.0.0.1", port, timeout=120)
+connection.request("POST", "/tokenize",
+                   body=json.dumps({"content": text, "add_special": False}),
+                   headers={"Content-Type": "application/json"})
+response = connection.getresponse()
+payload = json.loads(response.read())
+if response.status != 200 or "tokens" not in payload:
+    sys.exit("tokenize answered %s: %s" % (response.status, str(payload)[:200]))
+ids = payload["tokens"]
+if len(ids) < wanted:
+    sys.exit("the passage tokenizes to %d tokens, short of the %d asked" % (len(ids), wanted))
+pathlib.Path(destination).write_text(json.dumps(ids[:wanted]))
+print("prompt_tokens=%d passage_tokens=%d" % (wanted, len(ids)))
+PY
+}
+
+# One level's server log, read into per-burst composition rows. Under primed
+# admission every measured burst has to show one prefill pass and a history
+# every member decoded in, because that is the claim the level makes.
+read_level_bursts() {
+    # read_level_bursts LEVEL ARM LOG
+    "$iteration_reader" --bursts "$3" | awk -F '\t' -v level="$1" -v arm="$2" -v OFS='\t' \
+        '$1 == "burst" { $1 = ""; print level, arm, substr($0, 2) }' >>"$bursts"
+    if [ "$admission" = primed ]; then
+        # The warm-up burst is the first row and is not held to the claim.
+        if "$iteration_reader" --bursts "$3" | awk -F '\t' '
+            $1 == "burst" { n++; if (n > 1 && ($4 != 1 || $10 != "yes")) bad++ }
+            END { exit !(bad > 0) }'
+        then
+            printf 'level %s %s: a primed burst ran below full width or prefilled in two passes\n' "$1" "$2" >&2
+            return 1
+        fi
+    fi
+    return 0
 }
 
 subject_port=$((port + 1))
+prompt_cut=0
 for level in $levels; do
     level_directory=$output_directory/level-$level
     mkdir -p "$level_directory"
     log=$output_directory/level-$level.server.log.raw
+    subject_log=$output_directory/level-$level.subject.log.raw
     serve "$level" "$log" "$server_binary" "$port"
     server_pid=$served_pid
     ready "$log" "$server_pid" "$port"
-    if grep -q 'CPU fallback rejected\|CPU_Mapped model buffer' "$log"; then
-        printf 'level %s left a tensor on the host\n' "$level" >&2
-        exit 1
-    fi
+    assert_placement "$log" "level $level control load"
     assert_slot_depth "$log"
+    if [ "$prompt_cut" -eq 0 ]; then
+        cut_prompt "$port" | tr ' ' '\n' | tr '=' '\t' >>"$summary"
+        prompt_cut=1
+    fi
     if [ -n "$subject_server" ]; then
-        subject_log=$output_directory/level-$level.subject.log.raw
         serve "$level" "$subject_log" "$subject_server" "$subject_port"
         subject_pid=$served_pid
         ready "$subject_log" "$subject_pid" "$subject_port"
+        assert_placement "$subject_log" "level $level subject load"
         assert_slot_depth "$subject_log"
     fi
 
@@ -335,46 +479,35 @@ for level in $levels; do
     # never launched pays its module load on first use, and every column count
     # in this sweep is a distinct instantiation.
     burst "$level" "$predict" "$level_directory/warmup" "$port"
-    [ -n "$subject_server" ] &&
+    [ -z "$subject_server" ] ||
         burst "$level" "$predict" "$level_directory/warmup-subject" "$subject_port"
 
     repeat=1
     while [ "$repeat" -le "$repeats" ]; do
         if [ -z "$subject_server" ]; then
             burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
-        else
+        elif [ $((repeat % 2)) -eq 1 ]; then
             # The two closures alternate which one answers first, so drift
             # inside the pair and order bias cancel across repeats the way the
             # MMVQ width campaigns already require of a paired comparison.
-            if [ $((repeat % 2)) -eq 1 ]; then
-                burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
-                burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
-            else
-                burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
-                burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
-            fi
+            burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
+            burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
+        else
+            burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
+            burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
         fi
         repeat=$((repeat + 1))
     done
 
-    for pid_name in server_pid subject_pid; do
-        eval "pid=\$$pid_name"
-        [ -n "${pid:-}" ] || continue
-        kill "$pid" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
-        eval "$pid_name=''"
-    done
-    # The log is scrubbed here rather than only in the teardown trap. A trap
-    # covers every signal that runs it and SIGKILL runs none, so a campaign
-    # killed hard leaves whatever logs it had written naming the home directory;
-    # scrubbing per level bounds that to the one level still open.
-    for raw in "$log" "$output_directory/level-$level.subject.log.raw"; do
-        [ -f "$raw" ] || continue
-        scrub_home <"$raw" >"${raw%.raw}"
-        rm -f "$raw"
-    done
+    stop_server server_pid
+    stop_server subject_pid
+    assert_placement "$log" "level $level control"
+    [ -z "$subject_server" ] || assert_placement "$subject_log" "level $level subject"
+    scrub_level_logs "$log" "$subject_log"
+    read_level_bursts "$level" control "${log%.raw}"
+    [ -z "$subject_server" ] || read_level_bursts "$level" subject "${subject_log%.raw}"
 
-    python3 - "$level" "$level_directory" "$repeats" >>"$observations" <<'PY'
+    python3 - "$level" "$level_directory" "$repeats" "$([ -n "$subject_server" ] && echo yes || echo no)" >>"$observations" <<'PY'
 import json
 import pathlib
 import sys
@@ -382,18 +515,21 @@ import sys
 level = int(sys.argv[1])
 directory = pathlib.Path(sys.argv[2])
 repeats = int(sys.argv[3])
+paired = sys.argv[4] == "yes"
+arms = [("control", "repeat-%d")] + ([("subject", "repeat-%d-subject")] if paired else [])
 for repeat in range(1, repeats + 1):
-    burst = directory / ("repeat-%d" % repeat)
-    start, end = (float(value) for value in (burst / "window.txt").read_text().split())
-    window = end - start
-    for index in range(level):
-        record = json.loads((burst / ("request-%d.json" % index)).read_text())
-        timings = record["timings"]
-        print("\t".join(str(value) for value in (
-            level, repeat, index,
-            timings["prompt_n"], timings["predicted_n"],
-            "%.3f" % timings["prompt_ms"], "%.3f" % timings["predicted_ms"],
-            "%.6f" % window)))
+    for arm, pattern in arms:
+        burst = directory / (pattern % repeat)
+        start, end = (float(value) for value in (burst / "window.txt").read_text().split())
+        window = end - start
+        for slot in range(level):
+            record = json.loads((burst / ("request-%d.json" % slot)).read_text())
+            timings = record["timings"]
+            print("\t".join(str(value) for value in (
+                level, arm, repeat, slot,
+                timings["prompt_n"], timings["predicted_n"],
+                "%.3f" % timings["prompt_ms"], "%.3f" % timings["predicted_ms"],
+                "%.6f" % window)))
 PY
     printf 'level=%s served n=%s bursts\n' "$level" "$repeats"
 done
@@ -409,16 +545,21 @@ for level in $nsys_levels; do
     serve "$level" "$log" "$server_binary" "$port" "$capture_directory/capture"
     server_pid=$served_pid
     ready "$log" "$server_pid" "$port"
+    # The served child is found now rather than at teardown, so a failure in
+    # any step below still terminates the process holding the device and not
+    # only the profiler wrapping it, which forwards no signal.
+    profiled_child=$(pgrep -P "$server_pid" -x "$(basename "$server_binary")" 2>/dev/null | head -1)
+    assert_placement "$log" "dispatch $level load"
     assert_slot_depth "$log"
     burst "$level" "$nsys_predict" "$capture_directory/burst" "$port"
-    # The server is signalled by pid rather than through the nsys wrapper: the
-    # wrapper forwards nothing, so a signal to it leaves the server resident and
-    # the report unfinalized.
-    served=$(pgrep -P "$server_pid" -x "$(basename "$server_binary")" 2>/dev/null | head -1)
-    [ -n "$served" ] && kill -TERM "$served" 2>/dev/null || true
+    [ -n "$profiled_child" ] && kill -TERM "$profiled_child" 2>/dev/null || true
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
     server_pid=''
+    profiled_child=''
+    assert_placement "$log" "dispatch $level"
+    scrub_level_logs "$log"
+    read_level_bursts "$level" dispatch "${log%.raw}"
 
     "$nsys_binary" export --type sqlite --force-overwrite true \
         --output "$capture_directory/capture.sqlite" \
@@ -438,47 +579,70 @@ for level in $nsys_levels; do
     printf 'level=%s dispatch captured\n' "$level"
 done
 
-python3 - "$observations" "$output_directory/rates.tsv" <<'PY'
+python3 - "$observations" "$bursts" "$output_directory/rates.tsv" <<'PY'
 import collections
 import statistics
 import sys
 
-observations, destination = sys.argv[1], sys.argv[2]
-bursts = collections.defaultdict(list)
+observations, bursts_path, destination = sys.argv[1:4]
+requests = collections.defaultdict(list)
 windows = {}
 with open(observations) as handle:
-    header = next(handle)
+    next(handle)
     for line in handle:
-        (level, repeat, _request, _prompt_n, predicted_n,
-         _prompt_ms, predicted_ms, window) = line.rstrip("\n").split("\t")
-        key = (int(level), int(repeat))
-        bursts[key].append((int(predicted_n), float(predicted_ms)))
+        (level, arm, repeat, _slot, prompt_n, predicted_n,
+         prompt_ms, predicted_ms, window) = line.rstrip("\n").split("\t")
+        key = (int(level), arm, int(repeat))
+        requests[key].append((int(predicted_n), float(prompt_ms), float(predicted_ms)))
         windows[key] = float(window)
 
-# Two rates answer two questions. The aggregate divides every token the burst
-# generated by the wall time the burst occupied, which is what a served
-# appliance delivers. The per-request rate divides one reply by the server's own
-# predicted_ms, which is what one client waits through.
-rows = collections.defaultdict(lambda: {"aggregate": [], "per_request": []})
-for (level, repeat), requests in bursts.items():
-    tokens = sum(count for count, _ in requests)
-    rows[level]["aggregate"].append(tokens / windows[(level, repeat)])
-    for count, milliseconds in requests:
-        rows[level]["per_request"].append(count * 1000.0 / milliseconds)
+# The full-width passes of each measured burst, in file order: the warm-up
+# burst is the first row of each (level, arm) and is skipped.
+full_width = collections.defaultdict(list)
+seen = collections.Counter()
+with open(bursts_path) as handle:
+    next(handle)
+    for line in handle:
+        fields = line.rstrip("\n").split("\t")
+        level, arm = int(fields[0]), fields[1]
+        if arm == "dispatch":
+            continue
+        seen[(level, arm)] += 1
+        if seen[(level, arm)] == 1:
+            continue
+        width, passes, span = int(fields[3]), int(fields[12]), float(fields[13])
+        full_width[(level, arm)].append((width, passes, span))
+
+rows = collections.defaultdict(lambda: collections.defaultdict(list))
+for (level, arm, _repeat), members in requests.items():
+    tokens = sum(count for count, _p, _d in members)
+    rows[(level, arm)]["delivered"].append(tokens / windows[(level, arm, _repeat)])
+    for count, prompt_ms, predicted_ms in members:
+        rows[(level, arm)]["generation"].append(count * 1000.0 / predicted_ms)
+        rows[(level, arm)]["wait"].append((prompt_ms + predicted_ms) / 1000.0)
+for key, entries in full_width.items():
+    for width, passes, span in entries:
+        if passes > 1 and span > 0:
+            rows[key]["decode"].append(width * (passes - 1) / span)
+            rows[key]["iteration_ms"].append(1000.0 * span / (passes - 1))
 
 with open(destination, "w") as handle:
-    handle.write("level\taggregate_tok_s_median\tper_request_tok_s_median\t"
-                 "aggregate_speedup\tper_request_share\tbursts\n")
-    baseline = None
-    for level in sorted(rows):
-        aggregate = statistics.median(rows[level]["aggregate"])
-        per_request = statistics.median(rows[level]["per_request"])
-        if baseline is None:
-            baseline = (aggregate, per_request)
-        handle.write("%d\t%.2f\t%.2f\t%.4f\t%.4f\t%d\n" % (
-            level, aggregate, per_request,
-            aggregate / baseline[0], per_request / baseline[1],
-            len(rows[level]["aggregate"])))
+    handle.write("level\tarm\tfull_width_decode_tok_s\tdecode_iteration_ms\t"
+                 "delivered_tok_s\tper_request_generation_tok_s\tper_request_wait_s\t"
+                 "decode_speedup\tdelivered_speedup\twait_growth\tbursts\tfull_width_bursts\n")
+    baseline = {}
+    for level, arm in sorted(rows):
+        entry = rows[(level, arm)]
+        decode = statistics.median(entry["decode"]) if entry["decode"] else float("nan")
+        iteration = statistics.median(entry["iteration_ms"]) if entry["iteration_ms"] else float("nan")
+        delivered = statistics.median(entry["delivered"])
+        generation = statistics.median(entry["generation"])
+        wait = statistics.median(entry["wait"])
+        base = baseline.setdefault(arm, (decode, delivered, wait))
+        handle.write("%d\t%s\t%.2f\t%.3f\t%.2f\t%.2f\t%.3f\t%.4f\t%.4f\t%.4f\t%d\t%d\n" % (
+            level, arm, decode, iteration, delivered, generation, wait,
+            decode / base[0], delivered / base[1], wait / base[2],
+            len(entry["delivered"]), len(entry["decode"])))
 PY
 
 if [ -n "$subject_server" ]; then
@@ -497,29 +661,31 @@ floor = float(sys.argv[4])
 
 # return_tokens has to be present and non-empty for the identity comparison to
 # mean anything: an absent field reads as one empty list on both closures and
-# would report an agreement it never checked.
+# would report an agreement it never checked. The client already refused a
+# burst holding one, so the check here is the reader's own.
 def read(burst, level):
     start, end = (float(v) for v in (burst / "window.txt").read_text().split())
     tokens, replies = 0, []
-    for index in range(level):
-        record = json.loads((burst / ("request-%d.json" % index)).read_text())
+    for slot in range(level):
+        record = json.loads((burst / ("request-%d.json" % slot)).read_text())
         ids = record.get("tokens")
         if not isinstance(ids, list) or not ids:
-            raise SystemExit("request %s in %s returned no token ids" % (index, burst))
+            raise SystemExit("slot %s in %s returned no token ids" % (slot, burst))
         replies.append(ids)
         tokens += record["timings"]["predicted_n"]
     return tokens / (end - start), replies
 
 
-print("level\taggregate_ratio_median\tclears_floor\treply_identity\tpairs")
+# Reply identity is compared slot by slot, because a slot's reply under
+# concurrent decoding is a function of its position and two closures are
+# compared at the same position.
+print("level\tdelivered_ratio_median\tclears_floor\treply_identity\tpairs")
 for level in levels:
     level_directory = directory / ("level-%d" % level)
     ratios, identical = [], True
     for repeat in range(1, repeats + 1):
-        control_rate, control_replies = read(
-            level_directory / ("repeat-%d" % repeat), level)
-        subject_rate, subject_replies = read(
-            level_directory / ("repeat-%d-subject" % repeat), level)
+        control_rate, control_replies = read(level_directory / ("repeat-%d" % repeat), level)
+        subject_rate, subject_replies = read(level_directory / ("repeat-%d-subject" % repeat), level)
         ratios.append(subject_rate / control_rate)
         if control_replies != subject_replies:
             identical = False
