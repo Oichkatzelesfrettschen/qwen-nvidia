@@ -101,6 +101,12 @@ scrub_home <"$output_directory/ownership.txt.raw" >"$output_directory/ownership.
 rm -f "$output_directory/ownership.txt.raw"
 "$script_directory/gpu-state-latch.sh" require-clear >"$output_directory/gpu-state-latch.txt"
 
+# The identity of the device software stack the numbers below were taken under.
+# `build-configuration.sha256` names the closure that produced them and says
+# nothing about the driver that executed it, so the block is what makes a
+# retained figure and a later one comparable rather than assumed comparable.
+"$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
+
 control_pid=''
 subject_pid=''
 clocks_locked=0

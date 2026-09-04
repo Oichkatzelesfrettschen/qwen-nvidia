@@ -134,6 +134,47 @@ of every closure the campaign retained.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
+A decode token spends 139.1 microseconds (2B) and 140.0 microseconds (0.8B)
+outside device execution between one graph launch and the next, a constant
+across tokens differing 39% in duration and the only term a bounded
+autoregressive graph loop can remove.
+`evidence/ada/decode-node-trace/run-02/` splits the token's idle at graph
+granularity into `idle_between_device_rows`, which falls inside the replay a
+loop would relaunch unchanged, and `idle_outside_device_work`, which is the host
+round trip. Against each class's own token that ceiling is 4.57%, 3.26%, and
+under 1.6%, all below the 5.1% floor and all at an unbounded loop length a
+bounded loop discounts by N-1 over N, so `evidence/ada/graph-loop-bound/`
+refutes the loop before one is written. Two structural obstacles sit beside the
+ceiling: `ggml/src/ggml-cuda/` carries no `cudaGraphConditional` support at all,
+and a device-side loop requires device-side sampling while
+`common/sampling.cpp:415` disables backend sampling under a grammar, so grammar
+completion cannot be a stop condition of a loop that exists only when no grammar
+does.
+
+A measured threshold or rate holds for the device software stack it ran under,
+and `scripts/device-environment-identity.sh` is what records that stack.
+`run-mmvq-width-request-tails.sh`, `run-mmvq-paired-crossover.sh`,
+`run-ncu-kernel-baseline.sh`, `run-decode-node-trace.sh`,
+`run-cuda-baseline-sweep.sh`, and `probe-backend-sampling-reach.sh` write its
+eight-field block beside their ownership and latch records: device name, driver
+version, kernel module version, VBIOS, the CUDA runtime the driver reports, the
+toolkit release that compiled the closure, the kernel release, and
+`gpu_uuid_sha256`. The runtime and the toolkit are two fields because
+compute_89 PTX JITs under the first while the fatbin's SASS came from the
+second. The GPU UUID itself stays out, since it identifies the board rather than
+the stack and belongs to the class this tree scrubs beside MAC addresses and
+private hostnames; sixteen hex of its digest compares two records for the same
+device without naming it. Every field reads `unavailable` rather than empty
+where its source is absent. The block is a key rather than a policy: asserting
+freshness would expire every record written before it existed, which is every
+record in `evidence/ada/`, and what a driver change moves has never been
+observed here because this host has served one driver branch throughout.
+Per-model autotuning of the dispatch thresholds is refuted instead of built:
+`QWEN_CUDA_MMVQ_Q6K_MAX` and `QWEN_CUDA_MMVQ_Q8_0_MAX` reach the kernel as
+compile definitions that enter the configuration digest, they vary per
+quantization type rather than per checkpoint, and `ggml/src/ggml-cuda/` reads no
+environment variable that moves a dispatch threshold at run time.
+
 Device-side sampling is a trade with a measured crossover rather than a lever.
 `--backend-sampling` splices `ggml_argmax`, `ggml_top_k`, and a
 `ggml_soft_max`/`ggml_cumsum` inverse-CDF draw into the forward pass
@@ -1239,6 +1280,8 @@ scripts/run-mmvq-width-request-tails.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID O
                                                 # QWEN_TAIL_{CONTROL,SUBJECT}_ARGS make the axis a runtime flag
 scripts/probe-backend-sampling-reach.sh MODEL_ID OUT
                                                 # which request shapes keep the server's backend sampler
+scripts/device-environment-identity.sh [OUTPUT_FILE]
+                                                # driver, CUDA runtime, kernel, and board digest a number is bound to
 scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
                                                 # the top-two candidate margin under one shared history
 
@@ -1327,6 +1370,7 @@ python3 scripts/test-read-nsys-mat-mul-kernels.py
 scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
+scripts/test-device-environment-identity.sh
 scripts/test-repository-quality-gates-host-role.sh
 ```
 

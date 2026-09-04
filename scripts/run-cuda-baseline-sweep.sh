@@ -86,6 +86,11 @@ done
 gpu_ownership_require || exit $?
 
 mkdir -p "$output_directory"
+# The identity of the device software stack the numbers below were taken under.
+# `build-configuration.sha256` names the closure that produced them and says
+# nothing about the driver that executed it, so the block is what makes a
+# retained figure and a later one comparable rather than assumed comparable.
+"$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
 summary=$output_directory/baseline-summary.tsv
 printf 'slot\tdirection\tmodel_id\tprefill_tok_s\tdecode_tok_s\tstatus\tsm_clock_mhz_max\tmemory_used_mib_max\tpower_w_max\ttemp_c_max\tthrottled_samples\tsamples\n' \
     >"$summary"

@@ -226,6 +226,17 @@ else
     report 1 'the refused campaign claims no device and writes no observation table'
 fi
 
+# The device environment block is written rather than only referenced. A harness
+# that names the helper after its output directory exists still fails to record
+# the stack, and a source grep cannot tell the two apart.
+identity_block=$identical/device-environment.tsv
+if [ -f "$identity_block" ] && [ "$(wc -l <"$identity_block")" -eq 8 ] &&
+    awk -F'\t' '$1 == "driver_version" { found = 1 } END { exit !found }' "$identity_block"; then
+    report 0 'a completed run writes the eight-field device environment block'
+else
+    report 1 "a completed run writes the eight-field device environment block ($(wc -l <"$identity_block" 2>/dev/null || echo absent) lines)"
+fi
+
 # The verdict reads one timing column and names it. A dispatch threshold acts on
 # prefill and a sampling flag acts on decode, so the deciding column is a
 # parameter whose default reproduces every retained campaign's semantics.
