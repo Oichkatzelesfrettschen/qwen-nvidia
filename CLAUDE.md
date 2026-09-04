@@ -634,8 +634,8 @@ comparison; the CUDA baseline table above is this device's own measured decode
 column and does not fit the prior host's model to it.
 
 `scripts/nvidia-sdk-artifacts.tsv` is the authority for the NVIDIA SDK
-archives this tree builds against: CV-CUDA 0.17.0 and nvImageCodec 0.9.0.20,
-both CUDA 13 x86_64, each row pinning the vendor-published SHA-256, the source
+archives this tree builds against: CV-CUDA 0.17.0, nvImageCodec 0.9.0.20, and
+PhysX SDK 5.9.0 at tag `110.1-omni-and-physx-5.9.0`, all CUDA 13 x86_64, each row pinning the vendor-published SHA-256, the source
 URL, the install prefix, and the pacman package that installs it. CV-CUDA's
 digests come from the GitHub release metadata and nvImageCodec's from NVIDIA's
 public redistributable index, so neither needs a developer login. Installation
@@ -649,6 +649,36 @@ resized on the same stream, with the encoded bytes in and the resized pixels
 out as the only two transfers, and `run-nvidia-sdk-smoke.sh` runs it under the
 GPU ownership lock. nvJPEG2000, nvTIFF, nvCOMP, and the Python bindings stay
 out of the ledger until a consumer needs them.
+
+A physics simulation reaches the device the way an image generation does: one
+service, one lease, one profile ledger, and a runtime that proves where it ran.
+`scripts/physics-profiles.tsv` carries the fixture, the timestep, the step
+ceiling, the gravity, the GPU flags, the deadline, and `execution_policy` per
+row, so a request carries a `profile_id` and a step count and no geometry,
+native code, path, or PhysX or CUDA flag. `scripts/physics_protocol.py`
+freezes the request and reply at version 1 with a closed schema and a 65536-byte
+line, and `scripts/physics-service.py` listens on a Unix socket under the
+state directory, holds no CUDA context while idle, takes the compute lease,
+spawns `physx-rigid-runtime` through `qwen-exec-idle-priority.sh` with a fixed
+environment and a closed descriptor set, and releases the lease after one
+JSON line comes back. PhysX falls back to the CPU when the GPU is unusable, so
+the runtime reports `contextIsValid()`, raises `eENABLE_GPU_DYNAMICS` and the
+GPU broad phase, reads both back off the scene after the run, and names the
+device; a reply reads `completed` only where every proof holds and a CPU
+answer reads `failed` with reason `gpu_fallback`. The first and only fixture
+is `d6-chain-4`: a static anchor and four boxes joined by D6 joints locked in
+translation and free in swing and twist, released under gravity for a bounded
+step count, with every body's pose and velocities, every joint's angles, a
+contact summary, the timings, and the runtime and scene digests in the result.
+`scripts/physics-runtime/physx-rigid-runtime.cpp` builds through
+`scripts/build-physics-runtime.sh` against the physx-sdk package, whose
+PKGBUILD compiles the GPU library from the tag's own sources for SM89 with one
+patch for the CUDA 13 `cuCtxCreate` signature. `scripts/test-physics-service.py`
+drives the service against `scripts/test-fixtures/fake-physx-runtime.sh` and
+`scripts/physics-teardown-check.sh` proves no service, runtime, socket, or held
+lease remains. Every checked-in row reads `refused`; the MCP wrapper, the
+session integration, and the device admission follow the runtime's first
+retained run on the card.
 
 ## Three runtime classes, one primary target
 
@@ -1307,6 +1337,13 @@ scripts/verify-nvidia-sdk.sh [LEDGER]           # every pinned row installed as 
 scripts/fetch-nvidia-sdk.sh ARTIFACT_ID DIR     # one archive, verified against the vendor-published digest
 scripts/run-nvidia-sdk-smoke.sh OUT             # JPEG -> nvImageCodec -> CV-CUDA resize, device-resident between the two
 
+# The physics lane
+scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
+scripts/physics-service.py --state-dir DIR --profiles FILE --runtime BIN
+                                                # the lease owner, one simulation at a time
+scripts/physics-teardown-check.sh [STATE_DIRECTORY]
+                                                # no service, runtime, socket, or held lease
+
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
 QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
@@ -1394,6 +1431,7 @@ scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
+python3 scripts/test-physics-service.py
 scripts/test-repository-quality-gates-host-role.sh
 ```
 
