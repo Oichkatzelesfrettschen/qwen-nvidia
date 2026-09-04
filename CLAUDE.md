@@ -143,10 +143,12 @@ Device-side sampling is a trade with a measured crossover rather than a lever.
 saving is 0.1589 to 0.1681 ms per generated token across all three runtime
 classes, a 5.8% spread over checkpoints differing four times in weight count,
 because every one carries the same 248320-token vocabulary. The cost is 6.1 to
-8.8 ms per request, fixed against a sixteen-fold change in prompt length and
-paid again on every request after the warm-up. They cross at forty to
-fifty-five generated tokens, so a short reply is slower with the flag on and a
-long one reaches 5.04% at most. On decode alone the 0.8B clears the 5.1% floor
+8.8 ms per request, flat within about a millisecond against a sixteen-fold
+change in prompt length and paid again on every request after the warm-up. They
+cross at forty to fifty-five generated tokens for an uncached single-turn
+request, so a short reply is slower with the flag on and a long one reaches
+5.04% at most; a served conversation reusing one slot may pay the fixed cost
+once rather than per turn, which is unmeasured. On decode alone the 0.8B clears the 5.1% floor
 at 1.0571 to 1.0592; on the whole request no class clears it, and
 `QWEN_BACKEND_SAMPLING` stays unset. Token identity holds across every arm.
 

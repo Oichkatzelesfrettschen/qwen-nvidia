@@ -33,8 +33,10 @@ constant:
 times over in weight count, which is what a host cost proportional to one
 248320-entry logit row predicts and what the first reading's 2.4-times split
 did not. Six requests per arm at one server start on an unpinned card produced
-that split; clock lock takes the same 2B measurement from a 0.1699 control
-drift and a 0.1551 inter-pair range to 0.0001 and 0.0029. The anomaly was the
+that split. `paired-unpinned/` is the same 2B campaign with the clock free, and
+its `control_drift` reads 0.1699 against a 0.1551 inter-pair range where the
+pinned run reads 0.0001 and 0.0029; both runs' observations are retained, so the
+two operating states are comparable row by row. The anomaly was the
 instrument, and no mechanism is needed to explain it.
 
 The ratios still differ by class, because the same constant divides a different
@@ -52,11 +54,12 @@ does not scale with the prompt:
 | qwen38-2b-distill | +7.41 ms | +6.98 ms | +6.30 ms |
 | qwen38-4b-distill | +7.80 ms | +8.75 ms | +8.67 ms |
 
-A sixteen-fold change in prompt length moves it by under a millisecond, and it
-falls slightly as the prompt grows rather than rising. It is not a per-position
-cost, and it is not paid once per server either: every observation here follows
-the harness's own warm-up request at the same shape on the same process. It
-recurs per request.
+A sixteen-fold change in prompt length moves it by under a millisecond and the
+three classes do not agree on the direction: the 0.8B and 2B fall as the prompt
+grows and the 4B rises, which is why the cost is stated as flat within about a
+millisecond rather than as a trend. It is not a per-position cost, and it is not
+paid once per server either: every observation here follows the harness's own
+warm-up request at the same shape on the same process. It recurs per request.
 
 The mechanism is unisolated. The leading hypothesis is the per-task arming at
 `tools/server/server-context.cpp:1705`, where each accepted task calls
@@ -146,5 +149,10 @@ the clock lock is what holds the operating state here, and the drift and range
 figures beside every row are what state a reader checks.
 
 The requests are single-turn `/completion` at temperature 0 with `top_k` 1 and
-`cache_prompt` false, one sequence at a time. A concurrent or multi-turn served
-workload amortizes the fixed cost differently and is unmeasured.
+`cache_prompt` false, one sequence at a time, so the forty-token crossover is
+measured for an uncached single-turn request and states nothing about any other
+shape. A served conversation reuses the slot and its prefix, and if the fixed
+cost attaches to per-task arming rather than to the prefill it may be paid once
+per slot there rather than once per turn, which moves the crossover as well as
+the mechanism. That is the same unrun arm the section above names, and it bounds
+the rule rather than only its explanation.
