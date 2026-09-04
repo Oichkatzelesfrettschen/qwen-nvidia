@@ -1,0 +1,521 @@
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 9d9329a..96f8214 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -33,6 +33,7 @@
+ #include "ggml-cuda/mmvf.cuh"
+ #include "ggml-cuda/mmvq.cuh"
+ #include "ggml-cuda/dispatch-census.cuh"
++#include "ggml-cuda/graph-lifecycle.cuh"
+ #include "ggml-cuda/norm.cuh"
+ #include "ggml-cuda/opt-step-adamw.cuh"
+ #include "ggml-cuda/opt-step-sgd.cuh"
+@@ -2649,11 +2650,13 @@ static void ggml_cuda_graph_update_executable(ggml_backend_cuda_context * cuda_c
+         // The pre-existing graph exec cannot be updated due to violated constraints
+         // so instead clear error and re-instantiate
+         (void)cudaGetLastError();
++        ggml_cuda_graph_lifecycle_executable("reinstantiate");
+         CUDA_CHECK(cudaGraphExecDestroy(graph->instance));
+         graph->instance = nullptr;
+         CUDA_CHECK(cudaGraphInstantiate(&graph->instance, graph->graph, NULL, NULL, 0));
+     } else {
+         GGML_ASSERT(stat == cudaSuccess);
++        ggml_cuda_graph_lifecycle_executable("update");
+     }
+ }
+ #endif // USE_CUDA_GRAPH
+@@ -4218,6 +4221,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+     if (use_cuda_graph) {
+         ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+         if (graph->instance == nullptr) { // Create executable graph from captured graph.
++            ggml_cuda_graph_lifecycle_executable("instantiate");
+             CUDA_CHECK(cudaGraphInstantiate(&graph->instance, graph->graph, NULL, NULL, 0));
+         }
+         if (cuda_graph_update_required) { // Update graph executable
+@@ -4257,6 +4261,9 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+ 
+     ggml_cuda_set_device(cuda_ctx->device);
+     ggml_cuda_dispatch_census_graph_begin();
++    ggml_cuda_graph_lifecycle_begin(cuda_ctx->stream(), cgraph, cgraph->n_nodes > 0 ? (const void *) cgraph->nodes[0] : nullptr);
++    bool lifecycle_enabled = false, lifecycle_compatible = false, lifecycle_changed = false;
++    bool lifecycle_warmup_before = false, lifecycle_warmup_after = false, lifecycle_had_instance = false;
+ 
+     bool use_cuda_graph             = false;
+     bool cuda_graph_update_required = false;
+@@ -4268,10 +4275,15 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+     ggml_cuda_graph_set_enabled(cuda_ctx, graph_key);
+ 
+     ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
++    lifecycle_enabled = graph->is_enabled();
++    lifecycle_warmup_before = graph->warmup_complete;
++    lifecycle_had_instance = graph->instance != nullptr;
+     if (graph->is_enabled()) {
+         const bool graph_compatible = ggml_cuda_graph_check_compability(cgraph);
++        lifecycle_compatible = graph_compatible;
+         if (graph_compatible) {
+             const bool properties_changed = ggml_cuda_graph_update_required(cuda_ctx, cgraph);
++            lifecycle_changed = properties_changed;
+ 
+             if (!graph->warmup_complete) {
+                 // Warmup: need at least 2 calls with no property change on the 2nd call
+@@ -4295,7 +4307,10 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+             }
+         }
+     }
++    lifecycle_warmup_after = graph->warmup_complete;
+ #endif // USE_CUDA_GRAPH
++    ggml_cuda_graph_lifecycle_decision(lifecycle_enabled, lifecycle_compatible, lifecycle_changed,
++        lifecycle_warmup_before, lifecycle_warmup_after, use_cuda_graph, cuda_graph_update_required, lifecycle_had_instance);
+ 
+     if (use_cuda_graph && cuda_graph_update_required) {
+         // Start CUDA graph capture
+@@ -4310,6 +4325,7 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+ 
+     ggml_cuda_graph_evaluate_and_capture(cuda_ctx, cgraph, use_cuda_graph, cuda_graph_update_required, graph_key);
+     ggml_cuda_dispatch_census_graph_end(cgraph->n_nodes);
++    ggml_cuda_graph_lifecycle_end(cuda_ctx->stream());
+ 
+     return GGML_STATUS_SUCCESS;
+ }
+diff --git a/ggml/src/ggml-cuda/graph-lifecycle.cu b/ggml/src/ggml-cuda/graph-lifecycle.cu
+new file mode 100644
+index 0000000..615ea6f
+--- /dev/null
++++ b/ggml/src/ggml-cuda/graph-lifecycle.cu
+@@ -0,0 +1,408 @@
++#include "graph-lifecycle.cuh"
++
++#include <algorithm>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <ctime>
++#include <deque>
++#include <mutex>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++namespace {
++
++struct node_record {
++    uint64_t topology;
++    uint64_t pointers;
++    enum ggml_op op;
++    char name[GGML_MAX_NAME];
++};
++
++struct key_history {
++    int ordinal;
++    std::vector<node_record> nodes;
++};
++
++struct pending_row {
++    std::string text;      // everything ahead of the device span
++    cudaEvent_t start;
++    cudaEvent_t end;
++};
++
++struct lifecycle_state {
++    std::mutex mutex;
++    FILE * file = nullptr;
++    bool header_written = false;
++    long graph_ordinal = 0;
++    std::unordered_map<const void *, key_history> keys;
++    std::deque<pending_row> pending;
++    std::vector<cudaEvent_t> free_events;
++
++    // per-compute scratch
++    long long t_begin_ns = 0;
++    struct timespec host_begin = {};
++    std::string row_head;
++    cudaEvent_t start = nullptr;
++    cudaEvent_t end = nullptr;
++    std::string decision;
++    std::string executable = "none";
++};
++
++lifecycle_state & state() {
++    static lifecycle_state s;
++    return s;
++}
++
++const char * lifecycle_path() {
++    static const char * path = [] {
++        const char * env = getenv("GGML_CUDA_GRAPH_LIFECYCLE");
++        return (env != nullptr && env[0] != '\0') ? env : nullptr;
++    }();
++    return path;
++}
++
++long long now_ns() {
++    struct timespec ts;
++    clock_gettime(CLOCK_REALTIME, &ts);
++    return (long long) ts.tv_sec * 1000000000LL + ts.tv_nsec;
++}
++
++long long elapsed_us(const struct timespec & since) {
++    struct timespec ts;
++    clock_gettime(CLOCK_MONOTONIC, &ts);
++    return ((long long) ts.tv_sec - since.tv_sec) * 1000000LL + ((long long) ts.tv_nsec - since.tv_nsec) / 1000;
++}
++
++uint64_t fnv1a(uint64_t hash, const void * bytes, size_t size) {
++    const unsigned char * p = (const unsigned char *) bytes;
++    for (size_t i = 0; i < size; ++i) {
++        hash ^= p[i];
++        hash *= 1099511628211ULL;
++    }
++    return hash;
++}
++
++template <typename T> uint64_t fnv1a_value(uint64_t hash, const T & value) {
++    return fnv1a(hash, &value, sizeof(value));
++}
++
++const uint64_t FNV_BASIS = 14695981039346656037ULL;
++
++// The structural identity of one tensor: op, type, shape, strides, op params, flags, and
++// the view offset. Data pointers stay out.
++uint64_t tensor_structure(const ggml_tensor * t) {
++    uint64_t h = FNV_BASIS;
++    h = fnv1a_value(h, t->op);
++    h = fnv1a_value(h, t->type);
++    h = fnv1a(h, t->ne, sizeof(t->ne));
++    h = fnv1a(h, t->nb, sizeof(t->nb));
++    h = fnv1a(h, t->op_params, sizeof(t->op_params));
++    h = fnv1a_value(h, t->flags);
++    h = fnv1a_value(h, t->view_offs);
++    return h;
++}
++
++cudaEvent_t take_event(lifecycle_state & s) {
++    if (!s.free_events.empty()) {
++        cudaEvent_t e = s.free_events.back();
++        s.free_events.pop_back();
++        return e;
++    }
++    cudaEvent_t e = nullptr;
++    if (cudaEventCreateWithFlags(&e, cudaEventDefault) != cudaSuccess) {
++        (void) cudaGetLastError();
++        return nullptr;
++    }
++    return e;
++}
++
++void write_header(lifecycle_state & s) {
++    if (s.header_written) {
++        return;
++    }
++    fputs("graph_ordinal\tt_begin_ns\tkey\tkey_ordinal\ttopology_digest\tpointer_digest\tn_nodes"
++          "\tn_tokens\tn_outputs\tn_kv\tn_rs"
++          "\tenabled\tcompatible\tproperties_changed\tchange_reason\tchange_node\tchange_op\tchange_name\tchange_categories"
++          "\twarmup_before\twarmup_after\taction\texecutable\thost_us\tdevice_ms\n", s.file);
++    s.header_written = true;
++}
++
++// Rows are appended once their end event has completed, read without a synchronization so
++// the trace changes no ordering on the stream. Rows still pending at exit carry a device
++// span of `-`.
++void drain(lifecycle_state & s, bool at_exit) {
++    while (!s.pending.empty()) {
++        pending_row & row = s.pending.front();
++        float ms = 0.0f;
++        bool ready = row.start != nullptr && row.end != nullptr && cudaEventQuery(row.end) == cudaSuccess;
++        (void) cudaGetLastError();
++        if (!ready && !at_exit) {
++            return;
++        }
++        if (ready && cudaEventElapsedTime(&ms, row.start, row.end) == cudaSuccess) {
++            fprintf(s.file, "%s\t%.4f\n", row.text.c_str(), ms);
++        } else {
++            (void) cudaGetLastError();
++            fprintf(s.file, "%s\t-\n", row.text.c_str());
++        }
++        if (row.start != nullptr) { s.free_events.push_back(row.start); }
++        if (row.end   != nullptr) { s.free_events.push_back(row.end); }
++        s.pending.pop_front();
++    }
++    fflush(s.file);
++}
++
++struct exit_flusher {
++    ~exit_flusher() {
++        lifecycle_state & s = state();
++        std::lock_guard<std::mutex> lock(s.mutex);
++        if (s.file != nullptr) {
++            drain(s, true);
++            fclose(s.file);
++            s.file = nullptr;
++        }
++    }
++};
++
++const char * category_names[] = {
++    "n_nodes", "op", "type", "shape", "stride", "op_params", "flags", "view", "data", "name",
++    "src_identity", "src_data", "src_shape", "src_stride",
++};
++
++} // namespace
++
++bool ggml_cuda_graph_lifecycle_enabled() {
++    return lifecycle_path() != nullptr;
++}
++
++void ggml_cuda_graph_lifecycle_begin(cudaStream_t stream, ggml_cgraph * cgraph, const void * graph_key) {
++    if (!ggml_cuda_graph_lifecycle_enabled()) {
++        return;
++    }
++    static exit_flusher flusher;
++    lifecycle_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    if (s.file == nullptr) {
++        s.file = fopen(lifecycle_path(), "a");
++        if (s.file == nullptr) {
++            fprintf(stderr, "ggml_cuda_graph_lifecycle: cannot open %s\n", lifecycle_path());
++            return;
++        }
++        write_header(s);
++    }
++    drain(s, false);
++
++    s.t_begin_ns = now_ns();
++    clock_gettime(CLOCK_MONOTONIC, &s.host_begin);
++    s.executable = "none";
++    s.decision.clear();
++
++    const int n_nodes = cgraph->n_nodes;
++    std::unordered_map<const ggml_tensor *, int> index;
++    index.reserve((size_t) n_nodes * 2);
++    for (int i = 0; i < n_nodes; ++i) {
++        index.emplace(cgraph->nodes[i], i);
++    }
++
++    std::vector<node_record> current((size_t) n_nodes);
++    uint64_t topology = FNV_BASIS;
++    uint64_t pointers = FNV_BASIS;
++    long long n_tokens = -1, n_outputs = -1, n_kv = -1, n_rs = -1;
++
++    // The batch geometry is read off graph structure rather than tensor names,
++    // because a model's own callback renames the inputs: nodes[0] is the token
++    // embedding lookup whose second dimension is n_tokens, the last node is the
++    // logits whose second dimension is n_outputs, and the first flash-attention
++    // node's K operand carries n_kv in its second dimension. n_rs still comes
++    // from a tensor named s_copy where one exists.
++    if (n_nodes > 0 && cgraph->nodes[0]->op == GGML_OP_GET_ROWS) {
++        n_tokens = cgraph->nodes[0]->ne[1];
++    }
++    if (n_nodes > 0) {
++        n_outputs = cgraph->nodes[n_nodes - 1]->ne[1];
++    }
++    auto note_named = [&](const ggml_tensor * t) {
++        if (t == nullptr) { return; }
++        if (t->op == GGML_OP_FLASH_ATTN_EXT && t->src[1] != nullptr && n_kv < 0) { n_kv = t->src[1]->ne[1]; }
++        if (strstr(t->name, "s_copy") != nullptr && n_rs < 0) { n_rs = t->ne[0]; }
++    };
++
++    for (int i = 0; i < n_nodes; ++i) {
++        const ggml_tensor * node = cgraph->nodes[i];
++        note_named(node);
++        uint64_t h = tensor_structure(node);
++        uint64_t p = fnv1a_value(FNV_BASIS, node->data);
++        h = fnv1a(h, node->name, strnlen(node->name, GGML_MAX_NAME));
++        for (int j = 0; j < GGML_MAX_SRC; ++j) {
++            const ggml_tensor * src = node->src[j];
++            if (src == nullptr) {
++                h = fnv1a_value(h, j);
++                continue;
++            }
++            note_named(src);
++            auto it = index.find(src);
++            if (it != index.end()) {
++                h = fnv1a_value(h, it->second);
++            } else {
++                // a leaf: weight, input, or cache tensor, identified by structure and name
++                h = fnv1a_value(h, tensor_structure(src));
++                h = fnv1a(h, src->name, strnlen(src->name, GGML_MAX_NAME));
++            }
++            p = fnv1a_value(p, src->data);
++        }
++        current[(size_t) i].topology = h;
++        current[(size_t) i].pointers = p;
++        current[(size_t) i].op = node->op;
++        memcpy(current[(size_t) i].name, node->name, GGML_MAX_NAME);
++        topology = fnv1a_value(topology, h);
++        pointers = fnv1a_value(pointers, p);
++    }
++
++    // What moved since the previous compute under this key, classified the way the
++    // backend's memcmp over node_properties would see it: the whole ggml_tensor of each
++    // node, then each source's data pointer, shape, and strides.
++    key_history & history = s.keys[graph_key];
++    if (history.ordinal == 0) {
++        history.ordinal = (int) s.keys.size();
++    }
++    std::string change_reason = "first_compute";
++    int change_node = -1;
++    const char * change_op = "-";
++    char change_name[GGML_MAX_NAME] = "-";
++    unsigned categories = 0;
++    if (!history.nodes.empty()) {
++        change_reason = "none";
++        if ((int) history.nodes.size() != n_nodes) {
++            change_reason = "n_nodes";
++            categories |= 1u;
++        }
++        const int n_compare = (int) std::min(history.nodes.size(), current.size());
++        for (int i = 0; i < n_compare; ++i) {
++            const node_record & before = history.nodes[(size_t) i];
++            const node_record & after = current[(size_t) i];
++            unsigned cat = 0;
++            if (before.topology != after.topology) { cat |= 1u << 3; }
++            if (before.pointers != after.pointers) { cat |= 1u << 8; }
++            if (cat != 0) {
++                categories |= cat;
++                if (change_node < 0) {
++                    change_node = i;
++                    change_op = ggml_op_name(after.op);
++                    memcpy(change_name, after.name, GGML_MAX_NAME);
++                    if (change_reason == "none") {
++                        change_reason = (cat & (1u << 3)) ? "structure" : "pointer";
++                    }
++                }
++            }
++        }
++    }
++    history.nodes.swap(current);
++
++    std::string category_text;
++    for (unsigned c = 0; c < sizeof(category_names) / sizeof(category_names[0]); ++c) {
++        if (categories & (1u << c)) {
++            if (!category_text.empty()) { category_text += ","; }
++            category_text += category_names[c];
++        }
++    }
++    if (category_text.empty()) { category_text = "-"; }
++
++    char head[1024];
++    snprintf(head, sizeof(head),
++        "%ld\t%lld\t%p\t%d\t%016llx\t%016llx\t%d\t%lld\t%lld\t%lld\t%lld"
++        "\t%s\t%d\t%s\t%s\t%s",
++        s.graph_ordinal, s.t_begin_ns, graph_key, history.ordinal,
++        (unsigned long long) topology, (unsigned long long) pointers, n_nodes,
++        n_tokens, n_outputs, n_kv, n_rs,
++        /* placeholder for decision */ "", change_node, change_op, change_name, category_text.c_str());
++    s.row_head = head;
++    s.decision = change_reason;
++
++    s.start = take_event(s);
++    s.end = nullptr;
++    if (s.start != nullptr && cudaEventRecord(s.start, stream) != cudaSuccess) {
++        (void) cudaGetLastError();
++        s.free_events.push_back(s.start);
++        s.start = nullptr;
++    }
++}
++
++void ggml_cuda_graph_lifecycle_decision(bool enabled, bool compatible, bool properties_changed,
++    bool warmup_before, bool warmup_after, bool use_cuda_graph, bool update_required, bool had_instance) {
++    if (!ggml_cuda_graph_lifecycle_enabled()) {
++        return;
++    }
++    lifecycle_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    const char * action = !enabled ? "disabled" : !compatible ? "incompatible"
++        : !use_cuda_graph ? "direct" : update_required ? "capture" : "replay";
++    char text[256];
++    snprintf(text, sizeof(text), "%d\t%d\t%d\t%s\t%d\t%d\t%s%s",
++        enabled ? 1 : 0, compatible ? 1 : 0, properties_changed ? 1 : 0, s.decision.c_str(),
++        warmup_before ? 1 : 0, warmup_after ? 1 : 0, action, had_instance ? "" : "");
++    s.decision = text;
++}
++
++void ggml_cuda_graph_lifecycle_executable(const char * transition) {
++    if (!ggml_cuda_graph_lifecycle_enabled()) {
++        return;
++    }
++    lifecycle_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    s.executable = transition;
++}
++
++void ggml_cuda_graph_lifecycle_end(cudaStream_t stream) {
++    if (!ggml_cuda_graph_lifecycle_enabled()) {
++        return;
++    }
++    lifecycle_state & s = state();
++    std::lock_guard<std::mutex> lock(s.mutex);
++    if (s.file == nullptr) {
++        return;
++    }
++    const long long host_us = elapsed_us(s.host_begin);
++    s.end = take_event(s);
++    if (s.end != nullptr && cudaEventRecord(s.end, stream) != cudaSuccess) {
++        (void) cudaGetLastError();
++        s.free_events.push_back(s.end);
++        s.end = nullptr;
++    }
++    // The decision text replaces the placeholder column left in row_head: the head holds
++    // the columns through n_rs, then an empty decision field, then the change columns.
++    std::string text = s.row_head;
++    const size_t marker = text.find("\t\t");
++    std::string change_tail;
++    if (marker != std::string::npos) {
++        change_tail = text.substr(marker + 1);
++        text = text.substr(0, marker + 1);
++    }
++    std::string decision = s.decision.empty() ? "-\t-\t-\t-\t-\t-\tuntraced" : s.decision;
++    // decision columns: enabled compatible properties_changed change_reason warmup_before warmup_after action
++    // change_tail: \tchange_node\tchange_op\tchange_name\tchange_categories
++    // Reorder into the header's column order.
++    std::string enabled_to_reason, warmups_action;
++    {
++        // decision = enabled\tcompatible\tproperties_changed\treason\twarmup_before\twarmup_after\taction
++        size_t p = 0; int field = 0; std::vector<std::string> fields;
++        while (true) {
++            size_t q = decision.find('\t', p);
++            fields.push_back(decision.substr(p, q == std::string::npos ? std::string::npos : q - p));
++            if (q == std::string::npos) { break; }
++            p = q + 1; ++field;
++        }
++        while (fields.size() < 7) { fields.push_back("-"); }
++        enabled_to_reason = fields[0] + "\t" + fields[1] + "\t" + fields[2] + "\t" + fields[3];
++        warmups_action = fields[4] + "\t" + fields[5] + "\t" + fields[6];
++    }
++    char host[64];
++    snprintf(host, sizeof(host), "%lld", host_us);
++    std::string row = text + enabled_to_reason + change_tail + "\t" + warmups_action + "\t" + s.executable + "\t" + host;
++    s.pending.push_back(pending_row{row, s.start, s.end});
++    s.start = nullptr;
++    s.end = nullptr;
++    s.graph_ordinal += 1;
++}
+diff --git a/ggml/src/ggml-cuda/graph-lifecycle.cuh b/ggml/src/ggml-cuda/graph-lifecycle.cuh
+new file mode 100644
+index 0000000..fc7a7c9
+--- /dev/null
++++ b/ggml/src/ggml-cuda/graph-lifecycle.cuh
+@@ -0,0 +1,22 @@
++#pragma once
++
++#include "common.cuh"
++
++// A default-off trace of the CUDA graph lifecycle decisions ggml_backend_cuda_graph_compute
++// takes. GGML_CUDA_GRAPH_LIFECYCLE names a TSV path and enables every hook; unset, each hook
++// costs one load of a static pointer. One row per graph compute carries a topology digest
++// over graph structure and dimensions with pointer values excluded, a separate pointer
++// digest over the data pointers the backend's own node_properties comparison reads, the
++// first node and field category that moved since the previous compute under the same graph
++// key, the warmup state before and after the decision, the action taken (direct, capture,
++// replay, or disabled), the executable transition (instantiate, update, or reinstantiate),
++// the host duration of the compute call, and the device span between two events recorded
++// on the compute stream around it. n_tokens, n_outputs, n_kv, and n_rs are read from the
++// named input tensors llama builds, so a reader can separate prefill from decode and join
++// the row to the server's own batch log by order.
++bool ggml_cuda_graph_lifecycle_enabled();
++void ggml_cuda_graph_lifecycle_begin(cudaStream_t stream, ggml_cgraph * cgraph, const void * graph_key);
++void ggml_cuda_graph_lifecycle_decision(bool enabled, bool compatible, bool properties_changed,
++    bool warmup_before, bool warmup_after, bool use_cuda_graph, bool update_required, bool had_instance);
++void ggml_cuda_graph_lifecycle_executable(const char * transition);
++void ggml_cuda_graph_lifecycle_end(cudaStream_t stream);

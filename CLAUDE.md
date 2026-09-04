@@ -159,6 +159,30 @@ and a device-side loop requires device-side sampling while
 completion cannot be a stop condition of a loop that exists only when no grammar
 does.
 
+Graph prewarming keyed on concurrency is refuted on the served transition
+rather than on a static width. `ggml_backend_cuda_graph_compute` keys one
+graph object from `cgraph->nodes[0]`, compares every node's bytes and source
+pointers against the previous compute under that key, and resets warmup
+where they differ, so what a mixed workload pays is a property of its
+topology sequence. `patches/llama-cuda-graph-lifecycle.patch` records that
+decision per compute under `GGML_CUDA_GRAPH_LIFECYCLE`, with a topology digest
+over structure and dimensions that excludes pointer values, and
+`scripts/run-graph-lifecycle-trace.sh` drives one state machine through it:
+slot A decoding alone, slot B entering with a 256-token uncached prefill, both
+decoding together, B leaving. `evidence/ada/graph-lifecycle/2b-run-02/`
+measures five cycles per arm on the 2B under closure `78385b190cb6`: every
+cycle resets warmup entering T0, T1, and T3, every reset is structural at the
+n_tokens dimension of the first node, all ten topology digests recur in every
+cycle, a recurrence pays two direct executions and one capture at the
+median, and the whole lifecycle costs 2.82% of the mixed-service interval
+(3.58% in the first run), under the 5.1% floor. The width-1 decode topology
+pays that price again on the return to A alone because the one object holds
+one topology, and n_tokens 1, 2, and 4 each map to two digests as n_kv
+crosses a 256-row padding boundary, so an N-only cache key is refused on
+record while the closure builds nothing. Slot permutation leaves A's reply
+fixed and moves B's, the prefill-composition effect the concurrency evidence
+records, under an identical topology sequence.
+
 A measured threshold or rate holds for the device software stack it ran under,
 and `scripts/device-environment-identity.sh` is what records that stack.
 `run-mmvq-width-request-tails.sh`, `run-mmvq-paired-crossover.sh`,
@@ -940,7 +964,7 @@ down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
 `probe-filled-depth.sh`,
 `probe-depth-projector.sh`, `run-cuda-lever-campaign.sh`,
 `run-nvidia-sdk-smoke.sh`, `admit-physics-runtime.sh`,
-`probe-page-cache-release.sh`,
+`probe-page-cache-release.sh`, `run-graph-lifecycle-trace.sh`,
 `run-ad104-path-audit.sh`, `run-ad104-b789-calibration.sh`,
 `run-placement-sweep.sh`, `run-graph-alias-ab.sh`, `run-one-token-admission.sh`
 at its load stage, and `promote-llama-build.sh`. Every other audited entry point
@@ -1474,6 +1498,9 @@ scripts/fetch-nvidia-sdk.sh ARTIFACT_ID DIR     # one archive, verified against 
 scripts/run-nvidia-sdk-smoke.sh OUT             # JPEG -> nvImageCodec -> CV-CUDA resize, device-resident between the two
 scripts/probe-page-cache-release.sh SERVER OUT [A_ID] [B_ID]
                                                 # what posix_fadvise(DONTNEED) on a loaded GGUF buys and what its reload costs
+scripts/run-graph-lifecycle-trace.sh SERVER MODEL_ID OUT
+                                                # the CUDA graph decisions one mixed-service transition pays, lifecycle closure only
+scripts/read-graph-lifecycle-trace.py OUT      # those rows joined to the T0..T3 phases, and the five answers
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
@@ -1565,6 +1592,7 @@ scripts/test-exec-profiler-clean-env.sh
 scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
+python3 scripts/test-read-graph-lifecycle-trace.py
 python3 scripts/test-read-server-decode-iterations.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
