@@ -468,39 +468,43 @@ PY
 # admission every measured burst has to show one prefill pass and a history
 # every member decoded in, because that is the claim the level makes.
 read_level_bursts() {
-    # read_level_bursts LEVEL ARM LOG
+    # read_level_bursts LEVEL ARM LOG [EXPECTED_BURSTS]
     # The reader runs once into a file whose exit status is checked, since a
     # pipeline's status is awk's and a reader that failed would leave the
     # gate below reading an empty input as an absence of faults. The log has
     # to carry every burst the client sent, the warm-up and one per repeat,
     # so a reader that parsed fewer states that the witness is short rather
     # than that the bursts were clean.
+    expected_bursts=${4:-$((repeats + 1))}
     level_bursts=$output_directory/level-$1.$2.bursts.tsv
     if ! "$iteration_reader" --bursts "$3" >"$level_bursts"; then
         printf 'level %s %s: the iteration reader failed on %s\n' "$1" "$2" "$3" >&2
         return 1
     fi
     measured_bursts=$(awk -F '\t' '$1 == "burst" && $6 > 1 { n++ } END { print n + 0 }' "$level_bursts")
-    if [ "$measured_bursts" -ne $((repeats + 1)) ]; then
+    if [ "$measured_bursts" -ne "$expected_bursts" ]; then
         printf 'level %s %s: the log holds %s measured bursts where %s were expected\n' \
-            "$1" "$2" "$measured_bursts" $((repeats + 1)) >&2
+            "$1" "$2" "$measured_bursts" "$expected_bursts" >&2
+        rm -f "$level_bursts"
         return 1
     fi
     awk -F '\t' -v level="$1" -v arm="$2" -v OFS='\t' \
         '$1 == "burst" { $1 = ""; print level, arm, substr($0, 2) }' "$level_bursts" >>"$bursts"
-    rm -f "$level_bursts"
     if [ "$admission" = primed ]; then
         # The priming requests form their own one-token rows ahead of each
         # burst and are not measured; the warm-up burst is the first measured
-        # row and is not held to the claim.
-        if "$iteration_reader" --bursts "$3" | awk -F '\t' '
+        # row and is not held to the claim. The check reads the file the
+        # count above validated, so one parse is the witness for both.
+        if awk -F '\t' '
             $1 == "burst" && $6 > 1 { n++; if (n > 1 && ($4 != 1 || $10 != "yes")) bad++ }
-            END { exit !(bad > 0) }'
+            END { exit !(bad > 0) }' "$level_bursts"
         then
             printf 'level %s %s: a primed burst ran below full width or prefilled in two passes\n' "$1" "$2" >&2
+            rm -f "$level_bursts"
             return 1
         fi
     fi
+    rm -f "$level_bursts"
     return 0
 }
 
@@ -615,7 +619,8 @@ for level in $nsys_levels; do
     profiled_child=''
     assert_placement "$log" "dispatch $level"
     scrub_level_logs "$log"
-    read_level_bursts "$level" dispatch "${log%.raw}"
+    # The dispatch capture sends one burst, so its witness is one.
+    read_level_bursts "$level" dispatch "${log%.raw}" 1
 
     "$nsys_binary" export --type sqlite --force-overwrite true \
         --output "$capture_directory/capture.sqlite" \

@@ -105,8 +105,13 @@ expected_tensors=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { count++ } END { print
     "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || echo 0)
 expected_names=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { printf "%scache_%s_l%s", (n++ ? "," : ""), tolower($3), $2 }' \
     "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || :)
+expected_layout=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { printf "%scache_%s_l%s=%s:%s", (n++ ? "," : ""), tolower($3), $2, $4, $5 }' \
+    "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || :)
+expected_cells=$("$script_directory/model-registry.sh" id "$model_id" context_default)
 record expected_tensors "$expected_tensors"
 record expected_names "${expected_names:--}"
+record expected_layout "${expected_layout:--}"
+record expected_cells "$expected_cells"
 [ "$expected_tensors" -gt 0 ] || refusals=$((refusals + 1))
 
 stage identity env QWEN_IDENTITY_SUBJECT_ENV=LLAMA_KV_PAGED_BUFFER=1 QWEN_IDENTITY_SLOT_STATE=1 \
@@ -125,7 +130,13 @@ for arm in control-open subject control-close; do
     arm_log=$output_directory/identity/$model_id/$arm/server.log
     [ -s "$arm_log" ] || { record "layout:$arm" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
     case $arm in subject) expect=paged_kv_vmm ;; *) expect=device_default ;; esac
-    case $expect in paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors --expect-names $expected_names" ;; *) expect_tensors='' ;; esac
+    # The batch-1 arms serve the registry's default depth, so the cell count
+    # is bound to it; the primed arms serve level times slot depth and are
+    # held to their own size line alone.
+    case $expect in
+    paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors --expect-names $expected_names --expect-layout $expected_layout --expect-cells $expected_cells" ;;
+    *) expect_tensors="--expect-cells $expected_cells" ;;
+    esac
     # shellcheck disable=SC2086
     if python3 "$script_directory/read-paged-kv-layout.py" "$arm_log" --expect "$expect" $expect_tensors \
         >"$output_directory/layout-$arm.tsv" 2>&1; then
@@ -168,6 +179,7 @@ if [ "$skip_sweep" = 0 ]; then
         [ -s "$level_log" ] || { record "layout:primed-$level" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
         if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect paged_kv_vmm \
             --expect-tensors "$expected_tensors" --expect-names "$expected_names" \
+            --expect-layout "$expected_layout" \
             >"$output_directory/layout-primed-$level.tsv" 2>&1; then
             record "layout:primed-$level" layout_holds
         else
@@ -182,8 +194,11 @@ fi
 identity_verdict=$(awk -F'\t' '$1 == "identity_verdict" { print $2 }' "$summary")
 primed_identity=$(awk -F'\t' '$1 == "primed_reply_identity" { print $2 }' "$summary")
 primed_levels_complete=$(awk -F'\t' '$1 == "primed_levels_complete" { print $2 }' "$summary")
+# Widths 1 and 3 are the preregistered gate and every requested width has
+# to be complete beside them, so a requested width the sweep lost reads
+# partial rather than admitted.
 gate_widths_complete=yes
-for gate_width in 1 3; do
+for gate_width in 1 3 $widths; do
     printf ' %s ' "$primed_levels_complete" | grep -q " $gate_width " || gate_widths_complete=no
 done
 if [ "$refusals" -gt 0 ]; then

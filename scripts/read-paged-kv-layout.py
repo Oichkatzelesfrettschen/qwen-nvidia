@@ -14,11 +14,15 @@ tensor outside the paged buffer, or a recurrent tensor inside it.
 
 Usage: read-paged-kv-layout.py LOG --expect paged_kv_vmm|device_default
        [--expect-tensors N] [--expect-names NAME,NAME,...]
+       [--expect-layout NAME=TYPE:NE0,...] [--expect-cells N]
 
 ``--expect-tensors`` names the tensor count an independent census of the
-checkpoint predicts, and ``--expect-names`` the exact tensor names it
-predicts, so a log that records fewer or other tensors than the model has
-attention K and V operands is refused rather than read as complete.
+checkpoint predicts, ``--expect-names`` the exact tensor names, and
+``--expect-layout`` each tensor's type and row width, so a log that records
+fewer, other, or differently shaped tensors than the model has attention K
+and V operands is refused rather than read as complete. The cell count and
+stream count of every tensor are held to the constructor's own size line,
+and ``--expect-cells`` binds that count to a value the caller knows.
 """
 
 import argparse
@@ -35,10 +39,14 @@ TENSOR_LINE = re.compile(
     r"paged_kv_tensor name=(?P<name>\S+) type=(?P<type>\S+) ne0=(?P<ne0>\d+) ne1=(?P<ne1>\d+)"
     r" ne2=(?P<ne2>\d+) row_bytes=(?P<row>\d+) nbytes=(?P<nbytes>\d+) alloc_bytes=(?P<alloc>\d+)"
     r" padded_bytes=(?P<padded>\d+) offset=(?P<offset>\d+) unit_bytes=(?P<unit>\d+)"
-    r" start_aligned=(?P<start>yes|no) extent_aligned=(?P<extent>yes|no)"
+    r" start_aligned=(?P<start>yes|no) extent_aligned=(?P<extent>yes|no)(?!\S)"
 )
 KIND_LINE = re.compile(r"kv_buffer_kind=(?P<kind>\S+) buffer=(?P<buffer>\S+)")
 KV_SIZE_LINE = re.compile(r"(?P<buffer>\S+) KV buffer size = +(?P<mib>[0-9.]+) MiB")
+# llama_kv_cache's own summary: cells, layers, and n_seq_max/n_stream.
+KV_CELLS_LINE = re.compile(
+    r"llama_kv_cache: size = +[0-9.]+ MiB \( *(?P<cells>\d+) cells, +(?P<layers>\d+) layers, +(?P<seqs>\d+)/(?P<streams>\d+) seqs\)"
+)
 RS_SIZE_LINE = re.compile(r"(?P<buffer>\S+) RS buffer size = +(?P<mib>[0-9.]+) MiB")
 KV_TENSOR_NAME = re.compile(r"^cache_[kv]_l(?P<layer>\d+)$")
 # Bytes per block and elements per block, from ggml's type traits, for the
@@ -48,7 +56,7 @@ TYPE_BLOCKS = {"q8_0": (34, 32), "q4_0": (18, 32), "q4_1": (20, 32), "q5_0": (22
 
 
 def read_log(path):
-    buffers, tensors, kinds, kv_sizes, rs_sizes, malformed = [], [], [], [], [], []
+    buffers, tensors, kinds, kv_sizes, rs_sizes, malformed, cells = [], [], [], [], [], [], []
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             match = BUFFER_LINE.search(line)
@@ -77,10 +85,14 @@ def read_log(path):
             if match:
                 kv_sizes.append(match.groupdict())
                 continue
+            match = KV_CELLS_LINE.search(line)
+            if match:
+                cells.append({key: int(value) for key, value in match.groupdict().items()})
+                continue
             match = RS_SIZE_LINE.search(line)
             if match:
                 rs_sizes.append(match.groupdict())
-    return buffers, tensors, kinds, kv_sizes, rs_sizes, malformed
+    return buffers, tensors, kinds, kv_sizes, rs_sizes, malformed, cells
 
 
 def main():
@@ -89,9 +101,11 @@ def main():
     parser.add_argument("--expect", required=True, choices=("paged_kv_vmm", "device_default"))
     parser.add_argument("--expect-tensors", type=int, default=None)
     parser.add_argument("--expect-names", default=None)
+    parser.add_argument("--expect-layout", default=None)
+    parser.add_argument("--expect-cells", type=int, default=None)
     arguments = parser.parse_args()
 
-    buffers, tensors, kinds, kv_sizes, rs_sizes, malformed = read_log(arguments.log)
+    buffers, tensors, kinds, kv_sizes, rs_sizes, malformed, cells = read_log(arguments.log)
     faults = []
     rows = []
     if malformed:
@@ -122,6 +136,13 @@ def main():
                       % (kv_sizes[0]["buffer"], kinds[0]["buffer"]))
     if not rs_sizes:
         faults.append("the log carries no RS buffer size line, so the recurrent store is unaccounted")
+    if len(cells) != 1:
+        faults.append("expected exactly one llama_kv_cache size line naming cells and streams, found %d" % len(cells))
+    add("kv_cells", cells[0]["cells"] if len(cells) == 1 else "-")
+    add("kv_streams", cells[0]["streams"] if len(cells) == 1 else "-")
+    if arguments.expect_cells is not None and (len(cells) != 1 or cells[0]["cells"] != arguments.expect_cells):
+        faults.append("the cache reports %s cells where %d were expected"
+                      % (cells[0]["cells"] if len(cells) == 1 else "no", arguments.expect_cells))
     add("paged_buffer_lines", len(buffers))
     add("paged_tensor_lines", len(tensors))
 
@@ -178,6 +199,26 @@ def main():
                 faults.append("the paged tensor names differ from the census: missing %s, extra %s"
                               % (",".join(sorted(set(expected_names) - set(found_names))) or "-",
                                  ",".join(sorted(set(found_names) - set(expected_names))) or "-"))
+        if arguments.expect_layout is not None:
+            expected_layout = {}
+            for entry in arguments.expect_layout.split(","):
+                if not entry:
+                    continue
+                name, _, shape = entry.partition("=")
+                type_name, _, ne0 = shape.partition(":")
+                expected_layout[name] = (type_name, int(ne0))
+            for record in tensors:
+                expected = expected_layout.get(record["name"])
+                if expected is None:
+                    faults.append("tensor %s has no layout in the census" % record["name"])
+                elif (record["type"], record["ne0"]) != expected:
+                    faults.append("tensor %s reads %s:%d where the census predicts %s:%d"
+                                  % (record["name"], record["type"], record["ne0"], expected[0], expected[1]))
+        if len(cells) == 1:
+            for record in tensors:
+                if record["ne1"] != cells[0]["cells"] or record["ne2"] != cells[0]["streams"]:
+                    faults.append("tensor %s spans ne1=%d ne2=%d where the cache holds %d cells over %d streams"
+                                  % (record["name"], record["ne1"], record["ne2"], cells[0]["cells"], cells[0]["streams"]))
         # The buffer record names the device and the kind record names the
         # buffer; a paged buffer on device N is the buffer "CUDA<N>".
         for kind in kinds:
@@ -234,6 +275,8 @@ def main():
             faults.append("layers without both K and V in the paged buffer: %s" % ",".join(str(layer) for layer in sorted(odd)))
         if buffers and any(record["mapped"] != record["virtual"] for record in buffers):
             faults.append("physical_mapped_bytes differs from virtual_reserved_bytes on a fully backed buffer")
+        if unit and buffers and any(record["virtual"] != -(-record["requested"] // unit) * unit for record in buffers):
+            faults.append("virtual_reserved_bytes is not requested_bytes rounded up to the unit")
         if buffers and any(record["mapped"] < record["requested"] for record in buffers):
             faults.append("physical_mapped_bytes falls under requested_bytes")
         if buffers and any(record["access"] != "device_rw" for record in buffers):

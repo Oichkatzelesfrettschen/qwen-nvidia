@@ -47,6 +47,7 @@ def subject_log(mapped=None, tensors=None):
     lines.extend(tensors)
     lines.append("llama_kv_cache:      CUDA0 KV buffer size =   312.00 MiB\n")
     lines.append("llama_kv_cache: kv_buffer_kind=paged_kv_vmm buffer=CUDA0\n")
+    lines.append("llama_kv_cache: size =  312.00 MiB ( 65536 cells,   6 layers,  1/1 seqs), K (q8_0):  204.00 MiB, V (q4_0):  108.00 MiB\n")
     lines.append("llama_memory_recurrent:      CUDA0 RS buffer size =    32.50 MiB\n")
     return "".join(lines)
 
@@ -54,6 +55,7 @@ def subject_log(mapped=None, tensors=None):
 def control_log():
     return ("llama_kv_cache:      CUDA0 KV buffer size =   312.00 MiB\n"
             "llama_kv_cache: kv_buffer_kind=device_default buffer=CUDA0\n"
+            "llama_kv_cache: size =  312.00 MiB ( 65536 cells,   6 layers,  1/1 seqs), K (q8_0):  204.00 MiB, V (q4_0):  108.00 MiB\n"
             "llama_memory_recurrent:      CUDA0 RS buffer size =    32.50 MiB\n")
 
 
@@ -166,6 +168,29 @@ check("zero dimensions refused", code == 1 and any("zero dimension" in f for f i
 
 code, rows, faults = run(subject_log().replace("alloc_bytes=35651584", "alloc_bytes=35652128"), "paged_kv_vmm")
 check("alloc bytes outside the padding rule refused", code == 1 and any("padding rule" in f for f in faults))
+
+layout = ",".join("cache_k_l%d=q8_0:512,cache_v_l%d=q4_0:512" % (layer, layer) for layer in LAYERS)
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-layout", layout, "--expect-cells", "65536"))
+check("census layout and cells agree", code == 0, "; ".join(faults))
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-layout", layout.replace("cache_k_l3=q8_0:512", "cache_k_l3=q8_0:1024")))
+check("census layout differing refused", code == 1 and any("census predicts q8_0:1024" in f for f in faults))
+code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-cells", "32768"))
+check("cell count differing from the caller refused", code == 1 and any("32768 were expected" in f for f in faults))
+
+reshaped = subject_log().replace("ne1=65536 ne2=1", "ne1=32768 ne2=2")
+code, rows, faults = run(reshaped, "paged_kv_vmm")
+check("tensors reshaped against the size line refused", code == 1 and any("where the cache holds 65536 cells over 1 streams" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("llama_kv_cache: size =", "llama_kv_cache: xize ="), "paged_kv_vmm")
+check("absent cells line refused", code == 1 and any("naming cells and streams" in f for f in faults))
+
+grown = subject_log().replace("virtual_reserved_bytes=%d physical_mapped_bytes=%d" % (total, total),
+                              "virtual_reserved_bytes=%d physical_mapped_bytes=%d" % (total + UNIT, total + UNIT)).replace("312.00 MiB\n", "314.00 MiB\n", 1)
+code, rows, faults = run(grown, "paged_kv_vmm")
+check("reservation above the rounded request refused", code == 1 and any("rounded up to the unit" in f for f in faults))
+
+code, rows, faults = run(subject_log().replace("extent_aligned=yes\n", "extent_aligned=yesBROKEN\n", 1), "paged_kv_vmm")
+check("a record with trailing garbage refused", code == 1 and any("match no record pattern" in f for f in faults))
 
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)
