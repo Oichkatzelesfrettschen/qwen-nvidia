@@ -160,8 +160,13 @@ way on the 4B and 9B, while the Q8_0 0.8B merges every member of both. Merging
 everything the types allow removes 123 to 163 launches per token and buys 4.63%
 of the 0.8B token, 3.08% of the 2B, 2.00% of the 4B, and 1.20% of the 9B, so the
 lever is refuted against the 5.1% floor on all four and no kernel implements it.
-That bound is computed at `ne11` of 1; a concurrent-sequence or
-speculative-accept workload moves these mat-muls to MMQ and recomputes it.
+The 0.8B is the closest because it is the one checkpoint quantized to a single
+type, and its margin is thin enough to state as measured at the floor rather
+than clear of it: dividing by its own untraced token instead of the registry
+figure reads 5.01%. What decides it is that 1.221 us comes from the smallest
+launch in the class and is applied to every removed one, so the true saving sits
+under both readings. That bound is computed at `ne11` of 1; a concurrent-sequence
+or speculative-accept workload moves these mat-muls to MMQ and recomputes it.
 
 Stream-K is the MMQ decomposition on this device rather than a decision:
 `ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at

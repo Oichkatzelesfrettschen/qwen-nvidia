@@ -40,6 +40,15 @@ The two classes agree on the lower quantiles to within 64 ns even though the
 0.8B capture inflates its own body twofold, which is the corroboration: t0 does
 not differ between a 1024-wide and a 2048-wide activation.
 
+The launch counts corroborate the reading a second way. Both captures issue
+10595 `quantize_q8_1` launches, and both issue 7085 unfused and 3510 fused
+`mul_mat_vec_q` launches -- the 0.8B in one Q8_0 class each, the 2B split 6240
+Q4_K against 845 Q6_K unfused and 2730 against 780 fused. The two checkpoints
+carry the same 25 blocks at the same `full_attention_interval`, so they issue the
+same launches and differ only in how the quantization recipe partitions them.
+That 7085 + 3510 equals 10595 exactly is the invariant `mmvq.cu:1332` states:
+one quantize launch per `ggml_cuda_mul_mat_vec_q` call, fused or not.
+
 The mat-mul estimator reads the `ssm_alpha` and `ssm_beta` launches, 2048 by 16
 and 18432 bytes, which is 0.04 us of traffic at the 442.61 GB/s this device
 sustains. Their share of the unfused class is 36 of the 104 launches a 2B token
@@ -52,11 +61,13 @@ Correcting the 2.25% instrument inflation:
     t0 for one quantize_q8_1 launch    0.970 us
     t0 for one mul_mat_vec_q launch    1.221 us
 
-The mat-mul figure comes from the smallest launch in the class. A wider launch
-schedules more blocks, so its fixed cost is at least this, and a merged launch
-reabsorbs part of what a removed wide launch was paying. Applying 1.221 us to
-every removed mat-mul launch therefore overstates the saving, which is the
-direction that strengthens the refutation.
+The mat-mul figure comes from the smallest launch in the class, and it is
+applied to every removed launch including wide ones. A wider launch schedules
+more blocks, so a merged launch reabsorbs part of what the removed one was
+paying, and the fixed cost that actually vanishes is under 1.221 us. Every
+saving below is therefore an overestimate and the true share sits under the
+figure stated, which moves the conclusion further from the floor rather than
+toward it.
 
 ## What the merge reaches
 
@@ -109,11 +120,18 @@ of peak `../ncu-decode-baseline/` measured on the unfused `<Q4_K, 1, 0>` class
 is a separate finding about wave occupancy, and merging launches does not
 address it: a merged launch moves the same bytes in the same tiles.
 
-The untraced warm rates these captures recorded are 243.46 tok/s on the 2B and
-326.20 then 335.92 on the 0.8B across the two runs, against registry figures of
-231.37 and 310.50. The shares above divide by the registry token, which is what
-the promotion floor is quoted against; dividing by the faster untraced token
-raises the 0.8B share to 4.86% and leaves the verdict unchanged.
+The untraced warm rates these captures recorded are 245.24 tok/s on the 2B and
+335.92 on the 0.8B, against registry figures of 231.37 and 310.50 and against
+243.46 and 326.20 in `../decode-node-trace/run-02/`. The shares above divide by
+the registry token, which is what the promotion floor is quoted against.
+Dividing the 0.8B by its own faster untraced token raises its share to 5.01%,
+which is 0.09 points under the floor rather than 0.47, and that is the closest
+any denominator brings this lever to promotion. It still falls short, and the
+1.221 us overestimate above means the true figure sits under both readings, but
+a 0.09-point margin is inside this host's own run-to-run span and the 0.8B is
+better read as measured at the floor than as measured clear of it. The verdict
+rests on the registry denominator and on the direction of the estimator bias
+rather than on that margin.
 
 The raw Nsight databases are removed and their digests retained in
 `t0-2b/node-removed-export.sha256` and `t0-08b/node-removed-export.sha256`.
