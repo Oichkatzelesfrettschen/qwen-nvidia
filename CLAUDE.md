@@ -134,6 +134,35 @@ of every closure the campaign retained.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
+A launch on this device costs about a microsecond before it moves a byte, and
+that figure bounds every lever that removes launches rather than bytes.
+`evidence/ada/projection-fan-out/` reads it out of two kernels whose traffic is
+far under one wave, so their whole recorded duration is the fixed cost:
+`quantize_q8_1` at 0.970 us and the `ssm_alpha`/`ssm_beta` `mul_mat_vec_q`
+launches at 1.221 us, agreeing to within 64 ns between the 2B and 0.8B captures.
+Node granularity is what makes those durations readable and it is not free:
+against its own graph-granularity capture it stretches 2B device time 2.25% and
+0.8B device time 2.10 times, so a duration read from a node capture is corrected
+against the graph arm of the same run rather than taken as measured.
+
+Every checkpoint this tree serves declares `qwen35.full_attention_interval` of
+4, so `src/models/qwen35.cpp` builds a full-attention layer one time in four and
+a linear-attention layer otherwise. The two shapes fan one normalized activation
+out to different weight sets -- `wq`, `wk`, `wv` in the first, and `wqkv`,
+`wqkv_gate`, `ssm_beta`, `ssm_alpha` in the second -- and
+`ggml_cuda_mul_mat_vec_q` quantizes its own second operand on every call
+(`mmvq.cu:1332`) with no cache, so a fan-out of N issues N quantize launches
+holding byte-identical buffers. What bounds a merge of those launches is the
+weight type rather than the fan-out width, since `mul_mat_vec_q` is templated on
+one `ggml_type` (`mmvq.cu:544`): `attn_qkv` is Q6_K against Q4_K for the rest of
+its group on the 2B, 4B, and 9B, and `attn_v` splits the attention group the same
+way on the 4B and 9B, while the Q8_0 0.8B merges every member of both. Merging
+everything the types allow removes 123 to 163 launches per token and buys 4.63%
+of the 0.8B token, 3.08% of the 2B, 2.00% of the 4B, and 1.20% of the 9B, so the
+lever is refuted against the 5.1% floor on all four and no kernel implements it.
+That bound is computed at `ne11` of 1; a concurrent-sequence or
+speculative-accept workload moves these mat-muls to MMQ and recomputes it.
+
 Stream-K is the MMQ decomposition on this device rather than a decision:
 `ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
 Volta or later into the Ampere table and all 352 of its `CASE` rows set
@@ -1109,6 +1138,10 @@ scripts/run-ad104-path-audit.sh [--dry-run] MATRIX_TSV OUT [ARM_ID...]
                                                 # which mat-mul kernel each arm launched, read from the symbol
 scripts/read-nsys-mat-mul-kernels.py CAPTURE.sqlite
                                                 # the quantized mat-mul launches one Nsight Systems capture holds
+scripts/read-nsys-kernel-durations.py CAPTURE.sqlite [--match SUBSTRING]
+                                                # per-symbol launch count and duration, node granularity alone
+scripts/derive-projection-fan-out-bound.py --model ID=GGUF=DECODE_TOK_S ...
+                                                # what merging a projection fan-out removes, off the GGUF headers
 
 # Measurement harnesses, each of which owns its own launch and teardown
 scripts/compare-model-candidate.sh LABEL MODEL_PATH [PROFILE]
