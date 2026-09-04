@@ -207,6 +207,18 @@ on the device. `webui/index.html:2505` sends `reasoning_budget` beside its
 `reasoning_budget_tokens` (`server-schema.cpp:383`) with no alias, so the key is
 inert and the template argument is what ends the reasoning block.
 
+A loaded checkpoint stays in the host page cache after llama-server copies
+it to CUDA0: the 9B reads 5.4 GiB resident in `fincore` with one mapping held
+while it serves and none afterwards. `scripts/probe-page-cache-release.sh`
+measures `posix_fadvise(POSIX_FADV_DONTNEED)` over that one file between a
+load of the 9B and a load of the 2B, against a control on each side
+(`evidence/ada/page-cache-release/`): the advice drops every page in 0.18 s
+and frees 5.6 GB, the 2B's load and first request read the same 0.62 s and
+0.09 s with and without it, and the 9B's next load pays 17.1 s from the NVMe
+through 139020 major faults where the warm reload pays 1.2 s. The advice is a
+tool for a host under memory pressure rather than a default, and no launch
+script issues it; `/proc/sys/vm/drop_caches` stays unwritten in every arm.
+
 A launch on this device costs about a microsecond before it moves a byte, and
 that figure bounds every lever that removes launches rather than bytes.
 `evidence/ada/projection-fan-out/` reads it out of two kernels whose traffic is
@@ -825,6 +837,7 @@ down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
 `probe-filled-depth.sh`,
 `probe-depth-projector.sh`, `run-cuda-lever-campaign.sh`,
 `run-nvidia-sdk-smoke.sh`, `admit-physics-runtime.sh`,
+`probe-page-cache-release.sh`,
 `run-ad104-path-audit.sh`, `run-ad104-b789-calibration.sh`,
 `run-placement-sweep.sh`, `run-graph-alias-ab.sh`, `run-one-token-admission.sh`
 at its load stage, and `promote-llama-build.sh`. Every other audited entry point
@@ -1352,6 +1365,8 @@ scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID O
 scripts/verify-nvidia-sdk.sh [LEDGER]           # every pinned row installed as scripts/nvidia-sdk-artifacts.tsv states
 scripts/fetch-nvidia-sdk.sh ARTIFACT_ID DIR     # one archive, verified against the vendor-published digest
 scripts/run-nvidia-sdk-smoke.sh OUT             # JPEG -> nvImageCodec -> CV-CUDA resize, device-resident between the two
+scripts/probe-page-cache-release.sh SERVER OUT [A_ID] [B_ID]
+                                                # what posix_fadvise(DONTNEED) on a loaded GGUF buys and what its reload costs
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
