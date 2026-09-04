@@ -672,13 +672,28 @@ step count, with every body's pose and velocities, every joint's angles, a
 contact summary, the timings, and the runtime and scene digests in the result.
 `scripts/physics-runtime/physx-rigid-runtime.cpp` builds through
 `scripts/build-physics-runtime.sh` against the physx-sdk package, whose
-PKGBUILD compiles the GPU library from the tag's own sources for SM89 with one
-patch for the CUDA 13 `cuCtxCreate` signature. `scripts/test-physics-service.py`
+PKGBUILD compiles the GPU library from the tag's own sources for SM89 with two
+CUDA 13 patches: `cuCtxCreate` gained a parameter block, and nvcc 13's host
+stubs call `__cudaGetKernel` and `__cudaLaunchKernel`, two libcudart entry
+points the SDK never linked because `CudaKernelWrangler.cpp` shims the
+registration calls itself and loads every kernel through the driver API, so
+`libPhysXGpu_64.so` built without the second patch fails `dlopen` on the
+undefined symbol and PhysX reports the context invalid
+(`evidence/physics/d6-runtime-proof/`). `scripts/test-physics-service.py`
 drives the service against `scripts/test-fixtures/fake-physx-runtime.sh` and
 `scripts/physics-teardown-check.sh` proves no service, runtime, socket, or held
-lease remains. Every checked-in row reads `refused`; the MCP wrapper, the
-session integration, and the device admission follow the runtime's first
-retained run on the card.
+lease remains. `scripts/admit-physics-runtime.sh` is the device admission:
+it raises one row to `validator-gated` in a copied ledger, takes the owner
+lock, starts the service as an ordinary-user child holding the compute lease,
+sends one request over a socket bound under `XDG_RUNTIME_DIR` because an
+evidence path exceeds the 107-byte AF_UNIX bound, samples the driver's client
+list and the lease ten times a second through the job, and reads every claim
+off the reply and the teardown. `evidence/physics/d6-runtime-proof/` carries
+the accepted run: the runtime visible as a CUDA client at 288 MiB, GPU
+dynamics read back active, the chain intact at 1.2 per link after 3600 steps
+in 1329 ms, and a clean client list afterwards. Every checked-in row still
+reads `refused`; promotion, the MCP wrapper, and the session integration are
+separate transitions this record informs.
 
 ## Three runtime classes, one primary target
 
@@ -809,6 +824,7 @@ down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
 `admit-representation-row.sh`, `classify-graphics-latency-probe.sh`,
 `probe-filled-depth.sh`,
 `probe-depth-projector.sh`, `run-cuda-lever-campaign.sh`,
+`run-nvidia-sdk-smoke.sh`, `admit-physics-runtime.sh`,
 `run-ad104-path-audit.sh`, `run-ad104-b789-calibration.sh`,
 `run-placement-sweep.sh`, `run-graph-alias-ab.sh`, `run-one-token-admission.sh`
 at its load stage, and `promote-llama-build.sh`. Every other audited entry point
@@ -1343,6 +1359,7 @@ scripts/physics-service.py --state-dir DIR --profiles FILE --runtime BIN
                                                 # the lease owner, one simulation at a time
 scripts/physics-teardown-check.sh [STATE_DIRECTORY]
                                                 # no service, runtime, socket, or held lease
+scripts/admit-physics-runtime.sh OUT [STEPS]    # one D6 chain on the device through the service, proof retained
 
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
