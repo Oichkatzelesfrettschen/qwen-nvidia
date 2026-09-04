@@ -28,6 +28,9 @@ usage() {
     printf '             QWEN_TAIL_PORT         control port, subject at +1, default 18120\n' >&2
     printf '             QWEN_TAIL_LOCK_CLOCKS  SM MHz to pin through sudo -n nvidia-smi, default unset\n' >&2
     printf '             QWEN_TAIL_PASSAGE      prose file the prompts are cut from, default CLAUDE.md\n' >&2
+    printf '             QWEN_TAIL_DECIDE_ON    prefill or decode, the column the verdict reads, default prefill\n' >&2
+    printf '             QWEN_TAIL_CONTROL_ARGS extra server argv for the control arm, default empty\n' >&2
+    printf '             QWEN_TAIL_SUBJECT_ARGS extra server argv for the subject arm, default empty\n' >&2
     printf '             QWEN_MODEL_ROOT        default $HOME/models\n' >&2
     exit 2
 }
@@ -48,6 +51,21 @@ port=${QWEN_TAIL_PORT:-18120}
 lock_clocks=${QWEN_TAIL_LOCK_CLOCKS:-}
 model_root=${QWEN_MODEL_ROOT:-"${HOME:?}/models"}
 passage=${QWEN_TAIL_PASSAGE:-"$script_directory/../CLAUDE.md"}
+# An arm axis is a closure by default and a runtime flag where the two arms name
+# one binary: the MMVQ campaign compares two builds that differ in a compile
+# definition, and a sampling campaign compares one build launched two ways.
+# Both are one changed variable between two concurrently served ports.
+decide_on=${QWEN_TAIL_DECIDE_ON:-prefill}
+control_arguments=${QWEN_TAIL_CONTROL_ARGS:-}
+subject_arguments=${QWEN_TAIL_SUBJECT_ARGS:-}
+case $decide_on in
+prefill | decode) ;;
+*) printf 'refused: QWEN_TAIL_DECIDE_ON takes prefill or decode\n' >&2; exit 2 ;;
+esac
+if [ "$control_server" = "$subject_server" ] && [ "$control_arguments" = "$subject_arguments" ]; then
+    printf 'refused: the two arms name one binary and one argv, so nothing varies\n' >&2
+    exit 2
+fi
 [ -r "$passage" ] || {
     printf 'passage file is not readable: %s\n' "$passage" >&2
     exit 2
@@ -127,8 +145,12 @@ fi
 # blocks until it has left; a pid read back from a subshell is nobody's child
 # here and `wait` on it returns at once with the server still resident.
 serve() {
-    # serve SERVER PORT LOG; sets served_pid
-    QWEN_CUDA_PROFILE=default "$wrapper" "$1" \
+    # serve SERVER PORT LOG EXTRA_ARGV; sets served_pid. The extra argv is
+    # unquoted on purpose: it carries whole flags an arm adds to the shared
+    # geometry, and the shared geometry is what keeps the arms comparable.
+    arm_extra_argv=$4
+    # shellcheck disable=SC2086
+    QWEN_CUDA_PROFILE=default "$wrapper" "$1" $arm_extra_argv \
         --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$2" --no-ui \
         --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
         --fit off --parallel 1 --threads 6 --threads-batch 6 --ctx-size 4096 \
@@ -160,10 +182,10 @@ ready() {
 }
 control_port=$port
 subject_port=$((port + 1))
-serve "$control_server" "$control_port" "$output_directory/control.server.log.raw"
+serve "$control_server" "$control_port" "$output_directory/control.server.log.raw" "$control_arguments"
 control_pid=$served_pid
 ready "$control_port" "$control_pid" "$output_directory/control.server.log.raw"
-serve "$subject_server" "$subject_port" "$output_directory/subject.server.log.raw"
+serve "$subject_server" "$subject_port" "$output_directory/subject.server.log.raw" "$subject_arguments"
 subject_pid=$served_pid
 ready "$subject_port" "$subject_pid" "$output_directory/subject.server.log.raw"
 for name in control subject; do
@@ -174,9 +196,15 @@ for name in control subject; do
 done
 control_closure=$(basename "$(dirname "$(dirname "$control_server")")")
 subject_closure=$(basename "$(dirname "$(dirname "$subject_server")")")
-for server in "$control_server" "$subject_server"; do
-    printf '%s\t%s\n' "$(sha256sum "$server" | cut -d ' ' -f 1)" "$(printf '%s' "$server" | scrub_home)"
-done >"$output_directory/server-digests.tsv"
+# Two arms can name one binary, in which case the digests match and the argv is
+# the only thing that tells them apart, so the record carries both per arm.
+{
+    printf 'arm\tsha256\tserver\textra_argv\n'
+    printf 'control\t%s\t%s\t%s\n' "$(sha256sum "$control_server" | cut -d ' ' -f 1)" \
+        "$(printf '%s' "$control_server" | scrub_home)" "${control_arguments:--}"
+    printf 'subject\t%s\t%s\t%s\n' "$(sha256sum "$subject_server" | cut -d ' ' -f 1)" \
+        "$(printf '%s' "$subject_server" | scrub_home)" "${subject_arguments:--}"
+} >"$output_directory/server-digests.tsv"
 printf '%s\t%s\n' "$(sha256sum "$passage" | cut -d ' ' -f 1)" "$(printf '%s' "$passage" | scrub_home)" \
     >"$output_directory/passage-digest.tsv"
 
@@ -284,7 +312,7 @@ PYTHON
 cleanup
 trap - EXIT HUP INT TERM
 
-python3 - "$observations" "$output_directory/tails-summary.tsv" "$floor" "$output_directory/replies.jsonl" <<'PYTHON'
+python3 - "$observations" "$output_directory/tails-summary.tsv" "$floor" "$output_directory/replies.jsonl" "$decide_on" <<'PYTHON'
 import csv
 import json
 import math
@@ -294,6 +322,13 @@ from collections import defaultdict
 
 rows = list(csv.DictReader(open(sys.argv[1], encoding="utf-8"), delimiter="\t"))
 floor = float(sys.argv[3])
+# A threshold that changes which mat-mul kernel a prefill launches acts on
+# prompt_ms; a flag that moves sampling off the host acts on predicted_ms. Both
+# are the same paired comparison over a different column, so the deciding column
+# is named rather than assumed, and it defaults to the prefill reading every
+# retained campaign in this tree was summarized under.
+decide_on = sys.argv[5] if len(sys.argv) > 5 else "prefill"
+decide_index = 0 if decide_on == "prefill" else 1
 paired = defaultdict(dict)
 digests = defaultdict(set)
 contents = defaultdict(set)
@@ -320,15 +355,24 @@ def first_divergence(key):
     return str(min(positions)) if positions else "-"
 lengths = sorted({(int(r["base"]), int(r["width"])) for r in rows})
 with open(sys.argv[2], "w", encoding="utf-8") as h:
-    h.write("base\twidth\tlength\tpairs\tprefill_ratio_median\tprefill_ratio_geomean\tprefill_ratio_iqr\tprefill_ratio_min\tprefill_ratio_max\tdecode_ratio_median\tcontrol_drift\tfloor\tclears_floor\tsample_count_valid\tpromotion_eligible\tineligibility_reason\ttokens_identical\tcontent_identical\tfirst_divergent_index\n")
+    deciding, secondary = ("prefill", "decode") if decide_on == "prefill" else ("decode", "prefill")
+    h.write(f"base\twidth\tlength\tpairs\tdecided_on\t{deciding}_ratio_median\t"
+            f"{deciding}_ratio_geomean\t{deciding}_ratio_iqr\t{deciding}_ratio_min\t"
+            f"{deciding}_ratio_max\t{secondary}_ratio_median\tcontrol_drift\tfloor\t"
+            "clears_floor\tsample_count_valid\tpromotion_eligible\tineligibility_reason\t"
+            "tokens_identical\tcontent_identical\tfirst_divergent_index\n")
     for key in lengths:
         pr, dr, ctl = [], [], []
         for (k, p), arms in sorted(paired.items()):
             if k != key or "control" not in arms or "subject" not in arms:
                 continue
-            pr.append(arms["control"][0] / arms["subject"][0])
-            dr.append(arms["control"][1] / arms["subject"][1])
-            ctl.append(arms["control"][0])
+            # pr carries the deciding column and dr the other one, so the
+            # ratio fields always report the reading the verdict rests on and
+            # the second column stays visible beside it.
+            other = 1 - decide_index
+            pr.append(arms["control"][decide_index] / arms["subject"][decide_index])
+            dr.append(arms["control"][other] / arms["subject"][other])
+            ctl.append(arms["control"][decide_index])
         pr.sort()
         # Four pairs is the floor both derived statistics need. statistics.quantiles
         # requires four points, and the drift reads mean(ctl[:3]) against
@@ -360,8 +404,9 @@ with open(sys.argv[2], "w", encoding="utf-8") as h:
             reason = "insufficient_pairs"
             drift = "n/a"
             print(f"{key[0]}+{key[1]}: {n} pairs is below the four-pair floor, so control_drift, "
-                  "prefill_ratio_iqr, and clears_floor read n/a and the length is ineligible for "
-                  "promotion on sample count rather than on measured gain", file=sys.stderr)
+                  f"the {decide_on} ratio IQR, and clears_floor read n/a and the length is "
+                  "ineligible for promotion on sample count rather than on measured gain",
+                  file=sys.stderr)
             if n:
                 med = statistics.median(pr)
                 geo = math.exp(sum(math.log(x) for x in pr) / n)
@@ -369,6 +414,6 @@ with open(sys.argv[2], "w", encoding="utf-8") as h:
             else:
                 ratios = "n/a\tn/a\tn/a\tn/a\tn/a\tn/a"
         eligible = "yes" if clears == "yes" and valid == "yes" else "no"
-        h.write(f"{key[0]}\t{key[1]}\t{key[0] + key[1]}\t{n}\t{ratios}\t{drift}\t{floor}\t{clears}\t{valid}\t{eligible}\t{reason}\t{'yes' if len(digests[key]) == 1 else 'no'}\t{'yes' if len(contents[key]) == 1 else 'no'}\t{first_divergence(key)}\n")
+        h.write(f"{key[0]}\t{key[1]}\t{key[0] + key[1]}\t{n}\t{decide_on}\t{ratios}\t{drift}\t{floor}\t{clears}\t{valid}\t{eligible}\t{reason}\t{'yes' if len(digests[key]) == 1 else 'no'}\t{'yes' if len(contents[key]) == 1 else 'no'}\t{first_divergence(key)}\n")
 print(open(sys.argv[2], encoding="utf-8").read())
 PYTHON

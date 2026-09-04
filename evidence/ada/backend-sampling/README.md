@@ -1,5 +1,11 @@
 # Backend sampling exists, holds token identity on all three classes, and pays on the smallest
 
+`README-RESULTS.md` carries the pinned alternating campaign this record calls
+for. It refutes the class split below as sample size, measures a fixed
+per-request cost this reading did not see, and answers the reachability
+question the last section opens. Read the numbers here as the candidate
+reading they are labelled as.
+
 `--backend-sampling` is not a feature to build. This tree already implements
 device-side sampling as graph nodes: `llm_graph_context::build_sampling`
 (`src/llama-graph.cpp:3711-3813`) splices `ggml_argmax` for greedy,

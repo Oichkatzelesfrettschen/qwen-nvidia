@@ -226,6 +226,48 @@ else
     report 1 'the refused campaign claims no device and writes no observation table'
 fi
 
+# The verdict reads one timing column and names it. A dispatch threshold acts on
+# prefill and a sampling flag acts on decode, so the deciding column is a
+# parameter whose default reproduces every retained campaign's semantics.
+decode_axis=$temporary_directory/decode-axis
+if run_harness "$script_directory/run-mmvq-width-request-tails.sh" "$decode_axis" \
+    QWEN_TAIL_DECIDE_ON=decode >"$temporary_directory/decode-axis.log" 2>&1; then
+    header=$(head -1 "$decode_axis/tails-summary.tsv")
+    decided=$(summary_field "$decode_axis/tails-summary.tsv" 19 decided_on)
+    if printf '%s' "$header" | grep -q 'decode_ratio_median' &&
+        printf '%s' "$header" | grep -q 'prefill_ratio_median' &&
+        [ "$decided" = decode ]; then
+        report 0 'the decode axis names its deciding column and keeps the other visible'
+    else
+        report 1 "the decode axis names its deciding column and keeps the other visible ($decided)"
+    fi
+else
+    report 1 'the decode axis runs to a summary'
+    tail -5 "$temporary_directory/decode-axis.log"
+fi
+default_axis=$(summary_field "$identical/tails-summary.tsv" 19 decided_on)
+if [ "$default_axis" = prefill ]; then
+    report 0 'the default axis stays the prefill column every retained campaign used'
+else
+    report 1 "the default axis stays the prefill column every retained campaign used ($default_axis)"
+fi
+
+# An arm axis has to vary something. Two arms naming one binary and one argv is
+# a campaign that measures its own noise, and it is refused ahead of the device.
+null_axis=$temporary_directory/null-axis
+status=0
+env QWEN_MODEL_ROOT="$model_root" QWEN_TAIL_PAIRS=4 \
+    "$script_directory/run-mmvq-width-request-tails.sh" \
+    "$control_build/bin/llama-server" "$control_build/bin/llama-server" \
+    "$model_id" "$null_axis" >"$temporary_directory/null-axis.log" 2>&1 || status=$?
+if [ "$status" -eq 2 ] &&
+    grep -q 'refused: the two arms name one binary and one argv' "$temporary_directory/null-axis.log"; then
+    report 0 'two arms naming one binary and one argv are refused with exit 2'
+else
+    report 1 "two arms naming one binary and one argv are refused with exit 2 (status $status)"
+    tail -3 "$temporary_directory/null-axis.log"
+fi
+
 if [ "$failures" -ne 0 ]; then
     printf '%s failure(s)\n' "$failures" >&2
     exit 1

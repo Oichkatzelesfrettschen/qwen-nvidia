@@ -1,0 +1,14 @@
+model_id	qwen35-08b
+server_flag	--backend-sampling
+closure	build-appliance-current
+context_armed	1
+
+arm	route	predicted_gate	observed_gate	reasoning_budget_tokens	agrees
+completion-plain	/completion	none	none	-1	yes
+completion-n-probs	/completion	pre_sample_logits	unobservable	-1	n/a
+chat-thinking-on	/v1/chat/completions	none	none	-1	yes
+chat-thinking-off-webui	/v1/chat/completions	none	none	-1	yes
+chat-budget-tokens	/v1/chat/completions	reasoning_budget	reasoning_budget	0	yes
+chat-json-schema	/v1/chat/completions	grammar	grammar	-1	yes
+
+backend_sampling_reach=accepted arms=6 disagreements=0

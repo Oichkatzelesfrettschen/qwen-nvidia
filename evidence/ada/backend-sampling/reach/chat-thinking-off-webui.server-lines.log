@@ -1,0 +1,125 @@
+0.01.142.261 D Using specialized template: Qwen3-Coder
+0.01.143.197 I srv  server_strea: conv_id= (empty=1)
+0.01.143.307 I srv    operator(): chat format: peg-native
+0.01.143.353 D srv  eval_llama_c: reasoning budget: tokens=-1, generation_prompt='<|im_start|>assistant
+<think>
+
+</think>
+
+', start=1 toks, end=2 seqs, forced=1 toks
+0.01.143.372 D res  add_waiting_: add task 27 to waiting list. current waiting = 0 (before add)
+0.01.143.374 D que          post: new task, id = 27/1, front = 0
+0.01.143.383 D que    start_loop: processing new tasks
+0.01.143.385 D que  process_new_: processing task, id = 27
+0.01.143.388 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.812 (13/16) > 0.100
+0.01.143.389 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.812 (> 0.100 thold), f_keep = 0.619
+0.01.143.423 D slot launch_slot_: id  0 | task -1 | launching slot : {"id":0,"n_ctx":4096,"speculative":false,"is_processing":false,"id_task":18,"n_prompt_tokens":21,"n_prompt_tokens_processed":0,"n_prompt_tokens_cache":0,"params":{"seed":4294967295,"temperature":0.0,"dynatemp_range":0.0,"dynatemp_exponent":1.0,"top_k":40,"top_p":0.949999988079071,"min_p":0.05000000074505806,"top_n_sigma":-1.0,"xtc_probability":0.0,"xtc_threshold":0.10000000149011612,"typical_p":1.0,"repeat_last_n":64,"repeat_penalty":1.0,"presence_penalty":0.0,"frequency_penalty":0.0,"dry_multiplier":0.0,"dry_base":1.75,"dry_allowed_length":2,"dry_penalty_last_n":64,"dry_sequence_breakers":["\n",":","\"","*"],"mirostat":0,"mirostat_tau":5.0,"mirostat_eta":0.10000000149011612,"adaptive_target":-1.0,"adaptive_decay":0.8999999761581421,"stop":[],"max_tokens":8,"n_predict":8,"n_keep":0,"n_discard":0,"ignore_eos":false,"stream":false,"logit_bias":[],"n_probs":0,"min_keep":0,"grammar":"","grammar_lazy":false,"grammar_triggers":[],"preserved_tokens":[248058,248059,248068,248069],"chat_format":"peg-native","reasoning_format":"deepseek","reasoning_in_content":false,"generation_prompt":"<|im_start|>assistant\n<think>\n","samplers":["penalties","dry","top_n_sigma","top_k","typ_p","top_p","min_p","xtc","temperature"],"speculative.types":"none","timings_per_token":false,"post_sampling_probs":false,"backend_sampling":true,"lora":[]},"next_token":[{"has_next_token":false,"has_new_line":false,"n_remain":-1,"n_decoded":0}],"prompt":"<|im_start|>user\nName one color.<|im_end|>\n<|im_start|>assistant\n<think>\n","generated":""}
+0.01.143.448 D common_sampler_init: prefill token: 248045 = <|im_start|>
+0.01.143.449 D common_sampler_init: prefill token: 74455 = assistant
+0.01.143.450 D common_sampler_init: prefill token: 198 = 
+
+0.01.143.450 D common_sampler_init: prefill token: 248068 = <think>
+0.01.143.450 D common_sampler_init: prefill token: 271 = 
+
+
+0.01.143.450 D common_sampler_init: prefill token: 248069 = </think>
+0.01.143.450 D common_sampler_init: prefill token: 271 = 
+
+
+0.01.143.461 D set_sampler: seq_id = 0, sampler = 0x56484cc91a20
+0.01.143.488 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> +top-k -> ?typical -> +top-p -> +min-p -> ?xtc -> +temp-ext -> +dist 
+0.01.143.493 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.01.143.494 I slot launch_slot_: id  0 | task 27 | processing task, is_child = 0
+0.01.143.495 D que    start_loop: update slots
+0.01.143.495 D srv  update_slots: posting NEXT_RESPONSE
+0.01.143.496 D que          post: new task, id = 28, front = 0
+0.01.143.499 I slot   operator(): id  0 | task 27 | new prompt, n_ctx_slot = 4096, n_keep = 0, task.n_tokens = 16
+0.01.143.501 I slot   operator(): id  0 | task 27 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+0.01.143.502 I slot   operator(): id  0 | task 27 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.01.143.514 I slot init_sampler: id  0 | task 27 | init sampler, took 0.00 ms, tokens: text = 16, total = 16
+0.01.143.515 D slot   operator(): id  0 | task 27 | main/do_checkpoint = no, pos_min = -1, pos_max = -1
+0.01.143.516 D set_adapters_lora: adapters = (nil)
+0.01.143.516 D adapters_lora_are_same: adapters = (nil)
+0.01.143.517 D set_embeddings: value = 0
+0.01.143.517 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.143.517 D que  yield_to_que: yielding to queue
+0.01.143.525 I sched_reserve: reserving ...
+0.01.143.530 D que  process_new_: processing task, id = 28
+0.01.143.533 D srv  process_sing: decoding, decline task, id_task = 28
+0.01.143.535 D que  process_new_: task declined, id = 28
+0.01.143.537 D sched_reserve: max_nodes = 20532
+0.01.148.153 D sched_reserve: reserving full memory module
+0.01.148.159 D sched_reserve: worst-case: n_tokens = 512, n_seqs = 1, n_outputs = 1
+0.01.148.160 D graph_reserve: reserving a graph for ubatch with n_tokens =  512, n_seqs =  1, n_outputs =    1
+0.01.150.552 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.01.151.038 D graph_reserve: reserving a graph for ubatch with n_tokens =  512, n_seqs =  1, n_outputs =    1
+0.01.151.504 I sched_reserve:      CUDA0 compute buffer size =    44.42 MiB
+0.01.151.506 I sched_reserve:  CUDA_Host compute buffer size =     6.28 MiB
+0.01.151.506 I sched_reserve: graph nodes  = 1499
+0.01.151.507 I sched_reserve: graph splits = 1
+0.01.151.507 I sched_reserve: reserve took 7.98 ms, sched copies = 1
+0.01.157.084 D que  yield_to_que: done yielding to queue
+0.01.157.099 D common_sampler_sample: Backend sampler selected token: '10025'. Will not run any CPU samplers
+0.01.157.102 D slot process_toke: id  0 | task 27 | n_gen = 1, n_remaining = 7, next token: 10025 'Blue'
+0.01.157.103 D que    start_loop: waiting for new tasks
+0.01.157.104 D que    start_loop: processing new tasks
+0.01.157.107 D que  process_new_: processing task, id = 28
+0.01.157.108 D que    start_loop: update slots
+0.01.157.108 D srv  update_slots: posting NEXT_RESPONSE
+0.01.157.109 D que          post: new task, id = 29, front = 0
+0.01.157.112 D slot handle_last_: id  0 | task 27 | slot decode token, id=10025, n_ctx = 4096, n_tokens = 16, truncated = 0
+0.01.157.113 D set_adapters_lora: adapters = (nil)
+0.01.157.114 D adapters_lora_are_same: adapters = (nil)
+0.01.157.114 D set_embeddings: value = 0
+0.01.157.115 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.157.115 D que  yield_to_que: yielding to queue
+0.01.157.123 D que  process_new_: processing task, id = 29
+0.01.157.123 D srv  process_sing: decoding, decline task, id_task = 29
+0.01.157.124 D que  process_new_: task declined, id = 29
+0.01.161.482 D que  yield_to_que: done yielding to queue
+0.01.161.490 D common_sampler_sample: Backend sampler selected token: '13'. Will not run any CPU samplers
+0.01.161.494 D slot process_toke: id  0 | task 27 | n_gen = 2, n_remaining = 6, next token:    13 '.'
+0.01.161.495 D que    start_loop: waiting for new tasks
+0.01.161.495 D que    start_loop: processing new tasks
+0.01.161.496 D que  process_new_: processing task, id = 29
+0.01.161.497 D que    start_loop: update slots
+0.01.161.497 D srv  update_slots: posting NEXT_RESPONSE
+0.01.161.498 D que          post: new task, id = 30, front = 0
+0.01.161.500 D slot handle_last_: id  0 | task 27 | slot decode token, id=13, n_ctx = 4096, n_tokens = 17, truncated = 0
+0.01.161.501 D set_adapters_lora: adapters = (nil)
+0.01.161.502 D adapters_lora_are_same: adapters = (nil)
+0.01.161.502 D set_embeddings: value = 0
+0.01.161.503 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.161.503 D que  yield_to_que: yielding to queue
+0.01.161.511 D que  process_new_: processing task, id = 30
+0.01.161.512 D srv  process_sing: decoding, decline task, id_task = 30
+0.01.161.512 D que  process_new_: task declined, id = 30
+0.01.161.610 D CUDA Graph id 60 reused
+0.01.161.612 D ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+0.01.166.841 D que  yield_to_que: done yielding to queue
+0.01.166.849 D common_sampler_sample: Backend sampler selected token: '248046'. Will not run any CPU samplers
+0.01.166.853 D slot process_toke: id  0 | task 27 | stopped by EOS
+0.01.166.853 D slot process_toke: id  0 | task 27 | n_gen = 3, n_remaining = 5, next token: 248046 ''
+0.01.166.856 I slot print_timing: id  0 | task 27 | prompt eval time =      13.60 ms /    16 tokens (    0.85 ms per token,  1176.38 tokens per second)
+0.01.166.858 I slot print_timing: id  0 | task 27 |        eval time =       9.75 ms /     3 tokens (    4.88 ms per token,   205.13 tokens per second)
+0.01.166.858 I slot print_timing: id  0 | task 27 |       total time =      23.35 ms /    19 tokens
+0.01.166.859 I slot print_timing: id  0 | task 27 |    graphs reused =         19
+0.01.166.868 D res          send: sending result for task id = 27
+0.01.166.868 D res          send: task id = 27 pushed to result queue
+0.01.166.870 I slot      release: id  0 | task 27 | stop processing: n_tokens = 18, truncated = 0
+0.01.166.871 D slot        reset: id  0 | task 27 | 
+0.01.166.877 D set_sampler: seq_id = 0, sampler = (nil)
+0.01.166.878 D que    start_loop: waiting for new tasks
+0.01.166.878 D que    start_loop: processing new tasks
+0.01.166.879 D que  process_new_: processing task, id = 30
+0.01.166.880 D que    start_loop: update slots
+0.01.166.880 I srv  update_slots: all slots are idle
+0.01.166.880 D que    start_loop: waiting for new tasks
+0.01.166.902 D Parsed message: {"role":"assistant","content":"Blue."}
+0.01.167.000 D srv          stop: all tasks already finished, no need to cancel
+0.01.167.005 D res  remove_waiti: remove task 27 from waiting list. current waiting = 1 (before remove)
+0.01.167.006 D srv          stop: all tasks already finished, no need to cancel
