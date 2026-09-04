@@ -46,6 +46,8 @@ usage() {
     printf '             QWEN_CONCURRENCY_REPEATS      measured bursts per level, default 4\n' >&2
     printf '             QWEN_CONCURRENCY_PROMPT_CHARS prompt cut length, default 2048\n' >&2
     printf '             QWEN_CONCURRENCY_PASSAGE      prose file the prompt is cut from, default CLAUDE.md\n' >&2
+    printf '             QWEN_CONCURRENCY_SUBJECT      second closure, paired against SERVER per level\n' >&2
+    printf '             QWEN_CONCURRENCY_FLOOR        paired-gain floor, default 0.051\n' >&2
     printf '             QWEN_CONCURRENCY_NSYS_LEVELS  levels to capture the dispatch of, default empty\n' >&2
     printf '             QWEN_CONCURRENCY_NSYS_PREDICT tokens per captured request, default 24\n' >&2
     printf '             QWEN_CONCURRENCY_NSYS         nsys, default the one on PATH\n' >&2
@@ -67,6 +69,8 @@ predict=${QWEN_CONCURRENCY_PREDICT:-128}
 repeats=${QWEN_CONCURRENCY_REPEATS:-4}
 prompt_chars=${QWEN_CONCURRENCY_PROMPT_CHARS:-2048}
 passage=${QWEN_CONCURRENCY_PASSAGE:-"$script_directory/../CLAUDE.md"}
+subject_server=${QWEN_CONCURRENCY_SUBJECT:-}
+floor=${QWEN_CONCURRENCY_FLOOR:-0.051}
 nsys_levels=${QWEN_CONCURRENCY_NSYS_LEVELS:-}
 nsys_predict=${QWEN_CONCURRENCY_NSYS_PREDICT:-24}
 nsys_binary=${QWEN_CONCURRENCY_NSYS:-$(command -v nsys 2>/dev/null || echo /usr/bin/nsys)}
@@ -88,6 +92,19 @@ case $repeats in '' | *[!0-9]* | 0) usage ;; esac
 # than a midpoint between two observations.
 [ "$repeats" -ge 3 ] || { printf 'refused: a per-level median needs at least three bursts\n' >&2; exit 2; }
 [ -r "$passage" ] || { printf 'passage file is not readable: %s\n' "$passage" >&2; exit 2; }
+if [ -n "$subject_server" ]; then
+    [ -x "$subject_server" ] || { printf 'subject closure is unusable: %s\n' "$subject_server" >&2; exit 2; }
+    if [ "$subject_server" = "$server_binary" ]; then
+        printf 'refused: the two arms name one closure, so nothing varies\n' >&2
+        exit 2
+    fi
+    # Four repeats is what statistics.quantiles needs and what the paired
+    # campaigns in this tree already require before spending device time.
+    [ "$repeats" -ge 4 ] || {
+        printf 'refused: a paired closure comparison requires at least four repeats\n' >&2
+        exit 2
+    }
+fi
 if [ -n "$nsys_levels" ]; then
     [ -x "$nsys_binary" ] || { printf 'nsys is unusable: %s\n' "$nsys_binary" >&2; exit 2; }
     [ -x "$kernel_reader" ] || { printf 'kernel reader is unusable: %s\n' "$kernel_reader" >&2; exit 2; }
@@ -134,13 +151,17 @@ prompt_text=$(head -c "$prompt_chars" "$passage" | tr '\n\t"\\' '    ' | sed 's/
 printf '%s' "$prompt_text" >"$output_directory/prompt.txt"
 
 server_pid=''
+subject_pid=''
+served_pid=''
 clocks_locked=0
 cleanup() {
-    if [ -n "$server_pid" ]; then
-        kill "$server_pid" 2>/dev/null || true
-        wait "$server_pid" 2>/dev/null || true
-        server_pid=''
-    fi
+    for cleanup_pid in "$server_pid" "$subject_pid"; do
+        [ -n "$cleanup_pid" ] || continue
+        kill "$cleanup_pid" 2>/dev/null || true
+        wait "$cleanup_pid" 2>/dev/null || true
+    done
+    server_pid=''
+    subject_pid=''
     for raw in "$output_directory"/*.server.log.raw; do
         [ -f "$raw" ] || continue
         scrub_home <"$raw" >"${raw%.raw}"
@@ -184,10 +205,12 @@ printf 'level\trepeat\trequest\tprompt_n\tpredicted_n\tprompt_ms\tpredicted_ms\t
 # its pid is this shell's child and `wait` in the teardown blocks until it has
 # left; a pid read back from a subshell is nobody's child here.
 serve() {
-    # serve LEVEL LOG [PROFILE_PREFIX]; sets server_pid.
+    # serve LEVEL LOG BINARY PORT [PROFILE_PREFIX]; sets served_pid.
     serve_level=$1
     serve_log=$2
-    serve_profile=${3:-}
+    serve_binary=$3
+    serve_port=$4
+    serve_profile=${5:-}
     serve_ctx=$((serve_level * slot_depth))
     if [ -n "$serve_profile" ]; then
         # Node granularity is what puts graph nodes in CUPTI_ACTIVITY_KIND_KERNEL,
@@ -197,8 +220,8 @@ serve() {
         "$wrapper" "$nsys_binary" profile \
             --trace=cuda --cuda-graph-trace=node --sample=none --cpuctxsw=none \
             --output "$serve_profile" --force-overwrite true \
-            -- "$server_binary" \
-            --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$port" --no-ui \
+            -- "$serve_binary" \
+            --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
             --ctx-size "$serve_ctx" --batch-size "$batch" --ubatch-size "$ubatch" \
@@ -207,8 +230,8 @@ serve() {
             --cache-ram 0 --ctx-checkpoints 0 --no-context-shift --no-warmup -lv 10 \
             >"$serve_log" 2>&1 9>&- &
     else
-        QWEN_CUDA_PROFILE=default "$wrapper" "$server_binary" \
-            --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$port" --no-ui \
+        QWEN_CUDA_PROFILE=default "$wrapper" "$serve_binary" \
+            --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
             --ctx-size "$serve_ctx" --batch-size "$batch" --ubatch-size "$ubatch" \
@@ -217,7 +240,7 @@ serve() {
             --cache-ram 0 --ctx-checkpoints 0 --no-context-shift --no-warmup -lv 10 \
             >"$serve_log" 2>&1 9>&- &
     fi
-    server_pid=$!
+    served_pid=$!
 }
 
 # /health answers ahead of the load banner in this build and the model-buffer
@@ -225,13 +248,15 @@ serve() {
 # readiness is the banner itself, bounded.
 ready() {
     ready_log=$1
+    ready_pid=$2
+    ready_port=$3
     attempt=0
     while [ "$attempt" -lt 3000 ]; do
         if grep -q 'CUDA0 model buffer size' "$ready_log" && grep -q 'listening on' "$ready_log" &&
-            curl --silent --fail "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+            curl --silent --fail "http://127.0.0.1:$ready_port/health" >/dev/null 2>&1; then
             return 0
         fi
-        kill -0 "$server_pid" 2>/dev/null || break
+        kill -0 "$ready_pid" 2>/dev/null || break
         attempt=$((attempt + 1))
         sleep 0.1
     done
@@ -260,6 +285,7 @@ burst() {
     burst_level=$1
     burst_predict=$2
     burst_directory=$3
+    burst_port=$4
     mkdir -p "$burst_directory"
     burst_index=0
     # Each request pid is collected and waited on by name. A bare `wait` waits
@@ -270,8 +296,8 @@ burst() {
     while [ "$burst_index" -lt "$burst_level" ]; do
         curl --silent --show-error --max-time 600 \
             --header 'Content-Type: application/json' \
-            --data "{\"prompt\":\"$prompt_text\",\"n_predict\":$burst_predict,\"temperature\":0,\"ignore_eos\":true,\"stream\":false,\"cache_prompt\":false}" \
-            "http://127.0.0.1:$port/completion" \
+            --data "{\"prompt\":\"$prompt_text\",\"n_predict\":$burst_predict,\"temperature\":0,\"ignore_eos\":true,\"stream\":false,\"cache_prompt\":false,\"return_tokens\":true}" \
+            "http://127.0.0.1:$burst_port/completion" \
             >"$burst_directory/request-$burst_index.json" \
             2>"$burst_directory/request-$burst_index.err" &
         burst_pids="$burst_pids $!"
@@ -284,38 +310,69 @@ burst() {
     printf '%s\n' "$burst_start $burst_end" >"$burst_directory/window.txt"
 }
 
+subject_port=$((port + 1))
 for level in $levels; do
     level_directory=$output_directory/level-$level
     mkdir -p "$level_directory"
     log=$output_directory/level-$level.server.log.raw
-    serve "$level" "$log"
-    ready "$log"
+    serve "$level" "$log" "$server_binary" "$port"
+    server_pid=$served_pid
+    ready "$log" "$server_pid" "$port"
     if grep -q 'CPU fallback rejected\|CPU_Mapped model buffer' "$log"; then
         printf 'level %s left a tensor on the host\n' "$level" >&2
         exit 1
     fi
     assert_slot_depth "$log"
+    if [ -n "$subject_server" ]; then
+        subject_log=$output_directory/level-$level.subject.log.raw
+        serve "$level" "$subject_log" "$subject_server" "$subject_port"
+        subject_pid=$served_pid
+        ready "$subject_log" "$subject_pid" "$subject_port"
+        assert_slot_depth "$subject_log"
+    fi
 
     # The warm-up burst is uncounted: a kernel instantiation this process has
     # never launched pays its module load on first use, and every column count
     # in this sweep is a distinct instantiation.
-    burst "$level" "$predict" "$level_directory/warmup"
+    burst "$level" "$predict" "$level_directory/warmup" "$port"
+    [ -n "$subject_server" ] &&
+        burst "$level" "$predict" "$level_directory/warmup-subject" "$subject_port"
 
     repeat=1
     while [ "$repeat" -le "$repeats" ]; do
-        burst "$level" "$predict" "$level_directory/repeat-$repeat"
+        if [ -z "$subject_server" ]; then
+            burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
+        else
+            # The two closures alternate which one answers first, so drift
+            # inside the pair and order bias cancel across repeats the way the
+            # MMVQ width campaigns already require of a paired comparison.
+            if [ $((repeat % 2)) -eq 1 ]; then
+                burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
+                burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
+            else
+                burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
+                burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
+            fi
+        fi
         repeat=$((repeat + 1))
     done
 
-    kill "$server_pid" 2>/dev/null || true
-    wait "$server_pid" 2>/dev/null || true
-    server_pid=''
+    for pid_name in server_pid subject_pid; do
+        eval "pid=\$$pid_name"
+        [ -n "${pid:-}" ] || continue
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        eval "$pid_name=''"
+    done
     # The log is scrubbed here rather than only in the teardown trap. A trap
     # covers every signal that runs it and SIGKILL runs none, so a campaign
     # killed hard leaves whatever logs it had written naming the home directory;
     # scrubbing per level bounds that to the one level still open.
-    scrub_home <"$log" >"${log%.raw}"
-    rm -f "$log"
+    for raw in "$log" "$output_directory/level-$level.subject.log.raw"; do
+        [ -f "$raw" ] || continue
+        scrub_home <"$raw" >"${raw%.raw}"
+        rm -f "$raw"
+    done
 
     python3 - "$level" "$level_directory" "$repeats" >>"$observations" <<'PY'
 import json
@@ -349,10 +406,11 @@ for level in $nsys_levels; do
     capture_directory=$output_directory/dispatch-$level
     mkdir -p "$capture_directory"
     log=$output_directory/dispatch-$level.server.log.raw
-    serve "$level" "$log" "$capture_directory/capture"
-    ready "$log"
+    serve "$level" "$log" "$server_binary" "$port" "$capture_directory/capture"
+    server_pid=$served_pid
+    ready "$log" "$server_pid" "$port"
     assert_slot_depth "$log"
-    burst "$level" "$nsys_predict" "$capture_directory/burst"
+    burst "$level" "$nsys_predict" "$capture_directory/burst" "$port"
     # The server is signalled by pid rather than through the nsys wrapper: the
     # wrapper forwards nothing, so a signal to it leaves the server resident and
     # the report unfinalized.
@@ -422,6 +480,56 @@ with open(destination, "w") as handle:
             aggregate / baseline[0], per_request / baseline[1],
             len(rows[level]["aggregate"])))
 PY
+
+if [ -n "$subject_server" ]; then
+    python3 - "$output_directory" "$levels" "$repeats" "$floor" \
+        >"$output_directory/paired.tsv" <<'PAIRED'
+import json
+import pathlib
+import statistics
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+levels = [int(value) for value in sys.argv[2].split()]
+repeats = int(sys.argv[3])
+floor = float(sys.argv[4])
+
+
+# return_tokens has to be present and non-empty for the identity comparison to
+# mean anything: an absent field reads as one empty list on both closures and
+# would report an agreement it never checked.
+def read(burst, level):
+    start, end = (float(v) for v in (burst / "window.txt").read_text().split())
+    tokens, replies = 0, []
+    for index in range(level):
+        record = json.loads((burst / ("request-%d.json" % index)).read_text())
+        ids = record.get("tokens")
+        if not isinstance(ids, list) or not ids:
+            raise SystemExit("request %s in %s returned no token ids" % (index, burst))
+        replies.append(ids)
+        tokens += record["timings"]["predicted_n"]
+    return tokens / (end - start), replies
+
+
+print("level\taggregate_ratio_median\tclears_floor\treply_identity\tpairs")
+for level in levels:
+    level_directory = directory / ("level-%d" % level)
+    ratios, identical = [], True
+    for repeat in range(1, repeats + 1):
+        control_rate, control_replies = read(
+            level_directory / ("repeat-%d" % repeat), level)
+        subject_rate, subject_replies = read(
+            level_directory / ("repeat-%d-subject" % repeat), level)
+        ratios.append(subject_rate / control_rate)
+        if control_replies != subject_replies:
+            identical = False
+    median = statistics.median(ratios)
+    print("%d\t%.4f\t%s\t%s\t%d" % (
+        level, median, "yes" if median - 1.0 >= floor else "no",
+        "identical" if identical else "diverged", len(ratios)))
+PAIRED
+    cat "$output_directory/paired.tsv"
+fi
 
 printf 'concurrent_sequence_sweep=complete output=%s\n' "$output_directory"
 cat "$output_directory/rates.tsv"
