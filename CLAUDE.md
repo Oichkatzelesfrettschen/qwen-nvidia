@@ -633,6 +633,23 @@ count where the 2B measured 9.46.
 comparison; the CUDA baseline table above is this device's own measured decode
 column and does not fit the prior host's model to it.
 
+`scripts/nvidia-sdk-artifacts.tsv` is the authority for the NVIDIA SDK
+archives this tree builds against: CV-CUDA 0.17.0 and nvImageCodec 0.9.0.20,
+both CUDA 13 x86_64, each row pinning the vendor-published SHA-256, the source
+URL, the install prefix, and the pacman package that installs it. CV-CUDA's
+digests come from the GitHub release metadata and nvImageCodec's from NVIDIA's
+public redistributable index, so neither needs a developer login. Installation
+goes through the PKGBUILDs under the workstation's PKGBUILD monorepo, which
+carry the same digests, and `scripts/verify-nvidia-sdk.sh` reads the installed
+prefix, the package record, and the archive's own version header against the
+ledger. `scripts/nvidia-sdk-smoke/decode-resize.cpp` is the device-residency
+proof: one JPEG decoded by nvImageCodec into a strided device plane on the
+caller's stream, wrapped by CV-CUDA as an NHWC tensor over the same allocation,
+resized on the same stream, with the encoded bytes in and the resized pixels
+out as the only two transfers, and `run-nvidia-sdk-smoke.sh` runs it under the
+GPU ownership lock. nvJPEG2000, nvTIFF, nvCOMP, and the Python bindings stay
+out of the ledger until a consumer needs them.
+
 ## Three runtime classes, one primary target
 
 The 2B class is the appliance's primary performance target, the 0.8B class its
@@ -1285,6 +1302,11 @@ scripts/device-environment-identity.sh [OUTPUT_FILE]
 scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
                                                 # the top-two candidate margin under one shared history
 
+# The NVIDIA SDK ledger, its fetch and verify scripts, and the device smoke
+scripts/verify-nvidia-sdk.sh [LEDGER]           # every pinned row installed as scripts/nvidia-sdk-artifacts.tsv states
+scripts/fetch-nvidia-sdk.sh ARTIFACT_ID DIR     # one archive, verified against the vendor-published digest
+scripts/run-nvidia-sdk-smoke.sh OUT             # JPEG -> nvImageCodec -> CV-CUDA resize, device-resident between the two
+
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
 QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
@@ -1371,6 +1393,7 @@ scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-device-environment-identity.sh
+scripts/test-verify-nvidia-sdk.sh
 scripts/test-repository-quality-gates-host-role.sh
 ```
 
