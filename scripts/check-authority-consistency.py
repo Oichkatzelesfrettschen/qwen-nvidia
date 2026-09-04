@@ -274,10 +274,19 @@ def main():
     closures = load_ledger(
         repo_root, "serving-closures.tsv", report_error,
         ["role", "configuration_id", "evidence_path", "backend_set",
-         "architecture", "ptx_images", "status"])
+         "architecture", "ptx_images", "status", "mmvq_q6k_max",
+         "mmvq_q8_0_max"])
     closures_by_role = {}
     for row in closures:
         closures_by_role.setdefault(row["role"], []).append(row)
+        # build-llama-cuda.sh resolves an unset threshold from the promoted
+        # row and bounds every value at the 16-column kernel ceiling, so a
+        # row outside that range would refuse every bare build.
+        for column in ("mmvq_q6k_max", "mmvq_q8_0_max"):
+            if not re.fullmatch(r"[1-9]|1[0-6]", row[column]):
+                report_error(f"scripts/serving-closures.tsv {row['role']} "
+                             f"{column} '{row[column]}' is not an integer "
+                             "from 1 to 16")
 
     for role in ("promoted", "rollback", "diagnostic"):
         if role not in closures_by_role:
@@ -341,15 +350,22 @@ def main():
 
     # MMVQ threshold claims: every clause binding a value to the quant type
     # must state the promoted value, so one stale clause beside one correct
-    # clause still rejects.
-    q6k_values = threshold_values(readme_norm, "Q6_K")
-    if not q6k_values or any(v != 10 for v in q6k_values):
-        report_error("README.md Q6_K MMVQ threshold clauses read "
-                     f"{q6k_values or 'absent'}, expected every clause at 10")
-    q80_values = threshold_values(readme_norm, "Q8_0")
-    if not q80_values or any(v != 16 for v in q80_values):
-        report_error("README.md Q8_0 MMVQ threshold clauses read "
-                     f"{q80_values or 'absent'}, expected every clause at 16")
+    # clause still rejects. The promoted value is the ledger row's, the same
+    # row build-llama-cuda.sh resolves a bare build from, so the prose, the
+    # ledger, and the builder cannot hold three different production pairs.
+    promoted_rows = closures_by_role.get("promoted", [])
+    if len(promoted_rows) == 1:
+        for quant, column in (("Q6_K", "mmvq_q6k_max"),
+                              ("Q8_0", "mmvq_q8_0_max")):
+            expected = promoted_rows[0][column]
+            if not expected.isdigit():
+                continue
+            values = threshold_values(readme_norm, quant)
+            if not values or any(v != int(expected) for v in values):
+                report_error(f"README.md {quant} MMVQ threshold clauses read "
+                             f"{values or 'absent'}, expected every clause "
+                             f"at {expected}, the promoted row of "
+                             "scripts/serving-closures.tsv")
 
     # 3. Quarantine state, keyed by scope, subject, and runtime mode. A row's
     # unique id may differ from the checkpoint it removes, so membership
