@@ -1,0 +1,230 @@
+0.01.226.168 D Using specialized template: Qwen3-Coder
+0.01.226.995 I srv  server_strea: conv_id= (empty=1)
+0.01.227.112 D srv    operator(): Grammar (tool_calls): char ::= [^"\\\x7F\x00-\x1F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})
+json-array ::= "[" space ("]" | json-value (space "," space json-value)* space "]")
+json-bool ::= "true" | "false"
+json-null ::= "null"
+json-number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)? (("e" | "E") [+-]? [0-9]+)?
+json-object ::= "{" space ("}" | json-string space ":" space json-value (space "," space json-string space ":" space json-value)* space "}")
+json-string ::= "\"" ( [^"\\] | "\\" ( ["\\/ bfnrt] | "u" [0-9a-fA-F]{4} ) )* "\""
+json-value ::= json-object | json-array | json-string | json-number | json-bool | json-null
+response-format ::= "{" space response-format-color-kv space "}"
+response-format-color-kv ::= "\"color\"" space ":" space string
+root ::= "<|im_start|>assistant\n" ("<think>" space until-6 ("</think>" | ))? space response-format
+space ::= | " " | "\n"{1,2} [ \t]{0,20}
+string ::= "\"" char* "\""
+until-6 ::= | [<] until-6-01 | [^<] until-6
+until-6-01 ::= | [<] until-6-01 | [/] until-6-02 | [t] until-6-09 | [^/<t] until-6
+until-6-02 ::= | [<] until-6-01 | [t] until-6-03 | [^<t] until-6
+until-6-03 ::= | [<] until-6-01 | [h] until-6-04 | [^<h] until-6
+until-6-04 ::= | [<] until-6-01 | [i] until-6-05 | [^<i] until-6
+until-6-05 ::= | [<] until-6-01 | [n] until-6-06 | [^<n] until-6
+until-6-06 ::= | [<] until-6-01 | [k] until-6-07 | [^<k] until-6
+until-6-07 ::= | [<] until-6-01 | [^<>] until-6
+until-6-09 ::= | [<] until-6-01 | [o] until-6-10 | [^<o] until-6
+until-6-10 ::= | [<] until-6-01 | [o] until-6-11 | [^<o] until-6
+until-6-11 ::= | [<] until-6-01 | [l] until-6-12 | [^<l] until-6
+until-6-12 ::= | [<] until-6-01 | [_] until-6-13 | [^<_] until-6
+until-6-13 ::= | [<] until-6-01 | [c] until-6-14 | [^<c] until-6
+until-6-14 ::= | [<] until-6-01 | [a] until-6-15 | [^<a] until-6
+until-6-15 ::= | [<] until-6-01 | [l] until-6-16 | [^<l] until-6
+until-6-16 ::= | [<] until-6-01 | [l] until-6-17 | [^<l] until-6
+until-6-17 ::= | [<] until-6-01 | [^<>] until-6
+
+0.01.227.115 I srv    operator(): chat format: peg-native
+0.01.227.448 D srv  eval_llama_c: reasoning budget: tokens=-1, generation_prompt='<|im_start|>assistant
+<think>
+', start=1 toks, end=2 seqs, forced=1 toks
+0.01.227.473 D res  add_waiting_: add task 40 to waiting list. current waiting = 0 (before add)
+0.01.227.475 D que          post: new task, id = 40/1, front = 0
+0.01.227.483 D que    start_loop: processing new tasks
+0.01.227.486 D que  process_new_: processing task, id = 40
+0.01.227.488 I slot get_availabl: id  0 | task -1 |  - checking sim = 1.000 (14/14) > 0.100
+0.01.227.490 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.667
+0.01.227.524 D slot launch_slot_: id  0 | task -1 | launching slot : {"id":0,"n_ctx":4096,"speculative":false,"is_processing":false,"id_task":31,"n_prompt_tokens":21,"n_prompt_tokens_processed":0,"n_prompt_tokens_cache":0,"params":{"seed":4294967295,"temperature":0.0,"dynatemp_range":0.0,"dynatemp_exponent":1.0,"top_k":40,"top_p":0.949999988079071,"min_p":0.05000000074505806,"top_n_sigma":-1.0,"xtc_probability":0.0,"xtc_threshold":0.10000000149011612,"typical_p":1.0,"repeat_last_n":64,"repeat_penalty":1.0,"presence_penalty":0.0,"frequency_penalty":0.0,"dry_multiplier":0.0,"dry_base":1.75,"dry_allowed_length":2,"dry_penalty_last_n":64,"dry_sequence_breakers":["\n",":","\"","*"],"mirostat":0,"mirostat_tau":5.0,"mirostat_eta":0.10000000149011612,"adaptive_target":-1.0,"adaptive_decay":0.8999999761581421,"stop":[],"max_tokens":8,"n_predict":8,"n_keep":0,"n_discard":0,"ignore_eos":false,"stream":false,"logit_bias":[],"n_probs":0,"min_keep":0,"grammar":"","grammar_lazy":false,"grammar_triggers":[],"preserved_tokens":[248058,248059,248068,248069],"chat_format":"peg-native","reasoning_format":"deepseek","reasoning_in_content":false,"generation_prompt":"<|im_start|>assistant\n<think>\n","samplers":["penalties","dry","top_n_sigma","top_k","typ_p","top_p","min_p","xtc","temperature"],"speculative.types":"none","timings_per_token":false,"post_sampling_probs":false,"backend_sampling":false,"lora":[]},"next_token":[{"has_next_token":false,"has_new_line":false,"n_remain":-1,"n_decoded":0}],"prompt":"<|im_start|>user\nName one color.<|im_end|>\n<|im_start|>assistant\n<think>\n","generated":""}
+0.01.227.610 D common_sampler_init: prefill token: 248045 = <|im_start|>
+0.01.227.611 D common_sampler_init: prefill token: 74455 = assistant
+0.01.227.611 D common_sampler_init: prefill token: 198 = 
+
+0.01.227.611 D common_sampler_init: prefill token: 248068 = <think>
+0.01.227.612 D common_sampler_init: prefill token: 198 = 
+
+0.01.227.617 D common_sampler_init: grammar accepted prefill token (248045)
+0.01.227.619 D common_sampler_init: grammar accepted prefill token (74455)
+0.01.227.622 D common_sampler_init: grammar accepted prefill token (198)
+0.01.227.627 D common_sampler_init: grammar accepted prefill token (248068)
+0.01.227.634 D common_sampler_init: grammar accepted prefill token (198)
+0.01.227.640 W common_sampler_init: backend sampling is not compatible with grammar, disabling
+0.01.227.648 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.01.227.652 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.01.227.654 I slot launch_slot_: id  0 | task 40 | processing task, is_child = 0
+0.01.227.654 D que    start_loop: update slots
+0.01.227.655 D srv  update_slots: posting NEXT_RESPONSE
+0.01.227.656 D que          post: new task, id = 41, front = 0
+0.01.227.657 I slot   operator(): id  0 | task 40 | new prompt, n_ctx_slot = 4096, n_keep = 0, task.n_tokens = 14
+0.01.227.660 I slot   operator(): id  0 | task 40 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+0.01.227.660 I slot   operator(): id  0 | task 40 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.01.227.672 I slot init_sampler: id  0 | task 40 | init sampler, took 0.00 ms, tokens: text = 14, total = 14
+0.01.227.673 D slot   operator(): id  0 | task 40 | main/do_checkpoint = no, pos_min = -1, pos_max = -1
+0.01.227.674 D set_adapters_lora: adapters = (nil)
+0.01.227.674 D adapters_lora_are_same: adapters = (nil)
+0.01.227.674 D set_embeddings: value = 0
+0.01.227.675 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.227.675 D que  yield_to_que: yielding to queue
+0.01.227.684 D que  process_new_: processing task, id = 41
+0.01.227.686 D srv  process_sing: decoding, decline task, id_task = 41
+0.01.227.686 D que  process_new_: task declined, id = 41
+0.01.228.568 D ggml_backend_cuda_graph_compute: CUDA graph warmup reset
+0.01.232.880 D que  yield_to_que: done yielding to queue
+0.01.233.356 D slot process_toke: id  0 | task 40 | n_gen = 1, n_remaining = 7, next token: 90700 'Thinking'
+0.01.233.360 D que    start_loop: waiting for new tasks
+0.01.233.361 D que    start_loop: processing new tasks
+0.01.233.362 D que  process_new_: processing task, id = 41
+0.01.233.363 D que    start_loop: update slots
+0.01.233.364 D srv  update_slots: posting NEXT_RESPONSE
+0.01.233.365 D que          post: new task, id = 42, front = 0
+0.01.233.367 D slot handle_last_: id  0 | task 40 | slot decode token, id=90700, n_ctx = 4096, n_tokens = 14, truncated = 0
+0.01.233.368 D set_adapters_lora: adapters = (nil)
+0.01.233.369 D adapters_lora_are_same: adapters = (nil)
+0.01.233.369 D set_embeddings: value = 0
+0.01.233.370 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.233.370 D que  yield_to_que: yielding to queue
+0.01.233.380 D que  process_new_: processing task, id = 42
+0.01.233.380 D srv  process_sing: decoding, decline task, id_task = 42
+0.01.233.381 D que  process_new_: task declined, id = 42
+0.01.237.694 D que  yield_to_que: done yielding to queue
+0.01.237.931 D slot process_toke: id  0 | task 40 | n_gen = 2, n_remaining = 6, next token:  8340 ' Process'
+0.01.237.934 D que    start_loop: waiting for new tasks
+0.01.237.934 D que    start_loop: processing new tasks
+0.01.237.935 D que  process_new_: processing task, id = 42
+0.01.237.936 D que    start_loop: update slots
+0.01.237.936 D srv  update_slots: posting NEXT_RESPONSE
+0.01.237.937 D que          post: new task, id = 43, front = 0
+0.01.237.940 D slot handle_last_: id  0 | task 40 | slot decode token, id=8340, n_ctx = 4096, n_tokens = 15, truncated = 0
+0.01.237.941 D set_adapters_lora: adapters = (nil)
+0.01.237.941 D adapters_lora_are_same: adapters = (nil)
+0.01.237.942 D set_embeddings: value = 0
+0.01.237.942 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.237.943 D que  yield_to_que: yielding to queue
+0.01.237.952 D que  process_new_: processing task, id = 43
+0.01.237.952 D srv  process_sing: decoding, decline task, id_task = 43
+0.01.237.953 D que  process_new_: task declined, id = 43
+0.01.238.055 D CUDA Graph id 74 reused
+0.01.238.058 D ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+0.01.242.180 D que  yield_to_que: done yielding to queue
+0.01.242.494 D slot process_toke: id  0 | task 40 | n_gen = 3, n_remaining = 5, next token:    25 ':'
+0.01.242.497 D que    start_loop: waiting for new tasks
+0.01.242.498 D que    start_loop: processing new tasks
+0.01.242.500 D que  process_new_: processing task, id = 43
+0.01.242.501 D que    start_loop: update slots
+0.01.242.501 D srv  update_slots: posting NEXT_RESPONSE
+0.01.242.502 D que          post: new task, id = 44, front = 0
+0.01.242.505 D slot handle_last_: id  0 | task 40 | slot decode token, id=25, n_ctx = 4096, n_tokens = 16, truncated = 0
+0.01.242.507 D set_adapters_lora: adapters = (nil)
+0.01.242.508 D adapters_lora_are_same: adapters = (nil)
+0.01.242.508 D set_embeddings: value = 0
+0.01.242.509 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.242.509 D que  yield_to_que: yielding to queue
+0.01.242.518 D que  process_new_: processing task, id = 44
+0.01.242.519 D srv  process_sing: decoding, decline task, id_task = 44
+0.01.242.519 D que  process_new_: task declined, id = 44
+0.01.242.636 D CUDA Graph id 74 reused
+0.01.245.366 D que  yield_to_que: done yielding to queue
+0.01.245.679 D slot process_toke: id  0 | task 40 | n_gen = 4, n_remaining = 4, next token:   271 '
+
+'
+0.01.245.682 D que    start_loop: waiting for new tasks
+0.01.245.682 D que    start_loop: processing new tasks
+0.01.245.684 D que  process_new_: processing task, id = 44
+0.01.245.685 D que    start_loop: update slots
+0.01.245.685 D srv  update_slots: posting NEXT_RESPONSE
+0.01.245.686 D que          post: new task, id = 45, front = 0
+0.01.245.688 D slot handle_last_: id  0 | task 40 | slot decode token, id=271, n_ctx = 4096, n_tokens = 17, truncated = 0
+0.01.245.690 D set_adapters_lora: adapters = (nil)
+0.01.245.690 D adapters_lora_are_same: adapters = (nil)
+0.01.245.690 D set_embeddings: value = 0
+0.01.245.691 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.245.691 D que  yield_to_que: yielding to queue
+0.01.245.703 D que  process_new_: processing task, id = 45
+0.01.245.705 D srv  process_sing: decoding, decline task, id_task = 45
+0.01.245.705 D que  process_new_: task declined, id = 45
+0.01.245.804 D CUDA Graph id 74 reused
+0.01.248.529 D que  yield_to_que: done yielding to queue
+0.01.248.745 D slot process_toke: id  0 | task 40 | n_gen = 5, n_remaining = 3, next token:    16 '1'
+0.01.248.747 D que    start_loop: waiting for new tasks
+0.01.248.747 D que    start_loop: processing new tasks
+0.01.248.748 D que  process_new_: processing task, id = 45
+0.01.248.749 D que    start_loop: update slots
+0.01.248.749 D srv  update_slots: posting NEXT_RESPONSE
+0.01.248.749 D que          post: new task, id = 46, front = 0
+0.01.248.751 D slot handle_last_: id  0 | task 40 | slot decode token, id=16, n_ctx = 4096, n_tokens = 18, truncated = 0
+0.01.248.752 D set_adapters_lora: adapters = (nil)
+0.01.248.752 D adapters_lora_are_same: adapters = (nil)
+0.01.248.753 D set_embeddings: value = 0
+0.01.248.753 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.248.753 D que  yield_to_que: yielding to queue
+0.01.248.760 D que  process_new_: processing task, id = 46
+0.01.248.761 D srv  process_sing: decoding, decline task, id_task = 46
+0.01.248.761 D que  process_new_: task declined, id = 46
+0.01.248.855 D CUDA Graph id 74 reused
+0.01.251.598 D que  yield_to_que: done yielding to queue
+0.01.251.808 D slot process_toke: id  0 | task 40 | n_gen = 6, n_remaining = 2, next token:    13 '.'
+0.01.251.810 D que    start_loop: waiting for new tasks
+0.01.251.810 D que    start_loop: processing new tasks
+0.01.251.811 D que  process_new_: processing task, id = 46
+0.01.251.812 D que    start_loop: update slots
+0.01.251.812 D srv  update_slots: posting NEXT_RESPONSE
+0.01.251.813 D que          post: new task, id = 47, front = 0
+0.01.251.814 D slot handle_last_: id  0 | task 40 | slot decode token, id=13, n_ctx = 4096, n_tokens = 19, truncated = 0
+0.01.251.815 D set_adapters_lora: adapters = (nil)
+0.01.251.815 D adapters_lora_are_same: adapters = (nil)
+0.01.251.816 D set_embeddings: value = 0
+0.01.251.816 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.251.816 D que  yield_to_que: yielding to queue
+0.01.251.827 D que  process_new_: processing task, id = 47
+0.01.251.827 D srv  process_sing: decoding, decline task, id_task = 47
+0.01.251.828 D que  process_new_: task declined, id = 47
+0.01.251.907 D CUDA Graph id 74 reused
+0.01.254.921 D que  yield_to_que: done yielding to queue
+0.01.255.143 D slot process_toke: id  0 | task 40 | n_gen = 7, n_remaining = 1, next token:   220 ' '
+0.01.255.144 D que    start_loop: waiting for new tasks
+0.01.255.145 D que    start_loop: processing new tasks
+0.01.255.146 D que  process_new_: processing task, id = 47
+0.01.255.147 D que    start_loop: update slots
+0.01.255.147 D srv  update_slots: posting NEXT_RESPONSE
+0.01.255.148 D que          post: new task, id = 48, front = 0
+0.01.255.149 D slot handle_last_: id  0 | task 40 | slot decode token, id=220, n_ctx = 4096, n_tokens = 20, truncated = 0
+0.01.255.150 D set_adapters_lora: adapters = (nil)
+0.01.255.151 D adapters_lora_are_same: adapters = (nil)
+0.01.255.151 D set_embeddings: value = 0
+0.01.255.151 D srv        decode: n_batch (effective) = 2048, off = 0
+0.01.255.152 D que  yield_to_que: yielding to queue
+0.01.255.163 D que  process_new_: processing task, id = 48
+0.01.255.164 D srv  process_sing: decoding, decline task, id_task = 48
+0.01.255.164 D que  process_new_: task declined, id = 48
+0.01.255.243 D CUDA Graph id 74 reused
+0.01.257.973 D que  yield_to_que: done yielding to queue
+0.01.258.291 D slot process_toke: id  0 | task 40 | stopped by limit, n_gen = 8, n_predict = 8
+0.01.258.295 D slot process_toke: id  0 | task 40 | n_gen = 8, n_remaining = 0, next token:  2972 ' **'
+0.01.258.298 I slot print_timing: id  0 | task 40 | prompt eval time =       5.70 ms /    14 tokens (    0.41 ms per token,  2457.87 tokens per second)
+0.01.258.299 I slot print_timing: id  0 | task 40 |        eval time =      24.93 ms /     8 tokens (    3.56 ms per token,   280.73 tokens per second)
+0.01.258.300 I slot print_timing: id  0 | task 40 |       total time =      30.63 ms /    22 tokens
+0.01.258.301 I slot print_timing: id  0 | task 40 |    graphs reused =         31
+0.01.258.314 D res          send: sending result for task id = 40
+0.01.258.314 D res          send: task id = 40 pushed to result queue
+0.01.258.317 I slot      release: id  0 | task 40 | stop processing: n_tokens = 21, truncated = 0
+0.01.258.318 D slot        reset: id  0 | task 40 | 
+0.01.258.323 D que    start_loop: waiting for new tasks
+0.01.258.324 D que    start_loop: processing new tasks
+0.01.258.325 D que  process_new_: processing task, id = 48
+0.01.258.326 D que    start_loop: update slots
+0.01.258.326 I srv  update_slots: all slots are idle
+0.01.258.326 D que    start_loop: waiting for new tasks
+0.01.258.357 D Parsed message: {"role":"assistant","content":"","reasoning_content":"Thinking Process:\n\n1.  **"}
+0.01.258.500 D srv          stop: all tasks already finished, no need to cancel
+0.01.258.507 D res  remove_waiti: remove task 40 from waiting list. current waiting = 1 (before remove)
+0.01.258.508 D srv          stop: all tasks already finished, no need to cancel

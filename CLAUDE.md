@@ -134,6 +134,36 @@ of every closure the campaign retained.
 The serving default is graphs on, fusion on, PDL unset, cuBLAS free to take
 what it wins.
 
+Device-side sampling is a trade with a measured crossover rather than a lever.
+`--backend-sampling` splices `ggml_argmax`, `ggml_top_k`, and a
+`ggml_soft_max`/`ggml_cumsum` inverse-CDF draw into the forward pass
+(`src/llama-graph.cpp:3711-3813`), which removes the 993280-byte logit copy at
+`src/llama-context.cpp:1873` and the host chain that scans it.
+`evidence/ada/backend-sampling/` measures both sides under clock lock: the
+saving is 0.1589 to 0.1681 ms per generated token across all three runtime
+classes, a 5.8% spread over checkpoints differing four times in weight count,
+because every one carries the same 248320-token vocabulary. The cost is 6.1 to
+8.8 ms per request, fixed against a sixteen-fold change in prompt length and
+paid again on every request after the warm-up. They cross at forty to
+fifty-five generated tokens, so a short reply is slower with the flag on and a
+long one reaches 5.04% at most. On decode alone the 0.8B clears the 5.1% floor
+at 1.0571 to 1.0592; on the whole request no class clears it, and
+`QWEN_BACKEND_SAMPLING` stays unset. Token identity holds across every arm.
+
+Three gates take that server default away per request and only two announce
+themselves. `common/sampling.cpp:415` and `:421` warn and disable when the
+request built a grammar or a reasoning-budget sampler, which is why
+`scripts/image-review.py` samples on the host: it sends `response_format` and
+the server converts the schema to a grammar. `server-context.cpp:1697-1702`
+disables per slot at `n_probs > 0 && !post_sampling_probs` and writes nothing,
+while `server-task.cpp:84` echoes the value the request asked for rather than
+the value the slot used, and `llama_context` prints `setting backend sampler`
+once at context creation. No request carries positive evidence that it sampled
+on the device. `webui/index.html:2505` sends `reasoning_budget` beside its
+`chat_template_kwargs`, and this server registers that field as
+`reasoning_budget_tokens` (`server-schema.cpp:383`) with no alias, so the key is
+inert and the template argument is what ends the reasoning block.
+
 A launch on this device costs about a microsecond before it moves a byte, and
 that figure bounds every lever that removes launches rather than bytes.
 `evidence/ada/projection-fan-out/` reads it out of two kernels whose traffic is
@@ -1203,6 +1233,10 @@ scripts/run-mmvq-paired-crossover.sh CONTROL_BENCH SUBJECT_BENCH MODEL_ID OUT
                                                 # two closures width by width, alternating, four pairs least
 scripts/run-mmvq-width-request-tails.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
                                                 # the same pairs on the served path, with reply identity
+                                                # QWEN_TAIL_DECIDE_ON=decode reads predicted_ms instead
+                                                # QWEN_TAIL_{CONTROL,SUBJECT}_ARGS make the axis a runtime flag
+scripts/probe-backend-sampling-reach.sh MODEL_ID OUT
+                                                # which request shapes keep the server's backend sampler
 scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
                                                 # the top-two candidate margin under one shared history
 
