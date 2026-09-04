@@ -28,12 +28,19 @@ The served single-sequence arm is the control rather than any llama-bench
 figure, and it lands beside one: the 2B reads 230.79 aggregate against the
 registry's 231.37, taken under a harness with no host sampler at all.
 
-The trade is priced. At eleven slots the appliance delivers 3.89 times the
-tokens and one client waits 2.5 times as long: per-request rate falls to 0.399
-of the single-sequence rate on the 2B and 0.393 on the 0.8B. Those two shares
-agree to four parts in a thousand across checkpoints differing in size,
-quantization, and mat-mul family, which makes the latency cost a property of the
-batching rather than of the model.
+The trade is two numbers rather than one. At eleven slots the appliance delivers
+3.89 times the tokens and one client waits 2.5 times as long: the per-request
+rate falls to 0.399 of the single-sequence rate on the 2B and 0.393 on the 0.8B.
+Those two shares agree to four parts in a thousand across checkpoints differing
+in size, quantization, and mat-mul family, which makes the latency cost a
+property of the batching rather than of the model. Whether the trade is worth
+taking is a policy question about whether requests arrive together, and it is
+not answered by any quantity measured here.
+
+`2b-dispatch-01/` carries a second single-sequence arm at 230.62 against
+`2b-run-01/`'s 230.79, taken through a separate server launch to reach the
+capture phase. The two are one measurement repeated to 0.07% rather than two
+observations to average.
 
 ## Dispatch crosses where the closure says it does
 
@@ -67,6 +74,11 @@ Marginal aggregate throughput per added slot:
 | 8 to 10 | 26.0 | 40.0 |
 | **10 to 11** | **40.1** | **23.2** |
 
+The two columns are not calibrated against each other. The checkpoints differ in
+weight count, layer count, quantization, and which family each mat-mul dispatches
+to at every level rather than only at the crossing step, so these are two
+saturation trajectories rather than one trajectory with and without a crossing.
+
 The 0.8B falls monotonically across the whole sweep. It is Q8_0 at a threshold
 of 16, so it crosses nowhere here, and its curve is what saturation alone looks
 like on this device. The 2B does not fall monotonically: its marginal gain rises
@@ -86,10 +98,12 @@ MMVQ ahead through ten. The regime that actually produces `ne11 > 1` on the
 appliance is N decoding sequences, where the same column count arrives with N
 separate KV caches and a flash-attention pass over N sequences beside it. The
 rate here is consistent with MMQ being the better family for Q6_K earlier than
-ten in that regime and inconsistent with MMVQ leading up to it. This is a
-cross-model comparison rather than a paired A/B, so it names a candidate rather
-than a verdict, and the arm that would settle it is one build at a lower Q6_K
-threshold measured against the production closure on this harness.
+ten in that regime. It rests on one model's derivative at one crossing point
+against an uncalibrated second model, which is a candidate rather than a verdict.
+A simpler reading is not excluded either: 1149 MMVQ launches become 1125 MMQ
+launches, so the step removes launches as well as changing family. The arm that
+settles it is one build at a lower Q6_K threshold measured against the production
+closure on this harness, which compares one model with itself.
 
 ## What this does to the three refuted levers
 
@@ -140,20 +154,24 @@ argument with a number.
    11 matching the slot count exactly.
 2. **Aggregate throughput does not scale.** Refuted. 3.89 and 3.88 times at
    eleven slots against a per-level spread under 2%.
-3. **No dispatch effect is visible at request level.** Refuted for Q6_K at 11,
-   where the crossing checkpoint reverses the control's direction. Left open for
-   Q4_K at 8: the 2B's marginal gain falls from 50.5 to 24.5 there and the
-   0.8B's falls from 83.2 to 43.3 over the same step, which is the same
-   direction and a similar ratio, so that crossing is not separable from
-   saturation in this data.
+3. **No dispatch effect is visible at request level.** Unresolved. The Q6_K
+   crossing at 11 is where the 2B reverses the control's direction, which is
+   suggestive and rests on two uncalibrated trajectories rather than on a paired
+   comparison. Q4_K at 8 is not separable from saturation at all: the 2B's
+   marginal gain falls from 50.5 to 24.5 there and the 0.8B's falls from 83.2 to
+   43.3 over the same step, the same direction at a similar ratio. The dispatch
+   *transition* is settled cold by the symbol table; its effect on the rate is
+   what a paired closure A/B has to decide.
 4. **The round trip per iteration is flat in N.** Not measured. The iteration
    duration is measured and the round trip inside it is not, so this arm reports
    the growth of the whole iteration and leaves its host term to a later
    capture.
 5. **Concurrency costs per-request latency more than it buys aggregate.**
-   Refuted at these levels. Aggregate rises 3.89 times while the per-request
-   rate falls to 0.399, so the product is a 55% net gain in tokens delivered per
-   second of client waiting; the trade is real and it is not a wash.
+   Both terms are measured and neither dominates by construction: aggregate rises
+   3.89 times while the per-request rate falls to 0.399 of its single-sequence
+   value. Which one the appliance should buy depends on whether requests arrive
+   concurrently, so this falsifier resolves into a policy question rather than
+   into a measurement.
 
 ## What this arm is not
 

@@ -239,7 +239,40 @@ than clear of it: dividing by its own untraced token instead of the registry
 figure reads 5.01%. What decides it is that 1.221 us comes from the smallest
 launch in the class and is applied to every removed one, so the true saving sits
 under both readings. That bound is computed at `ne11` of 1; a concurrent-sequence
-or speculative-accept workload moves these mat-muls to MMQ and recomputes it.
+or speculative-accept workload moves these mat-muls to MMQ and recomputes it,
+and `evidence/ada/concurrent-sequences/` is that recomputation.
+
+Concurrency is the amortization every per-launch lever here was trying to buy,
+and it buys more than all of them together. `update_slots` builds one batch
+across every slot holding a token to decode, so N decoding slots make one ubatch
+of N columns, `ne11` equals the slot count, and the Nsight symbol names that
+count: `mul_mat_vec_q<Q4_K, 7>` at seven slots against `mul_mat_q<Q4_K>` at
+eight. `scripts/run-concurrent-sequence-sweep.sh` sweeps it, and eleven
+concurrent sequences read 3.89 times the aggregate decode throughput of one on
+the 2B and 3.88 on the 0.8B while the per-request rate falls to 0.399 and 0.393
+of its single-sequence value; the appliance serves `--parallel 1`, so the trade
+is available rather than taken. An iteration at eleven slots costs 2.83 times an
+iteration at one and produces eleven tokens, and the two checkpoints agree on
+that growth within 2% at every level, so a lever removing a fixed per-iteration
+cost has its share divided by it: the projection fan-out merge falls from 3.08%
+to 1.09% on the 2B and the bounded graph loop from 3.26% to 1.15%.
+
+`llama_context` sets `cparams.n_ctx_seq = cparams.n_ctx / cparams.n_seq_max`
+(`src/llama-context.cpp:293`), so a concurrency sweep holding `--ctx-size` fixed
+shrinks each slot's depth as 1/N and lets KV traffic per sequence fall exactly as
+concurrency rises. Each arm asks for `N * slot_depth` and reads the per-slot
+depth back out of the server's own load line. Every request in a burst carries
+`ignore_eos`, because a reply that stops early drops the batch to N-1 and decodes
+its tail at a column count the arm did not ask for.
+
+`evidence/ada/mmvq-crossover-ad104/` selected the Q6_K threshold of ten from
+llama-bench `-p N` arms, which issue one mat-mul of N columns in isolation. The
+regime that produces `ne11 > 1` on the appliance is N decoding sequences with N
+separate KV caches, and the two regimes are unmeasured against each other; the
+served rate at the Q6_K crossing is consistent with MMQ leading earlier than ten
+there, and deciding it needs one closure at a lower threshold compared with the
+production closure on one model rather than the cross-model derivative that
+raised the question.
 
 Stream-K is the MMQ decomposition on this device rather than a decision:
 `ggml_cuda_mmq_get_config` at `mmq.cuh:247-249` routes every NVIDIA part at
@@ -1267,6 +1300,8 @@ scripts/run-vision-review-control.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
                                                 # real, withheld, swapped, and a closing real arm
 scripts/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
                                                 # token identity across the graph optimizer
+scripts/run-concurrent-sequence-sweep.sh SERVER MODEL_ID OUT
+                                                # aggregate and per-request decode at N concurrent slots
 scripts/run-cuda-dispatch-census.sh OUT [ARM_ID...]
                                                 # where every mat-mul launch goes, per arm, census closure only
 scripts/summarize-dispatch-census.py OUT        # census rows joined to the requests that produced them

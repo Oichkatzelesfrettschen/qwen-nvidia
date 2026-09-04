@@ -310,6 +310,12 @@ for level in $levels; do
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
     server_pid=''
+    # The log is scrubbed here rather than only in the teardown trap. A trap
+    # covers every signal that runs it and SIGKILL runs none, so a campaign
+    # killed hard leaves whatever logs it had written naming the home directory;
+    # scrubbing per level bounds that to the one level still open.
+    scrub_home <"$log" >"${log%.raw}"
+    rm -f "$log"
 
     python3 - "$level" "$level_directory" "$repeats" >>"$observations" <<'PY'
 import json
