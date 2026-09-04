@@ -37,6 +37,9 @@ entrypoint	role	backend	top_level_owner	nested_owner_capability	active_compute_l
 cuda-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 image-review.py	active-workload	cuda	no	yes	no	yes	no	inherits
 image-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+physics-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+build-physics-runtime.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+physics-teardown-check.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
 qwen-capacity-policy.sh	active-workload	cuda	no	yes	exports	yes	no	inherits
 qwen-router-exec-guard.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 run-qwen-capacity-server.sh	active-workload	cuda	no	yes	no	yes	no	inherits
@@ -64,6 +67,7 @@ run-cuda-lever-campaign.sh	measurement-campaign	cuda	yes	no	no	no	yes	acquires
 run-graph-alias-ab.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 run-mmvq-paired-crossover.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 run-mmvq-width-request-tails.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+run-nvidia-sdk-smoke.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 run-one-token-admission.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
 run-placement-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	n-a	acquires
 run-speculation-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
@@ -112,3 +116,5 @@ run-decode-node-trace.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 run-concurrent-sequence-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 probe-backend-sampling-reach.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 device-environment-identity.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+admit-physics-runtime.sh	measurement-campaign	cuda	yes	yes	exports	no	yes	acquires
+probe-page-cache-release.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires

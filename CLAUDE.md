@@ -215,6 +215,18 @@ on the device. `webui/index.html:2505` sends `reasoning_budget` beside its
 `reasoning_budget_tokens` (`server-schema.cpp:383`) with no alias, so the key is
 inert and the template argument is what ends the reasoning block.
 
+A loaded checkpoint stays in the host page cache after llama-server copies
+it to CUDA0: the 9B reads 5.4 GiB resident in `fincore` with one mapping held
+while it serves and none afterwards. `scripts/probe-page-cache-release.sh`
+measures `posix_fadvise(POSIX_FADV_DONTNEED)` over that one file between a
+load of the 9B and a load of the 2B, against a control on each side
+(`evidence/ada/page-cache-release/`): the advice drops every page in 0.18 s
+and frees 5.6 GB, the 2B's load and first request read the same 0.62 s and
+0.09 s with and without it, and the 9B's next load pays 17.1 s from the NVMe
+through 139020 major faults where the warm reload pays 1.2 s. The advice is a
+tool for a host under memory pressure rather than a default, and no launch
+script issues it; `/proc/sys/vm/drop_caches` stays unwritten in every arm.
+
 A launch on this device costs about a microsecond before it moves a byte, and
 that figure bounds every lever that removes launches rather than bytes.
 `evidence/ada/projection-fan-out/` reads it out of two kernels whose traffic is
@@ -736,6 +748,68 @@ count where the 2B measured 9.46.
 comparison; the CUDA baseline table above is this device's own measured decode
 column and does not fit the prior host's model to it.
 
+`scripts/nvidia-sdk-artifacts.tsv` is the authority for the NVIDIA SDK
+archives this tree builds against: CV-CUDA 0.17.0, nvImageCodec 0.9.0.20, and
+PhysX SDK 5.9.0 at tag `110.1-omni-and-physx-5.9.0`, all CUDA 13 x86_64, each row pinning the vendor-published SHA-256, the source
+URL, the install prefix, and the pacman package that installs it. CV-CUDA's
+digests come from the GitHub release metadata and nvImageCodec's from NVIDIA's
+public redistributable index, so neither needs a developer login. Installation
+goes through the PKGBUILDs under the workstation's PKGBUILD monorepo, which
+carry the same digests, and `scripts/verify-nvidia-sdk.sh` reads the installed
+prefix, the package record, and the archive's own version header against the
+ledger. `scripts/nvidia-sdk-smoke/decode-resize.cpp` is the device-residency
+proof: one JPEG decoded by nvImageCodec into a strided device plane on the
+caller's stream, wrapped by CV-CUDA as an NHWC tensor over the same allocation,
+resized on the same stream, with the encoded bytes in and the resized pixels
+out as the only two transfers, and `run-nvidia-sdk-smoke.sh` runs it under the
+GPU ownership lock. nvJPEG2000, nvTIFF, nvCOMP, and the Python bindings stay
+out of the ledger until a consumer needs them.
+
+A physics simulation reaches the device the way an image generation does: one
+service, one lease, one profile ledger, and a runtime that proves where it ran.
+`scripts/physics-profiles.tsv` carries the fixture, the timestep, the step
+ceiling, the gravity, the GPU flags, the deadline, and `execution_policy` per
+row, so a request carries a `profile_id` and a step count and no geometry,
+native code, path, or PhysX or CUDA flag. `scripts/physics_protocol.py`
+freezes the request and reply at version 1 with a closed schema and a 65536-byte
+line, and `scripts/physics-service.py` listens on a Unix socket under the
+state directory, holds no CUDA context while idle, takes the compute lease,
+spawns `physx-rigid-runtime` through `qwen-exec-idle-priority.sh` with a fixed
+environment and a closed descriptor set, and releases the lease after one
+JSON line comes back. PhysX falls back to the CPU when the GPU is unusable, so
+the runtime reports `contextIsValid()`, raises `eENABLE_GPU_DYNAMICS` and the
+GPU broad phase, reads both back off the scene after the run, and names the
+device; a reply reads `completed` only where every proof holds and a CPU
+answer reads `failed` with reason `gpu_fallback`. The first and only fixture
+is `d6-chain-4`: a static anchor and four boxes joined by D6 joints locked in
+translation and free in swing and twist, released under gravity for a bounded
+step count, with every body's pose and velocities, every joint's angles, a
+contact summary, the timings, and the runtime and scene digests in the result.
+`scripts/physics-runtime/physx-rigid-runtime.cpp` builds through
+`scripts/build-physics-runtime.sh` against the physx-sdk package, whose
+PKGBUILD compiles the GPU library from the tag's own sources for SM89 with two
+CUDA 13 patches: `cuCtxCreate` gained a parameter block, and nvcc 13's host
+stubs call `__cudaGetKernel` and `__cudaLaunchKernel`, two libcudart entry
+points the SDK never linked because `CudaKernelWrangler.cpp` shims the
+registration calls itself and loads every kernel through the driver API, so
+`libPhysXGpu_64.so` built without the second patch fails `dlopen` on the
+undefined symbol and PhysX reports the context invalid
+(`evidence/physics/d6-runtime-proof/`). `scripts/test-physics-service.py`
+drives the service against `scripts/test-fixtures/fake-physx-runtime.sh` and
+`scripts/physics-teardown-check.sh` proves no service, runtime, socket, or held
+lease remains. `scripts/admit-physics-runtime.sh` is the device admission:
+it raises one row to `validator-gated` in a copied ledger, takes the owner
+lock, starts the service as an ordinary-user child holding the compute lease,
+sends one request over a socket bound under `XDG_RUNTIME_DIR` because an
+evidence path exceeds the 107-byte AF_UNIX bound, samples the driver's client
+list and the lease ten times a second through the job, and reads every claim
+off the reply and the teardown. `evidence/physics/d6-runtime-proof/` carries
+the accepted run: the runtime visible as a CUDA client at 288 MiB, GPU
+dynamics read back active, the chain intact at 1.2 per link after 3600 steps
+in 1329 ms, and a clean client list afterwards. Every checked-in row still
+reads `refused`; promotion, the MCP wrapper, and the session integration are
+separate transitions this record informs.
+
 ## Three runtime classes, one primary target
 
 The 2B class is the appliance's primary performance target, the 0.8B class its
@@ -865,6 +939,8 @@ down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
 `admit-representation-row.sh`, `classify-graphics-latency-probe.sh`,
 `probe-filled-depth.sh`,
 `probe-depth-projector.sh`, `run-cuda-lever-campaign.sh`,
+`run-nvidia-sdk-smoke.sh`, `admit-physics-runtime.sh`,
+`probe-page-cache-release.sh`,
 `run-ad104-path-audit.sh`, `run-ad104-b789-calibration.sh`,
 `run-placement-sweep.sh`, `run-graph-alias-ab.sh`, `run-one-token-admission.sh`
 at its load stage, and `promote-llama-build.sh`. Every other audited entry point
@@ -1392,6 +1468,21 @@ scripts/device-environment-identity.sh [OUTPUT_FILE]
 scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID OUT
                                                 # the top-two candidate margin under one shared history
 
+# The NVIDIA SDK ledger, its fetch and verify scripts, and the device smoke
+scripts/verify-nvidia-sdk.sh [LEDGER]           # every pinned row installed as scripts/nvidia-sdk-artifacts.tsv states
+scripts/fetch-nvidia-sdk.sh ARTIFACT_ID DIR     # one archive, verified against the vendor-published digest
+scripts/run-nvidia-sdk-smoke.sh OUT             # JPEG -> nvImageCodec -> CV-CUDA resize, device-resident between the two
+scripts/probe-page-cache-release.sh SERVER OUT [A_ID] [B_ID]
+                                                # what posix_fadvise(DONTNEED) on a loaded GGUF buys and what its reload costs
+
+# The physics lane
+scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
+scripts/physics-service.py --state-dir DIR --profiles FILE --runtime BIN
+                                                # the lease owner, one simulation at a time
+scripts/physics-teardown-check.sh [STATE_DIRECTORY]
+                                                # no service, runtime, socket, or held lease
+scripts/admit-physics-runtime.sh OUT [STEPS]    # one D6 chain on the device through the service, proof retained
+
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
 QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
@@ -1481,6 +1572,8 @@ scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-device-environment-identity.sh
+scripts/test-verify-nvidia-sdk.sh
+python3 scripts/test-physics-service.py
 scripts/test-repository-quality-gates-host-role.sh
 ```
 

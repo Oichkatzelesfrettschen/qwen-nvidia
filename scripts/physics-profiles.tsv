@@ -1,0 +1,23 @@
+# The physics fixtures the service simulates, one row per profile. A request
+# names a profile_id and a step count and nothing else the simulation reads:
+# the scene, the timestep, the gravity, and the GPU flags belong to the row,
+# so a caller chooses among fixtures and supplies no geometry, native code,
+# path, or PhysX or CUDA flag. The service validates the ledger whole before it
+# answers a request, the way image-profiles.tsv is read.
+#
+# profile_id      the name a request carries
+# scene           the fixture the runtime builds; the runtime refuses a name it
+#                 does not carry
+# timestep_s      fixed simulation timestep
+# max_steps       the ceiling a request's steps is bounded by
+# gravity_y       gravity along -Y in m/s^2, as a positive magnitude
+# gpu_dynamics    yes requires eENABLE_GPU_DYNAMICS and refuses the job when the
+#                 runtime reports it inactive
+# gpu_broadphase  yes requires PxBroadPhaseType::eGPU
+# timeout_s       the service's deadline for one job
+# execution_policy refused or validator-gated, the same reading the web and
+#                 image ledgers give the field: refused emits no tool
+# device_index    the CUDA device the runtime binds
+#
+# profile_id	scene	timestep_s	max_steps	gravity_y	gpu_dynamics	gpu_broadphase	timeout_s	execution_policy	device_index
+physics-d6-chain-a	d6-chain-4	0.016666667	3600	9.81	yes	yes	120	refused	0
