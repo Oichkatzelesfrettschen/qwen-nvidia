@@ -81,7 +81,11 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # llama-cuda-dispatch-census adds a hook line at the head of mmvq.cu's launcher
 # below the crossover patch's hunks, so it follows that patch and takes the
 # last position.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch"
+# llama-cuda-graph-lifecycle hooks the graph compute decision path the census
+# patch already hooks, and its ggml-cuda.cu hunks were cut against the tree the
+# census patch produces, so it follows the census patch and takes the last
+# position.
+candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-dispatch-census.patch llama-cuda-graph-lifecycle.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
 # mmq.cuh belongs in the list exactly while a candidate rewrites it, and no
@@ -89,7 +93,7 @@ candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-wo
 # were each its sole writer in turn and both were rejected. The census patch
 # names mmq.cu rather than the header, so a digest of an unmodified file would
 # state nothing about the series.
-candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"
+candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/dispatch-census.cu ggml/src/ggml-cuda/dispatch-census.cuh ggml/src/ggml-cuda/graph-lifecycle.cu ggml/src/ggml-cuda/graph-lifecycle.cuh ggml/src/ggml-cuda/ggml-cuda.cu ggml/src/ggml-cuda/mmf.cu ggml/src/ggml-cuda/mmq.cu ggml/src/ggml-cuda/mmvf.cu"
 if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     for candidate_name in $candidate_patch_names; do
         git -C "$temporary_directory/llama.cpp" apply --check \

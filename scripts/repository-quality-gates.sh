@@ -110,6 +110,7 @@ scripts/test-exec-profiler-clean-env.sh
 scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-nsys-mat-mul-kernels.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-graph-lifecycle-trace.py
 python3 scripts/test-read-server-decode-iterations.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
