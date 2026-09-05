@@ -304,8 +304,21 @@ code, rows, faults = run(tails_log(steady).replace("llama_memory_recurrent:",
                          "llama_memory_recurrent:", 1), "paged_kv_vmm", TAILS)
 check("a residency violation line is refused", code == 1 and any("violations" in f for f in faults))
 code, rows, faults = run(tails_log([steady[0].replace("latency_us=900", "latency_us=abc")]), "paged_kv_vmm", TAILS)
-check("a transaction line with a non-numeric field still parses op and result",
-      code == 0 and rows.get("commit_latency_us_median") == "-", str(faults))
+check("a transaction line with a non-numeric latency is malformed", code == 1
+      and any("match no record pattern" in f for f in faults))
+code, rows, faults = run(tails_log([steady[0].replace(" physical_released_bytes=0", "")]), "paged_kv_vmm", TAILS)
+check("a transaction line missing an accounting field is malformed", code == 1
+      and any("match no record pattern" in f for f in faults))
+code, rows, faults = run(tails_log(["ggml_backend_cuda_paged_kv_require: paged_kv_residency op=commit result=ok\n"]), "paged_kv_vmm", TAILS)
+check("a bare op and result line is malformed rather than a passing commit", code == 1
+      and any("match no record pattern" in f for f in faults))
+code, rows, faults = run(tails_log([steady[0].replace("latency_us=900", "latency_us=900 latency_us=1")]), "paged_kv_vmm", TAILS)
+check("a duplicated field is malformed", code == 1 and any("match no record pattern" in f for f in faults))
+eleven_fast = [transaction("commit", 1, 12 + i, (12 + i) * UNIT, 0, 0) for i in range(11)]
+one_slow = [transaction("commit", 1, 23, 23 * UNIT, 0, 20000)]
+code, rows, faults = run(tails_log(eleven_fast + one_slow), "paged_kv_vmm", TAILS + ["--max-latency-p95-us", "10000"])
+check("p95 over eleven fast and one slow transaction is the slow one", code == 1
+      and rows.get("commit_latency_us_p95") == "20000" and any("commit latency p95" in f for f in faults), str(rows.get("commit_latency_us_p95")))
 
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)

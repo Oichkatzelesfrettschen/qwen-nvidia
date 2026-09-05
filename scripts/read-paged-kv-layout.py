@@ -85,10 +85,26 @@ def read_log(path):
                 continue
             match = RESIDENCY_LINE.search(line)
             if match:
+                # Every transaction record carries its result, the published
+                # count, the five quantities, and its latency as non-negative
+                # integers, each once; a record missing or misspelling one of
+                # them is malformed rather than a sample to skip, since a
+                # bound computed over an empty series would hold by default.
                 record = {"op": match.group("op")}
+                duplicate = False
                 for pair in match.group("rest").split():
                     key, _, value = pair.partition("=")
+                    if key in record:
+                        duplicate = True
                     record[key] = int(value) if value.isdigit() else value
+                required = ("result", "units_published", "physical_allocated_bytes", "physical_mapped_bytes",
+                            "physical_retained_unmapped_bytes", "physical_released_bytes", "latency_us")
+                numeric = required[1:] + (("units_changed",) if record.get("result") == "ok" and record["op"] != "destroy" else ())
+                if duplicate or record.get("result") not in ("ok", "refused") \
+                        or any(key not in record for key in required) \
+                        or any(not isinstance(record.get(key), int) for key in numeric):
+                    malformed.append(line.rstrip("\n"))
+                    continue
                 transactions.append(record)
                 continue
             match = BUFFER_LINE.search(line)
@@ -130,12 +146,14 @@ def read_log(path):
 
 
 def quantile(values, fraction):
-    """Nearest-rank quantile over a sorted copy; an empty list reads None."""
+    """Nearest-rank quantile: the ceil(fraction * n)-th smallest value, so a p95
+    over twelve samples is the twelfth and one slow transaction among eleven
+    fast ones reads as the slow one. An empty list reads None."""
     if not values:
         return None
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1)))))
-    return ordered[index]
+    rank = -(-int(fraction * 1000000) * len(ordered) // 1000000)
+    return ordered[max(0, min(len(ordered) - 1, rank - 1))]
 
 
 def main():
@@ -283,7 +301,7 @@ def main():
                 faults.append("physical_allocated_bytes peaked at %d over the %d bound"
                               % (max(allocated_series), arguments.max_allocated_bytes))
             for op, records in (("commit", commits), ("reclaim", reclaims)):
-                latencies = [record["latency_us"] for record in records if isinstance(record.get("latency_us"), int)]
+                latencies = [record["latency_us"] for record in records]
                 median = quantile(latencies, 0.5)
                 p95 = quantile(latencies, 0.95)
                 add("%s_latency_us_median" % op, median if median is not None else "-")

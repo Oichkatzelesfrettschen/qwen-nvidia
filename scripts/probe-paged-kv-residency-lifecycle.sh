@@ -354,10 +354,14 @@ for arm in $arms; do
         record "arm:$arm:replies_abd" divergent
         refusals=$((refusals + 1))
     fi
+    # The state after D holds the same prompt and the same greedy reply in
+    # the same cells as the state after A, so the serialized bytes agree; a
+    # difference is a cell placement or a value the lifecycle moved.
     if cmp -s "$arm_directory/slots/a.bin" "$arm_directory/slots/d.bin"; then
         record "arm:$arm:state_ad" identical
     else
-        record "arm:$arm:state_ad" "differ"
+        record "arm:$arm:state_ad" differ
+        refusals=$((refusals + 1))
     fi
 
     # The layout reader holds the log to its policy, with the bounds on the

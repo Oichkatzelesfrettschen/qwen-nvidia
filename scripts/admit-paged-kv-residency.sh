@@ -153,8 +153,23 @@ for key in residency_commits residency_reclaims residency_refusals kv_physical_a
     record "identity_subject:$key" "$(awk -F'\t' -v k="$key" '$1 == k { print $2 }' "$output_directory/layout-subject.tsv" 2>/dev/null || :)"
 done
 
-stage lifecycle "$script_directory/probe-paged-kv-residency-lifecycle.sh" "$build_directory" "$output_directory/lifecycle" "$model_id"
+# The lifecycle's arm list and its boundary requirement are the admission's
+# own rather than the caller's: the three arms and the crossing are what the
+# stage exists to compare, so a caller's QWEN_RESIDENCY_ARMS or
+# QWEN_RESIDENCY_REQUIRE_BOUNDARIES is overridden here and the summary is
+# then held to the tails arm and the cross-arm identity it produced.
+stage lifecycle env QWEN_RESIDENCY_ARMS="full tails full-close" QWEN_RESIDENCY_REQUIRE_BOUNDARIES=1 \
+    "$script_directory/probe-paged-kv-residency-lifecycle.sh" "$build_directory" "$output_directory/lifecycle" "$model_id"
 lifecycle_summary=$output_directory/lifecycle/summary.tsv
+lifecycle_gates=0
+if [ -s "$lifecycle_summary" ]; then
+    for gate in "identity:full:tails	yes" "identity:full:full-close	yes" "arm:tails:layout	layout_holds" "arm:tails:replies_abd	identical"; do
+        grep -qxF "$gate" "$lifecycle_summary" && lifecycle_gates=$((lifecycle_gates + 1))
+    done
+    grep -q "^arm:tails:lifecycle_boundaries	crossed" "$lifecycle_summary" && lifecycle_gates=$((lifecycle_gates + 1))
+fi
+record lifecycle_gates "$lifecycle_gates/5"
+[ "$lifecycle_gates" -eq 5 ] || refusals=$((refusals + 1))
 if [ -s "$lifecycle_summary" ]; then
     while IFS="$(printf '\t')" read -r key value; do
         case $key in

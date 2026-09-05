@@ -218,8 +218,15 @@ int main() {
         r.require(req, 0, 3 * G + 1); // units 0..3
         auto tx = r.commit(req, drv);
         check(tx.ok && tx.units_committed == 4, "commit backs the four required units");
-        check(d.calls.size() == 16 && d.calls[0] == "create:0" && d.calls[1] == "map:0" && d.calls[2] == "set_access:0" && d.calls[3] == "zero:0",
-              "each unit runs create, map, set_access, zero in that order");
+        {
+            std::vector<std::string> expected;
+            for (size_t u = 0; u < 4; ++u) {
+                for (const char * op : {"create", "map", "set_access", "zero"}) {
+                    expected.push_back(std::string(op) + ":" + std::to_string(u));
+                }
+            }
+            check(d.calls == expected, "every unit runs create, map, set_access, zero in that order, unit by unit");
+        }
         const auto & a = r.accounting();
         check(a.virtual_reserved_bytes == 8 * G && a.physical_allocated_bytes == 4 * G && a.physical_mapped_bytes == 4 * G
               && a.physical_retained_unmapped_bytes == 0 && a.physical_released_bytes == 0,
@@ -253,6 +260,33 @@ int main() {
         auto tx = r.commit(req2, drv);
         std::string what = std::string("commit failing at ") + step + " unwinds the units it created";
         check(!tx.ok && tx.step == std::string(step) && tx.unit_index == 4 && tx.status == 2 && tx.units_committed == 0, what.c_str());
+        // The unwind runs newest unit first: the failed unit 4 (released,
+        // and unmapped first where its map succeeded), then 3, then 2, each
+        // as unmap then release, and nothing touches units 0 and 1.
+        {
+            std::vector<std::string> tail;
+            bool seen_failure = false;
+            for (const auto & c : d.calls) {
+                if (seen_failure) {
+                    tail.push_back(c);
+                } else if (c == std::string(step) + ":4") {
+                    seen_failure = true;
+                }
+            }
+            std::vector<std::string> expected;
+            const bool unit4_mapped = std::string(step) != "create" && std::string(step) != "map";
+            if (std::string(step) != "create") {
+                if (unit4_mapped) {
+                    expected.push_back("unmap:4");
+                }
+                expected.push_back("release:" + std::to_string(100 + 2 + 2)); // the third handle this transaction created
+            }
+            for (size_t u : {(size_t) 3, (size_t) 2}) {
+                expected.push_back("unmap:" + std::to_string(u));
+                expected.push_back("release:" + std::to_string(100 + u));
+            }
+            check(tail == expected, "  the unwind runs newest first, unmap then release per unit, touching no prior unit");
+        }
         const auto after = r.accounting();
         check(after.physical_allocated_bytes == before.physical_allocated_bytes && after.physical_mapped_bytes == before.physical_mapped_bytes,
               "  allocated and mapped return to the prior set");
@@ -263,6 +297,101 @@ int main() {
         check(tx.units_unwound == unwound_expected, "  the count of unwound units matches the step reached");
         check(after.physical_released_bytes == before.physical_released_bytes + unwound_expected * G,
               "  the unwound handles are counted as released");
+    }
+
+    // A release the driver refuses keeps the handle with the unit, counts it
+    // as retained unmapped, and the next commit of that unit retries the
+    // release ahead of any new allocation, so no handle is overwritten.
+    {
+        mock_driver d;
+        auto drv = driver_for(d);
+        ggml_paged_kv_residency r(G, 4 * G);
+        std::vector<bool> req;
+        r.require(req, 0, 3 * G);
+        check(r.commit(req, drv).ok, "three units committed ahead of the refused release");
+        d.op_counts.clear();
+        d.fail_op = "release";
+        d.fail_at = 1;
+        d.fail_status = 11;
+        std::vector<bool> req2;
+        r.require(req2, 0, G);
+        auto tx = r.reclaim(req2, drv);
+        check(!tx.ok && tx.step == std::string("release") && tx.unit_index == 1 && tx.units_released == 0,
+              "a refused release ends the reclaim on that unit with nothing released");
+        const auto & a = r.accounting();
+        check(a.physical_allocated_bytes == 3 * G && a.physical_mapped_bytes == 2 * G && a.physical_retained_unmapped_bytes == G
+              && a.physical_released_bytes == 0 && !r.unit_published(1),
+              "  the unit is unmapped, held, and counted as retained unmapped");
+        check(d.live_handles.size() == 3 && d.mapped_units.size() == 2, "  the mock holds three handles and two mappings");
+        d.fail_op.clear();
+        d.calls.clear();
+        std::vector<bool> req3;
+        r.require(req3, 0, 3 * G);
+        tx = r.commit(req3, drv);
+        // Unit 2 stayed published, since the reclaim stopped at unit 1, so
+        // the commit recommits the held unit alone.
+        check(tx.ok && tx.units_committed == 1 && d.calls[0] == "release:101" && d.calls[1] == "create:1",
+              "the next commit of the held unit releases its handle ahead of creating another");
+        check(r.accounting().physical_retained_unmapped_bytes == 0 && r.accounting().physical_released_bytes == G
+              && r.accounting().physical_allocated_bytes == 3 * G && d.live_handles.size() == 3,
+              "  retained returns to zero, released counts the retried handle, and the mock holds three handles");
+        // A retry the driver refuses again refuses the commit, and the units
+        // the transaction created beside it unwind.
+        d.op_counts.clear();
+        d.fail_op = "release";
+        d.fail_at = 1;
+        d.fail_status = 12;
+        std::vector<bool> req4;
+        r.require(req4, 0, G);
+        tx = r.reclaim(req4, drv);
+        check(!tx.ok && r.accounting().physical_retained_unmapped_bytes == G && r.published_count() == 2, "(setup) one unit held after a refused release");
+        d.op_counts.clear();
+        d.fail_status = 13;
+        std::vector<bool> req5;
+        r.require(req5, 0, 4 * G);
+        tx = r.commit(req5, drv);
+        check(!tx.ok && tx.step == std::string("release") && tx.status == 13 && r.published_count() == 2
+              && r.accounting().physical_retained_unmapped_bytes == G,
+              "a retried release refused again refuses the commit and leaves the prior set and the held unit");
+        d.fail_op.clear();
+        tx = r.destroy(drv);
+        check(tx.ok && d.live_handles.empty() && d.mapped_units.empty(), "destroy releases the held handles too");
+    }
+
+    // An unwind whose releases are refused reports the units it could not
+    // return, and the accounting keeps them as held.
+    {
+        mock_driver d;
+        auto drv = driver_for(d);
+        ggml_paged_kv_residency r(G, 4 * G);
+        d.fail_op = "map";
+        d.fail_at = 2;
+        d.fail_status = 3;
+        std::vector<bool> req;
+        r.require(req, 0, 2 * G);
+        auto tx = r.commit(req, drv);
+        check(!tx.ok && tx.step == std::string("map") && tx.units_unwound == 2 && tx.units_unwind_failed == 0,
+              "(control) an unwind whose releases succeed reports both units unwound");
+
+        mock_driver d2;
+        auto drv2 = driver_for(d2);
+        ggml_paged_kv_residency r2(G, 4 * G);
+        d2.fail_op = "map";
+        d2.fail_at = 2;
+        d2.fail_status = 3;
+        drv2.release = [](void * user, uint64_t handle) -> int {
+            auto * m = (mock_driver *) user;
+            m->call("release", (size_t) handle);
+            return 5; // every release refused
+        };
+        std::vector<bool> req2;
+        r2.require(req2, 0, 2 * G);
+        tx = r2.commit(req2, drv2);
+        check(!tx.ok && tx.step == std::string("map") && tx.units_unwound == 0 && tx.units_unwind_failed == 2,
+              "an unwind whose releases are refused reports both units as unwind failures");
+        check(r2.accounting().physical_allocated_bytes == 2 * G && r2.accounting().physical_mapped_bytes == 0
+              && r2.accounting().physical_retained_unmapped_bytes == 2 * G && r2.published_count() == 0,
+              "  both handles stay held and counted as retained unmapped");
     }
 
     // Reclaim: quiesce once, then unmap and release each tail unit; the
