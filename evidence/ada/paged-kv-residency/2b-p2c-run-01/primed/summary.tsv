@@ -1,0 +1,19 @@
+model_id	qwen38-2b-distill
+control_sha256	639b3fbec52ad7affb8eab01feff6f23e114f8bd785c1b43b843464bf5fdfa96
+control_path	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-b468187f6ada/bin/llama-server
+subject_sha256	639b3fbec52ad7affb8eab01feff6f23e114f8bd785c1b43b843464bf5fdfa96
+subject_path	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-b468187f6ada/bin/llama-server
+subject_environment	LLAMA_KV_PAGED_BUFFER=1 LLAMA_KV_PAGED_RESIDENCY=tails
+slot_depth	4096
+slot_offset	0
+context_checkpoints	8
+prompt_tokens_requested	448
+predict	128
+filled_depth	576
+admission	primed
+repeats	4
+levels	1 3
+batch	2048
+ubatch	512
+prompt_tokens	448
+passage_tokens	34520

@@ -285,6 +285,38 @@ equal to mapped equal to reserved at 327155712 bytes, and primed widths 1
 and 3 identical, so the boundary change moves nothing observable. P2 stops
 at proven tail residency and lifecycle management.
 
+P2-C is that residency. `ggml/src/ggml-cuda/paged-kv-residency.h`, a file
+the patch adds, owns the unit table and the five quantities and runs commit
+and reclaim against a table of driver operations, so
+`scripts/test-paged-kv-residency-transactions.sh` extracts it from the patch
+and holds the ordering and the unwind to the contract with a mocked driver:
+create, map, grant access, zero per unit, a failure at any step unwinding
+that transaction's units in reverse and leaving the prior set; one device
+quiesce ahead of the first unmap, and only where a candidate exists. The
+policy is the buffer type: `ggml_backend_cuda_paged_kv_buffer_type` commits
+every unit at allocation and
+`ggml_backend_cuda_paged_kv_sparse_buffer_type` allocates with nothing
+backed, `ggml_backend_cuda_paged_kv_require` takes buffer-relative byte
+intervals and commits every unit they touch and, on a removal, releases
+every published unit outside them, and every host-side access of a paged
+buffer asserts its interval resident. `LLAMA_KV_PAGED_RESIDENCY=tails`
+selects the sparse type, refused on a transposed V layout and on a cache
+sharing another's cells; `residency_update()` declares rows `[0, r)` of every
+stream of every K and V tensor at the padded attention extent floored at
+256, or the whole tensor around a K-shift or a stream copy, at the end of
+`apply_ubatch`, at the start of `state_read_data`, and with reclaim after
+`seq_rm`, `seq_keep`, and `clear`, so the log states one record per
+boundary crossing and nothing per token. The constructor's clear memsets
+the resident set alone and each committed unit is zeroed by its transaction,
+so the tails policy is sparse from the first byte. `scripts/probe-paged-kv-residency-lifecycle.sh`
+drives save, erase, restore, removal, and regrowth at a 3900-token prompt
+past the 3856-row K crossing under the fully backed null, the tails
+subject, and a closing null, and `scripts/admit-paged-kv-residency.sh`
+joins it to the granularity probe, the batch-1 identity arms with slot
+state, the layout read of every log, and the primed width-1 and width-3
+sweep. Production serves the ordinary buffer; the tails policy is admitted
+on the 2B and stays off until the tuple that turns it on is measured.
+
 A measured threshold or rate holds for the device software stack it ran under,
 and `scripts/device-environment-identity.sh` is what records that stack.
 `run-mmvq-width-request-tails.sh`, `run-mmvq-paired-crossover.sh`,
@@ -1612,6 +1644,10 @@ scripts/read-paged-kv-layout.py LOG --expect paged_kv_vmm|device_default
                                                 # the KV buffer accounting one server log records, held to the P1 claim
 scripts/paged-kv-residency-planner.py EVENTS.jsonl --out DIR [--commit-tails] [--layout-from-log LOG]
                                                 # the P2 shadow planner: which units every requirement holds, which tails a quiescence would release
+scripts/probe-paged-kv-residency-lifecycle.sh BUILD OUT [MODEL_ID]
+                                                # save, erase, restore, removal, regrowth at the 4096-row envelope, three arms
+scripts/admit-paged-kv-residency.sh BUILD OUT [MODEL_ID]
+                                                # P2-C: probe, identity with state, layout, lifecycle, primed widths
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
@@ -1706,6 +1742,7 @@ python3 scripts/test-read-nsys-mat-mul-kernels.py
 python3 scripts/test-read-graph-lifecycle-trace.py
 python3 scripts/test-read-paged-kv-layout.py
 python3 scripts/test-paged-kv-residency-planner.py
+scripts/test-paged-kv-residency-transactions.sh
 python3 scripts/test-read-server-decode-iterations.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh

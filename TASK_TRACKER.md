@@ -31,7 +31,7 @@ compositor are outside this contract.
 
 | Program | Recorded now | Advances next |
 | --- | --- | --- |
-| Uniform-format paged KV | P1 mechanism admitted on the 2B, default off (`evidence/ada/paged-kv-buffer/`) | P2 residency and lifecycle over independently releasable units |
+| Uniform-format paged KV | P1, P2-A, and P2-C tail residency admitted on the 2B, default off (`evidence/ada/paged-kv-buffer/`, `evidence/ada/paged-kv-residency/`) | the 0.8B arm, then the tuple that turns tails on for a served row |
 | Typed or mixed-format KV | not implemented | kept separate from P2 |
 | PhysX sidecar | runtime proof retained (`evidence/physics/d6-runtime-proof/`); profile `refused` | authorized service-chain admission |
 | Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`) | device-resident projector output into `libmtmd` |
