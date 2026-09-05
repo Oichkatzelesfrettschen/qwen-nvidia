@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "physics": {
+      "command": "python3",
+      "timeout_ms": 360000,
+      "args": [
+        "$HOME/worktrees/qwen-nvidia/sidecar-session-integration/scripts/sidecar-mcp/server.py"
+      ],
+      "env": {
+        "QWEN_SIDECAR_SERVICE": "physics",
+        "QWEN_SIDECAR_LANGUAGE_PROFILE": "web-sidecar-admission",
+        "QWEN_SIDECAR_PROFILE": "physics-d6-chain-a",
+        "QWEN_SIDECAR_TOKEN_KEY_FILE": "$OUT/keys/token.key",
+        "QWEN_SIDECAR_STATE_DIR": "$HOME/qwen-webui-state/physics",
+        "QWEN_SIDECAR_SERVICE_SOCKET": "$HOME/qwen-webui-state/physics/physics-service.sock",
+        "QWEN_SIDECAR_PROFILES": "$OUT/physics-profiles.tsv",
+        "QWEN_SIDECAR_RUNTIME_SHA256": "d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405",
+        "QWEN_SIDECAR_MCP_TIMEOUT_S": "360"
+      }
+    }
+  }
+}

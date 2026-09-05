@@ -75,19 +75,23 @@ A refusal at any step keeps the ledger row refused. The geometry lane
 follows this record under the same contract, and a contention arm running
 both lanes against one lease is its own record.
 
-## Run 06
+## Run 07
 
-`run-06/` is the retained run on the RTX 4070 Ti, with the operator's
+`run-07/` is the retained run on the RTX 4070 Ti, with the operator's
 telemetry server stopped for the window and the appliance's ordinary
 desktop as the client set. Runs 01 to 05 were the same campaign with
 harness defects, each corrected on the committed form ahead of the next:
-the preset generator refused a configuration on a ui-mediated section under
-a sidecar tag, the timeout arm's ceiling exceeded the protocol maximum, the
-session's graphics probe path and the sidecar variables were not forwarded
-across the tmux boundary, the page read the proposal's arguments as an
-object where llama-server streams them as text, and the harness read the
-tool message's status at a byte offset. Run 05 accepted every arm but that
-last one, and run 06 repeats it whole.
+the preset generator refused a configuration on a ui-mediated section
+under a sidecar tag, the timeout arm's ceiling exceeded the protocol
+maximum, the session's graphics probe path and the sidecar variables
+were not forwarded across the tmux boundary, the page read the
+proposal's arguments as an object where llama-server streams them as
+text, and the harness read the tool message's status at a byte offset.
+Run 05 accepted every arm but that last one, run 06 accepted every arm
+on the pre-review form, and run 07 repeats it on the reviewed form,
+where the service spends each grant in its own ledger, the collector
+reads the runtime over a select loop, and the launcher hands the session
+the key, state directory, and socket the preset names.
 
 The runtime compiled in the run digests to the value the preset carried,
 the service announced, the listing stated, and every grant bound. The
@@ -99,16 +103,16 @@ on the first round.
 | --- | --- |
 | listing binds runtime, scene, ceiling | accepted: `d6-chain-4`, ceiling 100000 |
 | broker signs the physics profile, no geometry one | accepted |
-| 600-step run through the child | accepted: `gpu_dynamics_active` true, the built runtime's digest, 4 bodies, 4 joints, `simulate_ms` 228.7, wall 1.17 s through the router, child, service, and runtime |
+| 600-step run through the child | accepted: `gpu_dynamics_active` true, the built runtime's digest, 4 bodies, 4 joints, `simulate_ms` 472.3, wall 2.10 s through the router, child, service, and runtime |
 | result carries counts, proof, and digests alone | accepted |
-| driver client list during the run | observed: `physx-rigid-runtime` at 194 MiB in 5 samples, the lease held in 47, at ten hertz |
+| driver client list during the run | observed: `physx-rigid-runtime` at 12 to 196 MiB in 11 samples, the lease held in 83, at ten hertz |
 | replayed grant | refused as spent |
 | ungranted call | refused |
 | count one above the approved one | refused: `arguments differ` |
 | geometry body at the physics endpoint | refused at the broker |
 | any body at the unarmed geometry endpoint | refused at the broker |
 | lease held from outside | refused: `another workload holds the lease`, no runtime started |
-| 100000 steps under the 2 s deadline | failed as `runtime exceeded 2 s` with the service's shutdown timeline in the reason, and no runtime process survived one second later |
+| 100000 steps under the 2 s deadline | failed as `runtime exceeded 2 s; exit_s=2.232 sigterm_s=2.015`, the reply landing at 16.6 s of wall through the router, and no runtime process survived one second later |
 | page turn | accepted: one `POST /grant-physics`, one `POST /tools`, origins the router and broker alone, the tool message `status: completed` with the proof, and the model's reply naming 600 steps, 4 bodies, and 4 joints |
 | teardown | accepted: no server, session, probe, broker, or service; physics residue clean; session secret gone |
 
