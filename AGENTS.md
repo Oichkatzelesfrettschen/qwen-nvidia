@@ -980,32 +980,57 @@ in 1329 ms, and a clean client list afterwards. Every checked-in row still
 reads `refused`; promotion, the MCP wrapper, and the session integration are
 separate transitions this record informs.
 
-The projector's output can reach the language model without leaving the
-device. At the pin the image embeddings cross the host four times:
-`clip_encode` reads the scheduler's output into a host vector,
-`mtmd_helper_decode_image_chunk` places that vector in `llama_batch::embd`,
-`llama_batch_allocr::ubatch_add` copies the rows of each ubatch, and
-`llm_graph_input_embd::set_input` uploads them into an `inp_embd` the
-scheduler stages through a host buffer, since an input tensor without a
-buffer is assigned to the last backend; the trace reads that buffer as
-`CUDA_Host` on this device. `patches/llama-mtmd-device-embd.patch`
-is the candidate that removes the trip: under `LLAMA_MTMD_EMBD_DEVICE=1` the
-mtmd batch owns one F32 tensor on the projector's buffer type, `clip_encode`
-copies its output there device to device, `llama_batch` names the rows as
-`embd_dev` and `embd_dev_offset`, a ubatch of such a batch has to be one
-contiguous row range, and `build_inp_embd` makes `inp_embd` a view of those
-rows, which the scheduler assigns to the tensor's own backend so the first
-node reads the projector's bytes in place. A device batch carries one
-sequence in row order and a split that selects other rows is refused, graph
-reuse compares the tensor, its storage, its buffer, and the offset, the
-device path requires the projector on a GPU buffer type and refuses a host
-buffer at either end of the copy, and the MTP context refuses a device
-batch. `LLAMA_EMBD_HANDOFF_TRACE=1` digests the projector output where it
-landed and the bytes each ubatch's graph input holds, and
-`scripts/admit-embd-handoff.sh` runs host, device, and host-close arms over
-one image request sequence, requiring identical reply tokens, identical
-digest sequences, and a CUDA0 buffer on every device-arm row;
-`evidence/ada/embd-handoff/` carries the preregistration and the runs.
+The projector's output reaches the language model as a device-resident
+embedding handoff with a batch-owned device copy. At the pin the image
+embeddings pass through four stages: `clip_encode` reads the scheduler's
+output into a host vector, a device-to-host copy;
+`mtmd_helper_decode_image_chunk` hands a pointer into that vector to
+`llama_batch::embd`; `llama_batch_allocr::ubatch_add` copies the rows of
+each ubatch host to host; and `llm_graph_input_embd::set_input` uploads them
+into an `inp_embd` the scheduler stages through a host buffer, since an
+input tensor without a buffer is assigned to the last backend, and the trace
+reads that buffer as `CUDA_Host` on this device.
+`patches/llama-mtmd-device-embd.patch` is the candidate that removes the
+host detour and keeps one deliberate device-to-device copy: under
+`LLAMA_MTMD_EMBD_DEVICE=1` the mtmd batch owns one F32 tensor on the
+projector's buffer type, `clip_encode` copies its output there through the
+CUDA buffer's own copy, `llama_batch` names the rows as `embd_dev` and
+`embd_dev_offset`, a ubatch of such a batch has to be one contiguous row
+range, and `build_inp_embd` makes `inp_embd` a view of those rows, which the
+scheduler assigns to the tensor's own backend so the first node reads the
+projector's bytes in place. A device batch carries one sequence in row order
+and a split that selects other rows is refused, graph reuse compares the
+tensor, its storage, its buffer, and the offset, the device path requires
+the projector on a GPU buffer type and refuses a host buffer at either end
+of the copy, and the MTP context refuses a device batch until its
+hidden-state contract is its own transition. Ownership is explicit at both
+ends: `clip_encode` computes the projector graph synchronously and the CUDA
+buffer copy synchronizes its stream before returning, so the tensor holds
+the bytes when the encode returns, and `llama_decode` returns with its graph
+still queued, so `mtmd_helper_decode_image_chunk_device` calls
+`llama_synchronize` before it returns and the batch may be freed at any
+later point, a slot release after a client cancellation included, with no
+consumer in flight. `LLAMA_EMBD_HANDOFF_TRACE=1` is the recorder: it names
+each encoded batch, its tensor, and every chunk's row range, digests every
+projector output row, and per ubatch records the batch rows selected, the
+digest of the bytes the graph read, and the chain over that slice's per-row
+digests; `scripts/read-embd-handoff-trace.py` joins every consumed slice to
+its source rows and requires each chunk's rows to be consumed exactly once,
+in order, with the chain holding. The recorder reads device bytes back for
+those digests, so `scripts/admit-embd-handoff.sh` runs three stages: an
+identity stage at the registry geometry and at a split geometry under every
+chunk, whose request sequence carries a chunk inside one ubatch, a chunk
+split across ubatches and across `llama_decode` calls, several chunks in one
+batch at nonzero row offsets, images separated by text, and a final partial
+ubatch; a lifetime stage that abandons large-image requests during
+preprocessing, prefill, and generation and compares the requests that
+follow; and a transfer stage with the recorder off under Nsight Systems,
+where `scripts/read-nsys-embd-transfers.py` lists every copy against the
+embedding sizes the identity stage recorded, the host arm being the positive
+control with its device-to-host and host-to-device copies and the device arm
+required to show the device-to-device copy alone. The mechanism is
+default-off; `evidence/ada/embd-handoff/` carries the preregistration and
+the runs.
 
 A geometry query reaches the device the way a physics simulation does: one
 service, one lease, one profile ledger, and a runtime that proves where it
@@ -1737,7 +1762,13 @@ scripts/probe-paged-kv-residency-lifecycle.sh BUILD OUT [MODEL_ID]
 scripts/admit-paged-kv-residency.sh BUILD OUT [MODEL_ID]
                                                 # P2-C: probe, identity with state, layout, lifecycle, primed widths
 scripts/admit-embd-handoff.sh BUILD OUT [MODEL_ID]
-                                                # projector output to LLM input on the device: token and digest identity, three arms
+                                                # projector output to LLM input on the device: identity at two geometries,
+                                                # cancellation lifetime, and recorder-off transfer under nsys
+scripts/read-embd-handoff-trace.py SERVER_LOG --out DIR [--expect host|device]
+                                                # every consumed embedding slice joined to its source rows, coverage and rowchain held
+scripts/read-nsys-embd-transfers.py CAPTURE.sqlite --sizes BYTES[,BYTES...]
+                                                # every memory copy of one capture against the embedding sizes
+scripts/generate-handoff-images.py [DIR]         # the large handoff fixtures, and --check
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
@@ -1840,6 +1871,8 @@ scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
 python3 scripts/test-read-graph-lifecycle-trace.py
 python3 scripts/test-read-paged-kv-layout.py
+python3 scripts/test-read-embd-handoff-trace.py
+python3 scripts/test-read-nsys-embd-transfers.py
 python3 scripts/test-paged-kv-residency-planner.py
 scripts/test-paged-kv-residency-transactions.sh
 python3 scripts/test-read-server-decode-iterations.py
@@ -1865,6 +1898,7 @@ scripts/test-dispatch-census-summary.sh          # dispatch-census lane, held ou
 scripts/test-gpu-state-latch.sh                  # driver-failure latch lane, held outside the unattended set
 scripts/test-run-graph-alias-ab.sh               # graph-alias lane, held outside the unattended set
 scripts/generate-quality-images.py --check       # vision fixtures, held outside the unattended set
+scripts/generate-handoff-images.py --check       # the large handoff fixtures, the same class
 scripts/test-image-registry.sh                   # image lane, held outside the unattended set
 scripts/test-qwen-image-launch.sh                # image lane, held outside the unattended set
 scripts/test-admit-image-router.sh               # image lane, held outside the unattended set
