@@ -8,7 +8,12 @@ uses: `scripts/image-service.py`'s artifact listener answering
 `GET /artifacts/<sha256>.png` under the Web UI credential, llama-server
 standalone at the reviewer's registry tuple with its own projector on
 CUDA0, and `scripts/image-review.py` posting one tool-free request per arm
-with the grammar-bounded schema.
+with the verdict schema as `response_format`, which the pinned server
+converts to a grammar. The page's own review request carries the same
+`response_format` (`buildReviewRequestBody` in `webui/index.html`), so
+the zero malformed replies below hold for the grammar-bounded request
+both paths send; a reply's conformance without the grammar is unmeasured
+here.
 
 The verdict schema now states a constraint in three words. `pass` and
 `fail` state what the image shows; `uncertain` states that the image did
@@ -83,14 +88,18 @@ Two identical PNGs produced by one seed are repeatability evidence for that
 seed alone and say nothing about a reviewer; no artifact generation runs in
 this record.
 
-## Run 02
+## Run 04
 
-`run-02/` is the retained run on the RTX 4070 Ti under driver 610.57.04
+`run-04/` is the retained run on the RTX 4070 Ti under driver 610.57.04
 and CUDA 13.3, with the operator's telemetry server stopped for the window
 and the compositor, a browser, and Discord recorded as the client set
 (`ownership.txt`). Run 01 refused before any arm: the listener's control
 socket under an evidence path exceeded the AF_UNIX bound, and the state
-now lives under the runtime directory. Both reviewers loaded from the
+now lives under the runtime directory. Run 02 ran on the pre-review
+harness and run 03 on the reviewed one while an unrelated image-lane test
+held its own image service on the host, which the host-global teardown
+check named as residue; run 04 repeats run 03 alone, and every reading of
+every arm is identical across runs 02, 03, and 04. Both reviewers loaded from the
 promoted closure (`summary.tsv` carries the server, model, and projector
 digests, and every verdict record carries them as bindings), three repeats
 each, eighteen arms per reviewer, zero malformed replies and zero
@@ -129,16 +138,17 @@ candidate, since a reviewer that confabulates a pass on a withheld image
 is a reviewer whose pass on a real image carries that much less.
 
 **Residency.** The sampler's rows (`clocks.tsv` per reviewer, device
-memory device-global with the desktop's own 1800 MiB resident):
+memory device-global with the desktop's own 1839 MiB resident), read
+strictly inside each window so no boundary second mixes two states:
 
-| reviewer | model buffer | peak during arms | after unload | load | unload |
+| reviewer | model buffer | during arms (min to max) | after unload | load | unload |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| lfm25-vl-450m | 216 MiB | 2911 MiB | 1800 MiB | 2 s | 1 s |
-| qwen35-2b | 1259 MiB | 4749 MiB | 1800 MiB | 2 s | 1 s |
+| lfm25-vl-450m | 216 MiB | 2951 to 2955 MiB | 1839 MiB | 2 s | 1 s |
+| qwen35-2b | 1259 MiB | 4783 to 4789 MiB | 1839 MiB | 4 s | 1 s |
 
 Both reviewers return the device to its pre-load occupancy within one
 second of the unload, so a serialized generate-then-review sequence pays
-about two seconds to bring the 2B up after the image runtime leaves and
+about four seconds to bring the 2B up after the image runtime leaves and
 holds about 2.9 GiB over the desktop while it reviews.
 
 **What this settles.** qwen35-2b is the reviewer the serialized review

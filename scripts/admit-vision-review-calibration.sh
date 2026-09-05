@@ -53,6 +53,49 @@ output_directory=$(CDPATH='' cd -- "$output_directory" && pwd)
 # runtime directory for the run and leaves with it; both names are scrubbed.
 state_directory=${XDG_RUNTIME_DIR:-/tmp}/qwen-review-cal-$$
 scrub_home() { sed -e "s|$output_directory|OUT|g" -e "s|$state_directory|STATE|g" -e "s|${HOME:?}|\$HOME|g"; }
+listener_pid=
+server_pid=
+sampler_pid=
+listener_started=0
+stop_pid() {
+    pid=$1
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill -TERM "$pid" 2>/dev/null || :
+        wait_iteration=0
+        while kill -0 "$pid" 2>/dev/null && [ "$wait_iteration" -lt 90 ]; do
+            sleep 1
+            wait_iteration=$((wait_iteration + 1))
+        done
+        kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || :
+        wait "$pid" 2>/dev/null || :
+    fi
+}
+# Every exit, a refusal ahead of the first arm and a signal in the middle of
+# one alike, stops the children, proves the listener left nothing behind,
+# scrubs every retained text, and removes the runtime state with the
+# credential in it; the retained directory carries no local path whichever
+# way the run ended.
+finalize() {
+    stop_pid "$server_pid"; server_pid=
+    stop_pid "$sampler_pid"; sampler_pid=
+    stop_pid "$listener_pid"; listener_pid=
+    if [ "$listener_started" -eq 1 ] && [ ! -f "$output_directory/teardown.txt" ]; then
+        "$script_directory/image-teardown-check.sh" "$state_directory" >"$output_directory/teardown.txt" 2>&1 || :
+    fi
+    rm -rf "$state_directory"
+    if [ -f "$output_directory/ownership.txt.raw" ]; then
+        sed -E -e 's|^(cuda_client) pid=[0-9]+ name=([^ ]+).* used=([0-9]+ MiB) .* verdict=(.*)$|\1 name=\2 used=\3 verdict=\4|' \
+            -e 's|name=[^ ]*/([^ /]+)|name=\1|' -e 's|^(named_llama_server_pids)=.*$|\1=redacted|' \
+            <"$output_directory/ownership.txt.raw" | scrub_home >"$output_directory/ownership.txt"
+        rm -f "$output_directory/ownership.txt.raw"
+    fi
+    find "$output_directory" -type f \( -name '*.log' -o -name '*.txt' -o -name '*.stdout' -o -name '*.stderr' -o -name 'argv.txt' \) \
+        -exec sh -c 'out=$1; state=$2; home=$3; shift 3; for f; do sed -e "s|$out|OUT|g" -e "s|$state|STATE|g" -e "s|$home|\$HOME|g" <"$f" >"$f.scrubbed" && mv "$f.scrubbed" "$f"; done' \
+        scrub "$output_directory" "$state_directory" "${HOME:?}" {} +
+}
+trap 'finalize' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 summary=$output_directory/summary.tsv
 record() { printf '%s\t%s\n' "$1" "$2" >>"$summary"; }
 : >"$summary"
@@ -105,43 +148,14 @@ gpu_ownership_require >"$output_directory/ownership.txt.raw" || {
     cat "$output_directory/ownership.txt.raw" >&2
     exit "$ownership_status"
 }
-sed -E -e 's|^(cuda_client) pid=[0-9]+ name=([^ ]+).* used=([0-9]+ MiB) .* verdict=(.*)$|\1 name=\2 used=\3 verdict=\4|' \
-    -e 's|name=[^ ]*/([^ /]+)|name=\1|' -e 's|^(named_llama_server_pids)=.*$|\1=redacted|' \
-    <"$output_directory/ownership.txt.raw" | scrub_home >"$output_directory/ownership.txt"
-rm -f "$output_directory/ownership.txt.raw"
 "$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv" >/dev/null 2>&1 || :
-
-listener_pid=
-server_pid=
-sampler_pid=
-stop_pid() {
-    pid=$1
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill -TERM "$pid" 2>/dev/null || :
-        wait_iteration=0
-        while kill -0 "$pid" 2>/dev/null && [ "$wait_iteration" -lt 90 ]; do
-            sleep 1
-            wait_iteration=$((wait_iteration + 1))
-        done
-        kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || :
-        wait "$pid" 2>/dev/null || :
-    fi
-}
-cleanup() {
-    stop_pid "$server_pid"; server_pid=
-    stop_pid "$sampler_pid"; sampler_pid=
-    stop_pid "$listener_pid"; listener_pid=
-    rm -rf "$state_directory"
-}
-trap 'cleanup' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 QWEN_WEBUI_STATE_DIRECTORY=$state_directory python3 "$script_directory/image-service.py" \
     --state-dir "$state_directory" --profiles-json "$state_directory/profiles.json" \
     --api-key-file "$api_key_file" --http-port 0 \
     >"$output_directory/image-service.log" 2>&1 9>&- &
 listener_pid=$!
+listener_started=1
 listener_wait=0
 artifact_origin=""
 while [ "$listener_wait" -lt 30 ]; do
@@ -195,11 +209,14 @@ wait_ready() {
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 memory_stat() {
-    # memory_stat CLOCKS_TSV FROM_UTC TO_UTC: max and min memory_used_mib in the
-    # rows whose utc column lies inside [from, to]; the sampler writes the same
-    # ISO spelling, so the comparison is lexicographic
+    # memory_stat CLOCKS_TSV FROM_UTC TO_UTC: max and min memory_used_mib over
+    # the rows whose utc column lies strictly between the two boundaries. The
+    # sampler and the boundaries share a whole-second spelling, so a row on a
+    # boundary second may belong to either state and is left out; a window
+    # shorter than three seconds therefore reads zero rows rather than a
+    # mixed one.
     awk -F '\t' -v from="$2" -v to="$3" 'NR == 1 { for (i = 1; i <= NF; i++) { if ($i == "memory_used_mib") m = i; if ($i == "utc") e = i } next }
-        m && e && $e >= from && $e <= to { if (max == "" || $m + 0 > max + 0) max = $m; if (min == "" || $m + 0 < min + 0) min = $m; n++ }
+        m && e && $e > from && $e < to { if (max == "" || $m + 0 > max + 0) max = $m; if (min == "" || $m + 0 < min + 0) min = $m; n++ }
         END { printf "max_mib=%s min_mib=%s rows=%d", max, min, n }' "$1"
 }
 
@@ -250,7 +267,6 @@ for reviewer in $reviewers; do
         status=1
         stop_pid "$server_pid"; server_pid=
         stop_pid "$sampler_pid"; sampler_pid=
-        scrub_home <"$reviewer_directory/server.log" >"$reviewer_directory/server.scrubbed" && mv "$reviewer_directory/server.scrubbed" "$reviewer_directory/server.log"
         continue
     fi
     load_ready=$(now_utc)
@@ -290,23 +306,13 @@ for reviewer in $reviewers; do
     record "residency_arms:$reviewer" "$(memory_stat "$reviewer_directory/clocks.tsv" "$load_ready" "$arms_finished")"
     record "residency_after_unload:$reviewer" "$(memory_stat "$reviewer_directory/clocks.tsv" "$unload_done" "$(now_utc)")"
     record "unload_seconds:$reviewer" "$((unload_done_epoch - arms_finished_epoch))"
-    for text in server.log calibration.log; do
-        scrub_home <"$reviewer_directory/$text" >"$reviewer_directory/$text.scrubbed" && mv "$reviewer_directory/$text.scrubbed" "$reviewer_directory/$text"
-    done
-    for text in "$reviewer_directory"/calibration/*.stderr "$reviewer_directory"/calibration/*.stdout "$reviewer_directory"/calibration/audit.log; do
-        [ -f "$text" ] || continue
-        scrub_home <"$text" >"$text.scrubbed" && mv "$text.scrubbed" "$text"
-    done
 done
 
 stop_pid "$listener_pid"; listener_pid=
 teardown_status=0
 "$script_directory/image-teardown-check.sh" "$state_directory" >"$output_directory/teardown.txt" 2>&1 || teardown_status=$?
-scrub_home <"$output_directory/teardown.txt" >"$output_directory/teardown.scrubbed" && mv "$output_directory/teardown.scrubbed" "$output_directory/teardown.txt"
 record teardown_exit "$teardown_status"
 [ "$teardown_status" -eq 0 ] || status=1
-rm -f "$api_key_file"
-scrub_home <"$output_directory/image-service.log" >"$output_directory/image-service.scrubbed" && mv "$output_directory/image-service.scrubbed" "$output_directory/image-service.log"
 record exit "$status"
 grep -v '^fixture:' "$summary" | scrub_home
 exit "$status"

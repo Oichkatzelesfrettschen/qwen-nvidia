@@ -47,22 +47,25 @@ shift 8
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repeat_count=1
 constraint_count=0
-set -- "$@"
-review_arguments=""
-# collected as one string, since POSIX sh carries one array and the arm loop
-# needs the arguments repeatedly; values hold no whitespace by the review
-# module's own rule, and a constraint description may, so descriptions are
-# stored quoted and re-read through eval
+mkdir -p "$output_directory"
+# The arm loop needs the constraint and binding arguments on every arm, and
+# POSIX sh carries one positional array, so they are kept one per line in a
+# file and re-read into "$@" ahead of each review; a description holds no
+# newline by the review module's own rule, and no value passes through a
+# shell parse on its way back
+review_arguments_file=$output_directory/review-arguments.txt
+: >"$review_arguments_file"
 expecting=""
 for argument in "$@"; do
     if [ -n "$expecting" ]; then
         case $expecting in
             repeat) repeat_count=$argument ;;
-            binding) review_arguments="$review_arguments --binding '$argument'" ;;
+            binding) printf -- '--binding\n%s\n' "$argument" >>"$review_arguments_file" ;;
             constraint)
                 constraint_count=$((constraint_count + 1))
-                escaped=$(printf '%s' "$argument" | sed "s/'/'\\\\''/g")
-                review_arguments="$review_arguments --constraint '$escaped'" ;;
+                case $argument in *"
+"*) usage ;; esac
+                printf -- '--constraint\n%s\n' "$argument" >>"$review_arguments_file" ;;
         esac
         expecting=""
         continue
@@ -82,7 +85,6 @@ for digest in "$artifact_a" "$artifact_b" "$artifact_absent" "$prompt_hash"; do
 done
 [ "$artifact_a" != "$artifact_b" ] || usage
 
-mkdir -p "$output_directory"
 summary_path=$output_directory/summary.tsv
 audit_log_path=$output_directory/audit.log
 printf 'repeat\tarm\tartifact\timage_mode\tstatus\tconstraints\tpassed\tfailed\tuncertain\tregenerate\treading\twall_seconds\texit_status\n' >"$summary_path"
@@ -107,14 +109,14 @@ run_arm() {
     arm_stderr=$output_directory/$arm_name.stderr
     arm_verdict=$output_directory/$arm_name.verdict.json
     rm -f "$arm_stdout" "$arm_stderr" "$arm_verdict" "$output_directory/$arm_name.raw"
-    swap_argument=""
-    [ -z "$arm_swap" ] || swap_argument="--swap-sha256 $arm_swap"
-    # shellcheck disable=SC2086
-    if eval python3 "$script_directory/image-review.py" \
+    set --
+    while IFS= read -r line; do set -- "$@" "$line"; done <"$review_arguments_file"
+    if [ -n "$arm_swap" ]; then set -- --swap-sha256 "$arm_swap" "$@"; fi
+    if python3 "$script_directory/image-review.py" \
         --router-origin "$router_origin" --artifact-origin "$artifact_origin" \
         --model "$model_id" --sha256 "$arm_artifact" --prompt-hash "$prompt_hash" \
-        --image-mode "$arm_image_mode" $swap_argument --no-prompt-cache \
-        --verdict-json "$arm_verdict" $review_arguments >"$arm_stdout" 2>"$arm_stderr"
+        --image-mode "$arm_image_mode" --no-prompt-cache \
+        --verdict-json "$arm_verdict" "$@" >"$arm_stdout" 2>"$arm_stderr"
     then
         arm_exit=0
     else

@@ -2003,11 +2003,44 @@ async function artifactDataUri(sha256, signal) {
   return `data:image/png;base64,${btoa(binary)}`;
 }
 
+function buildReviewVerdictSchema(constraints) {
+  /* The same closed schema scripts/image-review.py sends as response_format,
+     so the server's grammar bounds the page's review the way it bounds the
+     calibrated one: the constraint count and the name enum come from the
+     page's own declaration, and status admits the three words alone. */
+  const names = constraints.map(constraint => constraint.name);
+  return {
+    type: 'object',
+    properties: {
+      hard_constraints: {
+        type: 'array', minItems: names.length, maxItems: names.length,
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', enum: names },
+            status: { type: 'string', enum: REVIEW_CONSTRAINT_STATUSES },
+            observation: { type: 'string', maxLength: REVIEW_OBSERVATION_MAX_CHARS }
+          },
+          required: REVIEW_CONSTRAINT_KEYS,
+          additionalProperties: false
+        }
+      },
+      composition_change_required: { type: 'boolean' },
+      prompt_delta: { type: 'string', maxLength: REVIEW_PROMPT_DELTA_MAX_CHARS },
+      regenerate: { type: 'boolean' }
+    },
+    required: REVIEW_VERDICT_KEYS,
+    additionalProperties: false
+  };
+}
+
 function buildReviewRequestBody(visionModel, dataUri, promptHash, constraints) {
   // `tools` is absent rather than empty: the review offers no executable
   // surface, so the reply has none to propose. Thinking is off and the budget
   // is fixed, because a reasoning span inside 400 tokens ends the object
-  // unclosed.
+  // unclosed. response_format carries the verdict schema, which the pinned
+  // server converts to a grammar, so the calibrated CLI path and this page
+  // bound the sampled tokens the same way.
   const names = constraints.map(constraint => constraint.name).join(', ');
   return {
     model: visionModel,
@@ -2027,7 +2060,8 @@ function buildReviewRequestBody(visionModel, dataUri, promptHash, constraints) {
     top_k: 1,
     seed: 1,
     stream: false,
-    chat_template_kwargs: { enable_thinking: false }
+    chat_template_kwargs: { enable_thinking: false },
+    response_format: { type: 'json_schema', json_schema: { schema: buildReviewVerdictSchema(constraints) } }
   };
 }
 
