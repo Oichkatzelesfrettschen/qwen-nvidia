@@ -33,7 +33,9 @@ BUFFER_LINE = re.compile(
     r"paged_kv_buffer device=(?P<device>\d+) requested_bytes=(?P<requested>\d+)"
     r" virtual_reserved_bytes=(?P<virtual>\d+) physical_mapped_bytes=(?P<mapped>\d+)"
     r" unit_bytes=(?P<unit>\d+) granularity_minimum=(?P<minimum>\d+)"
-    r" granularity_recommended=(?P<recommended>\d+) access=(?P<access>\S+)\s*$"
+    r" granularity_recommended=(?P<recommended>\d+) access=(?P<access>\S+)"
+    r"(?: units=(?P<units>\d+) physical_allocated_bytes=(?P<allocated>\d+)"
+    r" physical_retained_unmapped_bytes=(?P<retained>\d+) physical_released_bytes=(?P<released>\d+))?\s*$"
 )
 TENSOR_LINE = re.compile(
     r"paged_kv_tensor name=(?P<name>\S+) type=(?P<type>\S+) ne0=(?P<ne0>\d+) ne1=(?P<ne1>\d+)"
@@ -61,7 +63,9 @@ def read_log(path):
         for line in handle:
             match = BUFFER_LINE.search(line)
             if match:
-                buffers.append({key: int(value) if value.isdigit() else value
+                # The four unit-accounting fields arrive with the P2 allocation
+                # boundary; a P1 log carries none of them and reads None.
+                buffers.append({key: (int(value) if value.isdigit() else value) if value is not None else None
                                 for key, value in match.groupdict().items()})
                 continue
             match = TENSOR_LINE.search(line)
@@ -191,6 +195,36 @@ def main():
         if len(units) != 1:
             faults.append("the buffer and tensor lines name %d distinct mapping units" % len(units))
         unit = next(iter(units)) if units else 0
+        # Under the P2 allocation boundary every unit carries its own handle
+        # and the whole reservation stays backed until a residency policy
+        # exists, so allocated equals mapped equals reserved, nothing is
+        # retained unmapped, nothing is released, and the unit count is the
+        # reservation divided by the unit.
+        unit_accounted = [record for record in buffers if record.get("units") is not None]
+        add("unit_accounting", "present" if unit_accounted else "absent")
+        if unit_accounted:
+            allocated = sum(record["allocated"] for record in unit_accounted)
+            retained = sum(record["retained"] for record in unit_accounted)
+            released = sum(record["released"] for record in unit_accounted)
+            unit_count = sum(record["units"] for record in unit_accounted)
+            add("kv_physical_allocated_bytes", allocated)
+            add("kv_physical_retained_unmapped_bytes", retained)
+            add("kv_physical_released_bytes", released)
+            add("kv_units", unit_count)
+            if len(unit_accounted) != len(buffers):
+                faults.append("%d of %d buffer lines carry unit accounting" % (len(unit_accounted), len(buffers)))
+            if allocated != mapped or allocated != virtual:
+                faults.append("physical_allocated_bytes %d, physical_mapped_bytes %d, and the reservation %d disagree"
+                              " under a fully backed boundary" % (allocated, mapped, virtual))
+            if retained != 0 or released != 0:
+                faults.append("retained_unmapped %d or released %d is nonzero under a fully backed boundary"
+                              % (retained, released))
+            if unit > 0 and unit_count * unit != virtual:
+                faults.append("%d units of %d bytes do not cover the %d-byte reservation" % (unit_count, unit, virtual))
+        else:
+            for key in ("kv_physical_allocated_bytes", "kv_physical_retained_unmapped_bytes",
+                        "kv_physical_released_bytes", "kv_units"):
+                add(key, "n/a")
         if unit <= 0 or any(record["minimum"] <= 0 or record["recommended"] <= 0 for record in buffers):
             faults.append("a mapping unit or granularity reads zero")
         if arguments.expect_tensors is not None and len(tensors) != arguments.expect_tensors:

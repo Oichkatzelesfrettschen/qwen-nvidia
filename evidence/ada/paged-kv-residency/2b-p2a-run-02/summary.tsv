@@ -1,0 +1,44 @@
+model_id	qwen38-2b-distill
+build_directory	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-adb111abc7cf
+server_sha256	49b2d73a7a47c98e144d6bd189c4c542983ed02213bf8f8fc37d053fb97726c5
+subject_environment	LLAMA_KV_PAGED_BUFFER=1
+stage:probe	completed
+probe:granularity_minimum	2097152
+probe:granularity_recommended	2097152
+probe:vmm_supported	yes
+probe:probe_client_samples	0
+probe:probe_alive_samples	3
+expected_tensors	12
+expected_names	cache_k_l3,cache_v_l3,cache_k_l7,cache_v_l7,cache_k_l11,cache_v_l11,cache_k_l15,cache_v_l15,cache_k_l19,cache_v_l19,cache_k_l23,cache_v_l23
+expected_layout	cache_k_l3=q8_0:512,cache_v_l3=q4_0:512,cache_k_l7=q8_0:512,cache_v_l7=q4_0:512,cache_k_l11=q8_0:512,cache_v_l11=q4_0:512,cache_k_l15=q8_0:512,cache_v_l15=q4_0:512,cache_k_l19=q8_0:512,cache_v_l19=q4_0:512,cache_k_l23=q8_0:512,cache_v_l23=q4_0:512
+expected_cells	65536
+stage:identity	completed
+identity_verdict	identical	subject_divergences=0 control_divergences=0 refusals=0
+identity_tokens_identical	12
+identity_states_identical	12
+identity_placement	subject=same control-close=same
+identity_comparisons	expected=12 tokens_identical=12 states_identical=12 models_requested=1 models_run=1
+layout:control-open	layout_holds
+layout:subject	layout_holds
+layout:control-close	layout_holds
+subject:kv_logical_bytes	327155712
+subject:kv_virtual_reserved_bytes	327155712
+subject:kv_physical_mapped_bytes	327155712
+subject:kv_alignment_padding_bytes	0
+subject:unit_bytes	2097152
+subject:vmm_granularity_minimum	2097152
+subject:vmm_granularity_recommended	2097152
+subject:attention_layer_count	6
+subject:memory_saved_bytes	0
+stage:primed	completed
+primed:level-1	reply_identity=identical delivered_ratio=1.0003 pairs=4
+primed:level-3	reply_identity=identical delivered_ratio=1.0003 pairs=4
+primed_reply_identity	identical
+primed_levels_complete	1 3
+primed_geometry	slot_depth=4096 slot_offset=0
+layout:primed-1-subject	layout_holds
+layout:primed-1-control	layout_holds
+layout:primed-3-subject	layout_holds
+layout:primed-3-control	layout_holds
+verdict	admitted
+refusals	0
