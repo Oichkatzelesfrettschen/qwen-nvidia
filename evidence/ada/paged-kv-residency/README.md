@@ -367,15 +367,17 @@ and the primed width-1 and width-3 sweep.
 
 ## P2-C result
 
-`2b-p2c-run-03/` runs `scripts/admit-paged-kv-residency.sh` against closure
-`ff875a2a7291`, the pinned tree with the crossover patch and the P2-C form
+`2b-p2c-run-04/` runs `scripts/admit-paged-kv-residency.sh` against closure
+`e78064b45887`, the pinned tree with the crossover patch and the P2-C form
 of `patches/llama-cuda-paged-kv-buffer.patch` as committed, on the 2B; the
 subject arm is that closure's own binary under `LLAMA_KV_PAGED_BUFFER=1
-LLAMA_KV_PAGED_RESIDENCY=tails`, and it reads `admitted` with nothing
-refused. `2b-p2c-run-01/` and `2b-p2c-run-02/` are the same harness on
-closure `b468187f6ada`, the form ahead of the review pass that backed
+LLAMA_KV_PAGED_RESIDENCY=tails`. `2b-p2c-run-03/` is the same harness on
+closure `ff875a2a7291`, the form ahead of the review pass that moved the
+K-shift commit past the empty-range return, and it reads `admitted` inside
+the harness with nothing refused; `2b-p2c-run-01/` and `2b-p2c-run-02/`
+are closure `b468187f6ada`, the form ahead of the pass that backed
 maintenance requirements ahead of their metadata, kept a handle whose
-release was refused, and guarded the asynchronous transfers; all three runs
+release was refused, and guarded the asynchronous transfers. All four runs
 read the same table on every stage but the primed sweep.
 
 | record | reading |
@@ -388,41 +390,47 @@ read the same table on every stage but the primed sweep.
 | lifecycle transactions | five commits and three reclaims in the tails arm: 6 units committed at the K crossing, 6 released at the erase and at the short prompt's removal, 6 recommitted at the restore and the regrowth; every reclaim returns to 24 MiB |
 | memory saved | 289406976 bytes against the 327155712-byte reservation at the 4096-row envelope; 301989888 at the floor |
 | retained unmapped, refused transactions, violations | 0, 0, 0 |
-| commit latency | median 414 us, p95 649 us in run 03 (526 and 629 us median, 1213 and 796 us p95 in runs 01 and 02), against 2 ms and 10 ms |
-| reclaim latency | median 372 us, p95 384 us in run 03 (485 and 458 us median in runs 01 and 02), one device quiesce each |
+| commit latency | median 414 to 629 us and p95 649 to 1213 us across the four runs (457 and 649 us in run 04), against 2 ms and 10 ms |
+| reclaim latency | median 372 to 485 us across the four runs (393 us in run 04), one device quiesce each |
 | replies A, B, D and states A, D | identical inside every arm and across the fully backed null, the tails subject, and the closing null |
-| width 1 primed | replies identical in 4 of 4 bursts in every run; delivered ratio 1.0288 in run 03 and 1.0001 in the run 02 retry (pairs 0.976 to 1.030 in run 02), the subject ahead where the two differ |
-| width 3 primed | replies identical in 4 of 4 bursts; delivered ratio 1.0009 in run 03 and 1.0006 in the run 02 retry |
+| width 1 primed | replies identical in 4 of 4 bursts in every sweep; delivered ratio 1.0016 (run 04 retry), 1.0288 (run 03), 1.0001 (run 02 retry) |
+| width 3 primed | replies identical in 4 of 4 bursts in every completed sweep; delivered ratio 0.9744 (run 04 retry), 1.0009 (run 03), 1.0006 (run 02 retry) |
 | kernel ring, client set | 0 hazard lines; the compositor and one browser GPU process across every arm |
 
-The primed width-3 level refused in runs 01 and 02 on the control arm, which
-serves the ordinary buffer: one measured burst in run 01 and two in run 02
-prefilled in two passes, the arrival split the primed regime's rule refuses
-ahead of any reply comparison, so the tails subject never ran at width 3
-inside the harness. The same sweep on the P2-A closure `bc2846e23fd2` under
-the same desktop state passed both widths at 4 of 4 pairs (delivered ratio
-1.0010 and 0.9986, replies identical), which separates the desktop from the
-closure without deciding between the closure's control path and arrival
-timing. `2b-p2c-run-02/primed-retry-01/` is the sweep run again on
-`b468187f6ada` alone, under the tails environment, and it passed both
-widths at 4 of 4 pairs: delivered ratio 1.0001 at width 1 and 1.0006 at
-width 3, every reply identical to the control's, full-width decode 533.40
-against 533.72 tok/s at width 3. That decides it as arrival timing in the
-control arm, the intermittent the primed regime's rule exists to refuse
-rather than average over. `layout-primed-retry-*-subject.tsv` reads the
-retry's subject logs under the tails expectation: at width 3 the sweep
-serves 3 streams over 4096 cells, so the floor envelope commits 30 units
-(60 MiB) at load, since each K stream's first 256 rows fall in a different
-unit at the 2228224-byte stream stride and the V streams share one unit in
-two. The harness summaries of runs 01 and 02 keep the `refused` verdict
-their primed stage wrote; run 03 passed the sweep inside the harness at
-both widths, and the retry beside run 02 agrees with it.
+The primed width-3 level refused in runs 01, 02, and 04 on the control arm,
+which serves the ordinary buffer: one measured burst in runs 01 and 04 and
+two in run 02 prefilled in two passes, the arrival split the primed
+regime's rule refuses ahead of any reply comparison, so the tails subject
+never ran at width 3 inside those harness runs. The same sweep on the P2-A
+closure `bc2846e23fd2` under the same desktop state passed both widths at
+4 of 4 pairs (delivered ratio 1.0010 and 0.9986, replies identical), run 03
+passed inside the harness, and `primed-retry-01/` beside runs 02 and 04 is
+the sweep run again on that run's closure alone under the tails
+environment, passing both widths at 4 of 4 pairs each time with every reply
+identical to the control's. Three passes on the P2-C closures and three
+control-arm splits across six sweeps in one day put the split in arrival
+timing on the control side, the intermittent the primed regime's rule
+exists to refuse rather than average over. `layout-primed-retry-*-subject.tsv`
+reads each retry's subject logs under the tails expectation: at width 3
+the sweep serves 3 streams over 4096 cells, so the floor envelope commits
+30 units (60 MiB) at load, since each K stream's first 256 rows fall in a
+different unit at the 2228224-byte stream stride and the V streams share
+one unit in two. The harness summaries of runs 01, 02, and 04 keep the
+`refused` verdict their primed stage wrote.
+
+The width-3 delivered ratio reads 1.0006, 1.0009, and 0.9744 across the
+three completed sweeps on the P2-C closures, with the control's own
+full-width decode moving from 533 to 552 tok/s between them, so its
+direction is unresolved: the interval crosses one and the one reading
+outside 2% is a single sweep. The 2% claim is preregistered at batch 1,
+where the three sweeps read 1.0001, 1.0288, and 1.0016, and a width-3 cost
+claim in either direction needs an alternating paired campaign of its own.
 
 | claim | preregistered | measured | verdict |
 | --- | --- | --- | --- |
 | steady-state saving at the 4096-row envelope | allocated at or under 60 MiB | 36 MiB, 289406976 bytes saved | holds |
 | mapping latency at a unit boundary | under 2 ms median, 10 ms p95 | commit 526 to 629 us median, 796 to 1213 us p95; reclaim 458 to 485 us median | holds |
-| serving cost | delivered within 2% at batch 1; primed widths 1 and 3 identical | medians 1.0288 and 1.0009 in run 03, 1.0001 and 1.0006 in the run 02 retry, the width-1 spread of this host with the subject ahead; identical | holds |
+| serving cost | delivered within 2% at batch 1; primed widths 1 and 3 identical | batch 1 at 1.0016, 1.0288, and 1.0001 across three sweeps; replies identical at both widths in every completed sweep; width 3 at 0.9744 to 1.0009, direction unresolved | holds at batch 1; width 3 unresolved |
 | identity | exact batch-1 tokens and state bytes, then the primed regime | 12 of 12, 12 of 12 in every run; identical at both widths | holds |
 
 P2-C is admitted on the 2B for tail residency and lifecycle management
