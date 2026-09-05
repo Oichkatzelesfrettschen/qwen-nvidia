@@ -1954,6 +1954,7 @@ python3 scripts/web-mcp/test-web-mcp.py
 python3 scripts/web-mcp/test-authorize-broker.py
 python3 scripts/web-mcp/test-sidecar-grant.py
 python3 scripts/sidecar-mcp/test-sidecar-mcp.py
+python3 scripts/test-sidecar-runtime.py
 scripts/test-fallback-webui-model-selection.sh
 scripts/test-fallback-webui-web-authorization.sh
 scripts/test-fallback-webui-code-authorization.sh

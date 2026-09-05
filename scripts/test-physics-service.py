@@ -190,8 +190,14 @@ def main():
                 fields.update(overrides)
                 return sidecar_grant.issue_sidecar_grant(str(key_path), sidecar_grant.parse_sidecar_request(fields), 300)
 
-            reply = harness.exchange(request(authorization=issue()))
+            spent = issue()
+            reply = harness.exchange(request(authorization=spent))
             check(reply["status"] == "completed", "a keyed service completes under the matching grant")
+            # the service spends the nonce itself, so the same token presented
+            # to the socket a second time refuses without the MCP ledger
+            reply = harness.exchange(request(authorization=spent))
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_replayed",
+                  "a grant replayed against the service refuses as spent")
             reply = harness.exchange(request(authorization=issue(service="geometry", sidecar_profile="geometry-x",
                                                                  scene="cube-and-plane")))
             check(reply["status"] == "refused" and reply.get("reason") == "grant_refused",

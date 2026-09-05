@@ -89,22 +89,43 @@ check_lane() {
         printf 'the preset names no readable MCP configuration for its section\n' >&2
         exit 2
     }
-    configured_sha256=$(python3 - "$mcp_config" "$lane" <<'PY'
+    # The configuration the child reads is the one source of the lane's
+    # runtime digest, state directory, socket, and signing key; the session
+    # is handed the same three paths so the service and the child meet on them.
+    configured=$(python3 - "$mcp_config" "$lane" <<'PY'
 import json, sys
 document = json.load(open(sys.argv[1]))
-server = (document.get("mcpServers") or {}).get(sys.argv[2]) or {}
-print((server.get("env") or {}).get("QWEN_SIDECAR_RUNTIME_SHA256", ""))
+environment = ((document.get("mcpServers") or {}).get(sys.argv[2]) or {}).get("env") or {}
+for key in ("QWEN_SIDECAR_RUNTIME_SHA256", "QWEN_SIDECAR_STATE_DIR", "QWEN_SIDECAR_SERVICE_SOCKET", "QWEN_SIDECAR_TOKEN_KEY_FILE"):
+    print(environment.get(key, ""))
 PY
 )
+    configured_sha256=$(printf '%s\n' "$configured" | sed -n '1p')
+    configured_state_directory=$(printf '%s\n' "$configured" | sed -n '2p')
+    configured_socket=$(printf '%s\n' "$configured" | sed -n '3p')
+    configured_token_key_file=$(printf '%s\n' "$configured" | sed -n '4p')
     if [ "$configured_sha256" != "$runtime_sha256" ]; then
         printf 'the %s runtime %s digests %s where the preset configuration carries %s\n' \
             "$lane" "$runtime_path" "$runtime_sha256" "${configured_sha256:-<absent>}" >&2
         printf 'regenerate the preset with QWEN_%s_RUNTIME_SHA256 set to the runtime that will run\n' "$lane_upper" >&2
         exit 2
     fi
+    for configured_path in "$configured_state_directory" "$configured_socket" "$configured_token_key_file"; do
+        case $configured_path in
+            /*) ;;
+            *)
+                printf 'the %s configuration names no absolute state directory, socket, and key file\n' "$lane" >&2
+                exit 2 ;;
+        esac
+    done
+    if [ ! -f "$configured_token_key_file" ]; then
+        printf 'the %s configuration names a signing key file that is absent: %s\n' "$lane" "$configured_token_key_file" >&2
+        exit 2
+    fi
     armed_lanes=$((armed_lanes + 1))
-    printf '%s_launch lane=armed profile=%s ledger=%s runtime=%s runtime_sha256=%s\n' \
-        "$lane" "$preset_profile" "$preset_ledger" "$runtime_path" "$runtime_sha256"
+    printf '%s_launch lane=armed profile=%s ledger=%s runtime=%s runtime_sha256=%s state=%s socket=%s\n' \
+        "$lane" "$preset_profile" "$preset_ledger" "$runtime_path" "$runtime_sha256" \
+        "$configured_state_directory" "$configured_socket"
     lane_armed=1
 }
 
@@ -114,7 +135,11 @@ if [ "$lane_armed" = 1 ]; then
     QWEN_PHYSICS_SERVICE=1
     QWEN_PHYSICS_PROFILE=$preset_profile
     QWEN_PHYSICS_PROFILES=$preset_ledger
+    QWEN_PHYSICS_STATE_DIR=$configured_state_directory
+    QWEN_PHYSICS_SERVICE_SOCKET=$configured_socket
+    QWEN_SIDECAR_TOKEN_KEY_FILE=$configured_token_key_file
     export QWEN_PHYSICS_SERVICE QWEN_PHYSICS_PROFILE QWEN_PHYSICS_PROFILES QWEN_PHYSICS_RUNTIME
+    export QWEN_PHYSICS_STATE_DIR QWEN_PHYSICS_SERVICE_SOCKET QWEN_SIDECAR_TOKEN_KEY_FILE
 fi
 lane_armed=0
 check_lane geometry 6 "${QWEN_GEOMETRY_RUNTIME:-}"
@@ -122,7 +147,15 @@ if [ "$lane_armed" = 1 ]; then
     QWEN_GEOMETRY_SERVICE=1
     QWEN_GEOMETRY_PROFILE=$preset_profile
     QWEN_GEOMETRY_PROFILES=$preset_ledger
+    QWEN_GEOMETRY_STATE_DIR=$configured_state_directory
+    QWEN_GEOMETRY_SERVICE_SOCKET=$configured_socket
+    if [ -n "${QWEN_SIDECAR_TOKEN_KEY_FILE:-}" ] && [ "$QWEN_SIDECAR_TOKEN_KEY_FILE" != "$configured_token_key_file" ]; then
+        printf 'the two lanes name different signing keys where one broker signs for both\n' >&2
+        exit 2
+    fi
+    QWEN_SIDECAR_TOKEN_KEY_FILE=$configured_token_key_file
     export QWEN_GEOMETRY_SERVICE QWEN_GEOMETRY_PROFILE QWEN_GEOMETRY_PROFILES QWEN_GEOMETRY_RUNTIME
+    export QWEN_GEOMETRY_STATE_DIR QWEN_GEOMETRY_SERVICE_SOCKET QWEN_SIDECAR_TOKEN_KEY_FILE
 fi
 if [ "$armed_lanes" -eq 0 ]; then
     printf 'every physics and geometry profile the preset read withholds an executing policy, so this launch arms no sidecar\n' >&2

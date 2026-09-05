@@ -70,6 +70,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-web-mcp.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-authorize-broker.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-sidecar-grant.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/sidecar-mcp/test-sidecar-mcp.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-sidecar-runtime.py
 scripts/test-fallback-webui-model-selection.sh
 scripts/test-fallback-webui-web-authorization.sh
 scripts/test-fallback-webui-code-authorization.sh

@@ -107,12 +107,20 @@ physics_service_program=${QWEN_PHYSICS_SERVICE_PROGRAM:-"$script_directory/physi
 physics_service_profiles=${QWEN_PHYSICS_PROFILES:-"$script_directory/physics-profiles.tsv"}
 physics_service_runtime=${QWEN_PHYSICS_RUNTIME:-}
 physics_service_log=$state_directory/physics-service.log
+physics_service_state_directory=${QWEN_PHYSICS_STATE_DIR:-$state_directory/physics}
+physics_service_socket_path=${QWEN_PHYSICS_SERVICE_SOCKET:-$physics_service_state_directory/physics-service.sock}
 geometry_service_pid=""
 geometry_service_enabled=${QWEN_GEOMETRY_SERVICE:-0}
 geometry_service_program=${QWEN_GEOMETRY_SERVICE_PROGRAM:-"$script_directory/geometry-service.py"}
 geometry_service_profiles=${QWEN_GEOMETRY_PROFILES:-"$script_directory/geometry-profiles.tsv"}
 geometry_service_runtime=${QWEN_GEOMETRY_RUNTIME:-}
 geometry_service_log=$state_directory/geometry-service.log
+geometry_service_state_directory=${QWEN_GEOMETRY_STATE_DIR:-$state_directory/geometry}
+geometry_service_socket_path=${QWEN_GEOMETRY_SERVICE_SOCKET:-$geometry_service_state_directory/geometry-service.sock}
+# The signing key the sidecar grants verify against is the one the preset's
+# MCP configuration names, which the launcher exports; the image key stands
+# in only where no sidecar key was named, and the web key after that.
+sidecar_token_key_file=${QWEN_SIDECAR_TOKEN_KEY_FILE:-${QWEN_IMAGE_TOKEN_KEY_FILE:-${QWEN_WEB_TOKEN_KEY_FILE:-}}}
 compute_lease_path=$state_directory/vulkan-workload.lock
 case ${QWEN_ROUTER_PRESETS:-} in
     "$state_directory"/.router-presets.active.*)
@@ -426,24 +434,27 @@ if [ "$image_service_enabled" = 1 ]; then
         sed -n '1p' | tr ' ' ':')
 fi
 
-# start_sidecar_service LANE PROGRAM PROFILES RUNTIME LOG: one service, under
-# the compute lease this session names with its identity, the signing key so
-# every run requires the grant the MCP child spent, and the language profile
-# the grant is signed for. The pid, start time, and socket are read back the
-# way the image service's are.
+# start_sidecar_service LANE PROGRAM PROFILES RUNTIME LOG STATE_DIR SOCKET:
+# one service, under the compute lease this session names with its identity,
+# the signing key so every run requires the grant the MCP child spent, and
+# the language profile the grant is signed for. The state directory and the
+# socket are the ones the preset's configuration names, so the child and the
+# service meet on one path. The pid is registered the moment the service is
+# spawned, so a readiness timeout exits through a cleanup that still ends it.
 start_sidecar_service() {
     sidecar_lane=$1
     sidecar_program=$2
     sidecar_profiles=$3
     sidecar_runtime=$4
     sidecar_log=$5
+    sidecar_state_directory=$6
+    sidecar_socket_path=$7
     if [ ! -r "$sidecar_program" ] || [ ! -r "$sidecar_profiles" ] || [ ! -x "$sidecar_runtime" ]; then
         printf 'state=failed reason=%s_service_unavailable program=%s profiles=%s runtime=%s utc=%s\n' \
             "$sidecar_lane" "$sidecar_program" "$sidecar_profiles" "${sidecar_runtime:-<unset>}" \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
         exit 1
     fi
-    sidecar_state_directory=$state_directory/$sidecar_lane
     mkdir -p "$sidecar_state_directory"
     chmod 700 "$sidecar_state_directory"
     : >"$sidecar_log"
@@ -452,12 +463,17 @@ start_sidecar_service() {
     compute_lease_identity=$(stat -c '%d:%i' "$compute_lease_path")
     QWEN_GPU_COMPUTE_LEASE=$compute_lease_path \
     QWEN_GPU_COMPUTE_LEASE_IDENTITY=$compute_lease_identity \
-    QWEN_SIDECAR_TOKEN_KEY_FILE=${QWEN_IMAGE_TOKEN_KEY_FILE:-${QWEN_WEB_TOKEN_KEY_FILE:-}} \
+    QWEN_SIDECAR_TOKEN_KEY_FILE=$sidecar_token_key_file \
     QWEN_SIDECAR_LANGUAGE_PROFILE=${QWEN_WEB_PROFILE:-} \
         python3 "$sidecar_program" --state-dir "$sidecar_state_directory" \
         --profiles "$sidecar_profiles" --runtime "$sidecar_runtime" \
+        --socket "$sidecar_socket_path" \
         >"$sidecar_log" 2>&1 9>&- &
     sidecar_started_pid=$!
+    case $sidecar_lane in
+        physics) physics_service_pid=$sidecar_started_pid ;;
+        geometry) geometry_service_pid=$sidecar_started_pid ;;
+    esac
     attempt=0
     sidecar_ready=0
     while [ "$attempt" -lt 300 ]; do
@@ -485,8 +501,7 @@ physics_service_socket=''
 physics_service_runtime_sha256=''
 if [ "$physics_service_enabled" = 1 ]; then
     start_sidecar_service physics "$physics_service_program" "$physics_service_profiles" \
-        "$physics_service_runtime" "$physics_service_log"
-    physics_service_pid=$sidecar_started_pid
+        "$physics_service_runtime" "$physics_service_log" "$physics_service_state_directory" "$physics_service_socket_path"
     physics_service_start_time=$sidecar_started_start_time
     physics_service_socket=$sidecar_started_socket
     physics_service_runtime_sha256=$sidecar_started_runtime_sha256
@@ -496,8 +511,7 @@ geometry_service_socket=''
 geometry_service_runtime_sha256=''
 if [ "$geometry_service_enabled" = 1 ]; then
     start_sidecar_service geometry "$geometry_service_program" "$geometry_service_profiles" \
-        "$geometry_service_runtime" "$geometry_service_log"
-    geometry_service_pid=$sidecar_started_pid
+        "$geometry_service_runtime" "$geometry_service_log" "$geometry_service_state_directory" "$geometry_service_socket_path"
     geometry_service_start_time=$sidecar_started_start_time
     geometry_service_socket=$sidecar_started_socket
     geometry_service_runtime_sha256=$sidecar_started_runtime_sha256

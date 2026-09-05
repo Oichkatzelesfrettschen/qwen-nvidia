@@ -235,7 +235,10 @@ def summarize(settings, reply, request_id):
     }
     lane = LANES[settings["service"]]
     summary[lane["count_key"]] = result.get(lane["count_key"])
-    for key in ("wall_ms", "simulate_ms", "trace_ms", "launch_ms", "reference_ms", "agreement", "agreement_count", "hits"):
+    # the protocol's own figures, by their protocol names: the physics
+    # timings, and the geometry counts including the device-to-reference
+    # agreement the reply carries
+    for key in ("wall_ms", "simulate_ms", "launch_ms", "hits", "misses", "reference_agreement", "reference_disagreement"):
         if key in result:
             summary[key] = result[key]
     if settings["service"] == "physics":

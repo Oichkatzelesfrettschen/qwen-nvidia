@@ -179,6 +179,14 @@ class WorkloadLease:
         if self.descriptor is not None:
             raise LeaseUnavailable("this service already holds the workload lease")
         descriptor = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
+        # the descriptor is the file the lock lands on, so its identity is
+        # compared against the session's ahead of the flock; a path replaced
+        # since launch refuses here rather than locking a file no server holds
+        try:
+            sidecar_runtime.require_descriptor_identity(descriptor, getattr(self, "expected_identity", ""))
+        except sidecar_runtime.LeaseIdentityRefused as error:
+            os.close(descriptor)
+            raise LeaseUnavailable(str(error)) from None
         deadline = time.monotonic() + self.wait_seconds
         while True:
             try:
@@ -218,10 +226,14 @@ class PhysicsService:
         # passed its identity, proven to be the same file; a mismatch refuses
         # the launch rather than serializing against a file no server holds.
         try:
-            self.lease_path = sidecar_runtime.require_lease_identity()
+            self.lease_path, self.lease_identity = sidecar_runtime.require_lease_identity()
         except sidecar_runtime.LeaseIdentityRefused as error:
             raise ProfileRefused("lease identity: %s" % error) from None
         self.lease = WorkloadLease(settings["state_dir"], settings["lease_wait_s"])
+        self.lease.expected_identity = self.lease_identity
+        # the grant a run spends is spent here as well as at the MCP child,
+        # so a token replayed against the socket meets its second use
+        self.grant_ledger = sidecar_runtime.GrantLedger(settings["state_dir"]) if settings.get("token_key_file") else None
         self.busy = threading.Lock()
         self.child = None
         self.audit_path = os.path.join(settings["state_dir"], "physics-audit.log")
@@ -256,10 +268,11 @@ class PhysicsService:
             # the socket some other way meets the same refusal here.
             if self.settings.get("token_key_file"):
                 try:
-                    sidecar_runtime.require_grant(
+                    claim = sidecar_runtime.require_grant(
                         self.settings["token_key_file"], message.get("authorization"), "physics",
                         self.settings.get("language_profile", ""), profile_id, self.runtime_sha256,
                         profile["scene"], steps, time.time())
+                    self.grant_ledger.consume(claim["grant_id"], claim["expiry"], time.time())
                 except sidecar_runtime.GrantRefused as error:
                     raise GrantDenied(error.reason, str(error)) from None
             if not self.busy.acquire(blocking=False):
@@ -313,9 +326,11 @@ class PhysicsService:
         try:
             stdout, stderr = sidecar_runtime.collect_output(
                 self.child, profile["timeout_s"], MAX_RUNTIME_OUTPUT_BYTES, MAX_RUNTIME_STDERR_BYTES)
-        except subprocess.TimeoutExpired:
-            self.terminate_child()
-            raise RuntimeTimeout("runtime exceeded %d s" % profile["timeout_s"]) from None
+        except sidecar_runtime.RuntimeDeadline as deadline:
+            # the collector ended the group and reaped it; the timeline names
+            # when the signals went and when the leader left
+            raise RuntimeTimeout("runtime exceeded %d s; %s" % (
+                profile["timeout_s"], " ".join("%s=%s" % item for item in sorted(deadline.timeline.items())))) from None
         except sidecar_runtime.OutputOverflow as overflow:
             self.terminate_child()
             raise RuntimeFailed("runtime %s exceeds its byte limit; the runtime was ended" % overflow.stream) from None

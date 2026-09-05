@@ -108,7 +108,7 @@ on the first round.
 | geometry body at the physics endpoint | refused at the broker |
 | any body at the unarmed geometry endpoint | refused at the broker |
 | lease held from outside | refused: `another workload holds the lease`, no runtime started |
-| 100000 steps under the 2 s deadline | failed as `runtime exceeded 2 s`; the reply returned after 16.5 s, which is the runtime's own exit under SIGTERM and then SIGKILL after the deadline fired, and no runtime process survived one second later |
+| 100000 steps under the 2 s deadline | failed as `runtime exceeded 2 s` with the service's shutdown timeline in the reason, and no runtime process survived one second later |
 | page turn | accepted: one `POST /grant-physics`, one `POST /tools`, origins the router and broker alone, the tool message `status: completed` with the proof, and the model's reply naming 600 steps, 4 bodies, and 4 joints |
 | teardown | accepted: no server, session, probe, broker, or service; physics residue clean; session secret gone |
 
@@ -121,8 +121,10 @@ application execution stays unauthorized in the checked-in ledger, since a
 served run under a copied row is an admission and a policy change is its
 own transition.
 
-**What it leaves open.** The deadline arm's 16.5 s is the runtime's exit
-time under the signal chain rather than the deadline itself; a runtime
-that checks for a stop between steps would return in about 2 s, and is a
-runtime change rather than a service one. The geometry lane and a
-contention arm running both lanes against one lease are the next record.
+**What it leaves open.** The deadline arm's reply time is stated with
+the service's own timeline, the offsets at which SIGTERM, SIGKILL where it
+was needed, and the leader's exit followed the deadline; what the runtime
+does between the signal and its exit is the runtime's, and a runtime that
+reads a stop between steps is a runtime change rather than a service one.
+The geometry lane and a contention arm running both lanes against one
+lease are the next record.
