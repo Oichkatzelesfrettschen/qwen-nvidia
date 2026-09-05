@@ -1,0 +1,28 @@
+image_launch timeouts runtime=300 service=330 mcp=360 proxy=3600 browser=660 proxy_source=llama-server-default
+device_name=NVIDIA GeForce RTX 4070 Ti
+device_total_bytes=12878610432
+device_used_bytes=1560281088
+device_available_bytes=11318329344
+model_bytes=1312164224
+mem_available_bytes=22325960704
+required_host_bytes=4294967296
+required_device_bytes=1816133632
+device_margin_bytes=805306368
+required_device_with_margin_bytes=2621440000
+swap_used_bytes=11249328128
+host_memory_headroom=ample surplus_bytes=18030993408
+device_budget_headroom=ample surplus_bytes=8696889344
+model_memory_preflight=observe
+image_launch budget artifacts_mib=1252 runtime_mib=480 required_mib=1732 sections=1
+image_launch profile=image-sdxs-512-a ledger=$HOME/worktrees/qwen-nvidia/image-runtime-cuda/evidence/image-appliance/cuda-runtime-admission/run-01/image-profiles.tsv runtime=$HOME/src/stable-diffusion.cpp-qwen-nvidia/build-cuda-sm89/bin/sd-cli parameters=$HOME/worktrees/qwen-nvidia/image-runtime-cuda/evidence/image-appliance/cuda-runtime-admission/run-01/image-parameters.json
+web_launch presets=$HOME/worktrees/qwen-nvidia/image-runtime-cuda/evidence/image-appliance/cuda-runtime-admission/run-01/web-presets.ini unvalidated_depth_marker=absent authorizer_ready=1 bind=127.0.0.1
+web_launch broker_port=8571 broker_state_dir=$HOME/worktrees/qwen-nvidia/image-runtime-cuda/evidence/image-appliance/cuda-runtime-admission/run-01/web-mcp signing_key=configured profile=web-image-admission provider=fake review_section=- models_max=1
+web_launch static_path=$HOME/worktrees/qwen-nvidia/image-runtime-cuda/scripts/../webui
+router_preflight_subject=Qwen3.8-2B-Q4_K_M.gguf bytes=1312164224
+started tmux_socket=qwen-runtime tmux_session=qwen-webui profile=default host=127.0.0.1 port=8080 context=24576 latency_mode=observe model=$HOME/models/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf server=$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-server
+speculation spec_type=off draft_n_max=default draft_p_min=default draft_backend_sampling=0 backend_sampling=0
+cache cache_type_k=registry cache_type_v=registry flash_attention=registry override_context_ceiling=registry
+state=running server_pid=349443 monitor_pid=349708 latency_watchdog_pid=349583 kernel_hazard_watchdog_pid=349695 broker_pid=349332 image_service_pid=349418 profile=default host=127.0.0.1 port=8080 context=24576 latency_mode=observe utc=2026-09-05T06:50:17Z
+reachable at http://127.0.0.1:8080 (loopback only)
+approval broker at http://127.0.0.1:8571 (loopback only)
+stop it with $HOME/worktrees/qwen-nvidia/image-runtime-cuda/scripts/qwen-teardown.sh

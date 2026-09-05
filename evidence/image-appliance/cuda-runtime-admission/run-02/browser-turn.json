@@ -1,0 +1,366 @@
+{
+  "origin": "http://127.0.0.1:8080",
+  "model": "web-image-admission",
+  "history": [
+    {
+      "role": "user",
+      "content": "Draw a fox in a snowy field."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_0",
+          "type": "function",
+          "function": {
+            "name": "image_generate_image",
+            "arguments": "{\"prompt\":\"A beautiful fox standing in a snowy field, white snow covering the ground, soft winter lighting, peaceful winter scene\",\"seed\":42,\"width\":512,\"height\":512,\"steps\":2,\"profile_id\":\"image-sdxs-512-a\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_0",
+      "name": "image_generate_image",
+      "content": "Image generated: sha256 d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf, provenance /artifacts/d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf.json."
+    },
+    {
+      "role": "assistant",
+      "content": "Here's your image of a fox in a snowy field:\n\n![Fox in a snowy field](artifacts/d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf.png)"
+    }
+  ],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:8080/tools?model=web-image-admission&autoload=true",
+      "method": "GET",
+      "body": null,
+      "bodyKeys": null,
+      "bodyModel": null
+    },
+    {
+      "url": "http://127.0.0.1:8080/v1/chat/completions",
+      "method": "POST",
+      "body": {
+        "model": "web-image-admission",
+        "stream": true,
+        "temperature": 0.7,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 4096,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Draw a fox in a snowy field."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "reasoning_budget": 0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "image_generate_image",
+              "description": "Generate one image under the image-sdxs-512-a image profile, which renders 512x512 and admits at most 512 pixels a side and 4 sampler steps. The call runs only under a grant the user approved for these exact arguments, and the reply names the artifact digest and its provenance URL.",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "The approved prompt, at most 2000 characters."
+                  },
+                  "negative_prompt": {
+                    "type": "string",
+                    "description": "The approved negative prompt, empty when the approval named none."
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709552000,
+                    "description": "The seed the approval displayed. The runtime chooses none."
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel width. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel height. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 1,
+                    "description": "Sampler steps. The image-sdxs-512-a profile runs 1 and admits at most 4."
+                  },
+                  "profile_id": {
+                    "type": "string",
+                    "enum": [
+                      "image-sdxs-512-a"
+                    ],
+                    "description": "The image profile this server serves. image-sdxs-512-a is the one profile it admits, and the grant names the same one."
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "seed",
+                  "width",
+                  "height",
+                  "steps",
+                  "profile_id"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "bodyKeys": [
+        "model",
+        "stream",
+        "temperature",
+        "stream_options",
+        "max_tokens",
+        "messages",
+        "chat_template_kwargs",
+        "reasoning_budget",
+        "tools"
+      ],
+      "bodyModel": "web-image-admission"
+    },
+    {
+      "url": "http://127.0.0.1:8571/session",
+      "method": "GET",
+      "body": null,
+      "bodyKeys": null,
+      "bodyModel": null
+    },
+    {
+      "url": "http://127.0.0.1:8571/grant-image",
+      "method": "POST",
+      "body": {
+        "context": "qwen-image-generate-v1",
+        "language_profile": "web-image-admission",
+        "image_profile": "image-sdxs-512-a",
+        "prompt_hash": "6e695fdbc02d7648fabe1c09a2fef96392fc41db3d3da5b01033197d198ff26f",
+        "negative_prompt_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seed": 42,
+        "aspect": "1:1",
+        "max_dimension": 512,
+        "max_steps": 2,
+        "conversation_generation": 0
+      },
+      "bodyKeys": [
+        "context",
+        "language_profile",
+        "image_profile",
+        "prompt_hash",
+        "negative_prompt_hash",
+        "seed",
+        "aspect",
+        "max_dimension",
+        "max_steps",
+        "conversation_generation"
+      ],
+      "bodyModel": null
+    },
+    {
+      "url": "http://127.0.0.1:8080/tools",
+      "method": "POST",
+      "body": {
+        "model": "web-image-admission",
+        "tool": "image_generate_image",
+        "params": {
+          "prompt": "A beautiful fox standing in a snowy field, white snow covering the ground, soft winter lighting, peaceful winter scene",
+          "negative_prompt": "",
+          "seed": 42,
+          "width": 512,
+          "height": 512,
+          "steps": 2,
+          "profile_id": "image-sdxs-512-a"
+        },
+        "stream": false
+      },
+      "bodyKeys": [
+        "model",
+        "tool",
+        "params",
+        "stream"
+      ],
+      "bodyModel": "web-image-admission"
+    },
+    {
+      "url": "http://127.0.0.1:54639/artifacts/d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf.png",
+      "method": "GET",
+      "body": null,
+      "bodyKeys": null,
+      "bodyModel": null
+    },
+    {
+      "url": "http://127.0.0.1:8080/props?model=web-image-admission",
+      "method": "GET",
+      "body": null,
+      "bodyKeys": null,
+      "bodyModel": null
+    },
+    {
+      "url": "http://127.0.0.1:8080/v1/chat/completions",
+      "method": "POST",
+      "body": {
+        "model": "web-image-admission",
+        "stream": true,
+        "temperature": 0.7,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 4096,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Draw a fox in a snowy field."
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_0",
+                "type": "function",
+                "function": {
+                  "name": "image_generate_image",
+                  "arguments": "{\"prompt\":\"A beautiful fox standing in a snowy field, white snow covering the ground, soft winter lighting, peaceful winter scene\",\"seed\":42,\"width\":512,\"height\":512,\"steps\":2,\"profile_id\":\"image-sdxs-512-a\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_0",
+            "name": "image_generate_image",
+            "content": "Image generated: sha256 d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf, provenance /artifacts/d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf.json."
+          }
+        ],
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "reasoning_budget": 0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "image_generate_image",
+              "description": "Generate one image under the image-sdxs-512-a image profile, which renders 512x512 and admits at most 512 pixels a side and 4 sampler steps. The call runs only under a grant the user approved for these exact arguments, and the reply names the artifact digest and its provenance URL.",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "The approved prompt, at most 2000 characters."
+                  },
+                  "negative_prompt": {
+                    "type": "string",
+                    "description": "The approved negative prompt, empty when the approval named none."
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709552000,
+                    "description": "The seed the approval displayed. The runtime chooses none."
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel width. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 512,
+                    "default": 512,
+                    "description": "Pixel height. The image-sdxs-512-a profile renders 512 natively and admits at most 512."
+                  },
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 1,
+                    "description": "Sampler steps. The image-sdxs-512-a profile runs 1 and admits at most 4."
+                  },
+                  "profile_id": {
+                    "type": "string",
+                    "enum": [
+                      "image-sdxs-512-a"
+                    ],
+                    "description": "The image profile this server serves. image-sdxs-512-a is the one profile it admits, and the grant names the same one."
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "seed",
+                  "width",
+                  "height",
+                  "steps",
+                  "profile_id"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "bodyKeys": [
+        "model",
+        "stream",
+        "temperature",
+        "stream_options",
+        "max_tokens",
+        "messages",
+        "chat_template_kwargs",
+        "reasoning_budget",
+        "tools"
+      ],
+      "bodyModel": "web-image-admission"
+    }
+  ],
+  "imageStates": [
+    "Image complete"
+  ],
+  "imageCards": [
+    {
+      "caption": "sha256 d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf | seed 42 | 512x512 | 2 steps | image-sdxs-512-a",
+      "src": "blob:http://127.0.0.1:8080/0e75a5d7-4a1b"
+    }
+  ],
+  "log": "you\nDraw a fox in a snowy field.\nqwen\nimage_generate_image({\"prompt\":\"A beautiful fox standing in a snowy field, white snow covering the ground, soft winter lighting, peaceful winter scene\",\"seed\":42,\"width\":512,\"height\":512,\"steps\":2,\"profile_id\":\"image-sdxs-512-a\"})\nImage complete\n2082.5 tok/s prefill | 110.6 tok/s decode | 122 generated tokens in 1.4s | ended on tool_calls\nsha256 d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf | seed 42 | 512x512 | 2 steps | image-sdxs-512-a\nremove image\nqwen\nHere's your image of a fox in a snowy field:\n\n![Fox in a snowy field](artifacts/d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf.png)\n4906.4 tok/s prefill | 113.5 tok/s decode | 82 generated tokens in 0.8s",
+  "selected_model_at_load": "web-image-admission",
+  "dialog": {
+    "heading": "Authorize one image generation",
+    "note": "",
+    "args": {
+      "prompt": "A beautiful fox standing in a snowy field, white snow covering the ground, soft winter lighting, peaceful winter scene",
+      "negative prompt": "(none)",
+      "seed": "42",
+      "width": "512",
+      "height": "512",
+      "steps": "2",
+      "profile": "image-sdxs-512-a"
+    }
+  },
+  "apply_dialog": null,
+  "code_card": null,
+  "review": null,
+  "error": null
+}

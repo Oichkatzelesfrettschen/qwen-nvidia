@@ -1,0 +1,43 @@
+ordinary_router_recorded	accepted	running=0 server=$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-server
+image_ledger_promoted	accepted	image-sdxs-512-a validator-gated review_model=- in $HOME/worktrees/qwen-nvidia/image-runtime-cuda/evidence/image-appliance/cuda-runtime-admission/run-02/image-profiles.tsv
+image_runtime_present	accepted	$HOME/src/stable-diffusion.cpp-qwen-nvidia/build-cuda-sm89/bin/sd-cli template=sd-cli backend=cuda0
+image_parameters_written	accepted	template=sd-cli runtime=$HOME/src/stable-diffusion.cpp-qwen-nvidia/build-cuda-sm89/bin/sd-cli
+preset_generated	accepted	image_profile=image-sdxs-512-a sections=1
+image_launch	accepted	image_launch timeouts runtime=300 service=330 mcp=360 proxy=3600 browser=660 proxy_source=llama-server-default;
+artifact_listener_loopback	accepted	127.0.0.1:54639
+image_service_recorded	accepted	image_service_pid=759426
+router_listener_loopback	accepted	127.0.0.1:8080,
+api_key_minted	accepted	mode=600 path=$HOME/qwen-webui-state/api.key
+router_roster	accepted	measured_order=web-image-admission,
+review_row_reports_vision	skipped	the promoted row pairs no review_model
+tool_enumeration	accepted	image_generate_image, via http://127.0.0.1:8080
+web_tools_absent	accepted	the ui-mediated section emits the image server alone
+tools_unknown_model_refused	accepted	status=400
+broker_signs_image_profile	accepted	image_profile=image-sdxs-512-a
+session_secret_issued	accepted	status=200
+grant_issued	accepted	status=200 seed=20260829 bytes=614
+grant_wrong_image_profile_refused	accepted	status=400
+generation_completed	accepted	elapsed=2s sha256=8a551f9a1261dd0a156272460aa5f63801b586798d09b7f6ff0c033c290ad59b provenance=/artifacts/8a551f9a1261dd0a156272460aa5f63801b586798d09b7f6ff0c033c290ad59b.json
+result_carries_identity_alone	accepted	status, sha256, and provenance_url
+grant_replay_refused	accepted	the authorization is spent; a grant admits one search and the operator issues another
+generation_without_grant_refused	accepted	authorization is required
+routing_key_outside_arguments	accepted	params.model refused: the call carries an argument the tool does not read: model
+artifact_png_matches_digest	accepted	type=image/png bytes=584798
+artifact_without_credential_refused	accepted	status=401
+provenance_names_seed_and_profile	accepted	seed=20260829 profile=image-sdxs-512-a
+lease_released_after_generation	accepted	$HOME/qwen-webui-state/vulkan-workload.lock
+browser_prompt_used	observed	Draw a fox in a snowy field.
+browser_attempt_1_result	observed	completed=yes tool_call_proposed=yes
+browser_page_origin	accepted	origin=http://127.0.0.1:8080 model=web-image-admission
+browser_dialog_names_bound_seed	accepted	source=model seed=42
+browser_grant_posted_once	accepted	POST http://127.0.0.1:8571/grant-image count=1
+browser_generation_via_router	accepted	POST /tools model=web-image-admission profile_id=image-sdxs-512-a grant=present
+browser_requests_stay_on_known_origins	accepted	every page request names http://127.0.0.1:8080, http://127.0.0.1:8571, or http://127.0.0.1:54639
+browser_artifact_fetched	accepted	requests=1 src=blob
+browser_transcript_carries_identity_alone	accepted	Image generated: sha256 d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94dc7333b8b4b8afcf, provenance /artifacts/d494b8a4f3c4e5a097bf7e284c6ce91d7b62c7fea6182f94
+browser_review_rendered	skipped	the promoted row pairs no review_model
+secret_hygiene	accepted	key, grant, session secret, and prompt text absent from process images, logs, status, and provenance
+image_teardown	accepted	torn down: no server, tmux session, probe, approval broker, image service, or router snapshot; port 8080 free
+image_residue_absent	accepted	image teardown verified: no service, no runtime, no partial artifact, lease free
+absence_proved	accepted	router, MCP child, broker, secret, and both ports
+ordinary_restore	skipped	QWEN_ADMISSION_RESTORE=0

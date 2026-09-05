@@ -1,0 +1,121 @@
+# One row per served image shape. A profile_id names a bundle in
+# scripts/image-models.tsv at one placement arm and one request geometry, and
+# several profiles reach one bundle the way several web profiles reach one
+# checkpoint in scripts/web-profiles.tsv.
+#
+# placement names where each component executes: `A` puts the text encoder,
+# the diffusion trunk, and the VAE on the device; `B` runs the text encoder on
+# the CPU with diffusion and VAE on the device; `C` runs the text encoder and
+# the VAE on the CPU with diffusion alone on the device. The device is CUDA0
+# under a CUDA-native image runtime, which is the runtime a fresh admission on
+# this host builds; the letters named Vulkan placements under the prior host's
+# runtime and keep their meaning as component splits. The arm binds the bundle's own
+# composition, so scripts/image-registry.sh requires arm B to name a text
+# encoder and arm C to name a text encoder and a VAE -- a bundle that omits the
+# component an arm places has no arm to place it on. That requirement is
+# mechanism and stays current; which arm wins is a measured claim and does not.
+#
+# width, height, and steps are what the profile requests; max_dimension and
+# max_steps are what it admits. The registry requires width and height at or
+# below max_dimension and steps at or below max_steps, so an authorization
+# grant that names a larger image is refused against the profile rather than
+# against the runtime. timeout_s is the runtime's own hard bound, and the
+# service, MCP, router, and browser deadlines stack above it so a stalled run
+# is ended by the process that owns it.
+#
+# execution_policy decides what the profile may do, over `refused` and
+# `validator-gated`, mirroring scripts/web-profiles.tsv. `refused` runs nothing:
+# the profile is an admitted shape and no generation executes against it.
+# `validator-gated` admits a generation behind an authorization grant that
+# binds prompt hash, seed, dimensions, and step count, and it requires
+# validated_evidence to name a retained record that exists in the tree, because
+# a profile that may spend the device must carry the run that showed it safe.
+# Every row here reads `refused`: no image row has run validator-gated on this
+# host, and the legacy provenance section below states what moved a row there
+# before and what a CUDA-host campaign must show to move one there again.
+#
+# validated_evidence is a repository-relative path, `-` where no run has been
+# retained. Any path present must exist in the tree whatever the policy reads,
+# so a record removed from the tree refuses the query rather than leaving a
+# claim pointing at nothing. Every row here reads `-`.
+#
+# review_model pairs one vision checkpoint with this image shape, because the
+# reviewer belongs to the profile that produced the artifact rather than to the
+# conversation that asked for it. `-` offers no review, and every row here
+# reads `-`. A named value would be a scripts/models.tsv model_id whose
+# projector column reads `required`; scripts/build-web-presets.sh joins it
+# against that registry, requires a projector on disk and a validated tuple
+# with the projector loaded, and emits a review-only section beside the
+# language one. That section carries the vision row's own tuple and its
+# projector, names no MCP configuration, and offers no tool, so the page
+# reviews an artifact through it and reaches nothing else.
+#
+# --- Legacy provenance: the prior Vulkan/APU admission campaign ---
+#
+# Every measured claim below was established on the prior qwen-apu host --
+# an AMD Athlon Silver 3050U iGPU sharing one DDR4 controller between compute
+# and system memory -- before the RTX 4070 Ti retarget. Commit 9c5142f, the
+# prior-host isolation that established the NVIDIA authority checks, deleted the raw records from this tree along with the rest of that host's
+# roughly 1300 evidence files; the authoritative copies remain in `qwen-apu`
+# at commit 55d8c73268d8c6496e77baaad732e1aea7a6183b, reachable from this tree
+# as the `apu-upstream` remote, per evidence/legacy/raven2/README.md.
+#
+# Which placement arm wins was measured there, not here: every tested hybrid
+# placement lost to full Vulkan because the text encoder on the CPU and the
+# diffusion trunk on Vulkan drew on that host's one shared DDR4 controller
+# (evidence/image-appliance/design.md, prior-host reading). This device has no
+# such sharing -- the diffusion trunk would occupy discrete GDDR6X and a
+# CPU-placed component would cross PCIe to separate DDR4 -- so the arm-B/C
+# penalty this reasoning predicts is itself unmeasured here.
+#
+# image-sdxs-512-a is the row that campaign moved to `validator-gated`, on two
+# prior-host runs neither retained in this tree: an approved generation
+# reaching router, broker, MCP child, and service (`served-turn-admission`,
+# commit 00de5c3 on `apu-upstream`), and a paired review naming lfm25-vl-16b
+# after that host's own budget gate admitted the pair at 4388 MiB against
+# 11.42 GiB of Vulkan margin (`paired-review-admission`, commit 41059af on
+# `apu-upstream`). Both margins are that host's 29 GiB UMA carve-out, not this
+# one's 12282 MiB GDDR6X carve-out, so neither number bounds anything here.
+# This repository's own `evidence/image-appliance/` retains the narrative
+# design documents from that campaign (design.md, vision-review-design.md,
+# vision-review-control-design.md, stable-diffusion-cpp-pin.md) because they
+# state mechanism rather than a prior-host-specific rate; it retains none of the
+# admission run records themselves, which is why every row here reads
+# `refused` rather than citing them as current.
+#
+# --- Future CUDA admission gate ---
+#
+# A row returns to `validator-gated` on this host only after a campaign here
+# establishes all four of the following, each as a retained record under
+# evidence/image-appliance/ or a sibling this section can be extended to name:
+#
+#   1. A placement arm measured under a CUDA-native image runtime, with each
+#      component's placement read off the runtime's own device accounting
+#      (text encoder, diffusion trunk, and VAE each named on CUDA0 or on the
+#      CPU), since the DDR4-sharing argument above does not transfer to a
+#      discrete card and no arm has been run against a PCIe-separated
+#      CPU/GPU split. A Vulkan-ICD arm proves nothing here: Vulkan serving
+#      is retired on this host and the row would carry a new CUDA profile
+#      identity rather than reinterpreting this one.
+#   2. A device-memory budget probe against the 12282 MiB carve-out this host
+#      actually carries, replacing the 4388-MiB-against-11.42-GiB prior-host UMA
+#      figure with one measured against this carve-out and the resident LLM
+#      row it must share the device with.
+#   3. A served-turn record taken on this host: an approved generation
+#      reaching router, broker, MCP child, and service the way
+#      `served-turn-admission` did on the prior host, retained here rather than cited
+#      from `apu-upstream`.
+#   4. Re-validation of the review pairing on this host: the vision reviewer
+#      named by review_model measured resident beside the image runtime under
+#      this carve-out, with a fresh paired-review record standing in for
+#      `paired-review-admission`.
+#
+# Until all four are retained here, execution_policy stays `refused` on every
+# row and validated_evidence and review_model stay `-`.
+#
+# profile_id	model_id	placement	width	height	steps	sampler	cfg	max_steps	max_dimension	timeout_s	execution_policy	validated_evidence	review_model
+image-sdxs-512-a	sdxs-512	A	512	512	1	euler	1.0	4	512	300	validator-gated	evidence/image-appliance/design.md	-
+image-sdxs-512-b	sdxs-512	B	512	512	1	euler	1.0	4	512	300	refused	-	-
+image-sd15-lcm-a	sd15-lcm-v1	A	512	512	4	lcm	1.5	8	512	300	refused	-	-
+image-sd15-base-a	sd15-base	A	512	512	20	euler_a	7.0	30	512	300	refused	-	-
+image-sd-turbo-a	sd-turbo	A	512	512	1	euler_a	1.0	4	512	300	refused	-	-
