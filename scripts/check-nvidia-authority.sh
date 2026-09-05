@@ -55,15 +55,22 @@ is_legacy_path() {
 # reader mistakes for a current default.
 active_files=$(git ls-files)
 
+# One grep over the whole candidate list per pattern: the tracked tree runs
+# to thousands of evidence files, and a grep process per file put this gate
+# past the hosted job's fifteen minutes once the authority-consistency test
+# ran it once per case. grep -l lists the files that match, and a list with
+# no match is the accepted case rather than a failure of the pipeline.
+scan_files() {
+    # scan_files PATTERN SKIP_LEGACY: the matching regular files, one per line
+    for candidate in $active_files; do
+        [ "$2" = yes ] && is_legacy_path "$candidate" && continue
+        [ -f "$candidate" ] || continue
+        printf '%s\0' "$candidate"
+    done | xargs -0 -r grep -lI "$1" 2>/dev/null || :
+}
+
 apu_pattern='Raven2\|RAVEN2\|gfx902\|RADV\|radv\|amdgpu\|ROCm\|TheRock\|hipcc\|HSA_ENABLE_SDMA\|/dev/kfd'
-apu_hits=''
-for candidate in $active_files; do
-    is_legacy_path "$candidate" && continue
-    [ -f "$candidate" ] || continue
-    if grep -qI "$apu_pattern" "$candidate" 2>/dev/null; then
-        apu_hits="$apu_hits $candidate"
-    fi
-done
+apu_hits=$(scan_files "$apu_pattern" yes | tr '\n' ' ' | sed 's/ $//')
 if [ -z "$apu_hits" ]; then
     report apu_terms accepted
 else
@@ -78,14 +85,7 @@ fi
 # A term list does not see a path shape, so the home prefix is matched directly:
 # a router `/v1/models` capture embeds every child's argv and preset, which is
 # where an unsanitized path reaches the tree without any banned term beside it.
-local_path_hits=''
-for candidate in $active_files; do
-    [ -f "$candidate" ] || continue
-    if grep -qI '^/home/[a-z_][a-z0-9_-]*/\|[^A-Za-z0-9_]/home/[a-z_][a-z0-9_-]*/' \
-        "$candidate" 2>/dev/null; then
-        local_path_hits="$local_path_hits $candidate"
-    fi
-done
+local_path_hits=$(scan_files '^/home/[a-z_][a-z0-9_-]*/\|[^A-Za-z0-9_]/home/[a-z_][a-z0-9_-]*/' no | tr '\n' ' ' | sed 's/ $//')
 if [ -z "$local_path_hits" ]; then
     report local_paths accepted
 else

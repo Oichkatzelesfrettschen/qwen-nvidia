@@ -1,0 +1,75 @@
+model_id	qwen38-2b-distill
+build_directory	$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-e78064b45887
+server_sha256	481791965565b2f899682d239abd8c5f237905d1948b3878a83178647c7ee2c3
+subject_environment	LLAMA_KV_PAGED_BUFFER=1 LLAMA_KV_PAGED_RESIDENCY=tails
+stage:probe	completed
+probe:granularity_minimum	2097152
+probe:granularity_recommended	2097152
+probe:vmm_supported	yes
+probe:probe_client_samples	0
+probe:probe_alive_samples	3
+expected_tensors	12
+expected_cells	65536
+stage:identity	completed
+identity_verdict	identical	subject_divergences=0 control_divergences=0 refusals=0
+identity_tokens_identical	12
+identity_states_identical	12
+identity_placement	subject=same control-close=same
+identity_comparisons	expected=12 tokens_identical=12 states_identical=12 models_requested=1 models_run=1
+layout:control-open	layout_holds
+layout:subject	layout_holds
+layout:control-close	layout_holds
+identity_subject:residency_commits	1
+identity_subject:residency_reclaims	0
+identity_subject:residency_refusals	0
+identity_subject:kv_physical_allocated_max_bytes	25165824
+identity_subject:kv_physical_allocated_final_bytes	25165824
+identity_subject:memory_saved_bytes	301989888
+identity_subject:commit_latency_us_median	820
+identity_subject:commit_latency_us_p95	820
+identity_subject:reclaim_latency_us_median	-
+identity_subject:reclaim_latency_us_p95	-
+stage:lifecycle	completed
+lifecycle_gates	5/5
+lifecycle:arm:full:a:prompt_n	3900
+lifecycle:arm:full:b:prompt_n	3900
+lifecycle:arm:full:d:prompt_n	4
+lifecycle:arm:full:replies_abd	identical
+lifecycle:arm:full:state_ad	identical
+lifecycle:arm:full:layout	layout_holds
+lifecycle:arm:tails:a:prompt_n	3900
+lifecycle:arm:tails:b:prompt_n	3900
+lifecycle:arm:tails:d:prompt_n	4
+lifecycle:arm:tails:replies_abd	identical
+lifecycle:arm:tails:state_ad	identical
+lifecycle:arm:tails:layout	layout_holds
+lifecycle:arm:tails:residency_commits	5
+lifecycle:arm:tails:residency_reclaims	3
+lifecycle:arm:tails:kv_physical_allocated_max_bytes	37748736
+lifecycle:arm:tails:kv_physical_allocated_final_bytes	37748736
+lifecycle:arm:tails:memory_saved_bytes	289406976
+lifecycle:arm:tails:commit_latency_us_median	457
+lifecycle:arm:tails:commit_latency_us_p95	869
+lifecycle:arm:tails:reclaim_latency_us_median	393
+lifecycle:arm:tails:reclaim_latency_us_p95	402
+lifecycle:arm:tails:lifecycle_boundaries	crossed commits=5 reclaims=3
+lifecycle:arm:full-close:a:prompt_n	3900
+lifecycle:arm:full-close:b:prompt_n	3900
+lifecycle:arm:full-close:d:prompt_n	4
+lifecycle:arm:full-close:replies_abd	identical
+lifecycle:arm:full-close:state_ad	identical
+lifecycle:arm:full-close:layout	layout_holds
+lifecycle:identity:full:tails	yes
+lifecycle:identity:full:full-close	yes
+lifecycle:refusals	0
+lifecycle:verdict	lifecycle_holds
+stage:primed	failed exit=1
+primed_reply_identity	absent
+primed_levels_complete	-
+primed_geometry	slot_depth=4096 slot_offset=0
+layout:primed-1-subject	layout_holds
+layout:primed-1-control	layout_holds
+layout:primed-3-subject	layout_holds
+layout:primed-3-control	layout_holds
+refusals	1
+verdict	refused

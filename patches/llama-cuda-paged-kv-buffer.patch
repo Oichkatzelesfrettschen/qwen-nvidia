@@ -1,8 +1,8 @@
 diff --git a/ggml/include/ggml-cuda.h b/ggml/include/ggml-cuda.h
-index 1cd81eeae..9269f89d5 100644
+index 1cd81eeae..bff2182eb 100644
 --- a/ggml/include/ggml-cuda.h
 +++ b/ggml/include/ggml-cuda.h
-@@ -27,6 +27,13 @@ GGML_BACKEND_API bool ggml_backend_is_cuda(ggml_backend_t backend);
+@@ -27,6 +27,22 @@ GGML_BACKEND_API bool ggml_backend_is_cuda(ggml_backend_t backend);
  // device buffer
  GGML_BACKEND_API ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device);
  
@@ -12,6 +12,15 @@ index 1cd81eeae..9269f89d5 100644
 +// "ggml_backend_cuda_paged_kv_buffer_type"; NULL where the device carries no
 +// VMM support or the build excludes it.
 +GGML_BACKEND_API ggml_backend_buffer_type_t ggml_backend_cuda_paged_kv_buffer_type(int device);
++
++// the same reservation with nothing backed at allocation: the owner declares
++// the buffer-relative byte intervals it requires through
++// ggml_backend_cuda_paged_kv_require, which commits every unit they touch
++// and, where reclaim is set, releases every backed unit outside them after
++// the device quiesces. Reachable as "ggml_backend_cuda_paged_kv_sparse_buffer_type"
++// and "ggml_backend_cuda_paged_kv_require".
++GGML_BACKEND_API ggml_backend_buffer_type_t ggml_backend_cuda_paged_kv_sparse_buffer_type(int device);
++GGML_BACKEND_API bool ggml_backend_cuda_paged_kv_require(ggml_backend_buffer_t buffer, const size_t * offsets, const size_t * sizes, size_t n_ranges, bool reclaim);
 +
  // conduct allreduce operation between devices
  GGML_BACKEND_API bool ggml_backend_cuda_allreduce_tensor(ggml_backend_t * backends, struct ggml_tensor ** tensors, size_t n_backends);
@@ -29,10 +38,26 @@ index 14dd1098c..7375ed150 100644
          int     warp_size;                      // Number of threads in a dispatch
          bool    supports_cooperative_launch;    // whether cooperative launch is supported
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 2456f7dcc..b7ce8b8bf 100644
+index 2456f7dcc..c0a42e056 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -286,6 +286,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
+@@ -4,6 +4,7 @@
+ 
+ #include "ggml-cuda/allreduce.cuh"
+ #include "ggml-cuda/common.cuh"
++#include "ggml-cuda/paged-kv-residency.h"
+ #include "ggml-cuda/acc.cuh"
+ #include "ggml-cuda/add-id.cuh"
+ #include "ggml-cuda/arange.cuh"
+@@ -83,6 +84,7 @@
+ #include <limits>
+ #include <map>
+ #include <memory>
++#include <chrono>
+ #include <mutex>
+ #include <cstdarg>
+ #include <cstdio>
+@@ -286,6 +288,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
              alloc_prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
              alloc_prop.location.id = physical_id;
              CU_CHECK(cuMemGetAllocationGranularity(&info.devices[id].vmm_granularity, &alloc_prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED));
@@ -40,7 +65,7 @@ index 2456f7dcc..b7ce8b8bf 100644
          }
  #endif // defined(GGML_USE_VMM)
          info.devices[id].vmm = !!device_vmm;
-@@ -725,10 +726,51 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
+@@ -725,10 +728,46 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
  
  // cuda buffer
  
@@ -54,45 +79,40 @@ index 2456f7dcc..b7ce8b8bf 100644
 +// is backed by its own cuMemCreate handle, mapped by its own cuMemMap, and
 +// granted access on its own, because cuMemUnmap removes a mapping whole and
 +// the driver returns physical memory only after every mapping and handle
-+// reference to it is gone: a unit is the one extent a later residency policy
-+// can unmap and release on its own. Every unit is mapped at allocation, so
-+// physical_mapped_bytes equals virtual_reserved_bytes and the buffer proves
-+// address stability and layout before any mapping policy exists. The five
-+// quantities on the buffer's log line keep allocated, mapped, retained
-+// unmapped, and released bytes apart, so a unit unmapped and kept for reuse
-+// reads as cached rather than reclaimed. Both kinds share one buffer
-+// interface, so a reader that identifies CUDA memory by that interface treats
-+// them alike.
++// reference to it is gone: a unit is the one extent a residency policy can
++// unmap and release on its own. The residency engine in paged-kv-residency.h
++// owns the unit table and the five accounting quantities and runs the commit
++// and reclaim transactions against the driver operations below. The buffer
++// type names the policy: the full type commits every unit at allocation, so
++// physical_mapped_bytes equals virtual_reserved_bytes for its whole life and
++// the buffer proves address stability and layout alone; the sparse type
++// commits nothing at allocation and backs the byte intervals its owner
++// requires through ggml_backend_cuda_paged_kv_require, reclaiming the units
++// a requirement set has released at the same call. Both kinds share one
++// buffer interface, so a reader that identifies CUDA memory by that
++// interface treats them alike.
 +enum ggml_backend_cuda_buffer_kind {
 +    GGML_CUDA_BUFFER_KIND_CUDA_MALLOC,
 +    GGML_CUDA_BUFFER_KIND_KV_VMM,
 +};
-+
-+#if defined(GGML_USE_VMM)
-+struct ggml_backend_cuda_vmm_unit {
-+    CUmemGenericAllocationHandle handle = 0;
-+    bool mapped = false;
-+};
-+#endif // defined(GGML_USE_VMM)
 +
  struct ggml_backend_cuda_buffer_context {
      int device;
      void * dev_ptr = nullptr;
      std::string name;
 +    ggml_backend_cuda_buffer_kind kind = GGML_CUDA_BUFFER_KIND_CUDA_MALLOC;
++    bool vmm_sparse = false;
 +    size_t vmm_unit_bytes = 0;
 +    size_t vmm_virtual_reserved_bytes = 0;
-+    size_t vmm_physical_allocated_bytes = 0;
-+    size_t vmm_physical_mapped_bytes = 0;
-+    size_t vmm_physical_retained_unmapped_bytes = 0;
-+    size_t vmm_physical_released_bytes = 0;
++    ggml_paged_kv_residency * vmm_residency = nullptr;
 +#if defined(GGML_USE_VMM)
-+    std::vector<ggml_backend_cuda_vmm_unit> vmm_units;
++    // The driver operations the residency engine calls, bound to this context.
++    ggml_paged_kv_driver vmm_driver;
 +#endif // defined(GGML_USE_VMM)
  
      ggml_backend_cuda_buffer_context(int device, void * dev_ptr) :
          device(device), dev_ptr(dev_ptr),
-@@ -736,7 +778,37 @@ struct ggml_backend_cuda_buffer_context {
+@@ -736,10 +775,145 @@ struct ggml_backend_cuda_buffer_context {
      }
  
      ~ggml_backend_cuda_buffer_context() {
@@ -110,19 +130,17 @@ index 2456f7dcc..b7ce8b8bf 100644
 +                // reference.
 +                if (dev_ptr != nullptr) {
 +                    ggml_cuda_set_device(device);
-+                    for (size_t i = 0; i < vmm_units.size(); ++i) {
-+                        ggml_backend_cuda_vmm_unit & unit = vmm_units[i];
-+                        if (unit.mapped) {
-+                            CU_CHECK(cuMemUnmap((CUdeviceptr) dev_ptr + i*vmm_unit_bytes, vmm_unit_bytes));
-+                            unit.mapped = false;
-+                        }
-+                        if (unit.handle != 0) {
-+                            CU_CHECK(cuMemRelease(unit.handle));
-+                            unit.handle = 0;
++                    if (vmm_residency != nullptr) {
++                        const ggml_paged_kv_transaction tx = vmm_residency->destroy(vmm_driver);
++                        if (!tx.ok) {
++                            GGML_LOG_ERROR("%s: paged_kv_residency op=destroy step=%s unit=%zu status=%d\n",
++                                           __func__, tx.step, tx.unit_index, tx.status);
 +                        }
 +                    }
 +                    CU_CHECK(cuMemAddressFree((CUdeviceptr) dev_ptr, vmm_virtual_reserved_bytes));
 +                }
++                delete vmm_residency;
++                vmm_residency = nullptr;
 +#else
 +                GGML_ABORT("KV VMM buffer in a build without GGML_USE_VMM");
 +#endif // defined(GGML_USE_VMM)
@@ -131,7 +149,117 @@ index 2456f7dcc..b7ce8b8bf 100644
      }
  };
  
-@@ -762,6 +834,28 @@ static enum ggml_status ggml_backend_cuda_buffer_init_tensor(ggml_backend_buffer
++#if defined(GGML_USE_VMM)
++// The driver operations behind the residency engine. Each acts on one unit
++// of the context's reservation, addressed as dev_ptr + index*unit, and
++// returns the CUresult as an int so the engine records the status it failed
++// on. Zeroing runs on the per-thread stream and completes on the host before
++// it returns, so every compute submission that follows it in program order
++// reads zeros; quiescing is a device-wide synchronization, the conservative
++// boundary the first candidate uses ahead of any unmap.
++static int ggml_backend_cuda_paged_kv_drv_create(void * user, size_t unit_index, uint64_t * handle) {
++    ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) user;
++    CUmemAllocationProp prop = {};
++    prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
++    prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
++    prop.location.id = ggml_cuda_get_physical_device(ctx->device);
++    CUmemGenericAllocationHandle h = 0;
++    const CUresult r = cuMemCreate(&h, ctx->vmm_unit_bytes, &prop, 0);
++    *handle = (uint64_t) h;
++    GGML_UNUSED(unit_index);
++    return (int) r;
++}
++
++static int ggml_backend_cuda_paged_kv_drv_map(void * user, size_t unit_index, uint64_t handle) {
++    ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) user;
++    return (int) cuMemMap((CUdeviceptr) ctx->dev_ptr + unit_index*ctx->vmm_unit_bytes, ctx->vmm_unit_bytes, 0,
++                          (CUmemGenericAllocationHandle) handle, 0);
++}
++
++static int ggml_backend_cuda_paged_kv_drv_set_access(void * user, size_t unit_index) {
++    ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) user;
++    CUmemAccessDesc access = {};
++    access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
++    access.location.id = ggml_cuda_get_physical_device(ctx->device);
++    access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
++    return (int) cuMemSetAccess((CUdeviceptr) ctx->dev_ptr + unit_index*ctx->vmm_unit_bytes, ctx->vmm_unit_bytes, &access, 1);
++}
++
++static int ggml_backend_cuda_paged_kv_drv_zero(void * user, size_t unit_index) {
++    ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) user;
++    cudaError_t e = cudaMemsetAsync((char *) ctx->dev_ptr + unit_index*ctx->vmm_unit_bytes, 0, ctx->vmm_unit_bytes, cudaStreamPerThread);
++    if (e != cudaSuccess) {
++        return (int) e;
++    }
++    e = cudaStreamSynchronize(cudaStreamPerThread);
++    return (int) e;
++}
++
++static int ggml_backend_cuda_paged_kv_drv_quiesce(void * user) {
++    GGML_UNUSED(user);
++    return (int) cudaDeviceSynchronize();
++}
++
++static int ggml_backend_cuda_paged_kv_drv_unmap(void * user, size_t unit_index) {
++    ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) user;
++    return (int) cuMemUnmap((CUdeviceptr) ctx->dev_ptr + unit_index*ctx->vmm_unit_bytes, ctx->vmm_unit_bytes);
++}
++
++static int ggml_backend_cuda_paged_kv_drv_release(void * user, uint64_t handle) {
++    GGML_UNUSED(user);
++    return (int) cuMemRelease((CUmemGenericAllocationHandle) handle);
++}
++
++static ggml_paged_kv_driver ggml_backend_cuda_paged_kv_driver(ggml_backend_cuda_buffer_context * ctx) {
++    ggml_paged_kv_driver drv;
++    drv.user       = ctx;
++    drv.create     = ggml_backend_cuda_paged_kv_drv_create;
++    drv.map        = ggml_backend_cuda_paged_kv_drv_map;
++    drv.set_access = ggml_backend_cuda_paged_kv_drv_set_access;
++    drv.zero       = ggml_backend_cuda_paged_kv_drv_zero;
++    drv.quiesce    = ggml_backend_cuda_paged_kv_drv_quiesce;
++    drv.unmap      = ggml_backend_cuda_paged_kv_drv_unmap;
++    drv.release    = ggml_backend_cuda_paged_kv_drv_release;
++    return drv;
++}
++#endif // defined(GGML_USE_VMM)
++
++// A host-driven write or read of a paged KV buffer has to land on published
++// units: the residency policy backs every interval its owner declared, so an
++// access outside them is an invariant violation of the caller rather than a
++// driver condition, and it ends the process here rather than as a device
++// fault whose report names nothing.
++static void ggml_backend_cuda_paged_kv_assert_resident(ggml_backend_cuda_buffer_context * ctx, const void * address, size_t size, const char * op) {
++    if (ctx->kind != GGML_CUDA_BUFFER_KIND_KV_VMM || ctx->vmm_residency == nullptr) {
++        return;
++    }
++    const size_t offset = (size_t) ((const char *) address - (const char *) ctx->dev_ptr);
++    if (!ctx->vmm_residency->resident(offset, size)) {
++        GGML_LOG_ERROR("%s: paged_kv_residency violation op=%s offset=%zu size=%zu unit_bytes=%zu\n",
++                       __func__, op, offset, size, ctx->vmm_unit_bytes);
++        GGML_ABORT("paged KV access outside the resident set");
++    }
++}
++
++// Memset over the published units of an interval alone; an unpublished unit
++// is zeroed when it is committed, so a clear to zero holds across the whole
++// reservation by construction, and a clear to any other value is refused on
++// the sparse type because an unbacked unit cannot carry it.
++static void ggml_backend_cuda_paged_kv_memset_resident(ggml_backend_cuda_buffer_context * ctx, void * address, uint8_t value, size_t size) {
++    if (ctx->vmm_sparse && value != 0) {
++        GGML_ABORT("the sparse paged KV buffer clears to zero alone");
++    }
++    const size_t offset = (size_t) ((char *) address - (char *) ctx->dev_ptr);
++    ctx->vmm_residency->for_each_resident_run(offset, size, [&](size_t run_offset, size_t run_size) {
++        CUDA_CHECK(cudaMemsetAsync((char *) ctx->dev_ptr + run_offset, value, run_size, cudaStreamPerThread));
++    });
++    CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
++}
++
+ static void ggml_backend_cuda_buffer_free_buffer(ggml_backend_buffer_t buffer) {
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *)buffer->context;
+     delete ctx;
+@@ -762,6 +936,28 @@ static enum ggml_status ggml_backend_cuda_buffer_init_tensor(ggml_backend_buffer
          return GGML_STATUS_SUCCESS;
      }
  
@@ -147,7 +275,7 @@ index 2456f7dcc..b7ce8b8bf 100644
 +        const size_t alloc_bytes  = ggml_backend_buft_get_alloc_size(buffer->buft, tensor);
 +        const size_t padded_bytes = GGML_PAD(alloc_bytes, unit);
 +        GGML_ASSERT(unit > 0 && offset % unit == 0);
-+        GGML_ASSERT(offset + padded_bytes <= ctx->vmm_physical_mapped_bytes);
++        GGML_ASSERT(offset + padded_bytes <= ctx->vmm_virtual_reserved_bytes);
 +        GGML_LOG_INFO("%s: paged_kv_tensor name=%s type=%s ne0=%" PRId64 " ne1=%" PRId64 " ne2=%" PRId64
 +                      " row_bytes=%zu nbytes=%zu alloc_bytes=%zu padded_bytes=%zu offset=%zu unit_bytes=%zu"
 +                      " start_aligned=%s extent_aligned=%s\n",
@@ -160,15 +288,89 @@ index 2456f7dcc..b7ce8b8bf 100644
      if (ggml_is_quantized(tensor->type) && tensor->view_src == nullptr && ggml_backend_buffer_get_usage(buffer) != GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
          // initialize padding to 0 to avoid possible NaN values
          const size_t original_size = ggml_nbytes(tensor);
-@@ -870,6 +964,7 @@ static const ggml_backend_buffer_i ggml_backend_cuda_buffer_interface = {
+@@ -769,7 +965,11 @@ static enum ggml_status ggml_backend_cuda_buffer_init_tensor(ggml_backend_buffer
+ 
+         if (padded_size > original_size) {
+             ggml_cuda_set_device(ctx->device);
+-            CUDA_CHECK(cudaMemset((char *)tensor->data + original_size, 0, padded_size - original_size));
++            if (ctx->kind == GGML_CUDA_BUFFER_KIND_KV_VMM && ctx->vmm_residency != nullptr) {
++                ggml_backend_cuda_paged_kv_memset_resident(ctx, (char *)tensor->data + original_size, 0, padded_size - original_size);
++            } else {
++                CUDA_CHECK(cudaMemset((char *)tensor->data + original_size, 0, padded_size - original_size));
++            }
+         }
+     }
+     return GGML_STATUS_SUCCESS;
+@@ -779,6 +979,7 @@ static void ggml_backend_cuda_buffer_memset_tensor(ggml_backend_buffer_t buffer,
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
+ 
+     ggml_cuda_set_device(ctx->device);
++    ggml_backend_cuda_paged_kv_assert_resident(ctx, (char *) tensor->data + offset, size, "memset_tensor");
+     CUDA_CHECK(cudaMemsetAsync((char *) tensor->data + offset, value, size, cudaStreamPerThread));
+     CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+@@ -787,6 +988,7 @@ static void ggml_backend_cuda_buffer_set_tensor(ggml_backend_buffer_t buffer, gg
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
+ 
+     ggml_cuda_set_device(ctx->device);
++    ggml_backend_cuda_paged_kv_assert_resident(ctx, (char *) tensor->data + offset, size, "set_tensor");
+     CUDA_CHECK(cudaMemcpyAsync((char *) tensor->data + offset, data, size, cudaMemcpyHostToDevice, cudaStreamPerThread));
+     CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+@@ -795,6 +997,7 @@ static void ggml_backend_cuda_buffer_get_tensor(ggml_backend_buffer_t buffer, co
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
+ 
+     ggml_cuda_set_device(ctx->device);
++    ggml_backend_cuda_paged_kv_assert_resident(ctx, (const char *) tensor->data + offset, size, "get_tensor");
+     CUDA_CHECK(cudaMemcpyAsync(data, (const char *) tensor->data + offset, size, cudaMemcpyDeviceToHost, cudaStreamPerThread));
+     CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+@@ -804,6 +1007,7 @@ static void ggml_backend_cuda_buffer_set_tensor_2d(ggml_backend_buffer_t buffer,
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
+ 
+     ggml_cuda_set_device(ctx->device);
++    ggml_backend_cuda_paged_kv_assert_resident(ctx, (char *) tensor->data + offset, n_copies > 0 ? (n_copies - 1)*stride_tensor + size : 0, "set_tensor_2d");
+     CUDA_CHECK(cudaMemcpy2DAsync(
+         (char *) tensor->data + offset, stride_tensor, data, stride_data, size, n_copies, cudaMemcpyHostToDevice, cudaStreamPerThread));
+     CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+@@ -814,6 +1018,7 @@ static void ggml_backend_cuda_buffer_get_tensor_2d(ggml_backend_buffer_t buffer,
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *)buffer->context;
+ 
+     ggml_cuda_set_device(ctx->device);
++    ggml_backend_cuda_paged_kv_assert_resident(ctx, (const char *) tensor->data + offset, n_copies > 0 ? (n_copies - 1)*stride_tensor + size : 0, "get_tensor_2d");
+     CUDA_CHECK(cudaMemcpy2DAsync(
+         data, stride_data, (const char *) tensor->data + offset, stride_tensor, size, n_copies, cudaMemcpyDeviceToHost, cudaStreamPerThread));
+     CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+@@ -827,6 +1032,8 @@ static bool ggml_backend_cuda_buffer_cpy_tensor(ggml_backend_buffer_t buffer, co
+         // in which case a same-device copy (not a peer copy) is required
+         const int src_physical = ggml_cuda_get_physical_device(src_ctx->device);
+         const int dst_physical = ggml_cuda_get_physical_device(dst_ctx->device);
++        ggml_backend_cuda_paged_kv_assert_resident(src_ctx, src->data, ggml_nbytes(src), "cpy_tensor_src");
++        ggml_backend_cuda_paged_kv_assert_resident(dst_ctx, dst->data, ggml_nbytes(src), "cpy_tensor_dst");
+         if (src_physical == dst_physical) {
+             CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, ggml_nbytes(src), cudaMemcpyDeviceToDevice, cudaStreamPerThread));
+         } else {
+@@ -848,6 +1055,10 @@ static void ggml_backend_cuda_buffer_clear(ggml_backend_buffer_t buffer, uint8_t
+     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *)buffer->context;
+ 
+     ggml_cuda_set_device(ctx->device);
++    if (ctx->kind == GGML_CUDA_BUFFER_KIND_KV_VMM && ctx->vmm_residency != nullptr) {
++        ggml_backend_cuda_paged_kv_memset_resident(ctx, ctx->dev_ptr, value, buffer->size);
++        return;
++    }
+     CUDA_CHECK(cudaMemsetAsync(ctx->dev_ptr, value, buffer->size, cudaStreamPerThread));
+     CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+ }
+@@ -870,6 +1081,8 @@ static const ggml_backend_buffer_i ggml_backend_cuda_buffer_interface = {
  struct ggml_backend_cuda_buffer_type_context {
      int device;
      std::string name;
 +    bool paged_kv = false;
++    bool paged_kv_sparse = false;
  };
  
  static const char * ggml_backend_cuda_buffer_type_get_name(ggml_backend_buffer_type_t buft) {
-@@ -882,9 +977,137 @@ static bool ggml_backend_buft_is_cuda(ggml_backend_buffer_type_t buft) {
+@@ -882,9 +1095,201 @@ static bool ggml_backend_buft_is_cuda(ggml_backend_buffer_type_t buft) {
      return buft->iface.get_name == ggml_backend_cuda_buffer_type_get_name;
  }
  
@@ -199,18 +401,19 @@ index 2456f7dcc..b7ce8b8bf 100644
 +
 +    // The context owns the reservation and every unit until the backend
 +    // buffer takes it, so a host allocation that throws on the way -- the
-+    // unit table below -- unwinds through the destructor rather than leaking
-+    // the reservation behind a raw pointer.
++    // residency engine's unit table -- unwinds through the destructor rather
++    // than leaking the reservation behind a raw pointer.
 +    std::unique_ptr<ggml_backend_cuda_buffer_context> ctx_holder(new ggml_backend_cuda_buffer_context(device, nullptr));
 +    ggml_backend_cuda_buffer_context * ctx = ctx_holder.get();
 +    ctx->kind = GGML_CUDA_BUFFER_KIND_KV_VMM;
++    ctx->vmm_sparse = buft_ctx->paged_kv_sparse;
 +    ctx->vmm_unit_bytes = unit;
++    ctx->vmm_driver = ggml_backend_cuda_paged_kv_driver(ctx);
 +
 +    if (virtual_bytes > 0) {
-+        const int physical_device = ggml_cuda_get_physical_device(device);
 +        // The unit table is sized ahead of the reservation, so the one host
 +        // allocation on this path happens while nothing device-side is held.
-+        ctx->vmm_units.resize(virtual_bytes / unit);
++        ctx->vmm_residency = new ggml_paged_kv_residency(unit, virtual_bytes);
 +        CUdeviceptr address = 0;
 +        CUresult result = cuMemAddressReserve(&address, virtual_bytes, unit, 0, 0);
 +        if (result != CUDA_SUCCESS) {
@@ -223,71 +426,134 @@ index 2456f7dcc..b7ce8b8bf 100644
 +        ctx->dev_ptr = (void *) address;
 +        ctx->vmm_virtual_reserved_bytes = virtual_bytes;
 +
-+        CUmemAllocationProp prop = {};
-+        prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-+        prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-+        prop.location.id = physical_device;
-+        CUmemAccessDesc access = {};
-+        access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-+        access.location.id = physical_device;
-+        access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-+
-+        // Each unit is a transaction of its own: create, map, grant access.
-+        // A failure at any step returns the allocation failure to the caller
-+        // the way cudaMalloc's path does, and the destructor unwinds every
-+        // unit created so far -- unmapping what was mapped, releasing every
-+        // handle, then freeing the reservation -- so a failed unit leaves no
-+        // handle behind. The KV constructor turns a null buffer into a named
-+        // exception, where an abort here would end the server.
-+        for (size_t i = 0; i < ctx->vmm_units.size(); ++i) {
-+            ggml_backend_cuda_vmm_unit & vmm_unit = ctx->vmm_units[i];
-+            const CUdeviceptr unit_address = address + i*unit;
-+            result = cuMemCreate(&vmm_unit.handle, unit, &prop, 0);
-+            if (result != CUDA_SUCCESS) {
++        // The full type commits every unit here as one transaction: create,
++        // map, grant access, zero. A failure at any unit returns the
++        // allocation failure to the caller the way cudaMalloc's path does,
++        // the engine unwinds the units it created, and the destructor frees
++        // the reservation, so a failed unit leaves no handle behind. The KV
++        // constructor turns a null buffer into a named exception, where an
++        // abort here would end the server. The sparse type commits nothing
++        // here: its owner declares the intervals it requires.
++        if (!ctx->vmm_sparse) {
++            std::vector<bool> required(ctx->vmm_residency->unit_count(), true);
++            const ggml_paged_kv_transaction tx = ctx->vmm_residency->commit(required, ctx->vmm_driver);
++            if (!tx.ok) {
 +                const char * error_name = nullptr;
-+                cuGetErrorName(result, &error_name);
-+                GGML_LOG_ERROR("%s: creating unit %zu of %zu (%zu bytes) on device %d failed: %s\n",
-+                               __func__, i, ctx->vmm_units.size(), unit, device, error_name ? error_name : "unknown");
-+                vmm_unit.handle = 0;
-+                return nullptr;
-+            }
-+            ctx->vmm_physical_allocated_bytes += unit;
-+            result = cuMemMap(unit_address, unit, 0, vmm_unit.handle, 0);
-+            if (result != CUDA_SUCCESS) {
-+                const char * error_name = nullptr;
-+                cuGetErrorName(result, &error_name);
-+                GGML_LOG_ERROR("%s: mapping unit %zu of %zu on device %d failed: %s\n",
-+                               __func__, i, ctx->vmm_units.size(), device, error_name ? error_name : "unknown");
-+                return nullptr;
-+            }
-+            vmm_unit.mapped = true;
-+            ctx->vmm_physical_mapped_bytes += unit;
-+            // A mapping grants nothing by itself; access is set per unit so a
-+            // later commit of one unit follows the same three steps.
-+            result = cuMemSetAccess(unit_address, unit, &access, 1);
-+            if (result != CUDA_SUCCESS) {
-+                const char * error_name = nullptr;
-+                cuGetErrorName(result, &error_name);
-+                GGML_LOG_ERROR("%s: granting device %d access to unit %zu of %zu failed: %s\n",
-+                               __func__, device, i, ctx->vmm_units.size(), error_name ? error_name : "unknown");
++                cuGetErrorName((CUresult) tx.status, &error_name);
++                GGML_LOG_ERROR("%s: committing unit %zu of %zu (%zu bytes) on device %d failed at %s: %s; %zu units unwound\n",
++                               __func__, tx.unit_index, ctx->vmm_residency->unit_count(), unit, device, tx.step,
++                               error_name ? error_name : "unknown", tx.units_unwound);
 +                return nullptr;
 +            }
 +        }
 +    }
 +
++    const ggml_paged_kv_accounting acct = ctx->vmm_residency != nullptr ? ctx->vmm_residency->accounting() : ggml_paged_kv_accounting{};
 +    GGML_LOG_INFO("%s: paged_kv_buffer device=%d requested_bytes=%zu virtual_reserved_bytes=%zu physical_mapped_bytes=%zu"
 +                  " unit_bytes=%zu granularity_minimum=%zu granularity_recommended=%zu access=device_rw"
-+                  " units=%zu physical_allocated_bytes=%zu physical_retained_unmapped_bytes=%zu physical_released_bytes=%zu\n",
-+                  __func__, device, size, ctx->vmm_virtual_reserved_bytes, ctx->vmm_physical_mapped_bytes,
++                  " units=%zu physical_allocated_bytes=%zu physical_retained_unmapped_bytes=%zu physical_released_bytes=%zu"
++                  " residency=%s\n",
++                  __func__, device, size, ctx->vmm_virtual_reserved_bytes, acct.physical_mapped_bytes,
 +                  unit, device_info.vmm_granularity_minimum, device_info.vmm_granularity,
-+                  ctx->vmm_units.size(), ctx->vmm_physical_allocated_bytes,
-+                  ctx->vmm_physical_retained_unmapped_bytes, ctx->vmm_physical_released_bytes);
++                  ctx->vmm_residency != nullptr ? ctx->vmm_residency->unit_count() : (size_t) 0,
++                  acct.physical_allocated_bytes, acct.physical_retained_unmapped_bytes, acct.physical_released_bytes,
++                  ctx->vmm_sparse ? "tails" : "full");
 +
 +    // ggml_backend_buffer_init allocates the buffer object with a throwing
 +    // new, so ownership of the context passes only after it has succeeded.
 +    ggml_backend_buffer_t buffer = ggml_backend_buffer_init(buft, ggml_backend_cuda_buffer_interface, ctx, size);
 +    ctx_holder.release();
 +    return buffer;
++}
++
++// The residency entry point the KV cache reaches through the proc-address
++// table. The intervals are buffer-relative byte ranges the caller requires
++// resident: every unit they touch is committed, and where reclaim is set
++// every published unit outside them is released after the device quiesces.
++// The full type holds every unit for its whole life, so on it the call
++// verifies the intervals lie inside the reservation and changes nothing. A
++// transaction that changed a unit prints one record carrying the five
++// quantities and its wall-clock latency, so a log states every boundary
++// crossing and nothing per token; a failed commit unwinds and returns false
++// with the previous resident set intact, and a failed reclaim returns false
++// with every unit it could not release still backed.
++bool ggml_backend_cuda_paged_kv_require(ggml_backend_buffer_t buffer, const size_t * offsets, const size_t * sizes, size_t n_ranges, bool reclaim) {
++    if (buffer == nullptr || !ggml_backend_buffer_is_cuda(buffer)) {
++        return false;
++    }
++    ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
++    if (ctx->kind != GGML_CUDA_BUFFER_KIND_KV_VMM || ctx->vmm_residency == nullptr) {
++        return false;
++    }
++    ggml_paged_kv_residency & residency = *ctx->vmm_residency;
++    std::vector<bool> required(residency.unit_count(), false);
++    for (size_t i = 0; i < n_ranges; ++i) {
++        if (!residency.require(required, offsets[i], sizes[i])) {
++            GGML_LOG_ERROR("%s: paged_kv_residency interval outside the reservation offset=%zu size=%zu reserved=%zu\n",
++                           __func__, offsets[i], sizes[i], ctx->vmm_virtual_reserved_bytes);
++            return false;
++        }
++    }
++    if (!ctx->vmm_sparse) {
++        return true;
++    }
++
++    ggml_cuda_set_device(ctx->device);
++
++    const auto t0 = std::chrono::steady_clock::now();
++    ggml_paged_kv_transaction tx = residency.commit(required, ctx->vmm_driver);
++    const auto t1 = std::chrono::steady_clock::now();
++    const long long commit_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
++    if (!tx.ok) {
++        const char * error_name = nullptr;
++        cuGetErrorName((CUresult) tx.status, &error_name);
++        const ggml_paged_kv_accounting acct = residency.accounting();
++        GGML_LOG_ERROR("%s: paged_kv_residency op=commit result=refused step=%s unit=%zu status=%s units_unwound=%zu"
++                       " units_unwind_failed=%zu"
++                       " units_published=%zu physical_allocated_bytes=%zu physical_mapped_bytes=%zu"
++                       " physical_retained_unmapped_bytes=%zu physical_released_bytes=%zu latency_us=%lld\n",
++                       __func__, tx.step, tx.unit_index, error_name ? error_name : "unknown", tx.units_unwound,
++                       tx.units_unwind_failed,
++                       residency.published_count(), acct.physical_allocated_bytes, acct.physical_mapped_bytes,
++                       acct.physical_retained_unmapped_bytes, acct.physical_released_bytes, commit_us);
++        return false;
++    }
++    if (tx.units_committed > 0) {
++        const ggml_paged_kv_accounting acct = residency.accounting();
++        GGML_LOG_INFO("%s: paged_kv_residency op=commit result=ok units_changed=%zu units_published=%zu"
++                      " physical_allocated_bytes=%zu physical_mapped_bytes=%zu physical_retained_unmapped_bytes=%zu"
++                      " physical_released_bytes=%zu latency_us=%lld\n",
++                      __func__, tx.units_committed, residency.published_count(), acct.physical_allocated_bytes,
++                      acct.physical_mapped_bytes, acct.physical_retained_unmapped_bytes, acct.physical_released_bytes, commit_us);
++    }
++    if (!reclaim) {
++        return true;
++    }
++
++    const auto t2 = std::chrono::steady_clock::now();
++    tx = residency.reclaim(required, ctx->vmm_driver);
++    const auto t3 = std::chrono::steady_clock::now();
++    const long long reclaim_us = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
++    const ggml_paged_kv_accounting acct = residency.accounting();
++    if (!tx.ok) {
++        const char * error_name = nullptr;
++        cuGetErrorName((CUresult) tx.status, &error_name);
++        GGML_LOG_ERROR("%s: paged_kv_residency op=reclaim result=refused step=%s unit=%zu status=%s units_changed=%zu"
++                       " units_published=%zu physical_allocated_bytes=%zu physical_mapped_bytes=%zu"
++                       " physical_retained_unmapped_bytes=%zu physical_released_bytes=%zu latency_us=%lld\n",
++                       __func__, tx.step, tx.unit_index, error_name ? error_name : "unknown", tx.units_released,
++                       residency.published_count(), acct.physical_allocated_bytes, acct.physical_mapped_bytes,
++                       acct.physical_retained_unmapped_bytes, acct.physical_released_bytes, reclaim_us);
++        return false;
++    }
++    if (tx.units_released > 0) {
++        GGML_LOG_INFO("%s: paged_kv_residency op=reclaim result=ok units_changed=%zu units_published=%zu"
++                      " physical_allocated_bytes=%zu physical_mapped_bytes=%zu physical_retained_unmapped_bytes=%zu"
++                      " physical_released_bytes=%zu latency_us=%lld\n",
++                      __func__, tx.units_released, residency.published_count(), acct.physical_allocated_bytes,
++                      acct.physical_mapped_bytes, acct.physical_retained_unmapped_bytes, acct.physical_released_bytes, reclaim_us);
++    }
++    return true;
 +}
 +#endif // defined(GGML_USE_VMM)
 +
@@ -306,7 +572,7 @@ index 2456f7dcc..b7ce8b8bf 100644
      ggml_cuda_set_device(buft_ctx->device);
  
      void * dev_ptr;
-@@ -902,9 +1125,20 @@ static ggml_backend_buffer_t ggml_backend_cuda_buffer_type_alloc_buffer(ggml_bac
+@@ -902,9 +1307,20 @@ static ggml_backend_buffer_t ggml_backend_cuda_buffer_type_alloc_buffer(ggml_bac
  }
  
  static size_t ggml_backend_cuda_buffer_type_get_alignment(ggml_backend_buffer_type_t buft) {
@@ -329,14 +595,16 @@ index 2456f7dcc..b7ce8b8bf 100644
  }
  
  static size_t ggml_backend_cuda_buffer_type_get_alloc_size(ggml_backend_buffer_type_t buft, const ggml_tensor * tensor) {
-@@ -960,6 +1194,43 @@ ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
+@@ -960,6 +1376,56 @@ ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
      return &ggml_backend_cuda_buffer_types[device];
  }
  
-+// The paged KV buffer type carries the device's own name, because the name is
++// The paged KV buffer types carry the device's own name, because the name is
 +// what every placement reader greps for and the buffer is CUDA memory on that
-+// device; the allocation kind is stated on the buffer's own record line.
-+ggml_backend_buffer_type_t ggml_backend_cuda_paged_kv_buffer_type(int device) {
++// device; the allocation kind and the residency policy are stated on the
++// buffer's own record line. The full type and the sparse type of one device
++// are two objects, so a buffer's policy is a property of its type.
++static ggml_backend_buffer_type_t ggml_backend_cuda_paged_kv_buffer_type_impl(int device, bool sparse) {
 +    static std::mutex mutex;
 +    std::lock_guard<std::mutex> lock(mutex);
 +
@@ -345,71 +613,98 @@ index 2456f7dcc..b7ce8b8bf 100644
 +    }
 +
 +#if !defined(GGML_USE_VMM)
++    GGML_UNUSED(sparse);
 +    return nullptr;
 +#else
 +    if (!ggml_cuda_info().devices[device].vmm) {
 +        return nullptr;
 +    }
 +
-+    static ggml_backend_buffer_type ggml_backend_cuda_paged_kv_buffer_types[GGML_CUDA_MAX_DEVICES];
++    static ggml_backend_buffer_type ggml_backend_cuda_paged_kv_buffer_types[2][GGML_CUDA_MAX_DEVICES];
 +
 +    static bool ggml_backend_cuda_paged_kv_buffer_type_initialized = false;
 +
 +    if (!ggml_backend_cuda_paged_kv_buffer_type_initialized) {
-+        for (int i = 0; i < ggml_backend_cuda_get_device_count(); i++) {
-+            ggml_backend_cuda_paged_kv_buffer_types[i] = {
-+                /* .iface    = */ ggml_backend_cuda_buffer_type_interface,
-+                /* .device   = */ ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), i),
-+                /* .context  = */ new ggml_backend_cuda_buffer_type_context{i, GGML_CUDA_NAME + std::to_string(i), true},
-+            };
++        for (int policy = 0; policy < 2; policy++) {
++            for (int i = 0; i < ggml_backend_cuda_get_device_count(); i++) {
++                ggml_backend_cuda_paged_kv_buffer_types[policy][i] = {
++                    /* .iface    = */ ggml_backend_cuda_buffer_type_interface,
++                    /* .device   = */ ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), i),
++                    /* .context  = */ new ggml_backend_cuda_buffer_type_context{i, GGML_CUDA_NAME + std::to_string(i), true, policy == 1},
++                };
++            }
 +        }
 +        ggml_backend_cuda_paged_kv_buffer_type_initialized = true;
 +    }
 +
-+    return &ggml_backend_cuda_paged_kv_buffer_types[device];
++    return &ggml_backend_cuda_paged_kv_buffer_types[sparse ? 1 : 0][device];
 +#endif // !defined(GGML_USE_VMM)
++}
++
++ggml_backend_buffer_type_t ggml_backend_cuda_paged_kv_buffer_type(int device) {
++    return ggml_backend_cuda_paged_kv_buffer_type_impl(device, false);
++}
++
++ggml_backend_buffer_type_t ggml_backend_cuda_paged_kv_sparse_buffer_type(int device) {
++    return ggml_backend_cuda_paged_kv_buffer_type_impl(device, true);
 +}
 +
  // Communication context for multi-GPU AllReduce during tensor parallelism.
  //
  // Created once per meta backend instance.  Resources for the selected mode
-@@ -2436,7 +2707,7 @@ static void ggml_backend_cuda_set_tensor_async(ggml_backend_t backend, ggml_tens
+@@ -2436,7 +2902,8 @@ static void ggml_backend_cuda_set_tensor_async(ggml_backend_t backend, ggml_tens
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
 -    GGML_ASSERT(buf->buft == ggml_backend_cuda_buffer_type(cuda_ctx->device) && "unsupported buffer type");
 +    GGML_ASSERT(ggml_backend_buft_is_cuda_device(buf->buft, cuda_ctx->device) && "unsupported buffer type");
++    ggml_backend_cuda_paged_kv_assert_resident((ggml_backend_cuda_buffer_context *) buf->context, (char *) tensor->data + offset, size, "set_tensor_async");
  
      CUDA_CHECK(cudaMemcpyAsync((char *) tensor->data + offset, data, size, cudaMemcpyHostToDevice, cuda_ctx->stream()));
  }
-@@ -2445,7 +2716,7 @@ static void ggml_backend_cuda_get_tensor_async(ggml_backend_t backend, const ggm
+@@ -2445,7 +2912,8 @@ static void ggml_backend_cuda_get_tensor_async(ggml_backend_t backend, const ggm
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
 -    GGML_ASSERT(buf->buft == ggml_backend_cuda_buffer_type(cuda_ctx->device) && "unsupported buffer type");
 +    GGML_ASSERT(ggml_backend_buft_is_cuda_device(buf->buft, cuda_ctx->device) && "unsupported buffer type");
++    ggml_backend_cuda_paged_kv_assert_resident((ggml_backend_cuda_buffer_context *) buf->context, (const char *) tensor->data + offset, size, "get_tensor_async");
  
      CUDA_CHECK(cudaMemcpyAsync(data, (const char *) tensor->data + offset, size, cudaMemcpyDeviceToHost, cuda_ctx->stream()));
  }
-@@ -2455,7 +2726,7 @@ static void ggml_backend_cuda_set_tensor_2d_async(ggml_backend_t backend, struct
+@@ -2455,7 +2923,9 @@ static void ggml_backend_cuda_set_tensor_2d_async(ggml_backend_t backend, struct
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
 -    GGML_ASSERT(buf->buft == ggml_backend_cuda_buffer_type(cuda_ctx->device) && "unsupported buffer type");
 +    GGML_ASSERT(ggml_backend_buft_is_cuda_device(buf->buft, cuda_ctx->device) && "unsupported buffer type");
++    ggml_backend_cuda_paged_kv_assert_resident((ggml_backend_cuda_buffer_context *) buf->context, (char *) tensor->data + offset,
++                                               n_copies > 0 ? (n_copies - 1)*stride_tensor + size : 0, "set_tensor_2d_async");
  
      CUDA_CHECK(cudaMemcpy2DAsync(
          (char *) tensor->data + offset, stride_tensor, data, stride_data, size, n_copies, cudaMemcpyHostToDevice, cuda_ctx->stream()));
-@@ -2466,7 +2737,7 @@ static void ggml_backend_cuda_get_tensor_2d_async(ggml_backend_t backend, const
+@@ -2466,7 +2936,9 @@ static void ggml_backend_cuda_get_tensor_2d_async(ggml_backend_t backend, const
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
 -    GGML_ASSERT(buf->buft == ggml_backend_cuda_buffer_type(cuda_ctx->device) && "unsupported buffer type");
 +    GGML_ASSERT(ggml_backend_buft_is_cuda_device(buf->buft, cuda_ctx->device) && "unsupported buffer type");
++    ggml_backend_cuda_paged_kv_assert_resident((ggml_backend_cuda_buffer_context *) buf->context, (const char *) tensor->data + offset,
++                                               n_copies > 0 ? (n_copies - 1)*stride_tensor + size : 0, "get_tensor_2d_async");
  
      CUDA_CHECK(cudaMemcpy2DAsync(
          data, stride_data, (const char *) tensor->data + offset, stride_tensor, size, n_copies, cudaMemcpyDeviceToHost, cuda_ctx->stream()));
-@@ -4165,12 +4436,12 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -2491,6 +2963,9 @@ static bool ggml_backend_cuda_cpy_tensor_async(ggml_backend_t backend_src, ggml_
+     ggml_backend_cuda_buffer_context * buf_ctx_src = (ggml_backend_cuda_buffer_context *) buf_src->context;
+     ggml_backend_cuda_buffer_context * buf_ctx_dst = (ggml_backend_cuda_buffer_context *) buf_dst->context;
+ 
++    ggml_backend_cuda_paged_kv_assert_resident(buf_ctx_src, src->data, ggml_nbytes(src), "cpy_tensor_async_src");
++    ggml_backend_cuda_paged_kv_assert_resident(buf_ctx_dst, dst->data, ggml_nbytes(src), "cpy_tensor_async_dst");
++
+     if (cuda_ctx_src->device != buf_ctx_src->device || cuda_ctx_dst->device != buf_ctx_dst->device) {
+ #ifndef NDEBUG
+         GGML_LOG_DEBUG("%s: backend and buffer devices do not match\n", __func__);
+@@ -4165,12 +4640,12 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                  // On integrated GPUs (APUs, e.g. RDNA3.5) the scheduler may place a
                  // node's output on the host-visible buffer, which the compute path
                  // handles. Allow that here, mirroring the src-tensor check below.
@@ -424,21 +719,368 @@ index 2456f7dcc..b7ce8b8bf 100644
                                 (integrated && ggml_backend_buft_is_cuda_host(node->src[j]->buffer->buft)));
                      }
                  }
-@@ -5492,6 +5763,9 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+@@ -5492,6 +5967,15 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
      if (strcmp(name, "ggml_backend_get_features") == 0) {
          return (void *)ggml_backend_cuda_get_features;
      }
 +    if (strcmp(name, "ggml_backend_cuda_paged_kv_buffer_type") == 0) {
 +        return (void *)ggml_backend_cuda_paged_kv_buffer_type;
 +    }
++    if (strcmp(name, "ggml_backend_cuda_paged_kv_sparse_buffer_type") == 0) {
++        return (void *)ggml_backend_cuda_paged_kv_sparse_buffer_type;
++    }
++    if (strcmp(name, "ggml_backend_cuda_paged_kv_require") == 0) {
++        return (void *)ggml_backend_cuda_paged_kv_require;
++    }
      return nullptr;
  }
  
+diff --git a/ggml/src/ggml-cuda/paged-kv-residency.h b/ggml/src/ggml-cuda/paged-kv-residency.h
+new file mode 100644
+index 000000000..7b025474b
+--- /dev/null
++++ b/ggml/src/ggml-cuda/paged-kv-residency.h
+@@ -0,0 +1,335 @@
++#pragma once
++
++// Residency of a paged KV buffer over independently backed units.
++//
++// The buffer is one virtual reservation cut into units of the driver's
++// minimum allocation granularity, and every unit is backed by its own
++// physical handle, its own mapping, and its own access grant. This engine
++// owns the unit table and the five accounting quantities and performs the
++// two transactions a residency policy consists of: commit, which backs every
++// required unit that is unbacked, and reclaim, which returns every backed
++// unit the requirement set has released. It calls the driver through a table
++// of function pointers rather than through the CUDA driver API, so the
++// transaction ordering and the unwind on a failed step are exercised by a
++// host-only test with a mocked driver, and the CUDA backend supplies the
++// cuMem* implementations at run time.
++//
++// Commit order per unit: create, map, grant access, zero, and only then does
++// the unit count as mapped and readable. A failure at any step unwinds every
++// unit this transaction created, in reverse, and leaves the units that were
++// backed before it untouched. Reclaim order: quiesce the device once, then
++// unmap and release each candidate. An unmapped unit is released outright,
++// so physical_retained_unmapped_bytes reads zero while every release
++// succeeds; a unit whose release the driver refused keeps its handle, counts
++// as retained unmapped until the next commit of that unit retries the
++// release, and is never overwritten by a new allocation. A released unit's
++// bytes accumulate in physical_released_bytes.
++
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++struct ggml_paged_kv_driver {
++    void * user = nullptr;
++    // Every operation returns 0 on success and a driver status otherwise.
++    int (*create)(void * user, size_t unit_index, uint64_t * handle) = nullptr;
++    int (*map)(void * user, size_t unit_index, uint64_t handle) = nullptr;
++    int (*set_access)(void * user, size_t unit_index) = nullptr;
++    // Zero the unit and complete the write on the host before returning.
++    int (*zero)(void * user, size_t unit_index) = nullptr;
++    // Retire every outstanding device operation that could reference the buffer.
++    int (*quiesce)(void * user) = nullptr;
++    int (*unmap)(void * user, size_t unit_index) = nullptr;
++    int (*release)(void * user, uint64_t handle) = nullptr;
++};
++
++struct ggml_paged_kv_unit {
++    uint64_t handle = 0;
++    bool created = false;
++    bool mapped = false;
++    bool published = false; // access granted and zeroed: readable by the device
++    bool retained = false;  // unmapped, and its release refused: held, counted as retained unmapped
++};
++
++struct ggml_paged_kv_accounting {
++    size_t virtual_reserved_bytes = 0;
++    size_t physical_allocated_bytes = 0;
++    size_t physical_mapped_bytes = 0;
++    size_t physical_retained_unmapped_bytes = 0;
++    size_t physical_released_bytes = 0;
++};
++
++struct ggml_paged_kv_transaction {
++    bool ok = true;
++    const char * step = "none";   // the driver step that failed
++    size_t unit_index = 0;        // the unit it failed on
++    int status = 0;               // the driver status it returned
++    size_t units_committed = 0;   // units published by this transaction
++    size_t units_released = 0;    // units released by this transaction
++    size_t units_unwound = 0;     // units created by a failed commit and released again
++    size_t units_unwind_failed = 0; // units a failed commit created that its unwind could not release
++};
++
++class ggml_paged_kv_residency {
++public:
++    ggml_paged_kv_residency(size_t unit_bytes, size_t virtual_reserved_bytes)
++        : unit_bytes_(unit_bytes) {
++        accounting_.virtual_reserved_bytes = virtual_reserved_bytes;
++        units_.resize(unit_bytes > 0 ? virtual_reserved_bytes / unit_bytes : 0);
++    }
++
++    size_t unit_bytes() const { return unit_bytes_; }
++    size_t unit_count() const { return units_.size(); }
++    const ggml_paged_kv_accounting & accounting() const { return accounting_; }
++    bool unit_published(size_t i) const { return i < units_.size() && units_[i].published; }
++
++    size_t published_count() const {
++        size_t n = 0;
++        for (const auto & u : units_) {
++            n += u.published ? 1 : 0;
++        }
++        return n;
++    }
++
++    // units([a, b)) = {floor(a/G), ..., floor((b-1)/G)}; an empty interval names no unit.
++    static bool units_of(size_t unit_bytes, size_t offset, size_t size, size_t & first, size_t & last_p1) {
++        if (size == 0 || unit_bytes == 0) {
++            first = 0;
++            last_p1 = 0;
++            return false;
++        }
++        first = offset / unit_bytes;
++        last_p1 = (offset + size - 1) / unit_bytes + 1;
++        return true;
++    }
++
++    // Mark the units of one byte interval required. The interval has to lie
++    // inside the reservation; the caller computed it from a tensor the
++    // allocator placed there.
++    bool require(std::vector<bool> & required, size_t offset, size_t size) const {
++        if (required.size() != units_.size()) {
++            required.assign(units_.size(), false);
++        }
++        if (size == 0) {
++            return true;
++        }
++        if (offset > accounting_.virtual_reserved_bytes || size > accounting_.virtual_reserved_bytes - offset) {
++            return false;
++        }
++        size_t first = 0;
++        size_t last_p1 = 0;
++        units_of(unit_bytes_, offset, size, first, last_p1);
++        for (size_t i = first; i < last_p1; ++i) {
++            required[i] = true;
++        }
++        return true;
++    }
++
++    // Whether every unit of the interval is published.
++    bool resident(size_t offset, size_t size) const {
++        if (size == 0) {
++            return true;
++        }
++        if (offset > accounting_.virtual_reserved_bytes || size > accounting_.virtual_reserved_bytes - offset) {
++            return false;
++        }
++        size_t first = 0;
++        size_t last_p1 = 0;
++        units_of(unit_bytes_, offset, size, first, last_p1);
++        for (size_t i = first; i < last_p1; ++i) {
++            if (!units_[i].published) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++    // Call fn(offset, size) for every maximal run of published bytes inside
++    // the interval, so a memset or copy touches resident storage alone.
++    template <typename F>
++    void for_each_resident_run(size_t offset, size_t size, F fn) const {
++        if (size == 0) {
++            return;
++        }
++        const size_t end = offset + size;
++        size_t first = 0;
++        size_t last_p1 = 0;
++        units_of(unit_bytes_, offset, size, first, last_p1);
++        size_t run_start = 0;
++        bool in_run = false;
++        for (size_t i = first; i <= last_p1; ++i) {
++            const bool published = i < last_p1 && units_[i].published;
++            if (published && !in_run) {
++                run_start = i;
++                in_run = true;
++            } else if (!published && in_run) {
++                const size_t a = run_start * unit_bytes_ > offset ? run_start * unit_bytes_ : offset;
++                const size_t b = i * unit_bytes_ < end ? i * unit_bytes_ : end;
++                fn(a, b - a);
++                in_run = false;
++            }
++        }
++    }
++
++    // Back every required unit that is unpublished. Transactional: a failed
++    // step unwinds the units this call created and leaves the rest as they were.
++    ggml_paged_kv_transaction commit(const std::vector<bool> & required, const ggml_paged_kv_driver & drv) {
++        ggml_paged_kv_transaction tx;
++        std::vector<size_t> created;
++        for (size_t i = 0; i < units_.size() && i < required.size(); ++i) {
++            if (!required[i] || units_[i].published) {
++                continue;
++            }
++            ggml_paged_kv_unit & u = units_[i];
++            // A unit whose earlier release was refused still holds its
++            // handle; that release is retried ahead of any new allocation,
++            // so a handle is never overwritten while the driver holds it.
++            if (u.created) {
++                ggml_paged_kv_transaction retry;
++                if (!release_unit(i, drv, retry)) {
++                    return unwind(tx, retry.step, i, retry.status, created, drv);
++                }
++            }
++            int status = drv.create(drv.user, i, &u.handle);
++            if (status != 0) {
++                u.handle = 0;
++                return unwind(tx, "create", i, status, created, drv);
++            }
++            u.created = true;
++            created.push_back(i);
++            accounting_.physical_allocated_bytes += unit_bytes_;
++            status = drv.map(drv.user, i, u.handle);
++            if (status != 0) {
++                return unwind(tx, "map", i, status, created, drv);
++            }
++            u.mapped = true;
++            status = drv.set_access(drv.user, i);
++            if (status != 0) {
++                return unwind(tx, "set_access", i, status, created, drv);
++            }
++            status = drv.zero(drv.user, i);
++            if (status != 0) {
++                return unwind(tx, "zero", i, status, created, drv);
++            }
++            u.published = true;
++            accounting_.physical_mapped_bytes += unit_bytes_;
++            tx.units_committed += 1;
++        }
++        return tx;
++    }
++
++    // Return every published unit the requirement set has released. The
++    // device is quiesced once ahead of the first unmap, and only where there
++    // is a candidate, so a call that releases nothing costs no synchronization.
++    ggml_paged_kv_transaction reclaim(const std::vector<bool> & required, const ggml_paged_kv_driver & drv) {
++        ggml_paged_kv_transaction tx;
++        std::vector<size_t> candidates;
++        for (size_t i = 0; i < units_.size(); ++i) {
++            const bool needed = i < required.size() && required[i];
++            if (units_[i].published && !needed) {
++                candidates.push_back(i);
++            }
++        }
++        if (candidates.empty()) {
++            return tx;
++        }
++        const int status = drv.quiesce(drv.user);
++        if (status != 0) {
++            tx.ok = false;
++            tx.step = "quiesce";
++            tx.status = status;
++            return tx;
++        }
++        for (size_t i : candidates) {
++            if (!release_unit(i, drv, tx)) {
++                return tx;
++            }
++            tx.units_released += 1;
++        }
++        return tx;
++    }
++
++    // Unmap and release every unit; the reservation is the caller's to free.
++    ggml_paged_kv_transaction destroy(const ggml_paged_kv_driver & drv) {
++        ggml_paged_kv_transaction tx;
++        for (size_t i = 0; i < units_.size(); ++i) {
++            if (units_[i].created) {
++                release_unit(i, drv, tx);
++            }
++        }
++        return tx;
++    }
++
++private:
++    // Unmap where mapped and release where created, adjusting the accounting
++    // per step, so a unit half-committed by a failed transaction is unwound
++    // by the same path a reclaim takes.
++    bool release_unit(size_t i, const ggml_paged_kv_driver & drv, ggml_paged_kv_transaction & tx) {
++        ggml_paged_kv_unit & u = units_[i];
++        if (u.mapped) {
++            const int status = drv.unmap(drv.user, i);
++            if (status != 0) {
++                tx.ok = false;
++                tx.step = "unmap";
++                tx.unit_index = i;
++                tx.status = status;
++                return false;
++            }
++            if (u.published) {
++                accounting_.physical_mapped_bytes -= unit_bytes_;
++            }
++            u.mapped = false;
++            u.published = false;
++        }
++        if (u.created) {
++            const int status = drv.release(drv.user, u.handle);
++            if (status != 0) {
++                // The handle stays with the unit and its bytes move from
++                // mapped to retained unmapped: held by the driver, readable
++                // by nothing, and retried by the next commit of the unit.
++                if (!u.retained) {
++                    u.retained = true;
++                    accounting_.physical_retained_unmapped_bytes += unit_bytes_;
++                }
++                tx.ok = false;
++                tx.step = "release";
++                tx.unit_index = i;
++                tx.status = status;
++                return false;
++            }
++            if (u.retained) {
++                u.retained = false;
++                accounting_.physical_retained_unmapped_bytes -= unit_bytes_;
++            }
++            accounting_.physical_allocated_bytes -= unit_bytes_;
++            accounting_.physical_released_bytes += unit_bytes_;
++            u.created = false;
++            u.handle = 0;
++        }
++        return true;
++    }
++
++    ggml_paged_kv_transaction unwind(ggml_paged_kv_transaction tx, const char * step, size_t unit_index, int status,
++                                     const std::vector<size_t> & created, const ggml_paged_kv_driver & drv) {
++        tx.ok = false;
++        tx.step = step;
++        tx.unit_index = unit_index;
++        tx.status = status;
++        // Units published by this transaction count against it too: the
++        // caller sees the state it started from.
++        tx.units_committed = 0;
++        for (auto it = created.rbegin(); it != created.rend(); ++it) {
++            ggml_paged_kv_transaction unwind_tx;
++            if (release_unit(*it, drv, unwind_tx)) {
++                tx.units_unwound += 1;
++            } else {
++                tx.units_unwind_failed += 1;
++            }
++        }
++        return tx;
++    }
++
++    size_t unit_bytes_ = 0;
++    std::vector<ggml_paged_kv_unit> units_;
++    ggml_paged_kv_accounting accounting_;
++};
 diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
-index ec0f5a753..18bd1dc44 100644
+index ec0f5a753..a1877b027 100644
 --- a/src/llama-kv-cache.cpp
 +++ b/src/llama-kv-cache.cpp
-@@ -99,6 +99,49 @@ llama_kv_cache::llama_kv_cache(
+@@ -99,6 +99,75 @@ llama_kv_cache::llama_kv_cache(
  
      const uint32_t n_layer = hparams.n_layer_all;
  
@@ -458,14 +1100,40 @@ index ec0f5a753..18bd1dc44 100644
 +    if (paged_buffer && !offload) {
 +        throw std::runtime_error("LLAMA_KV_PAGED_BUFFER=1 requires the KV cache on a device");
 +    }
-+    auto paged_buft_for_dev = [](ggml_backend_dev_t dev) -> ggml_backend_buffer_type_t {
++
++    // LLAMA_KV_PAGED_RESIDENCY names the residency policy of the paged buffer:
++    // full backs every unit for the buffer's life, tails backs the intervals
++    // this cache declares and reclaims the tails above them. Tails is
++    // refused on a transposed V layout, whose cells are strided across the
++    // tensor rather than laid out as rows from offset 0, and on a cache that
++    // shares another cache's cells, whose apply and removal paths return
++    // ahead of any declaration; both are stated refusals rather than modes
++    // served under the name.
++    const char * residency_request = getenv("LLAMA_KV_PAGED_RESIDENCY");
++    if (residency_request != nullptr && !paged_buffer) {
++        throw std::runtime_error("LLAMA_KV_PAGED_RESIDENCY requires LLAMA_KV_PAGED_BUFFER=1");
++    }
++    if (residency_request != nullptr && strcmp(residency_request, "full") != 0 && strcmp(residency_request, "tails") != 0) {
++        throw std::runtime_error(format("LLAMA_KV_PAGED_RESIDENCY must be full or tails, found '%s'", residency_request));
++    }
++    paged_residency_tails = residency_request != nullptr && strcmp(residency_request, "tails") == 0;
++    if (paged_residency_tails && v_trans) {
++        throw std::runtime_error("LLAMA_KV_PAGED_RESIDENCY=tails requires a row-major V cache (flash attention on)");
++    }
++    if (paged_residency_tails && other != nullptr) {
++        throw std::runtime_error("LLAMA_KV_PAGED_RESIDENCY=tails is refused on a cache sharing another cache's cells");
++    }
++    const char * paged_buft_proc_name = paged_residency_tails
++        ? "ggml_backend_cuda_paged_kv_sparse_buffer_type"
++        : "ggml_backend_cuda_paged_kv_buffer_type";
++    auto paged_buft_for_dev = [paged_buft_proc_name](ggml_backend_dev_t dev) -> ggml_backend_buffer_type_t {
 +        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
 +        typedef ggml_backend_buffer_type_t (*paged_kv_buffer_type_t)(int device);
 +        auto paged_kv_buffer_type_fn = (paged_kv_buffer_type_t)
-+            ggml_backend_reg_get_proc_address(reg, "ggml_backend_cuda_paged_kv_buffer_type");
++            ggml_backend_reg_get_proc_address(reg, paged_buft_proc_name);
 +        if (paged_kv_buffer_type_fn == nullptr) {
-+            throw std::runtime_error(format("LLAMA_KV_PAGED_BUFFER=1: backend %s exposes no paged KV buffer type",
-+                    ggml_backend_reg_name(reg)));
++            throw std::runtime_error(format("LLAMA_KV_PAGED_BUFFER=1: backend %s exposes no %s",
++                    ggml_backend_reg_name(reg), paged_buft_proc_name));
 +        }
 +        int dev_index = -1;
 +        for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); ++i) {
@@ -488,7 +1156,7 @@ index ec0f5a753..18bd1dc44 100644
      // define a comparator for the buft -> ctx map to ensure that the order is well-defined:
      struct ggml_backend_buft_comparator {
          bool operator()(const ggml_backend_buffer_type_t & lhs, const ggml_backend_buffer_type_t & rhs) const {
-@@ -177,6 +220,19 @@ llama_kv_cache::llama_kv_cache(
+@@ -177,6 +246,19 @@ llama_kv_cache::llama_kv_cache(
              if (il_share >= 0) {
                  const auto & layer_share = other->layers[other->map_layer_ids[il_share]];
  
@@ -508,7 +1176,7 @@ index ec0f5a753..18bd1dc44 100644
                  LLAMA_LOG_WARN("%s: layer %3d: sharing with layer %d. k = %p, v = %p\n", __func__, il, il_share,
                          layer_share.k->data, layer_share.v->data);
  
-@@ -213,7 +269,7 @@ llama_kv_cache::llama_kv_cache(
+@@ -213,7 +295,7 @@ llama_kv_cache::llama_kv_cache(
  
          if (offload) {
              auto * dev = model.dev_layer(il);
@@ -517,11 +1185,291 @@ index ec0f5a753..18bd1dc44 100644
  
              dev_name = ggml_backend_dev_name(dev);
          }
-@@ -287,6 +343,7 @@ llama_kv_cache::llama_kv_cache(
+@@ -287,7 +369,24 @@ llama_kv_cache::llama_kv_cache(
          }
  
          LLAMA_LOG_INFO("%s: %10s KV buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
-+        LLAMA_LOG_INFO("%s: kv_buffer_kind=%s buffer=%s\n", __func__, paged_buffer ? "paged_kv_vmm" : "device_default", ggml_backend_buffer_name(buf));
++        LLAMA_LOG_INFO("%s: kv_buffer_kind=%s buffer=%s residency=%s\n", __func__,
++                paged_buffer ? "paged_kv_vmm" : "device_default", ggml_backend_buffer_name(buf),
++                paged_buffer ? (paged_residency_tails ? "tails" : "full") : "-");
  
++        if (paged_residency_tails && !hparams.no_alloc) {
++            ggml_backend_dev_t dev = ggml_backend_buft_get_device(buft);
++            ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : nullptr;
++            auto require_fn = reg ? (paged_kv_require_fn_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_cuda_paged_kv_require") : nullptr;
++            if (require_fn == nullptr) {
++                throw std::runtime_error(format("LLAMA_KV_PAGED_RESIDENCY=tails: buffer %s exposes no paged KV require entry point",
++                        ggml_backend_buffer_name(buf)));
++            }
++            paged_require_fns.emplace_back(buf, require_fn);
++        }
++
++        // Under the tails policy the buffer holds no unit yet, so this clears
++        // the resident set alone and every unit committed later is zeroed
++        // ahead of its first reader.
          ggml_backend_buffer_clear(buf, 0);
          ctxs_bufs.emplace_back(std::move(ctx), buf);
+     }
+@@ -375,6 +474,8 @@ void llama_kv_cache::clear(bool data) {
+             ggml_backend_buffer_clear(buf.get(), 0);
+         }
+     }
++
++    residency_update(true, false);
+ }
+ 
+ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+@@ -443,6 +544,11 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+         }
+     }
+ 
++    // A removal is where a tail can leave the access envelope; a reclaim
++    // that the backend refuses leaves the units backed and the cache
++    // runnable, which the entry point has already logged.
++    residency_update(true, false);
++
+     return true;
+ }
+ 
+@@ -503,6 +609,17 @@ void llama_kv_cache::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, ll
+ 
+     GGML_ASSERT(is_full && "seq_cp() is only supported for full KV buffers");
+ 
++    // The copy moves whole streams at the next update, and the cell metadata
++    // below already describes the destination, so the whole tensors are
++    // backed here, ahead of the metadata; a refusal here leaves the cache as
++    // it was, where a refusal at the update would leave the destination
++    // described and unwritten. The copy API carries no failure channel, so
++    // the refusal is the same class of stop the assertion above is.
++    if (!residency_update(false, true)) {
++        LLAMA_LOG_ERROR("%s: paged KV residency refused the whole-tensor requirement for a cross-stream copy\n", __func__);
++        GGML_ABORT("paged KV residency refused a cross-stream copy");
++    }
++
+     // enqueue the copy operation - the buffer copy will be performed during the next update
+     sc_info.ssrc.push_back(s0);
+     sc_info.sdst.push_back(s1);
+@@ -563,6 +680,8 @@ void llama_kv_cache::seq_keep(llama_seq_id seq_id) {
+     if (new_head != cells.size() && new_head < head) {
+         head = new_head;
+     }
++
++    residency_update(true, false);
+ }
+ 
+ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
+@@ -596,6 +715,15 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
+         return;
+     }
+ 
++    // A shift is applied by a graph over every K row at the next update, so
++    // the whole tensors are backed ahead of the first cell that records it,
++    // and after the empty-range return so a call that shifts nothing backs
++    // nothing.
++    if (!residency_update(false, true)) {
++        LLAMA_LOG_ERROR("%s: paged KV residency refused the whole-tensor requirement for a K-shift\n", __func__);
++        GGML_ABORT("paged KV residency refused a K-shift");
++    }
++
+     for (uint32_t i = 0; i < cells.size(); ++i) {
+         if (!cells.pos_in(i, p0, p1)) {
+             continue;
+@@ -643,6 +771,11 @@ void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, in
+         return;
+     }
+ 
++    if (!residency_update(false, true)) {
++        LLAMA_LOG_ERROR("%s: paged KV residency refused the whole-tensor requirement for a K-shift\n", __func__);
++        GGML_ABORT("paged KV residency refused a K-shift");
++    }
++
+     for (uint32_t i = 0; i < cells.size(); ++i) {
+         if (!cells.pos_in(i, p0, p1)) {
+             continue;
+@@ -787,7 +920,10 @@ llama_kv_cache::slot_info_vec_t llama_kv_cache::prepare(const std::vector<llama_
+         }
+ 
+         // now emplace the ubatch
+-        apply_ubatch(sinfo_new, ubatch);
++        if (!apply_ubatch(sinfo_new, ubatch)) {
++            success = false;
++            break;
++        }
+     }
+ 
+     GGML_ASSERT(!states.empty() || !success);
+@@ -822,6 +958,20 @@ bool llama_kv_cache::update(llama_context * lctx, bool do_shift, const stream_co
+ 
+     auto * sched = lctx->get_sched();
+ 
++    // A cross-stream copy moves whole streams and a K-shift views every K
++    // row of every stream. seq_cp, seq_add, and seq_div backed the whole
++    // tensors ahead of the metadata that describes each, so this repeat is
++    // a check that nothing released them since; the return value of this
++    // function reports whether a graph ran rather than whether it succeeded
++    // and llama_kv_cache_context::apply() reads it as neither, so a refusal
++    // here, which would leave a described destination unwritten, stops the
++    // process by name rather than returning.
++    if ((!sc_info.empty() || do_shift) && !residency_update(false, true)) {
++        LLAMA_LOG_ERROR("%s: paged KV residency refused the whole-tensor requirement for %s\n", __func__,
++                !sc_info.empty() ? "a stream copy" : "a K-shift");
++        GGML_ABORT("paged KV residency refused a maintenance requirement whose metadata is already applied");
++    }
++
+     if (!sc_info.empty()) {
+         assert(n_stream > 1 && "stream copy should never happen with a single stream");
+ 
+@@ -1092,10 +1242,10 @@ llama_kv_cache::slot_info llama_kv_cache::find_slot(const llama_ubatch & ubatch,
+     return res;
+ }
+ 
+-void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & ubatch) {
++bool llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & ubatch) {
+     // TODO: refactor [TAG_KV_CACHE_SHARE_CELLS]
+     if (other) {
+-        return;
++        return true;
+     }
+ 
+     // keep track of the max sequence position that we would overwrite with this ubatch
+@@ -1168,6 +1318,64 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
+ 
+         head = sinfo.idxs[s].back() + 1;
+     }
++
++    // The cells the ubatch occupies and the padded attention extent over
++    // them are the envelope the next graph reads and writes, so the backing
++    // is committed here, ahead of the graph that touches it.
++    return residency_update(false, false);
++}
++
++bool llama_kv_cache::residency_update(bool reclaim, bool whole) {
++    if (!paged_residency_tails) {
++        return true;
++    }
++
++    // The rows required per stream: the padded attention extent get_n_kv()
++    // computes, taken over every stream because get_n_kv() takes its maximum
++    // over the ubatch's streams and every stream in the ubatch is viewed at
++    // that extent, floored at the 256-row minimum the graph is built with;
++    // or the whole tensor for the operations that touch every row.
++    const uint32_t n_pad_cur = std::max(n_pad, 256u);
++
++    uint32_t rows = 0;
++    if (whole) {
++        rows = get_size();
++    } else {
++        for (uint32_t s = 0; s < n_stream; ++s) {
++            const auto & cells = v_cells[s];
++            rows = std::max(rows, std::min(cells.size(), std::max(n_pad_cur, GGML_PAD(cells.used_max_p1(), n_pad_cur))));
++        }
++    }
++
++    for (const auto & [buf, require_fn] : paged_require_fns) {
++        std::vector<size_t> offsets;
++        std::vector<size_t> sizes;
++
++        const char * base = (const char *) ggml_backend_buffer_get_base(buf);
++
++        for (const auto & layer : layers) {
++            for (ggml_tensor * t : { layer.k, layer.v }) {
++                if (t == nullptr || t->buffer != buf) {
++                    continue;
++                }
++                // One interval per stream: rows [0, rows) of the stream, at
++                // the tensor's own row stride and stream stride.
++                const size_t offset = (size_t) ((const char *) t->data - base);
++                for (uint32_t s = 0; s < n_stream; ++s) {
++                    offsets.push_back(offset + (size_t) s*t->nb[2]);
++                    sizes.push_back((size_t) rows*t->nb[1]);
++                }
++            }
++        }
++
++        if (!require_fn(buf, offsets.data(), sizes.data(), offsets.size(), reclaim)) {
++            LLAMA_LOG_ERROR("%s: paged KV residency %s refused on buffer %s at %u rows\n", __func__,
++                    reclaim ? "reclaim" : "commit", ggml_backend_buffer_name(buf), rows);
++            return false;
++        }
++    }
++
++    return true;
+ }
+ 
+ bool llama_kv_cache::get_can_shift() const {
+@@ -2270,7 +2478,10 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
+ 
+         // TODO: we cannot yet restore llama_kv_cell_ext as the apply_ubatch() does not support it yet
+         //       see: https://github.com/ggml-org/llama.cpp/pull/16825#issuecomment-3460868350
+-        apply_ubatch(sinfo, ubatch);
++        if (!apply_ubatch(sinfo, ubatch)) {
++            LLAMA_LOG_ERROR("%s: failed to back %d restored cells in the paged KV buffer\n", __func__, cell_count);
++            return false;
++        }
+ 
+         LLAMA_LOG_DEBUG("%s: cell_count = %d, dest_seq_id = %d\n", __func__, cell_count, dest_seq_id);
+ 
+@@ -2360,6 +2571,14 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+         return false;
+     }
+ 
++    // The destination cells were placed by state_read_meta, either through
++    // apply_ubatch or directly for a whole-cache restore, so the backing over
++    // them is committed here ahead of the first read_tensor into the buffer.
++    if (!residency_update(false, false)) {
++        LLAMA_LOG_ERROR("%s: paged KV residency refused the restore destination\n", __func__);
++        return false;
++    }
++
+     // For each layer, read the keys for each cell, one row is one cell, read as one contiguous block
+     for (const auto & layer : layers) {
+         const uint32_t il = layer.il;
+@@ -2565,7 +2784,9 @@ bool llama_kv_cache_context::apply() {
+         return true;
+     }
+ 
+-    kv->apply_ubatch(sinfos[i_cur], ubatches[i_cur]);
++    if (!kv->apply_ubatch(sinfos[i_cur], ubatches[i_cur])) {
++        return false;
++    }
+     n_kv = kv->get_n_kv(sinfos[i_cur]);
+ 
+     return true;
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index 6cb6dbd2f..573eb918c 100644
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -196,7 +196,10 @@ public:
+     slot_info find_slot(const llama_ubatch & ubatch, bool cont) const;
+ 
+     // emplace the ubatch context into slot: [sinfo.idxs[0...ubatch.n_tokens - 1]]
+-    void apply_ubatch(const slot_info & sinfo, const llama_ubatch & ubatch);
++    // returns false where the paged residency policy refused to back the
++    // cells the ubatch occupies; the cells are left as the ubatch set them
++    // and the caller restores or refuses
++    bool apply_ubatch(const slot_info & sinfo, const llama_ubatch & ubatch);
+ 
+     //
+     // input API
+@@ -289,6 +292,21 @@ private:
+     // model layer id -> KV cache layer id
+     std::unordered_map<int32_t, int32_t> map_layer_ids;
+ 
++    // env: LLAMA_KV_PAGED_RESIDENCY=tails, over LLAMA_KV_PAGED_BUFFER=1.
++    // The attention KV buffers back the byte intervals this cache declares
++    // and nothing else: every stream of every K and V tensor from row 0 to
++    // the padded attention extent, or the whole tensor around a K-shift or
++    // a cross-stream copy. residency_update() states that set to each paged
++    // buffer through the backend's require entry point, committing the units
++    // it touches and, on a removal, releasing the tail units above it.
++    bool paged_residency_tails = false;
++
++    typedef bool (*paged_kv_require_fn_t)(ggml_backend_buffer_t buffer, const size_t * offsets, const size_t * sizes, size_t n_ranges, bool reclaim);
++
++    std::vector<std::pair<ggml_backend_buffer_t, paged_kv_require_fn_t>> paged_require_fns;
++
++    bool residency_update(bool reclaim, bool whole);
++
+     size_t total_size() const;
+ 
+     size_t size_k_bytes() const;

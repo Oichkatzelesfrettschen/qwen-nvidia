@@ -40,15 +40,29 @@ def copy_repo(src_root, dst_dir):
     subprocess.run(["git", "add", "."], cwd=str(dst_dir), check=True)
     subprocess.run(["git", "commit", "-q", "-m", "initial test commit"], cwd=str(dst_dir), check=True)
 
+def restore_fixture(fixture_path):
+    # Every case mutates the one fixture and hands it back as committed:
+    # tracked files return to the initial commit and anything a mutator
+    # created leaves. Building the fixture once and restoring it is what
+    # keeps the run inside the hosted gate's fifteen minutes, since the
+    # tracked evidence tree runs to thousands of files and a copy plus a
+    # commit per case grew past that bound as the tree grew.
+    subprocess.run(["git", "-C", str(fixture_path), "reset", "-q", "--hard"], check=True)
+    subprocess.run(["git", "-C", str(fixture_path), "clean", "-fdq"], check=True)
+
+
 def main():
     repo_root = pathlib.Path(__file__).parent.parent.resolve()
     failures = 0
 
+    fixture_directory = tempfile.TemporaryDirectory(prefix="test_auth_consist_")
+    fixture_path = pathlib.Path(fixture_directory.name)
+    copy_repo(repo_root, fixture_path)
+
     def test_case(name, mutator_fn, expect_pass=False, expect_error=None):
         nonlocal failures
-        with tempfile.TemporaryDirectory(prefix="test_auth_consist_") as tmp_dir:
-            tmp_path = pathlib.Path(tmp_dir)
-            copy_repo(repo_root, tmp_path)
+        try:
+            tmp_path = fixture_path
             if mutator_fn:
                 mutator_fn(tmp_path)
             code, stdout, stderr = run_checker(tmp_path)
@@ -67,6 +81,8 @@ def main():
                 else:
                     print(f"FAIL: {name} (expected failure, got exit code 0)", file=sys.stderr)
                     failures += 1
+        finally:
+            restore_fixture(fixture_path)
 
     # 1. Clean current tree passes
     test_case("clean_current_tree_passes", None, expect_pass=True)
@@ -404,13 +420,13 @@ def main():
     def run_with_backend(value):
         import os
         environment = dict(os.environ, QWEN_SERVING_BACKEND=value)
-        with tempfile.TemporaryDirectory(prefix="test_auth_env_") as tmp_dir:
-            tmp_path = pathlib.Path(tmp_dir)
-            copy_repo(repo_root, tmp_path)
-            checker = pathlib.Path(__file__).parent / "check-authority-consistency.py"
+        checker = pathlib.Path(__file__).parent / "check-authority-consistency.py"
+        try:
             return subprocess.run(
-                [sys.executable, str(checker), str(tmp_path)],
+                [sys.executable, str(checker), str(fixture_path)],
                 capture_output=True, text=True, env=environment).returncode
+        finally:
+            restore_fixture(fixture_path)
     for ambient in ("vulkan", "invalid"):
         code = run_with_backend(ambient)
         if code == 0:
@@ -563,6 +579,8 @@ def main():
     test_case("documented_quarantine_subject_absent_from_ledger_fails",
               mut_documented_subject_absent_from_ledger, expect_pass=False,
               expect_error="documents the model-scope quarantine set")
+
+    fixture_directory.cleanup()
 
     if failures:
         print(f"test_authority_consistency: REJECTED ({failures} failures)", file=sys.stderr)

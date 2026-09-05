@@ -295,6 +295,149 @@ addresses, layout, tokens, and serialized state come out of 156 independent
 units as out of one mapping, and memory saved is still 0 by construction.
 P2-B is the planner in this record; P2-C waits on it.
 
+## P2-C implementation
+
+`ggml/src/ggml-cuda/paged-kv-residency.h`, a new file the patch adds, is
+the residency engine: it owns the unit table and the five quantities and
+runs the two transactions against a table of driver operations rather than
+the CUDA driver API, so `scripts/test-paged-kv-residency-transactions.cpp`
+holds the ordering and the unwind to the contract with a mocked driver and
+no device. Commit runs create, map, grant access, zero per unit, in unit
+order, and a unit counts as mapped only after the zero completes on the
+host; a failure at any step unwinds every unit that transaction created, in
+reverse, through the same unmap-then-release path a reclaim takes, and the
+prior resident set stays as it was. Reclaim quiesces the device once
+(`cudaDeviceSynchronize`, the conservative boundary the contract allows the
+first candidate) ahead of the first unmap, and only where a candidate
+exists, then unmaps and releases each unit; a released unit's bytes
+accumulate in `physical_released_bytes`, and `physical_retained_unmapped_bytes`
+stays zero because this engine keeps no pool. The mocked-driver test
+exercises a failure at each of the four commit steps, a quiesce refusal
+that releases nothing, an unmap refusal that ends the reclaim with that
+unit still published, a shared unit surviving one interval's release, and
+the M(h) table off the served layout, including the first K crossing at
+row 3856 where six K tensors each gain one unit.
+
+The buffer carries the policy as its type. `ggml_backend_cuda_paged_kv_buffer_type`
+is the full policy of P1 and P2-A, committing every unit at allocation;
+`ggml_backend_cuda_paged_kv_sparse_buffer_type` allocates with nothing
+backed. Both share the buffer interface, and every host-side access of a
+paged buffer -- set, get, memset, copy -- asserts its interval resident,
+ending the process with a named `paged_kv_residency violation` line rather
+than a device fault. `ggml_backend_buffer_clear` and the quantized-padding
+memset run over the published runs alone, and a clear to any value other
+than zero is refused on the sparse type. `ggml_backend_cuda_paged_kv_require`
+is the one entry point: buffer-relative byte intervals in, every unit they
+touch committed, and where `reclaim` is set every published unit outside
+them released; it prints one `paged_kv_residency op=commit|reclaim` record
+per transaction that changed a unit, carrying `units_changed`,
+`units_published`, the five quantities, and `latency_us`, so a served log
+states every boundary crossing and nothing per token.
+
+`LLAMA_KV_PAGED_RESIDENCY=tails` selects the sparse type in `llama_kv_cache`
+and is refused on a transposed V layout (cells strided across the tensor)
+and on a cache sharing another cache's cells (the `draft-mtp` context),
+which are stated refusals rather than modes served under the name.
+`residency_update()` declares the envelope: rows `[0, r)` of every stream of
+every K and V tensor, where `r` is the padded attention extent `get_n_kv()`
+computes taken over every stream and floored at 256, or the whole tensor
+around a K-shift or a cross-stream copy. It runs at the end of
+`apply_ubatch`, so the cells the ubatch occupies and the extent the graph
+reads are backed ahead of the graph; in `prepare()` and
+`llama_kv_cache_context::apply()` a refused commit refuses the batch
+cleanly; at the start of `state_read_data`, so a restore's destination is
+backed ahead of the first `read_tensor`; and with reclaim after `seq_rm`,
+`seq_keep`, and `clear`, the removals where a tail can leave the envelope.
+The constructor's clear under the tails policy memsets nothing, since the
+buffer holds no unit yet, and every unit committed later is zeroed by the
+transaction that commits it: the tails policy allocates sparse from the
+first byte, so the model-load peak is the first envelope rather than the
+whole reservation.
+
+`scripts/probe-paged-kv-residency-lifecycle.sh` drives one buffer through
+save, erase, restore, removal, and regrowth at a prompt of
+`QWEN_RESIDENCY_ROWS` tokens (3900 by default, past the 3856-row K
+crossing) under the fully backed null, the tails subject, and a closing
+null, compares replies A, B, and D and the two saved states inside each arm
+and across arms, and reads each log through `read-paged-kv-layout.py` under
+its policy with the preregistered bounds. `scripts/admit-paged-kv-residency.sh`
+runs the granularity probe, the batch-1 identity arms with slot state under
+the tails environment, the layout read of every log, that lifecycle probe,
+and the primed width-1 and width-3 sweep.
+
+## P2-C result
+
+`2b-p2c-run-04/` runs `scripts/admit-paged-kv-residency.sh` against closure
+`e78064b45887`, the pinned tree with the crossover patch and the P2-C form
+of `patches/llama-cuda-paged-kv-buffer.patch` as committed, on the 2B; the
+subject arm is that closure's own binary under `LLAMA_KV_PAGED_BUFFER=1
+LLAMA_KV_PAGED_RESIDENCY=tails`. `2b-p2c-run-03/` is the same harness on
+closure `ff875a2a7291`, the form ahead of the review pass that moved the
+K-shift commit past the empty-range return, and it reads `admitted` inside
+the harness with nothing refused; `2b-p2c-run-01/` and `2b-p2c-run-02/`
+are closure `b468187f6ada`, the form ahead of the pass that backed
+maintenance requirements ahead of their metadata, kept a handle whose
+release was refused, and guarded the asynchronous transfers. All four runs
+read the same table on every stage but the primed sweep.
+
+| record | reading |
+| --- | --- |
+| granularity minimum, recommended | 2097152, 2097152 bytes; 3 of 3 probe samples answered |
+| batch-1 tokens | 12 of 12 arms identical; slot-0 state files 12 of 12 byte-identical; one placement fingerprint |
+| allocation under tails | `physical_mapped_bytes` 0 and `physical_allocated_bytes` 0 on the buffer line: sparse from the first byte |
+| minimum envelope | one commit of 12 units at load, 25165824 bytes (24 MiB), the 256-row floor over twelve tensors |
+| 4096-row envelope | 37748736 bytes (36 MiB) at the peak of the 3900-token lifecycle, the layout figure exactly, against the 60 MiB preregistered allowance |
+| lifecycle transactions | five commits and three reclaims in the tails arm: 6 units committed at the K crossing, 6 released at the erase and at the short prompt's removal, 6 recommitted at the restore and the regrowth; every reclaim returns to 24 MiB |
+| memory saved | 289406976 bytes against the 327155712-byte reservation at the 4096-row envelope; 301989888 at the floor |
+| retained unmapped, refused transactions, violations | 0, 0, 0 |
+| commit latency | median 414 to 629 us and p95 649 to 1213 us across the four runs (457 and 649 us in run 04), against 2 ms and 10 ms |
+| reclaim latency | median 372 to 485 us across the four runs (393 us in run 04), one device quiesce each |
+| replies A, B, D and states A, D | identical inside every arm and across the fully backed null, the tails subject, and the closing null |
+| width 1 primed | replies identical in 4 of 4 bursts in every sweep; delivered ratio 1.0016 (run 04 retry), 1.0288 (run 03), 1.0001 (run 02 retry) |
+| width 3 primed | replies identical in 4 of 4 bursts in every completed sweep; delivered ratio 0.9744 (run 04 retry), 1.0009 (run 03), 1.0006 (run 02 retry) |
+| kernel ring, client set | 0 hazard lines; the compositor and one browser GPU process across every arm |
+
+The primed width-3 level refused in runs 01, 02, and 04 on the control arm,
+which serves the ordinary buffer: one measured burst in runs 01 and 04 and
+two in run 02 prefilled in two passes, the arrival split the primed
+regime's rule refuses ahead of any reply comparison, so the tails subject
+never ran at width 3 inside those harness runs. The same sweep on the P2-A
+closure `bc2846e23fd2` under the same desktop state passed both widths at
+4 of 4 pairs (delivered ratio 1.0010 and 0.9986, replies identical), run 03
+passed inside the harness, and `primed-retry-01/` beside runs 02 and 04 is
+the sweep run again on that run's closure alone under the tails
+environment, passing both widths at 4 of 4 pairs each time with every reply
+identical to the control's. Three passes on the P2-C closures and three
+control-arm splits across six sweeps in one day put the split in arrival
+timing on the control side, the intermittent the primed regime's rule
+exists to refuse rather than average over. `layout-primed-retry-*-subject.tsv`
+reads each retry's subject logs under the tails expectation: at width 3
+the sweep serves 3 streams over 4096 cells, so the floor envelope commits
+30 units (60 MiB) at load, since each K stream's first 256 rows fall in a
+different unit at the 2228224-byte stream stride and the V streams share
+one unit in two. The harness summaries of runs 01, 02, and 04 keep the
+`refused` verdict their primed stage wrote.
+
+The width-3 delivered ratio reads 1.0006, 1.0009, and 0.9744 across the
+three completed sweeps on the P2-C closures, with the control's own
+full-width decode moving from 533 to 552 tok/s between them, so its
+direction is unresolved: the interval crosses one and the one reading
+outside 2% is a single sweep. The 2% claim is preregistered at batch 1,
+where the three sweeps read 1.0001, 1.0288, and 1.0016, and a width-3 cost
+claim in either direction needs an alternating paired campaign of its own.
+
+| claim | preregistered | measured | verdict |
+| --- | --- | --- | --- |
+| steady-state saving at the 4096-row envelope | allocated at or under 60 MiB | 36 MiB, 289406976 bytes saved | holds |
+| mapping latency at a unit boundary | under 2 ms median, 10 ms p95 | commit 526 to 629 us median, 796 to 1213 us p95; reclaim 458 to 485 us median | holds |
+| serving cost | delivered within 2% at batch 1; primed widths 1 and 3 identical | batch 1 at 1.0016, 1.0288, and 1.0001 across three sweeps; replies identical at both widths in every completed sweep; width 3 at 0.9744 to 1.0009, direction unresolved | holds at batch 1; width 3 unresolved |
+| identity | exact batch-1 tokens and state bytes, then the primed regime | 12 of 12, 12 of 12 in every run; identical at both widths | holds |
+
+P2-C is admitted on the 2B for tail residency and lifecycle management
+under `--parallel 1` and the ordinary path, with `draft-mtp` refused by the
+constructor and the served default unchanged. The 0.8B arm, interior holes,
+prefix sharing, typed pages, and mixed precision stay outside this record.
+
 ## Admission matrix
 
 The 2B runs first and the 0.8B second, holding the primary and secondary
