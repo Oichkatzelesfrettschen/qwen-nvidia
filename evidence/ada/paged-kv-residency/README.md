@@ -527,3 +527,34 @@ row that serves it.
 P2 stops at proven tail residency and lifecycle management. Prefix sharing,
 interior holes, typed-page execution, and mixed precision are later stages
 with their own records.
+
+## The served tuple under tails
+
+`2b-served-tuple-01/` is `scripts/probe-filled-depth.sh` on closure
+`e78064b45887` at the 2B's served tuple, `d65536-b2048-ub512` under
+`q8_0`/`q4_0` with Flash Attention on, in two arms: `tails/` under
+`LLAMA_KV_PAGED_BUFFER=1 LLAMA_KV_PAGED_RESIDENCY=tails` and `control/` on
+the ordinary buffer. The probe now serves at log verbosity 4, since the
+buffer-placement banner it requires is absent at the default level on this
+pin.
+
+| record | tails | control |
+| --- | --- | --- |
+| fill | 65197 prompt tokens, 11 completion tokens, needle retrieved, healthy, on-device | the same |
+| backing at the envelope | 25 commits, 12 units at load then 6 at each K crossing, 156 of 156 units by the fill, 327155712 bytes allocated and mapped | 327155712 bytes, one allocation |
+| memory saved at the fill | 0 | 0 |
+| commit latency | median 421 us, p95 694 us, max 901 us (the load commit) | none |
+| reclaims, refusals, violations | 0, 0, 0 | none |
+
+The served figure the tails policy reaches at a full fill is the layout
+figure: every unit backed, and the saving is zero while the slot holds its
+cells, since a served single slot releases nothing until its cells are
+erased. What tails buys a served row is the floor between requests and the
+growth in 12 MiB steps per K crossing during a fill, at 25 commits over a
+65536-token prompt costing about 10 ms of a prefill that runs for seconds.
+The tuple fills and decodes under tails exactly as it does under the
+ordinary buffer, and no `validated-tuples.tsv` row is added: the ledger
+keys a tuple by model, depth, geometry, and cache triple, and residency is
+a run-time policy over the same tuple rather than a fifth key. Production
+serves the ordinary buffer; the on switch for a served row is the
+`LLAMA_KV_PAGED_*` pair through the capacity policy, and it stays unset.

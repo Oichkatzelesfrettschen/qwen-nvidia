@@ -316,7 +316,10 @@ joins it to the granularity probe, the batch-1 identity arms with slot
 state, the layout read of every log, and the primed width-1 and width-3
 sweep. Production serves the ordinary buffer; the tails policy is admitted
 on the 2B and the 0.8B, which share one attention KV layout to the byte,
-and stays off until the tuple that turns it on is measured.
+and the 2B's served tuple fills and decodes under it exactly as under the
+ordinary buffer at 25 commits and zero saving at the full fill
+(`evidence/ada/paged-kv-residency/2b-served-tuple-01/`), so the on switch
+stays unset with its cost and its floor both measured.
 
 A measured threshold or rate holds for the device software stack it ran under,
 and `scripts/device-environment-identity.sh` is what records that stack.
@@ -637,7 +640,9 @@ and belongs in the ledger because a rejected geometry is what steers a later
 choice away from it. `scripts/model-registry.sh tuples MODEL_ID` and
 `tuple TUPLE_ID [FIELD]` read the ledger after validating every row in it, the
 same discipline `emit_servable_rows` applies to the quarantine authority.
-`scripts/probe-filled-depth.sh` names its backend through `QWEN_PROBE_BACKEND`,
+`scripts/probe-filled-depth.sh` serves at log verbosity 4, since the
+buffer-placement banner it requires is absent at the default level on the
+pin, and names its backend through `QWEN_PROBE_BACKEND`,
 which takes `cuda` alone and resolves the device, the tensor override,
 and the runtime wrapper together at the `default` profile; the device has to
 belong to that backend, the ledger backend is what the load banner proved
