@@ -1113,14 +1113,22 @@ if [ "${QWEN_BACKEND_SAMPLING:-0}" = 1 ]; then
     set -- "$@" --backend-sampling
 fi
 
-# The device is named rather than left to enumeration order. A binary carrying
-# both backends offers CUDA0 and Vulkan0 for the same card, and a server that
-# names neither has served on Vulkan0 here while every measurement that set the
-# defaults ran on CUDA0.
+# The device is named rather than left to enumeration order. CUDA0 is the one
+# serving device: the promoted closure carries the CUDA backend alone, and the
+# retained dual-backend diagnostic closure enumerates Vulkan0 for the same card
+# and once placed a router child there because nothing named a device.
+# QWEN_SERVING_BACKEND takes cuda; `vulkan` named the retired serving path and
+# is refused ahead of the argv, since a Vulkan launch is a diagnostic arm run by
+# hand under the diagnostic closure rather than a serving configuration.
 case ${QWEN_SERVING_BACKEND:-cuda} in
-    vulkan) serving_device=Vulkan0 ;;
-    *)      serving_device=CUDA0 ;;
+    cuda) ;;
+    *)
+        printf 'QWEN_SERVING_BACKEND takes cuda: %s\n' "${QWEN_SERVING_BACKEND:-cuda}" >&2
+        printf 'Vulkan serving is retired on this host; the dual-backend diagnostic closure runs by hand\n' >&2
+        exit 2
+        ;;
 esac
+serving_device=CUDA0
 serving_threads=${QWEN_SERVING_THREADS:-6}
 case $serving_threads in
     '' | *[!0-9]* | 0)
@@ -1167,23 +1175,11 @@ if [ "$router_enabled" != 1 ]; then
         --cache-type-v "$cache_type_v"
 fi
 
-# The backend the appliance serves on decides which environment wrapper runs
-# the server. QWEN_SERVING_BACKEND selects it, `cuda` is the default on this
-# host, and each wrapper scrubs the ambient names of both backends before it
-# exports its own profile, so a named profile means one thing whichever
-# backend it belongs to.
+# cuda-runtime-env.sh is the one environment wrapper a served launch runs
+# through. It scrubs the ambient GGML_CUDA_* and GGML_VK_* names before it
+# exports its own profile, so a named profile means one thing whatever the
+# caller's shell carried.
 runtime_environment_wrapper=$script_directory/cuda-runtime-env.sh
-case ${QWEN_SERVING_BACKEND:-cuda} in
-    cuda) ;;
-    vulkan)
-        runtime_environment_wrapper=$script_directory/vulkan-runtime-env.sh
-        ;;
-    *)
-        printf 'QWEN_SERVING_BACKEND takes cuda or vulkan: %s\n' \
-            "${QWEN_SERVING_BACKEND:-cuda}" >&2
-        exit 2
-        ;;
-esac
 [ -x "$runtime_environment_wrapper" ] || {
     printf 'runtime environment wrapper is absent: %s\n' \
         "$runtime_environment_wrapper" >&2
@@ -1191,7 +1187,7 @@ esac
 }
 printf 'runtime_environment backend=%s wrapper=%s profile=%s\n' \
     "${QWEN_SERVING_BACKEND:-cuda}" "$(basename "$runtime_environment_wrapper")" \
-    "${QWEN_CUDA_PROFILE:-${QWEN_VULKAN_PROFILE:-default}}"
+    "${QWEN_CUDA_PROFILE:-default}"
 
 # This is the active-compute lease, second in the fixed order below the
 # top-level owner lock qwen-webui-session.sh holds for the whole serving

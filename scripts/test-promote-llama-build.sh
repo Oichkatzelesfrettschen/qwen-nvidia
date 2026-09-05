@@ -76,7 +76,7 @@ printf 'red square and green circle\n'
 MULTIMODAL
 chmod +x "$build_directory/bin/llama-cli" \
     "$build_directory/bin/llama-mtmd-cli"
-printf 'fixture backend\n' >"$build_directory/bin/libggml-vulkan.so"
+printf 'fixture backend\n' >"$build_directory/bin/libggml-cuda.so"
 
 write_manifest() {
     {
@@ -84,7 +84,7 @@ write_manifest() {
         printf 'commit\t0000000000000000000000000000000000000000\n'
         printf 'worktree\tclean\n'
         for object_name in llama-server llama-cli llama-mtmd-cli \
-            libggml-vulkan.so; do
+            libggml-cuda.so; do
             object_path=$build_directory/bin/$object_name
             object_role=loadable
             case $object_name in llama-*) object_role=executable ;; esac
@@ -117,10 +117,27 @@ promotion_output=$("$promoter" "$preset" "$work_directory" 2>&1)
 promotion_status=$?
 set -e
 case $promotion_status:$promotion_output in
-    0:*strict_cuda=passed*multimodal_cuda=passed*fallback_vulkan=passed*)
+    0:*strict_cuda=passed*multimodal_cuda=passed*backend_set=cuda*)
         report clean_manifest_promotes accepted ;;
     *) report clean_manifest_promotes rejected
        printf '%s\n' "$promotion_output" >&2 ;;
+esac
+
+# A closure carrying libggml-vulkan.so enumerates Vulkan0 beside CUDA0 for the
+# same card, and that enumeration is what once placed a router child on
+# Vulkan0, so promotion refuses the dual-backend build ahead of every smoke.
+printf 'fixture vulkan backend\n' >"$build_directory/bin/libggml-vulkan.so"
+set +e
+dual_output=$("$promoter" "$preset" "$work_directory" 2>&1)
+dual_status=$?
+set -e
+rm -f "$build_directory/bin/libggml-vulkan.so"
+case $dual_status:$dual_output in
+    0:*) report dual_backend_build_refused rejected
+         printf 'a dual-backend build promoted: %s\n' "$dual_output" >&2 ;;
+    *:*carries\ libggml-vulkan.so*) report dual_backend_build_refused accepted ;;
+    *) report dual_backend_build_refused rejected
+       printf '%s\n' "$dual_output" >&2 ;;
 esac
 
 # Partial helper output carries no usable identity when closure enumeration
@@ -234,7 +251,7 @@ esac
 write_manifest
 
 # One byte of drift in a backend object must stop the promotion.
-printf 'fixture backend, rebuilt\n' >"$build_directory/bin/libggml-vulkan.so"
+printf 'fixture backend, rebuilt\n' >"$build_directory/bin/libggml-cuda.so"
 set +e
 drift_output=$("$promoter" "$preset" "$work_directory" 2>&1)
 drift_status=$?
@@ -242,25 +259,25 @@ set -e
 case $drift_status:$drift_output in
     0:*) report drift_rejected rejected
          printf 'a drifted object promoted: %s\n' "$drift_output" >&2 ;;
-    *:*libggml-vulkan.so\ changed*) report drift_rejected accepted ;;
+    *:*libggml-cuda.so\ changed*) report drift_rejected accepted ;;
     *) report drift_rejected rejected
        printf '%s\n' "$drift_output" >&2 ;;
 esac
 write_manifest
 
 # A missing object is drift too, and it must not read as an empty check.
-mv "$build_directory/bin/libggml-vulkan.so" "$build_directory/bin/libggml-vulkan.so.moved"
+mv "$build_directory/bin/libggml-cuda.so" "$build_directory/bin/libggml-cuda.so.moved"
 set +e
 missing_output=$("$promoter" "$preset" "$work_directory" 2>&1)
 missing_status=$?
 set -e
 case $missing_status:$missing_output in
     0:*) report missing_object_rejected rejected ;;
-    *:*libggml-vulkan.so\ missing*) report missing_object_rejected accepted ;;
+    *:*libggml-cuda.so\ missing*) report missing_object_rejected accepted ;;
     *) report missing_object_rejected rejected
        printf '%s\n' "$missing_output" >&2 ;;
 esac
-mv "$build_directory/bin/libggml-vulkan.so.moved" "$build_directory/bin/libggml-vulkan.so"
+mv "$build_directory/bin/libggml-cuda.so.moved" "$build_directory/bin/libggml-cuda.so"
 
 # A manifest whose object rows are absent must fail rather than pass an empty
 # loop, which is the defect this suite exists for.
@@ -301,13 +318,13 @@ cp "$build_directory/bin/llama-server" "$second_build_directory/bin/llama-server
 cp "$build_directory/bin/llama-cli" "$second_build_directory/bin/llama-cli"
 cp "$build_directory/bin/llama-mtmd-cli" \
     "$second_build_directory/bin/llama-mtmd-cli"
-printf 'fixture backend, second arm\n' >"$second_build_directory/bin/libggml-vulkan.so"
+printf 'fixture backend, second arm\n' >"$second_build_directory/bin/libggml-cuda.so"
 {
     printf 'preset\t%s\n' "$second_preset"
     printf 'commit\t0000000000000000000000000000000000000000\n'
     printf 'worktree\tclean\n'
     for object_name in llama-server llama-cli llama-mtmd-cli \
-        libggml-vulkan.so; do
+        libggml-cuda.so; do
         object_path=$second_build_directory/bin/$object_name
         object_role=loadable
         case $object_name in llama-*) object_role=executable ;; esac

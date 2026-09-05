@@ -56,33 +56,21 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-# The profile vocabulary belongs to the backend that serves. qwen-webui-session.sh
-# forwards this value to whichever wrapper QWEN_SERVING_BACKEND selects, so the
-# ladder's own guard names that wrapper's vocabulary: cuda-runtime-env.sh's
-# names under the cuda default, vulkan-runtime-env.sh's under
-# QWEN_SERVING_BACKEND=vulkan.
+# The profile vocabulary is cuda-runtime-env.sh's, the one wrapper
+# qwen-webui-session.sh forwards a profile to, so the ladder's own guard names
+# that vocabulary and refuses a retired backend selector ahead of the launch.
 case ${QWEN_SERVING_BACKEND:-cuda} in
-    cuda)
-        case $profile in
-            default | no-graphs | no-fusion | pdl | unified | custom) ;;
-            *)
-                printf 'unknown CUDA profile: %s\n' "$profile" >&2
-                exit 2
-                ;;
-        esac
-        ;;
-    vulkan)
-        case $profile in
-            default | custom) ;;
-            *)
-                printf 'unknown Vulkan profile: %s\n' "$profile" >&2
-                exit 2
-                ;;
-        esac
-        ;;
+    cuda) ;;
     *)
-        printf 'QWEN_SERVING_BACKEND takes cuda or vulkan: %s\n' \
-            "${QWEN_SERVING_BACKEND:-cuda}" >&2
+        printf 'QWEN_SERVING_BACKEND takes cuda: %s\n' "${QWEN_SERVING_BACKEND:-cuda}" >&2
+        printf 'Vulkan serving is retired on this host; the dual-backend diagnostic closure runs by hand\n' >&2
+        exit 2
+        ;;
+esac
+case $profile in
+    default | no-graphs | no-fusion | pdl | unified | custom) ;;
+    *)
+        printf 'unknown CUDA profile: %s\n' "$profile" >&2
         exit 2
         ;;
 esac

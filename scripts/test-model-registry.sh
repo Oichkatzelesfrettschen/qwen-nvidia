@@ -701,11 +701,21 @@ QWEN_VALIDATED_TUPLES=$foreign_backend_tuples \
     2>"$work_directory/foreign-backend.err"
 foreign_backend_status=$?
 set -e
+# QWEN_SERVING_BACKEND takes cuda alone, so the foreign row validates the
+# claim under no setting: asking the checker to read it as served is refused
+# with status 2 rather than admitting the row.
+set +e
+QWEN_SERVING_BACKEND=vulkan QWEN_MODEL_REGISTRY=$projector_check_models \
+QWEN_VALIDATED_TUPLES=$foreign_backend_tuples \
+    "$check_validated_tuples" >"$work_directory/foreign-backend-served.out" \
+    2>"$work_directory/foreign-backend-served.err"
+foreign_backend_served_status=$?
+set -e
 if [ "$foreign_backend_status" -ne 0 ] &&
    grep -F 'no validated cuda row' "$work_directory/foreign-backend.err" >/dev/null &&
-   QWEN_SERVING_BACKEND=vulkan QWEN_MODEL_REGISTRY=$projector_check_models \
-    QWEN_VALIDATED_TUPLES=$foreign_backend_tuples \
-    "$check_validated_tuples" >"$work_directory/foreign-backend-served.out"; then
+   [ "$foreign_backend_served_status" -eq 2 ] &&
+   grep -F 'QWEN_SERVING_BACKEND takes cuda: vulkan' \
+       "$work_directory/foreign-backend-served.err" >/dev/null; then
     report check_validated_tuples_discriminates_backend accepted
 else
     report check_validated_tuples_discriminates_backend rejected

@@ -2,8 +2,41 @@
 
 This file states this repository's open work on the current host: an AMD
 Ryzen 5 5600X3D workstation carrying one NVIDIA GeForce RTX 4070 Ti, served
-through the CUDA backend alone in the promoted closure `88681bf4d161`;
-Vulkan arms run under the retained diagnostic closure `572951d25562`.
+through the CUDA backend alone in the promoted closure `88681bf4d161`.
+Vulkan serving and Vulkan admission campaigns are retired here; the retained
+dual-backend diagnostic closure `572951d25562` runs by hand for a diagnostic
+question and gates no CUDA work.
+
+## Active contract
+
+| Lane | Executes on |
+| --- | --- |
+| LLM inference | CUDA0 |
+| Vision encoder and projector | CUDA0 |
+| Image generation | CUDA0, through a CUDA-native runtime still to be admitted |
+| Physics simulation | PhysX with measured CUDA execution |
+| Geometry and ray queries | OptiX over CUDA |
+| CPU | orchestration, parsing, I/O, validation |
+
+Automatic CPU fallback and automatic Vulkan fallback are refused: every served
+launch runs `LLAMA_NO_CPU_FALLBACK=1` with `--device CUDA0` and
+`-ot .*=CUDA0`, `QWEN_SERVING_BACKEND` takes `cuda` alone, and
+`scripts/promote-llama-build.sh` refuses a closure carrying
+`libggml-vulkan.so`. The graphics-latency probe stays as a narrowly named
+Vulkan diagnostic exception until a replacement measures the same
+desktop-responsiveness property. The workstation's own Vulkan libraries and
+compositor are outside this contract.
+
+## Program status
+
+| Program | Recorded now | Advances next |
+| --- | --- | --- |
+| Uniform-format paged KV | P1 mechanism admitted on the 2B, default off (`evidence/ada/paged-kv-buffer/`) | P2 residency and lifecycle over independently releasable units |
+| Typed or mixed-format KV | not implemented | kept separate from P2 |
+| PhysX sidecar | runtime proof retained (`evidence/physics/d6-runtime-proof/`); profile `refused` | authorized service-chain admission |
+| Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`) | device-resident projector output into `libmtmd` |
+| CUDA image generation | no admitted CUDA profile | build and admit one CUDA-native runtime and profile |
+| OptiX geometry | pending | bounded geometry-query sidecar |
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
 
@@ -52,7 +85,10 @@ summary the 32768 rerun overwrote in the same directory and which is recovered
 from `bf73278` with a `prompt_n` matching its retained result exactly, and
 `qwenseer-2b`, which carried no emitted row file at all.
 
-The open extension is the Vulkan-backend arms.
+The Vulkan-backend extension is retired with Vulkan serving:
+`scripts/validation-classes.tsv` reads `retired` on every class, and the
+rows measured under the Vulkan diagnostic selection stay in
+`scripts/validated-tuples.tsv` as history.
 
 ## Graded quality suite
 

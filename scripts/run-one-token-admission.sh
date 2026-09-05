@@ -10,10 +10,12 @@ set -eu
 # particular artifact, so every row runs rather than one representative per
 # class.
 #
-# scripts/test-strict-vulkan-placement.sh is the admission itself: it requires
+# scripts/test-strict-cuda-placement.sh is the admission itself: it requires
 # CPU tensor placement and CPU graph placement to be rejected, brings a strict
-# Vulkan server up, drives a two-token completion, and requires the model, KV,
-# and compute buffers to name Vulkan0 with no CPU fallback reached. A control
+# CUDA0 server up, drives a fixed-seed completion twice, and requires the
+# model, KV, and compute buffers to name CUDA0 with no CPU fallback reached.
+# test-strict-vulkan-placement.sh is the retired Vulkan form of the same check,
+# reachable through QWEN_PLACEMENT_CHECK for a diagnostic arm alone. A control
 # arm runs the same check against a checkpoint this tree already serves, after
 # each new runtime class and after any failure, so a later refusal is read
 # against a device that was working rather than against an unknown one.
@@ -49,7 +51,7 @@ llama_server=${QWEN_LLAMA_SERVER:-"${HOME:?}/src/llama.cpp-qwen-nvidia/build-qwe
 # staged into that path stops the picker from being regenerated at all.
 candidate_root=${QWEN_CANDIDATE_ROOT:-"${HOME:?}/models/candidate-staging"}
 control_model=${QWEN_CONTROL_MODEL:-"${HOME:?}/models/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf"}
-placement=${QWEN_PLACEMENT_CHECK:-$script_directory/test-strict-vulkan-placement.sh}
+placement=${QWEN_PLACEMENT_CHECK:-$script_directory/test-strict-cuda-placement.sh}
 fetch=${QWEN_CANDIDATE_FETCH:-$script_directory/fetch-candidate-artifact.sh}
 # `fetch` alone downloads without touching the device, which is what lets the
 # transfers run while the appliance is still serving.

@@ -166,10 +166,10 @@ def main():
 
     test_case("malformed_authority_input_propagates_failure", mut_malformed_validated_tuples, expect_pass=False)
 
-    # 11. Completion of the open depth-validation conditions for every class
-    # makes the stale TASK_TRACKER claim fail. Coverage is per expected model,
-    # so every row claiming a validated_filled_depth gains both a second CUDA
-    # geometry and a Vulkan tuple.
+    # 11. The Vulkan arm is retired on every class, so a tracker stating it
+    # as open work fails, and a class that re-enters the campaign by reading
+    # `required` reopens it, which the tracker then has to state. Coverage is
+    # per expected model, so the helpers below build ledger rows per class.
     def depth_rows(tmp_path):
         models = tmp_path / "scripts" / "models.tsv"
         rows = []
@@ -186,25 +186,43 @@ def main():
                 % (model_id, depth, batch, ubatch, backend, model_id, depth,
                    batch, ubatch, backend, model_id))
 
-    def mut_completed_open_depth_work(tmp_path):
-        vt = tmp_path / "scripts" / "validated-tuples.tsv"
-        rows = []
-        for model_id, depth in depth_rows(tmp_path):
-            rows.append(tuple_row(model_id, depth, "1024", "256", "cuda"))
-            rows.append(tuple_row(model_id, depth, "2048", "512", "vulkan"))
-        vt.write_text(vt.read_text(encoding="utf-8") + "\n".join(rows) + "\n",
-                      encoding="utf-8")
+    def mut_tracker_states_retired_vulkan_arm(tmp_path):
+        tracker = tmp_path / "TASK_TRACKER.md"
+        tracker.write_text(
+            tracker.read_text(encoding="utf-8")
+            + "\nThe open extension is the Vulkan-backend arms.\n",
+            encoding="utf-8")
 
-    # The backend gate in check-nvidia-authority.sh also rejects the Vulkan
-    # rows, so the assertion binds to the stale-tracker message itself.
-    test_case("completed_open_depth_work_makes_stale_task_tracker_fail",
-              mut_completed_open_depth_work, expect_pass=False,
+    test_case("tracker_stating_retired_vulkan_arm_fails",
+              mut_tracker_states_retired_vulkan_arm, expect_pass=False,
               expect_error="still states the Vulkan arm as open work")
 
-    # 12. Second CUDA geometries alone leave the Vulkan arms open for every
-    # class. The tracker states the Vulkan arm and states no open second
-    # geometry, which is what the two conditions independently require, so the
-    # tree passes.
+    def mut_required_vulkan_arm_reopens(tmp_path):
+        classes = tmp_path / "scripts" / "validation-classes.tsv"
+        text = classes.read_text(encoding="utf-8")
+        assert "\trequired\tretired\n" in text
+        classes.write_text(text.replace("\trequired\tretired\n",
+                                        "\trequired\trequired\n"),
+                           encoding="utf-8")
+
+    test_case("required_vulkan_arm_without_rows_reopens_the_statement",
+              mut_required_vulkan_arm_reopens, expect_pass=False,
+              expect_error="omits the open Vulkan arm statement")
+
+    def mut_unknown_extension_value(tmp_path):
+        classes = tmp_path / "scripts" / "validation-classes.tsv"
+        text = classes.read_text(encoding="utf-8")
+        classes.write_text(text.replace("\trequired\tretired\n",
+                                        "\trequired\tfallback\n", 1),
+                           encoding="utf-8")
+
+    test_case("unknown_extension_value_is_refused",
+              mut_unknown_extension_value, expect_pass=False,
+              expect_error="required, optional, or retired")
+
+    # 12. Second CUDA geometries added on every class leave the tree passing:
+    # the tracker states no open second geometry and no open Vulkan arm, which
+    # is what the two conditions independently require.
     def mut_second_geometry_without_vulkan(tmp_path):
         vt = tmp_path / "scripts" / "validated-tuples.tsv"
         rows = [tuple_row(model_id, depth, "1024", "256", "cuda")

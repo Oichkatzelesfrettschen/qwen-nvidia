@@ -77,7 +77,7 @@ start_kernel_watchdog_process() {
 start_test_process 19 5
 start_watchdog_process
 start_kernel_watchdog_process
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/positive-telemetry.log" \
     default "$watchdog_pid" "$kernel_watchdog_pid"
@@ -97,7 +97,7 @@ start_persistent_test_process 18
 start_watchdog_process
 start_kernel_watchdog_process
 set +e
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/negative-telemetry.log" \
     default "$watchdog_pid" "$kernel_watchdog_pid"
@@ -128,7 +128,7 @@ start_term_ignoring_process
 start_watchdog_process
 start_kernel_watchdog_process
 set +e
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/gpu-busy-telemetry.log" \
     default "$watchdog_pid" "$kernel_watchdog_pid"
@@ -156,7 +156,7 @@ printf '100\n' >"$fake_gpu_busy_percent_file"
 start_test_process 19 5
 start_watchdog_process
 start_kernel_watchdog_process
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/priority-first-telemetry.log" \
     default "$watchdog_pid" "$kernel_watchdog_pid"
@@ -174,7 +174,7 @@ grep -F 'threshold_maximum_gpu_busy_percent=100' \
 start_test_process 19 5
 start_watchdog_process
 start_kernel_watchdog_process
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/async-priority-first-telemetry.log" \
     custom "$watchdog_pid" "$kernel_watchdog_pid"
@@ -196,7 +196,7 @@ kill "$watchdog_pid"
 wait "$watchdog_pid" 2>/dev/null || true
 watchdog_pid=""
 set +e
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/watchdog-telemetry.log" \
     default 999999999 999999998
@@ -215,7 +215,7 @@ grep -F 'reason=graphics_latency_watchdog_unavailable' \
 start_persistent_test_process 19
 start_watchdog_process
 set +e
-QWEN_SERVING_BACKEND=vulkan QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
+QWEN_SERVING_BACKEND=cuda QWEN_SERVING_NICE=19 QWEN_SERVING_CPU_LIST=0 \
     "$script_directory/monitor-qwen-runtime.sh" \
     "$test_pid" "$temporary_directory/kernel-watchdog-telemetry.log" \
     default "$watchdog_pid" 999999997
@@ -255,7 +255,7 @@ grep -F 'guard_affinity=1 guard_nice=0' \
     "$temporary_directory/hazard-watch.log" >/dev/null
 
 # The CUDA policy is the one the appliance serves under here, and it differs
-# from the Vulkan fixtures above in both fields: every online CPU rather than
+# from the fixtures above in both fields: every online CPU rather than
 # one, and the desktop's own priority rather than nice 19. The arm runs the same
 # monitor against a process carrying that policy and requires it to accept, then
 # moves the process off it and requires the abort.

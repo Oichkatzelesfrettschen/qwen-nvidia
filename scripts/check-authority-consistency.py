@@ -542,6 +542,12 @@ def main():
         if model_id not in models_dict:
             report_error(f"scripts/validation-classes.tsv names "
                          f"{model_id}, absent from scripts/models.tsv")
+        for column in ("second_geometry", "vulkan_arm"):
+            if row[column] not in ("required", "optional", "retired"):
+                report_error(
+                    f"scripts/validation-classes.tsv {row['class_id']} "
+                    f"carries {column}={row[column]!r}; required, "
+                    "optional, or retired")
 
     task_tracker_path = repo_root / "TASK_TRACKER.md"
     if not task_tracker_path.exists():
@@ -570,6 +576,10 @@ def main():
                 if r["backend"] == AUTHORITATIVE_BACKEND
                 and matches_primary(r, expected, ignore=("batch", "ubatch"))
             }
+            # A retired extension is closed by decision rather than by a
+            # measured arm, so a ledger row on that backend neither opens nor
+            # closes it; `required` keeps the measured reading for a class
+            # that re-enters the campaign.
             vulkan_arms = [
                 r for r in rows
                 if r["backend"] == "vulkan" and matches_primary(r, expected)

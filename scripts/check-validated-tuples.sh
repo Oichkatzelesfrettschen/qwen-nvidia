@@ -7,8 +7,9 @@ set -eu
 # host serves. A depth filled on one backend states nothing about another: the
 # graph, the flash-attention kernels, and the allocator all differ, so a
 # Vulkan row measured on the prior host is history rather than validation for
-# a CUDA claim, and
-# QWEN_SERVING_BACKEND names which rows may validate one. models.tsv holds one
+# a CUDA claim. QWEN_SERVING_BACKEND names which rows may validate one and
+# takes cuda alone, the backend this host serves; rows carrying another
+# backend stay in the ledger as history and validate nothing. models.tsv holds one
 # validated_filled_depth tuple per row and the ledger holds every measured arm,
 # so the cross-ledger check derives the complete tuple models.tsv already
 # claims and requires the ledger to carry the same tuple.
@@ -24,10 +25,9 @@ tuple_ledger=${QWEN_VALIDATED_TUPLES:-$script_directory/validated-tuples.tsv}
 serving_backend=${QWEN_SERVING_BACKEND:-cuda}
 
 case $serving_backend in
-    cuda|vulkan|hip|cpu) ;;
+    cuda) ;;
     *)
-        printf 'QWEN_SERVING_BACKEND takes cuda, vulkan, hip, or cpu: %s\n' \
-            "$serving_backend" >&2
+        printf 'QWEN_SERVING_BACKEND takes cuda: %s\n' "$serving_backend" >&2
         exit 2
         ;;
 esac

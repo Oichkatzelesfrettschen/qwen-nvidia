@@ -102,38 +102,27 @@ if [ "$actual_arguments" != "$expected_arguments" ]; then
     exit 1
 fi
 
-# QWEN_SERVING_BACKEND=vulkan routes the identical scheduling policy through
-# vulkan-runtime-env.sh instead, naming --device Vulkan0 and reading the ICD
-# pin from QWEN_VULKAN_ICD. Its default profile exports nothing beyond the
-# scrub, so every GGML_VK_* name the scrub removes reads back unset and the
-# display and compositor names this wrapper unsets read back unset too.
+# QWEN_SERVING_BACKEND=vulkan named the retired Vulkan serving path. The
+# policy refuses it with status 2 ahead of the argv and names the retirement,
+# so no launch reaches vulkan-runtime-env.sh or a Vulkan0 placement through the
+# served path; the retained wrapper is a hand-run diagnostic alone.
 vulkan_output_path=$temporary_directory/policy-vulkan.out
-QWEN_SERVING_BACKEND=vulkan QWEN_VULKAN_ICD=$fake_icd \
+if QWEN_SERVING_BACKEND=vulkan QWEN_VULKAN_ICD=$fake_icd \
     QWEN_POLICY_TEST_OUTPUT=$vulkan_output_path \
-    "$policy" "$fake_server" "$model_path" 24576 8090
-
-grep -Fx "affinity=$expected_cpu_list" "$vulkan_output_path" >/dev/null
-grep -Fx 'nice=0' "$vulkan_output_path" >/dev/null
-grep -Fx 'profile=default' "$vulkan_output_path" >/dev/null
-grep -Fx 'low=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'duty=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'serialized=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'max_nodes=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'allow_graphics=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'strict=1' "$vulkan_output_path" >/dev/null
-grep -Fx 'display=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'wayland=unset' "$vulkan_output_path" >/dev/null
-grep -Fx 'argument=--device' "$vulkan_output_path" >/dev/null
-grep -Fx 'argument=Vulkan0' "$vulkan_output_path" >/dev/null
-vulkan_arguments=$(sed -n 's/^argument=//p' "$vulkan_output_path" | tr '\n' ' ')
-case $vulkan_arguments in
-    *'--override-tensor .*=Vulkan0 '*) ;;
-    *)
-        printf 'the Vulkan arm did not carry the Vulkan0 tensor placement: %s\n' \
-            "$vulkan_arguments" >&2
-        exit 1
-        ;;
-esac
+    "$policy" "$fake_server" "$model_path" 24576 8090 \
+    >"$temporary_directory/vulkan-backend.stdout" \
+    2>"$temporary_directory/vulkan-backend.stderr"; then
+    printf 'policy accepted the retired vulkan serving backend\n' >&2
+    exit 1
+fi
+grep -F 'QWEN_SERVING_BACKEND takes cuda: vulkan' \
+    "$temporary_directory/vulkan-backend.stderr" >/dev/null
+grep -F 'Vulkan serving is retired' \
+    "$temporary_directory/vulkan-backend.stderr" >/dev/null
+if [ -e "$vulkan_output_path" ]; then
+    printf 'the refused vulkan backend still reached the wrapper\n' >&2
+    exit 1
+fi
 
 # The KV cache triple comes from the registry row the model path resolves to,
 # and the three environment variables override it, so a cache factorial runs
@@ -272,32 +261,34 @@ if QWEN_CUDA_PROFILE=unknown \
 fi
 grep -F 'unknown CUDA profile' "$temporary_directory/cuda-profile.stderr" >/dev/null
 
-# vulkan-runtime-env.sh takes default and custom alone via QWEN_VULKAN_PROFILE.
-# custom restores GGML_VK_MAX_NODES_PER_SUBMIT and GGML_VK_SERIALIZE_SUBMISSIONS
-# from the caller's own ambient values, captured ahead of the same scrub.
+# QWEN_VULKAN_PROFILE belonged to the retired wrapper's vocabulary. The policy
+# reads QWEN_CUDA_PROFILE alone, so a Vulkan profile name in the environment
+# is inert under the cuda default rather than selecting a second vocabulary:
+# the launch reads profile=default and the GGML_VK_* names the scrub removes
+# stay unset whatever the ambient shell carried.
 GGML_VK_MAX_NODES_PER_SUBMIT=16 GGML_VK_SERIALIZE_SUBMISSIONS=1 \
-    QWEN_SERVING_BACKEND=vulkan QWEN_VULKAN_PROFILE=custom \
+    QWEN_VULKAN_PROFILE=custom \
     QWEN_VULKAN_ICD=$fake_icd \
     QWEN_POLICY_TEST_OUTPUT=$profile_output \
     "$policy" "$fake_server" "$model_path" 4096 18084
-grep -Fx 'profile=custom' "$profile_output" >/dev/null
-grep -Fx 'serialized=1' "$profile_output" >/dev/null
-grep -Fx 'max_nodes=16' "$profile_output" >/dev/null
+grep -Fx 'profile=default' "$profile_output" >/dev/null
+grep -Fx 'serialized=unset' "$profile_output" >/dev/null
+grep -Fx 'max_nodes=unset' "$profile_output" >/dev/null
 
 # The submission profiles the prior host's Vulkan driver carried --
 # low-serialized, low-async, paced-60 -- name settings no run on this device
-# has moved, so vulkan-runtime-env.sh refuses the name outright rather than
-# silently accepting it as a no-op.
-if QWEN_SERVING_BACKEND=vulkan QWEN_VULKAN_PROFILE=low-serialized \
+# has moved, and they are refused as unknown CUDA profiles when handed to the
+# one profile variable the policy reads.
+if QWEN_CUDA_PROFILE=low-serialized \
     QWEN_VULKAN_ICD=$fake_icd \
     QWEN_POLICY_TEST_OUTPUT=$profile_output \
     "$policy" "$fake_server" "$model_path" 4096 18085 \
     >"$temporary_directory/retired-profile.stdout" \
     2>"$temporary_directory/retired-profile.stderr"; then
-    printf 'policy accepted the retired low-serialized Vulkan profile\n' >&2
+    printf 'policy accepted the retired low-serialized profile\n' >&2
     exit 1
 fi
-grep -F 'unknown Vulkan profile' "$temporary_directory/retired-profile.stderr" \
+grep -F 'unknown CUDA profile' "$temporary_directory/retired-profile.stderr" \
     >/dev/null
 
 static_path=$temporary_directory/webui
