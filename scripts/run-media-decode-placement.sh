@@ -66,7 +66,13 @@ fi
 }
 command -v "$nsys_binary" >/dev/null 2>&1 || { printf 'refused: nsys is absent: %s\n' "$nsys_binary" >&2; exit 1; }
 
-"$script_directory/verify-nvidia-sdk.sh" | tee "$output_directory/sdk-verify.txt"
+# the verifier's own status decides, since a pipeline would report tee's
+"$script_directory/verify-nvidia-sdk.sh" >"$output_directory/sdk-verify.txt" 2>&1 || {
+    cat "$output_directory/sdk-verify.txt" >&2
+    printf 'refused: the SDK ledger did not verify\n' >&2
+    exit 1
+}
+cat "$output_directory/sdk-verify.txt"
 prefix_of() {
     awk -F '\t' -v id="$1" '!/^#/ && $1 == id { print $10 }' "$script_directory/nvidia-sdk-artifacts.tsv"
 }
@@ -158,6 +164,7 @@ if [ -n "$first_projector" ]; then
             >"$capture_directory/probe.txt" 2>&1 9>&- || capture_status=$?
         scrub_home <"$capture_directory/probe.txt" >"$capture_directory/probe.scrubbed" && mv "$capture_directory/probe.scrubbed" "$capture_directory/probe.txt"
         record "capture_exit:$policy" "$capture_status"
+        [ "$capture_status" -eq 0 ] || status=1
         if [ -f "$capture_directory/profile.nsys-rep" ]; then
             "$nsys_binary" export --type sqlite --force-overwrite true \
                 --output "$capture_directory/profile.sqlite" "$capture_directory/profile.nsys-rep" \

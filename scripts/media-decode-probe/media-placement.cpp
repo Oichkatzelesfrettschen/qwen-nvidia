@@ -283,7 +283,9 @@ decoded_plane decode_under_policy(nvimgcodecInstance_t instance, int device_id, 
     nvimgcodecDecodeParams_t decode_params{};
     decode_params.struct_type = NVIMGCODEC_STRUCTURE_TYPE_DECODE_PARAMS;
     decode_params.struct_size = sizeof(decode_params);
-    decode_params.apply_exif_orientation = 1;
+    // stb_image reads no EXIF, so orientation stays off for the pixels to be
+    // the same image the served path decodes
+    decode_params.apply_exif_orientation = 0;
 
     nvimgcodecProcessingStatus_t can_status = NVIMGCODEC_PROCESSING_STATUS_UNKNOWN;
     nvimgcodecStatus_t can = NVIMGCODEC_STATUS_SUCCESS;

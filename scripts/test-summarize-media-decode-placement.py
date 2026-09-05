@@ -113,9 +113,36 @@ def main():
         png, jpeg = rows["a.png"], rows["b.jpg"]
         expect(png["placement"] == "cpu_decoder_upload" and png["device_decoder"] == "-", "the PNG is a CPU decode plus upload")
         expect(png["cpu_htod_decoded"] == "1" and png["gpu_htod_decoded"] == "0", "the PNG upload is read from the cpu table and the refused policy reads zero")
+        expect(jpeg["hybrid_htod_other"] == "300" and png["hybrid_htod_other"] == "0", "the hybrid coefficient upload is attributed to the JPEG alone")
+        expect(jpeg["any_htod_other"] == "300" and png["any_htod_decoded"] == "1", "copies partition by readback under the mixed policy")
         expect(jpeg["placement"] == "device_decoder" and jpeg["device_decoder"] == "hybrid:nvjpeg_cuda_decoder",
                "the JPEG is a device decode named by the hybrid policy")
         expect(jpeg["hybrid_htod_decoded"] == "0" and jpeg["cpu_htod_decoded"] == "1", "the hybrid decoder uploads no decoded plane and the cpu one does")
+
+        root = os.path.join(workspace, "run-no-terminal")
+        build_run(root)
+        with open(os.path.join(root, "model-b", "placement.tsv")) as handle:
+            text = handle.read().replace("media_placement=completed\n", "")
+        with open(os.path.join(root, "model-b", "placement.tsv"), "w") as handle:
+            handle.write(text)
+        code, out = run(root)
+        expect(code != 0 and "did not end on media_placement=completed" in out, "a directory without the completion line refuses")
+
+        root = os.path.join(workspace, "run-missing-row")
+        build_run(root)
+        with open(os.path.join(root, "model-b", "placement.tsv")) as handle:
+            text = "".join(line for line in handle if not (line.startswith("decode\timage=a.png\tpolicy=cpu")))
+        with open(os.path.join(root, "model-b", "placement.tsv"), "w") as handle:
+            handle.write(text)
+        code, out = run(root)
+        expect(code != 0 and "decode row set differs" in out, "a missing decode row in one directory refuses")
+
+        root = os.path.join(workspace, "run-extra-copy")
+        build_run(root)
+        with open(os.path.join(root, "nsys", "cpu", "transfers.tsv"), "a") as handle:
+            handle.write("99\t100\tHost-to-Device\t4096\tPinned\tDevice\t7\tcudaMemcpyAsync\t-\t-\tno\tno\n")
+        code, out = run(root)
+        expect(code != 0 and "after the last attributed readback" in out, "a copy after the last readback refuses")
         expect(png["model-a_best_op"] == "hqresize_linear_aa" and png["model-a_contract"] == "separate", "the closest arm is taken per projector")
         expect(jpeg["model-a_contract"] == "not_measured" and jpeg["model-a_best_op"] == "not_run:tiled_layout", "a tiled fixture is not measured")
 

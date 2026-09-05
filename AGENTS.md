@@ -953,7 +953,7 @@ projector's own preprocessor, built from the mmproj by `clip_init` on the
 host, is the reference four CV-CUDA resizes of the device plane are held to
 after the same normalization and the same pad geometry; and a second pass
 runs each policy alone under Nsight Systems so the copies the library makes
-are read from the driver. Run 03 on this device: PNG has one decoder in the
+are read from the driver. Run 04 on this device: PNG has one decoder in the
 extension set, the OpenCV one, so a PNG reaching a device target is a CPU
 decode plus one upload of exactly the decoded plane, byte-identical to
 stb_image across RGB, RGBA, and palette encodings; JPEG decodes through

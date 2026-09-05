@@ -58,18 +58,26 @@ def main():
     placements = {model: parse_placement(os.path.join(run, model, "placement.tsv")) for model in models}
     refusals = []
 
-    # decode rows agree across models
+    # every model directory ends on the probe's completion line and carries
+    # the same decode rows, digest for digest
     def decode_key(row):
         return (row.get("image"), row.get("policy"))
 
+    for model in models:
+        terminal = [r for r in placements[model] if r["kind"].startswith("media_placement=")]
+        if not terminal or terminal[-1]["kind"] != "media_placement=completed":
+            refusals.append("%s did not end on media_placement=completed" % model)
     reference = {decode_key(r): r for r in placements[models[0]] if r["kind"] == "decode"}
     for model in models[1:]:
-        for row in placements[model]:
-            if row["kind"] != "decode":
+        rows = {decode_key(r): r for r in placements[model] if r["kind"] == "decode"}
+        if set(rows) != set(reference):
+            refusals.append("decode row set differs between %s and %s" % (models[0], model))
+        for key, row in rows.items():
+            other = reference.get(key)
+            if other is None:
                 continue
-            other = reference.get(decode_key(row))
-            if other is None or other.get("digest") != row.get("digest") or other.get("status") != row.get("status"):
-                refusals.append("decode row differs between %s and %s for %s" % (models[0], model, decode_key(row)))
+            if other.get("digest") != row.get("digest") or other.get("status") != row.get("status"):
+                refusals.append("decode row differs between %s and %s for %s" % (models[0], model, key))
 
     first = placements[models[0]]
     images = []
@@ -79,12 +87,45 @@ def main():
             images.append(row["image"])
             stb[row["image"]] = row
     transfers = {policy: parse_transfers(os.path.join(run, "nsys", policy, "transfers.tsv")) for policy in POLICIES}
+    # The capture pass decodes the fixtures in the order the probe printed
+    # them, one policy per capture, and the probe reads every successful
+    # decode back once, so the copies of a capture partition in time order:
+    # each fixture's interval ends at its own readback of decoded_bytes, and
+    # the host-to-device copies inside the interval are what the library
+    # moved for it. Byte counts alone would conflate fixtures of one size.
+    attributed = {}
+    for policy, table in transfers.items():
+        if table is None:
+            continue
+        ordered = sorted(table, key=lambda t: int(t["start_ns"]))
+        cursor = 0
+        for image in images:
+            row = reference.get((image, policy))
+            if row is None or row["status"] != "success":
+                continue
+            decoded = int(stb[image]["decoded_bytes"])
+            uploads = []
+            readback = False
+            while cursor < len(ordered):
+                copy = ordered[cursor]
+                cursor += 1
+                if copy["kind"] == "Host-to-Device":
+                    uploads.append(int(copy["bytes"]))
+                elif copy["kind"] == "Device-to-Host" and int(copy["bytes"]) == decoded:
+                    readback = True
+                    break
+            if not readback:
+                refusals.append("no readback of %d bytes for %s under policy %s in the capture" % (decoded, image, policy))
+            attributed[(image, policy)] = uploads
+        if cursor < len(ordered):
+            leftover = ordered[cursor:]
+            attributed[("*", policy)] = [int(t["bytes"]) for t in leftover]
 
     out_path = os.path.join(run, "placement-summary.tsv")
     columns = ["image", "codec", "encoded_bytes", "decoded_bytes", "width", "height"]
     for policy in POLICIES:
         columns += ["%s_status" % policy, "%s_extensions" % policy, "%s_vs_stb" % policy, "%s_max_abs" % policy,
-                    "%s_htod_decoded" % policy, "%s_htod_encoded" % policy, "%s_dtoh_decoded" % policy]
+                    "%s_htod_decoded" % policy, "%s_htod_encoded" % policy, "%s_htod_other" % policy]
     columns += ["placement", "device_decoder", "device_vs_stb"]
     for model in models:
         columns += ["%s_entries" % model, "%s_best_op" % model, "%s_best_differing_fraction" % model,
@@ -115,17 +156,17 @@ def main():
             table = transfers.get(policy)
             if table is None and row["status"] != "success":
                 # nothing decoded under the policy, so the capture holds no copy table
-                line["%s_htod_decoded" % policy] = line["%s_htod_encoded" % policy] = line["%s_dtoh_decoded" % policy] = "0"
+                line["%s_htod_decoded" % policy] = line["%s_htod_encoded" % policy] = line["%s_htod_other" % policy] = "0"
             elif table is None:
                 refusals.append("no transfer table for policy %s though %s decoded under it" % (policy, image))
-                line["%s_htod_decoded" % policy] = line["%s_htod_encoded" % policy] = line["%s_dtoh_decoded" % policy] = "not_run"
+                line["%s_htod_decoded" % policy] = line["%s_htod_encoded" % policy] = line["%s_htod_other" % policy] = "not_run"
+            elif row["status"] != "success":
+                line["%s_htod_decoded" % policy] = line["%s_htod_encoded" % policy] = line["%s_htod_other" % policy] = "0"
             else:
-                htod_decoded = sum(1 for t in table if t["kind"] == "Host-to-Device" and int(t["bytes"]) == decoded)
-                htod_encoded = sum(1 for t in table if t["kind"] == "Host-to-Device" and int(t["bytes"]) == encoded)
-                dtoh_decoded = sum(1 for t in table if t["kind"] == "Device-to-Host" and int(t["bytes"]) == decoded)
-                line["%s_htod_decoded" % policy] = str(htod_decoded)
-                line["%s_htod_encoded" % policy] = str(htod_encoded)
-                line["%s_dtoh_decoded" % policy] = str(dtoh_decoded)
+                uploads = attributed.get((image, policy), [])
+                line["%s_htod_decoded" % policy] = str(sum(1 for b in uploads if b == decoded))
+                line["%s_htod_encoded" % policy] = str(sum(1 for b in uploads if b == encoded))
+                line["%s_htod_other" % policy] = ",".join(str(b) for b in uploads if b not in (decoded, encoded)) or "0"
             if policy in ("gpu", "hw", "hybrid") and row["status"] == "success" and device_decoder == "-":
                 device_decoder = "%s:%s" % (policy, row.get("decoder", "-"))
                 device_vs_stb = row["vs_stb_identical"]
@@ -168,10 +209,14 @@ def main():
         for line in lines:
             writer.writerow(line)
 
+    for policy in POLICIES:
+        leftover = attributed.get(("*", policy))
+        if leftover:
+            refusals.append("policy %s capture holds %d copies after the last attributed readback" % (policy, len(leftover)))
     for line in lines:
-        print("fixture\t%s\tcodec=%s\tplacement=%s\tdevice_decoder=%s\tdevice_vs_stb=%s\tcpu_vs_stb=%s\tcpu_htod_decoded=%s\tgpu_htod_decoded=%s\t%s" % (
+        print("fixture\t%s\tcodec=%s\tplacement=%s\tdevice_decoder=%s\tdevice_vs_stb=%s\tcpu_vs_stb=%s\tcpu_htod_decoded=%s\thybrid_htod_other=%s\t%s" % (
             line["image"], line["codec"], line["placement"], line["device_decoder"], line["device_vs_stb"],
-            line.get("cpu_vs_stb", "-"), line.get("cpu_htod_decoded", "-"), line.get("gpu_htod_decoded", "-"),
+            line.get("cpu_vs_stb", "-"), line.get("cpu_htod_decoded", "-"), line.get("hybrid_htod_other", "-"),
             "\t".join("%s_contract=%s(%s)" % (m, line["%s_contract" % m], line["%s_best_op" % m]) for m in models)))
     for refusal in refusals:
         print("refused\t%s" % refusal)
