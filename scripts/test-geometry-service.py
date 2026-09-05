@@ -29,6 +29,8 @@ import time
 SCRIPTS = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import geometry_protocol as protocol  # noqa: E402
+sys.path.insert(0, str(SCRIPTS / "web-mcp"))
+import sidecar_grant  # noqa: E402
 
 FAKE = SCRIPTS / "test-fixtures" / "fake-optix-runtime.sh"
 SERVICE = SCRIPTS / "geometry-service.py"
@@ -41,7 +43,7 @@ LEDGER = (
 
 
 class Harness:
-    def __init__(self, state, mode="ok"):
+    def __init__(self, state, mode="ok", environment=None, expect_refusal=False):
         self.state = state
         self.socket_path = str(state / "geometry-service.sock")
         runtime_directory = state / "runtime"
@@ -51,11 +53,20 @@ class Harness:
         runtime.chmod(0o755)
         (runtime_directory / "fake-mode").write_text(mode + "\n")
         self.marker = runtime_directory / "runtime-marker.txt"
+        # the session names the lease; a service launched without it refuses
+        service_environment = {**os.environ, "QWEN_GPU_COMPUTE_LEASE": str(state / "vulkan-workload.lock")}
+        service_environment.update(environment or {})
         self.process = subprocess.Popen(
             [sys.executable, str(SERVICE), "--state-dir", str(state), "--profiles", str(state / "profiles.tsv"),
              "--runtime", str(runtime), "--lease-wait-s", "0.5"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=service_environment)
         line = self.process.stdout.readline()
+        self.refusal = ""
+        if expect_refusal:
+            self.process.wait(timeout=10)
+            self.refusal = self.process.stderr.read()
+            self.runtime_sha256 = ""
+            return
         if not line.startswith("listening"):
             raise SystemExit("service did not announce: %r %s" % (line, self.process.stderr.read()))
         self.runtime_sha256 = line.split("runtime_sha256=")[1].split()[0]
@@ -153,6 +164,7 @@ def main():
                                            "a runtime the host reference contradicts fails"),
                                           ("crash", "runtime_failed", "a crashing runtime fails"),
                                           ("prose", "runtime_failed", "a runtime printing prose fails"),
+                                          ("flood", "runtime_failed", "a runtime flooding stdout is ended and fails"),
                                           ("hang", "runtime_timeout", "a hanging runtime times out")):
             harness = Harness(state, mode=mode)
             try:
@@ -164,6 +176,65 @@ def main():
                     check(not left, "the timed-out runtime is gone")
             finally:
                 harness.stop()
+        # The grant contract: a service launched with the signing key requires
+        # the grant the MCP child spent, and reads every binding out of it.
+        key_path = state / "token.key"
+        key_path.write_text("k" * 48 + "\n")
+        key_path.chmod(0o600)
+        harness = Harness(state, environment={"QWEN_SIDECAR_TOKEN_KEY_FILE": str(key_path),
+                                              "QWEN_SIDECAR_LANGUAGE_PROFILE": "fast-text"})
+        try:
+            reply = harness.exchange(request())
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_absent",
+                  "a keyed service refuses a request carrying no grant")
+
+            def issue(**overrides):
+                fields = {"context": sidecar_grant.SIDECAR_CLAIM_CONTEXT, "service": "geometry",
+                          "language_profile": "fast-text", "sidecar_profile": "geometry-cube-test",
+                          "runtime_sha256": harness.runtime_sha256, "scene": "cube-and-plane", "count": 1024,
+                          "count_ceiling": 4096, "conversation_generation": 1}
+                fields.update(overrides)
+                return sidecar_grant.issue_sidecar_grant(str(key_path), sidecar_grant.parse_sidecar_request(fields), 300)
+
+            spent = issue()
+            reply = harness.exchange(request(authorization=spent))
+            check(reply["status"] == "completed", "a keyed service completes under the matching grant")
+            # the service spends the nonce itself, so the same token presented
+            # to the socket a second time refuses without the MCP ledger
+            reply = harness.exchange(request(authorization=spent))
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_replayed",
+                  "a grant replayed against the service refuses as spent")
+            reply = harness.exchange(request(authorization=issue(service="physics", sidecar_profile="physics-x",
+                                                                 scene="d6-chain-4")))
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_refused",
+                  "a physics grant at the geometry service refuses")
+            reply = harness.exchange(request(rays=1025, authorization=issue()))
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_refused",
+                  "a ray count differing from the approved one refuses")
+            reply = harness.exchange(request(authorization=issue(runtime_sha256="cd" * 32)))
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_refused",
+                  "a grant naming another runtime refuses")
+            reply = harness.exchange(request(authorization="not.a-grant"))
+            check(reply["status"] == "refused" and reply.get("reason") == "grant_refused",
+                  "a malformed grant refuses")
+        finally:
+            harness.stop()
+
+        refused = Harness(state, environment={"QWEN_GPU_COMPUTE_LEASE": ""}, expect_refusal=True)
+        check("QWEN_GPU_COMPUTE_LEASE names no lease file" in refused.refusal,
+              "a launch without the lease variable refuses")
+        refused = Harness(state, environment={"QWEN_GPU_COMPUTE_LEASE_IDENTITY": "1:2"}, expect_refusal=True)
+        check("differs from the session's" in refused.refusal, "a launch with a mismatched lease identity refuses")
+        lease_file = state / "vulkan-workload.lock"
+        lease_file.touch()
+        identity = "%d:%d" % (lease_file.stat().st_dev, lease_file.stat().st_ino)
+        harness = Harness(state, environment={"QWEN_GPU_COMPUTE_LEASE_IDENTITY": identity})
+        try:
+            reply = harness.exchange({"protocol": 1, "action": "status", "request_id": "s2"})
+            check(reply["status"] == "accepted", "a launch with the matching lease identity serves")
+        finally:
+            harness.stop()
+
         check(not (state / "geometry-service.sock").exists(), "the socket is removed at exit")
         teardown = subprocess.run([str(SCRIPTS / "geometry-teardown-check.sh"), str(state)],
                                   capture_output=True, text=True)

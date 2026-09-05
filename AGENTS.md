@@ -1070,6 +1070,48 @@ required to show the device-to-device copy alone. The mechanism is
 default-off; `evidence/ada/embd-handoff/` carries the preregistration and
 the runs.
 
+Inside the served session both sidecars run under one lease contract and
+one grant shape. `scripts/sidecar_runtime.py` is what the two services
+share ahead of their runtimes: `require_lease_identity` requires
+`QWEN_GPU_COMPUTE_LEASE` at launch and, where the session passes
+`QWEN_GPU_COMPUTE_LEASE_IDENTITY` as the lease file's device and inode,
+stats the path and refuses a launch whose file differs, so a service
+serializing against a file no server holds cannot start;
+`collect_output` drains a runtime's stdout and stderr under separate byte
+limits and ends the process group on overflow, which replaces the
+unbounded `communicate()` both services carried. `scripts/web-mcp/sidecar_grant.py`
+carries the claim both lanes spend, `qwen-sidecar-run-v1`: the service,
+the operation the lane names, the language and sidecar profiles, the
+runtime digest, the scene, a digest of the normalized arguments, the
+count ceiling the human read, the conversation generation, expiry, and a
+single-use nonce. `authorize-broker.py` signs it at `/grant-physics` and
+`/grant-geometry` for the one profile per lane it armed through
+`--physics-profile` and `--geometry-profile`; `scripts/sidecar-mcp/server.py`
+serves either lane by `QWEN_SIDECAR_SERVICE`, lists one tool bounded by
+the ledger row with the scene and runtime digest in its schema, verifies
+and enforces the grant, opens the socket, spends the single use under the
+ledger, and sends; and a service launched with
+`QWEN_SIDECAR_TOKEN_KEY_FILE` revalidates the same token against the same
+key ahead of the compute lease, so a request that reached the socket some
+other way meets the same refusal there. `build-web-presets.sh` emits a
+`physics` or `geometry` server into every section where that lane's
+ledger row reads validator-gated under the authorizer, with the lane's
+term added to `LLAMA_ARG_TAGS`; `qwen-sidecar-launch.sh` rejoins each
+marker to its ledger, proves the runtime binary's digest against the
+preset's configuration, and hands the session the lane; the session starts
+each service under the lease identity and records a
+`physics_service_identity` or `geometry_service_identity` line the
+teardown reads before it signals and proves the lane's residue gone. The
+page's device toggle offers the lane's tool for one turn, a proposal opens
+one dialog naming the lane, profile, scene, runtime digest, and count
+against the ceiling, and an approval posts one grant and one `POST /tools`.
+`scripts/admit-sidecar-session.sh` runs the physics lane through that
+chain on the device with the ledger row raised in a copy, replays every
+page request with curl including a held lease and a run past the
+profile's deadline, drives the page turn, and proves the teardown;
+`evidence/physics/session-integration/` carries the preregistration and
+the runs. Every ledger row stays `refused`.
+
 A geometry query reaches the device the way a physics simulation does: one
 service, one lease, one profile ledger, and a runtime that proves where it
 ran. `scripts/geometry-profiles.tsv` carries the fixture scene, the query
@@ -1851,6 +1893,8 @@ scripts/physics-service.py --state-dir DIR --profiles FILE --runtime BIN
 scripts/physics-teardown-check.sh [STATE_DIRECTORY]
                                                 # no service, runtime, socket, or held lease
 scripts/admit-physics-runtime.sh OUT [STEPS]    # one D6 chain on the device through the service, proof retained
+scripts/qwen-sidecar-launch.sh [PROFILE]        # web presets with a physics or geometry lane armed, loopback only
+scripts/admit-sidecar-session.sh OUT            # the physics lane through the served session: grant, run, refusals, page turn, teardown
 
 # The geometry lane
 scripts/build-geometry-runtime.sh OUT           # the OptiX ray runtime with its SM89 PTX embedded, never executed here
@@ -1908,9 +1952,13 @@ python3 scripts/test-admit-candidate-static.py
 python3 scripts/test-verify-representation-pair.py
 python3 scripts/web-mcp/test-web-mcp.py
 python3 scripts/web-mcp/test-authorize-broker.py
+python3 scripts/web-mcp/test-sidecar-grant.py
+python3 scripts/sidecar-mcp/test-sidecar-mcp.py
+python3 scripts/test-sidecar-runtime.py
 scripts/test-fallback-webui-model-selection.sh
 scripts/test-fallback-webui-web-authorization.sh
 scripts/test-fallback-webui-code-authorization.sh
+scripts/test-fallback-webui-sidecar-authorization.sh
 scripts/test-web-tools-roundtrip.sh
 node scripts/test-fallback-webui-model-state.mjs
 scripts/test-one-token-admission.sh

@@ -66,6 +66,7 @@ if BROKER_DIRECTORY not in sys.path:
 import server  # noqa: E402
 import coding_grant  # noqa: E402
 import image_grant  # noqa: E402
+import sidecar_grant  # noqa: E402
 
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 SESSION_SECRET_FILE_NAME = "authorize-session.secret"
@@ -79,6 +80,8 @@ GRANT_PATH = "/grant"
 IMAGE_GRANT_PATH = "/grant-image"
 CODE_PLAN_GRANT_PATH = "/grant-code-plan"
 CODE_APPLY_GRANT_PATH = "/grant-code-apply"
+PHYSICS_GRANT_PATH = "/grant-physics"
+GEOMETRY_GRANT_PATH = "/grant-geometry"
 SESSION_PATH = "/session"
 HEALTH_PATH = "/health"
 KEY_MODE_FORBIDDEN_BITS = 0o077
@@ -235,6 +238,8 @@ class BrokerSettings:
         self.provider = arguments.provider
         self.profile = arguments.profile
         self.image_profile = arguments.image_profile
+        self.physics_profile = arguments.physics_profile
+        self.geometry_profile = arguments.geometry_profile
         self.coding_profile = arguments.coding_profile
         self.lifetime = arguments.lifetime
         self.origins = tuple(arguments.origin)
@@ -438,6 +443,61 @@ def issue_image_for_request(settings, fields):
     return image_grant.issue_image_grant(
         settings.token_key_file, fields, settings.lifetime
     )
+
+
+def sidecar_audit_row(settings, fields, status, started_at, service):
+    """Return the audit row one sidecar grant request writes.
+
+    `query_sha256` carries the normalized argument digest the claim binds and
+    `domains` the language and sidecar profile pair, so the trail names what
+    was approved without a second reading of the arguments.
+    """
+    arguments_sha256 = ""
+    profiles = ""
+    if fields is not None:
+        arguments_sha256 = sidecar_grant.arguments_digest(fields["service"], fields["sidecar_profile"], fields["count"])
+        profiles = f"{fields['language_profile']}>{fields['sidecar_profile']}"
+    now = time.time()
+    return {
+        "recorded_at": server.utc_timestamp(now),
+        "profile": settings.profile,
+        "operation": f"authorize-{service}",
+        "query_sha256": arguments_sha256,
+        "domains": profiles,
+        "result_count": fields["count"] if fields is not None else 0,
+        "fetched_host": "",
+        "provider_bytes": 0,
+        "returned_characters": 0,
+        "latency_ms": int((now - started_at) * 1000),
+        "status": status,
+        "recorded_epoch": int(now),
+    }
+
+
+def issue_sidecar_for_request(settings, fields, service):
+    """Sign the run grant for exactly these approved fields at one lane.
+
+    The endpoint names the lane and the request names it again; both have to
+    agree with each other and with the profile this broker armed for that
+    lane, so a physics approval posted to the geometry endpoint, or to a
+    broker that armed no such lane, is refused ahead of a signature.
+    """
+    armed = settings.physics_profile if service == "physics" else settings.geometry_profile
+    if not armed:
+        raise server.InvalidArgument(
+            f"this broker serves no {service} profile, so it signs no {service} grant")
+    if fields["service"] != service:
+        raise server.InvalidArgument(
+            f"the {service} endpoint received a grant request naming service {fields['service']!r}")
+    if fields["language_profile"] != settings.profile:
+        raise server.InvalidArgument(
+            f"the broker process serves profile {settings.profile!r}; "
+            f"the request named language profile {fields['language_profile']!r}")
+    if fields["sidecar_profile"] != armed:
+        raise server.InvalidArgument(
+            f"the broker process serves {service} profile {armed!r}; the request named "
+            f"{fields['sidecar_profile']!r}")
+    return sidecar_grant.issue_sidecar_grant(settings.token_key_file, fields, settings.lifetime)
 
 
 def coding_audit_row(settings, fields, status, started_at, operation):
@@ -793,6 +853,8 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
                 # route it reads the language profile from. An empty value
                 # states that no image lane is armed.
                 "image_profile": self.settings.image_profile,
+                "physics_profile": self.settings.physics_profile,
+                "geometry_profile": self.settings.geometry_profile,
                 # The coding profile reports what this broker signs plan and
                 # apply grants for; an empty value states that no coding
                 # lane is armed.
@@ -842,6 +904,16 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
                 issue_code_apply_for_request,
                 lambda settings, fields, status, at: coding_audit_row(
                     settings, fields, status, at, "authorize-code-apply")),
+            PHYSICS_GRANT_PATH: (
+                sidecar_grant.parse_sidecar_request,
+                lambda settings, fields: issue_sidecar_for_request(settings, fields, "physics"),
+                lambda settings, fields, status, at: sidecar_audit_row(
+                    settings, fields, status, at, "physics")),
+            GEOMETRY_GRANT_PATH: (
+                sidecar_grant.parse_sidecar_request,
+                lambda settings, fields: issue_sidecar_for_request(settings, fields, "geometry"),
+                lambda settings, fields, status, at: sidecar_audit_row(
+                    settings, fields, status, at, "geometry")),
         }
         if path not in contexts:
             self.send_json(404, {"error": "no such endpoint"}, origin)
@@ -947,6 +1019,18 @@ def build_parser():
         help="the image profile this broker signs generation grants for; "
         "POST /grant-image requires the request body's image_profile to equal "
         "this value, and an empty value refuses every generation grant",
+    )
+    parser.add_argument(
+        "--physics-profile", default=os.environ.get("QWEN_PHYSICS_PROFILE", ""),
+        help="the physics profile this broker signs simulation grants for; "
+        "POST /grant-physics requires the request body's sidecar_profile to equal "
+        "this value, and an empty value refuses every physics grant",
+    )
+    parser.add_argument(
+        "--geometry-profile", default=os.environ.get("QWEN_GEOMETRY_PROFILE", ""),
+        help="the geometry profile this broker signs ray-query grants for; "
+        "POST /grant-geometry requires the request body's sidecar_profile to equal "
+        "this value, and an empty value refuses every geometry grant",
     )
     parser.add_argument(
         "--coding-profile",

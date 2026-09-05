@@ -1,0 +1,34 @@
+sdk_verified	accepted	nvidia_sdk_verify=accepted rows=4
+physics_runtime_built	accepted	runtime_sha256=d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405
+physics_ledger_promoted	accepted	physics-d6-chain-a validator-gated max_steps=100000 timeout_s=2 scene=d6-chain-4
+preset_generated	accepted	physics_profile=physics-d6-chain-a sections=1
+sidecar_launch	accepted	physics_launch lane=armed profile=physics-d6-chain-a ledger=OUT/physics-profiles.tsv runtime=OUT/physx-rigid-runtime runtime_sha256=d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405 state=$HOME/qwen-webui-state/physics socket=$HOME/qwen-webui-state/physics/physics-service.sock;
+physics_service_recorded	accepted	pid=1021979 pid=1021979 start_time=48678932 socket=$HOME/qwen-webui-state/physics/physics-service.sock runtime_sha256=d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405 lease=$HOME/qwen-webui-state/vulkan-workload.lock
+service_announced_built_runtime	accepted	d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405
+api_key_read	accepted	$HOME/qwen-webui-state/api.key
+tool_enumeration	accepted	physics_simulate_rigid, via http://127.0.0.1:8080
+listing_binds_runtime_scene_ceiling	accepted	scene=d6-chain-4 ceiling=100000
+broker_signs_physics_profile	accepted	physics_profile=physics-d6-chain-a
+session_secret_issued	accepted	status=200
+grant_issued	accepted	status=200 steps=600 bytes=668
+geometry_body_at_physics_endpoint_refused	accepted	status=400 the physics endpoint received a grant request naming service 'geometry'
+unarmed_geometry_endpoint_refused	accepted	status=400 this broker serves no geometry profile, so it signs no geometry grant
+run_completed_with_gpu_proof	accepted	wall=2.099s steps=600 result_sha256=57d1be42634cfc180f7a569eac43cc528973ff5f2754698ed34a21c169d3287f simulate_ms=472.263
+result_carries_summary_alone	accepted	counts, proof, and digests; no body state
+nvml_compute_visibility	observed	runtime_samples=11 lease_held_samples=83
+grant_replay_refused	accepted	the authorization is spent; a grant admits one search and the operator issues another
+run_without_grant_refused	accepted	authorization names no grant
+count_outside_grant_refused	accepted	the run arguments leave the grant: arguments differ
+held_lease_refuses_run	accepted	the physics service refused the run: another workload holds the lease; one runs at a time
+runtime_deadline_ends_the_run	accepted	wall=16.584s the physics service failed the run: runtime exceeded 2 s; exit_s=2.232 sigterm_s=2.015
+timed_out_runtime_reaped	accepted	no runtime process survives the deadline
+browser_prompt_used	observed	Run the physics simulation for 600 steps and tell me whether the chain stayed intact.
+browser_turn_ran	accepted	grant_posts=1 tool_posts=1 origins=http://127.0.0.1:8080,http://127.0.0.1:8571
+browser_origins_bounded	accepted	http://127.0.0.1:8080,http://127.0.0.1:8571
+browser_reply	observed	The physics simulation for 600 steps has completed successfully.  **Chain integrity:** The chain **stayed intact**. All 4 bodies and 4 joints remained connected throughout the simulation.  **Simulatio
+browser_tool_message_completed	accepted	status=completed gpu_dynamics_active=true steps=600
+teardown_clean	accepted	torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port 8080 free
+physics_residue_clean	accepted	physics_teardown=clean state_directory=$HOME/qwen-webui-state/physics
+session_secret_removed	accepted	OUT/web-mcp/authorize-session.secret
+checks_total	observed	32
+admission	accepted	every check accepted

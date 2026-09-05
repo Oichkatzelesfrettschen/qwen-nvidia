@@ -23,13 +23,13 @@ fail() {
 }
 
 # The per-turn Code snapshot governs the tool list, and Code is exclusive:
-# turning it on clears and disables the demo, Web, and Image toggles, so a
-# turn carries one authority surface.
+# turning it on clears and disables the demo, Web, Image, and Device toggles,
+# so a turn carries one authority surface.
 grep -F '<input type="checkbox" id="code-tools">' "$fallback_ui" >/dev/null ||
     fail 'the Code toggle is absent'
 grep -F "const codePermission = \$('#code-tools').checked;" "$fallback_ui" \
     >/dev/null || fail 'send() takes no per-turn Code snapshot'
-grep -F "for (const id of ['#tools', '#web-tools', '#image-tools'])" \
+grep -F "for (const id of ['#tools', '#web-tools', '#image-tools', '#sidecar-tools'])" \
     "$fallback_ui" >/dev/null || fail 'Code mode is not exclusive'
 
 # The served names compose from the section's `code` key, the composition

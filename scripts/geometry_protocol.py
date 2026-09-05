@@ -42,7 +42,11 @@ GPU_PROOF_KEYS = (
     "device_name",
     "device_index",
 )
-REQUEST_KEYS = {"protocol", "action", "request_id", "profile_id", "rays"}
+REQUEST_KEYS = {"protocol", "action", "request_id", "profile_id", "rays", "authorization"}
+# The grant a run spends travels as an opaque string the service revalidates
+# against the same signing key the MCP child used; it is optional at the
+# protocol level and required by a service launched with a key file.
+AUTHORIZATION_CHARACTER_CAP = 4096
 STATUS_REQUEST_KEYS = {"protocol", "action", "request_id"}
 REPLY_KEYS = {"protocol", "request_id", "status", "profile_id", "result", "error", "reason"}
 RESULT_KEYS = {
@@ -96,9 +100,13 @@ def validate_request(message):
     unknown = set(message) - REQUEST_KEYS
     if unknown:
         raise ProtocolError("request carries unknown keys: %s" % ", ".join(sorted(unknown)))
-    missing = REQUEST_KEYS - set(message)
+    missing = (REQUEST_KEYS - {"authorization"}) - set(message)
     if missing:
         raise ProtocolError("request lacks keys: %s" % ", ".join(sorted(missing)))
+    authorization = message.get("authorization")
+    if authorization is not None and (not isinstance(authorization, str) or not authorization
+                                      or len(authorization) > AUTHORIZATION_CHARACTER_CAP):
+        raise ProtocolError("authorization is not a string of 1 to %d characters" % AUTHORIZATION_CHARACTER_CAP)
     profile_id = _identifier(message["profile_id"], "profile_id")
     rays = message["rays"]
     if isinstance(rays, bool) or not isinstance(rays, int) or not MIN_RAYS <= rays <= MAX_RAYS:

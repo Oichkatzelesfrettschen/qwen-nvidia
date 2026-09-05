@@ -24,6 +24,7 @@ printf 'pid=%s nice=%s\n' "$$" "$(awk '{print $19}' /proc/self/stat)" >"$here/ru
 case $mode in
     crash) printf 'optix_runtime=rejected reason=optix_context_failed\n' >&2; exit 1 ;;
     hang) trap '' TERM; sleep 600; exit 0 ;;
+    flood) head -c 2097152 /dev/zero | tr '\0' 'x'; exit 0 ;;
     prose) printf 'the launch completed\n'; exit 0 ;;
 esac
 launch=true

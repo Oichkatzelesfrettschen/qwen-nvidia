@@ -55,6 +55,14 @@ fi
 broker_start_time=${broker_start_time:-}
 image_service_pid=${image_service_pid:-}
 image_service_start_time=${image_service_start_time:-}
+# The two sidecar services are read the same way: the pid off the first line
+# and the start time off the lane's own identity line.
+physics_service_pid=$(sed -n '1p' "$status_file" 2>/dev/null | tr ' ' '\n' | sed -n 's/^physics_service_pid=//p')
+physics_service_start_time=$(sed -n 's/^physics_service_identity .*start_time=\([0-9]*\).*/\1/p' "$status_file" 2>/dev/null | sed -n '1p')
+geometry_service_pid=$(sed -n '1p' "$status_file" 2>/dev/null | tr ' ' '\n' | sed -n 's/^geometry_service_pid=//p')
+geometry_service_start_time=$(sed -n 's/^geometry_service_identity .*start_time=\([0-9]*\).*/\1/p' "$status_file" 2>/dev/null | sed -n '1p')
+physics_service_pid=${physics_service_pid:-}
+geometry_service_pid=${geometry_service_pid:-}
 
 "$script_directory/qwen-webui-control.sh" stop || true
 
@@ -217,11 +225,66 @@ elif ! "$image_residue_prover" "$state_directory"; then
     image_residue=1
 fi
 
+# stop_sidecar LANE PID START_TIME: signal a sidecar whose identity the
+# recorded start time proves, wait for it, then run the lane's own residue
+# proof over the lane's state directory; an unproven pid is left to the proof.
+sidecar_residue=0
+stop_sidecar() {
+    sidecar_lane=$1
+    sidecar_pid=$2
+    sidecar_start_time=$3
+    case $sidecar_pid in '' | *[!0-9]*) sidecar_pid='' ;; esac
+    if [ -n "$sidecar_pid" ]; then
+        if [ -z "$sidecar_start_time" ] || [ ! -r "/proc/$sidecar_pid/stat" ]; then
+            printf 'pid %s carries no recorded start time, so the %s service is left to the residue proof\n' \
+                "$sidecar_pid" "$sidecar_lane" >&2
+            sidecar_pid=''
+        else
+            live_sidecar_start_time=$(sed 's/^.*) //' "/proc/$sidecar_pid/stat" | awk '{ print $20 }')
+            if [ "$live_sidecar_start_time" != "$sidecar_start_time" ]; then
+                printf 'pid %s now belongs to another process; the %s service is gone\n' \
+                    "$sidecar_pid" "$sidecar_lane" >&2
+                sidecar_pid=''
+            fi
+        fi
+    fi
+    if [ -n "$sidecar_pid" ] && kill -0 "$sidecar_pid" 2>/dev/null; then
+        printf 'stopping %s service pid %s\n' "$sidecar_lane" "$sidecar_pid"
+        kill -TERM "$sidecar_pid" 2>/dev/null || true
+        attempt=0
+        while [ "$attempt" -lt 200 ] && kill -0 "$sidecar_pid" 2>/dev/null; do
+            attempt=$((attempt + 1))
+            sleep 0.1
+        done
+        if kill -0 "$sidecar_pid" 2>/dev/null; then
+            printf '%s service pid %s survived SIGTERM for 20 s; sending SIGKILL\n' "$sidecar_lane" "$sidecar_pid" >&2
+            kill -KILL "$sidecar_pid" 2>/dev/null || true
+        fi
+    fi
+    # A lane that never ran under this state directory leaves no directory
+    # and no pid, and its proof has nothing to read; a lane that ran is proven
+    # by its own check, whose absence then counts as residue.
+    sidecar_prover=$script_directory/$sidecar_lane-teardown-check.sh
+    if [ -z "$sidecar_pid" ] && [ ! -d "$state_directory/$sidecar_lane" ]; then
+        :
+    elif [ ! -x "$sidecar_prover" ]; then
+        printf 'the %s residue proof is absent or not executable: %s\n' "$sidecar_lane" "$sidecar_prover" >&2
+        sidecar_residue=1
+    elif ! "$sidecar_prover" "$state_directory/$sidecar_lane"; then
+        sidecar_residue=1
+    fi
+}
+stop_sidecar physics "$physics_service_pid" "$physics_service_start_time"
+stop_sidecar geometry "$geometry_service_pid" "$geometry_service_start_time"
+
 residue=$snapshot_residue
 if [ "$broker_residue" -ne 0 ]; then
     residue=1
 fi
 if [ "$image_residue" -ne 0 ]; then
+    residue=1
+fi
+if [ "$sidecar_residue" -ne 0 ]; then
     residue=1
 fi
 if pgrep -x llama-server >/dev/null 2>&1; then
@@ -246,7 +309,7 @@ fi
 
 rm -f "$state_directory/server.pid"
 if [ "$residue" -eq 0 ]; then
-    printf 'torn down: no server, tmux session, probe, approval broker, image service, or router snapshot; port %s free\n' \
+    printf 'torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port %s free\n' \
         "$server_port"
 else
     printf 'teardown incomplete\n' >&2

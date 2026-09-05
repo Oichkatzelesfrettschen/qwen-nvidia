@@ -277,7 +277,7 @@ def main():
     # per-turn toggle, a dialog the proposal opens, and one approval. Naming
     # the lane rather than each selector keeps a driver invocation readable
     # and keeps the page's element names in one place.
-    parser.add_argument("--lane", choices=("web", "image", "code"), default="web",
+    parser.add_argument("--lane", choices=("web", "image", "code", "sidecar"), default="web",
                         help="which per-turn lane's toggle and approval dialog to drive")
     parser.add_argument("--model", default="",
                         help="select this roster id in the page's own picker before sending "
@@ -416,6 +416,13 @@ def main():
                 toggle, dialog_id = "#image-tools", "#image-approval"
                 approve, args_list = "#image-approve-once", "#image-approval-args"
                 note_id = "#image-approval-note"
+            elif arguments.lane == "sidecar":
+                # the device lane: one dialog serves physics and geometry, and
+                # the turn ends when the tool message lands, with no artifact
+                # to wait on beyond it
+                toggle, dialog_id = "#sidecar-tools", "#sidecar-approval"
+                approve, args_list = "#sidecar-approve-once", "#sidecar-approval-args"
+                note_id = "#sidecar-approval-note"
             elif arguments.lane == "code":
                 toggle, dialog_id = "#code-tools", "#code-approval"
                 approve, args_list = "#code-approve-once", "#code-approval-args"
