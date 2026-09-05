@@ -112,7 +112,7 @@ on the first round.
 | geometry body at the physics endpoint | refused at the broker |
 | any body at the unarmed geometry endpoint | refused at the broker |
 | lease held from outside | refused: `another workload holds the lease`, no runtime started |
-| 100000 steps under the 2 s deadline | failed as `runtime exceeded 2 s; exit_s=2.232 sigterm_s=2.015`, the reply landing at 16.6 s of wall through the router, and no runtime process survived one second later |
+| 100000 steps under the 2 s deadline | failed as `runtime exceeded 2 s; exit_s=2.232 sigterm_s=2.015`, and no runtime process survived one second later; the reply landed at 16.6 s of wall because the harness's held-lease arm released its `flock` leader and left the child it forked holding the lock, so the service waited about 14.5 s on the lease ahead of this run, a harness defect the geometry record corrects |
 | page turn | accepted: one `POST /grant-physics`, one `POST /tools`, origins the router and broker alone, the tool message `status: completed` with the proof, and the model's reply naming 600 steps, 4 bodies, and 4 joints |
 | teardown | accepted: no server, session, probe, broker, or service; physics residue clean; session secret gone |
 

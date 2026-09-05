@@ -1,0 +1,63 @@
+sdk_verified	accepted	nvidia_sdk_verify=accepted rows=4
+physics.runtime_built	accepted	runtime_sha256=d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405
+physics.ledger_promoted	accepted	physics-d6-chain-a validator-gated ceiling=100000 timeout_s=2 scene=d6-chain-4
+geometry.runtime_built	accepted	runtime_sha256=b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6
+geometry.ledger_promoted	accepted	geometry-cube-orbit-a validator-gated ceiling=1048576 timeout_s=1 scene=cube-and-plane
+preset_generated	accepted	physics_profile=physics-d6-chain-a geometry_profile=geometry-cube-orbit-a sections=1
+sidecar_launch	accepted	physics_launch lane=armed profile=physics-d6-chain-a ledger=OUT/physics-profiles.tsv runtime=OUT/physx-rigid-runtime runtime_sha256=d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405 state=$HOME/qwen-webui-state/physics socket=$HOME/qwen-webui-state/physics/physics-service.sock;geometry_launch lane=armed profile=geometry-cube-orbit-a ledger=OUT/geometry-profiles.tsv runtime=OUT/optix-ray-runtime runtime_sha256=b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6 state=$HOME/qwen-webui-state/geometry socket=$HOME/qwen-webui-state/geometry/geometry-service.sock;
+physics.service_recorded	accepted	pid=2990749 pid=2990749 start_time=49132686 socket=$HOME/qwen-webui-state/physics/physics-service.sock runtime_sha256=d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405 lease=$HOME/qwen-webui-state/vulkan-workload.lock
+physics.service_announced_built_runtime	accepted	d9f79dee23f8a06dd654aa0e2daf4403c737876858b07c5b211faefe7e78b405
+geometry.service_recorded	accepted	pid=2990769 pid=2990769 start_time=49132697 socket=$HOME/qwen-webui-state/geometry/geometry-service.sock runtime_sha256=b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6 lease=$HOME/qwen-webui-state/vulkan-workload.lock
+geometry.shares_the_session_lease	accepted	$HOME/qwen-webui-state/vulkan-workload.lock
+geometry.service_announced_built_runtime	accepted	b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6
+api_key_read	accepted	$HOME/qwen-webui-state/api.key
+tool_enumeration	accepted	geometry_ray_query,physics_simulate_rigid, via http://127.0.0.1:8080
+physics.listing_binds_runtime_scene_ceiling	accepted	scene=d6-chain-4 ceiling=100000
+physics.broker_signs_profile	accepted	physics_profile=physics-d6-chain-a
+geometry.listing_binds_runtime_scene_ceiling	accepted	scene=cube-and-plane ceiling=1048576
+geometry.broker_signs_profile	accepted	geometry_profile=geometry-cube-orbit-a
+session_secret_issued	accepted	status=200
+physics.grant_issued	accepted	status=200 steps=600 bytes=668
+physics.other_service_body_at_route_refused	accepted	status=400 the physics endpoint received a grant request naming service 'geometry'
+physics.run_completed_with_gpu_proof	accepted	wall=0.812s steps=600 result_sha256=543ee89b04ac867f42fdf8963494002fce2ffd80c0aff72cb2a911a6be6e2483 simulate_ms=264.408 bodies=4 joints=4
+physics.result_carries_summary_alone	accepted	counts, proof, and digests; no per-body or per-ray state
+physics.nvml_compute_visibility	observed	runtime_samples=4 lease_held_samples=5
+physics.grant_replay_refused	accepted	the authorization is spent; a grant admits one search and the operator issues another
+physics.run_without_grant_refused	accepted	authorization names no grant
+physics.count_outside_grant_refused	accepted	the run arguments leave the grant: arguments differ
+physics.held_lease_refuses_run	accepted	the physics service refused the run: another workload holds the lease; one runs at a time
+physics.lease_free_after_holder_released	accepted	$HOME/qwen-webui-state/vulkan-workload.lock
+physics.runtime_deadline_ends_the_run	accepted	wall=2.108s the physics service failed the run: runtime exceeded 2 s; exit_s=2.068 sigterm_s=2.005
+physics.timed_out_runtime_reaped	accepted	no runtime process survives the deadline
+geometry.grant_issued	accepted	status=200 rays=262144 bytes=675
+geometry.other_service_body_at_route_refused	accepted	status=400 the geometry endpoint received a grant request naming service 'physics'
+geometry.run_completed_with_gpu_proof	accepted	wall=0.640s rays=262144 result_sha256=42a9c38dffd5c3d14d2a3db5ab79925e5a361a42aaf7ffe87b374ba8b92dec5f launch_ms=2.367 hits=177170 misses=84974 reference_agreement=262144
+geometry.result_carries_summary_alone	accepted	counts, proof, and digests; no per-body or per-ray state
+geometry.nvml_compute_visibility	observed	runtime_samples=3 lease_held_samples=4
+geometry.grant_replay_refused	accepted	the authorization is spent; a grant admits one search and the operator issues another
+geometry.run_without_grant_refused	accepted	authorization names no grant
+geometry.count_outside_grant_refused	accepted	the run arguments leave the grant: arguments differ
+geometry.held_lease_refuses_run	accepted	the geometry service refused the run: another workload holds the lease; one runs at a time
+geometry.lease_free_after_holder_released	accepted	$HOME/qwen-webui-state/vulkan-workload.lock
+geometry.runtime_deadline_ends_the_run	observed	deadline_not_crossed rays=1048576 wall=0.448s under 1s launch_ms=2.522 hits=708682 misses=339894 reference_agreement=1048576
+geometry.timed_out_runtime_reaped	accepted	no runtime process survives the deadline
+cross_service_grant_refused	accepted	the grant names another sidecar service than the executing one runtime_samples=0 lease_held_samples=0
+contention_both_complete	accepted	draw=1 wall=0.762s physics: simulate_ms=244.866 bodies=4 joints=4; geometry: launch_ms=2.325 hits=177170 misses=84974 reference_agreement=262144
+contention_runtimes_never_coresident	accepted	physics_samples=3 geometry_samples=1 overlapping_samples=0
+contention_second_holder_waited	accepted	draw=1 geometry-service=451ms physics-service=0ms 
+physics.browser_prompt_used	observed	Run the physics simulation for 600 steps and tell me whether the chain stayed intact.
+physics.browser_turn_ran	accepted	grant_posts=1 tool_posts=1 origins=http://127.0.0.1:8080,http://127.0.0.1:8571
+physics.browser_origins_bounded	accepted	http://127.0.0.1:8080,http://127.0.0.1:8571
+physics.browser_reply	observed	The physics simulation ran successfully for 600 steps on the NVIDIA GeForce RTX 4070 Ti GPU. The chain simulation completed in approximately 455ms wall-clock time (with the physics simulation itself t
+physics.browser_tool_message_completed	accepted	status=completed proof=true steps=600
+geometry.browser_prompt_used	observed	Trace 262144 rays through the geometry scene and tell me how many of them hit something.
+geometry.browser_turn_ran	accepted	grant_posts=1 tool_posts=1 origins=http://127.0.0.1:8080,http://127.0.0.1:8571
+geometry.browser_origins_bounded	accepted	http://127.0.0.1:8080,http://127.0.0.1:8571
+geometry.browser_reply	observed	**177,170 rays** hit something.  Out of 262,144 rays traced through the geometry scene: - **Hits:** 177,170 (~67.6%) - **Misses:** 84,974 (~32.4%)  The query completed in **163.885 ms** on the NVIDIA 
+geometry.browser_tool_message_completed	accepted	status=completed proof=true rays=262144
+teardown_clean	accepted	torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port 8080 free
+physics.residue_clean	accepted	physics_teardown=clean state_directory=$HOME/qwen-webui-state/physics
+geometry.residue_clean	accepted	geometry_teardown=clean state_directory=$HOME/qwen-webui-state/geometry
+session_secret_removed	accepted	OUT/web-mcp/authorize-session.secret
+checks_total	observed	61
+admission	accepted	every check accepted

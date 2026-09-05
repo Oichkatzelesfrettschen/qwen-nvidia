@@ -1,0 +1,35 @@
+geometry.runtime_built	accepted	runtime_sha256=b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6
+geometry.ledger_promoted	accepted	geometry-cube-orbit-a validator-gated ceiling=1048576 timeout_s=1 scene=cube-and-plane
+preset_generated	accepted	physics_profile=- geometry_profile=geometry-cube-orbit-a sections=1
+sidecar_launch	accepted	physics_launch lane=unarmed;geometry_launch lane=armed profile=geometry-cube-orbit-a ledger=OUT/geometry-profiles.tsv runtime=OUT/optix-ray-runtime runtime_sha256=b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6 state=$HOME/qwen-webui-state/geometry socket=$HOME/qwen-webui-state/geometry/geometry-service.sock;
+geometry.service_recorded	accepted	pid=2327711 pid=2327711 start_time=48992242 socket=$HOME/qwen-webui-state/geometry/geometry-service.sock runtime_sha256=b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6 lease=$HOME/qwen-webui-state/vulkan-workload.lock
+geometry.service_announced_built_runtime	accepted	b9ee1192c633934e733670c0affae39df9d2f4d9b653b3ac13fc41a7f1c3cce6
+api_key_read	accepted	$HOME/qwen-webui-state/api.key
+tool_enumeration	accepted	geometry_ray_query, via http://127.0.0.1:8080
+physics.broker_signs_nothing_unarmed	accepted	physics_profile absent
+geometry.listing_binds_runtime_scene_ceiling	accepted	scene=cube-and-plane ceiling=1048576
+geometry.broker_signs_profile	accepted	geometry_profile=geometry-cube-orbit-a
+session_secret_issued	accepted	status=200
+geometry.grant_issued	accepted	status=200 rays=262144 bytes=675
+geometry.other_service_body_at_route_refused	accepted	status=400 the geometry endpoint received a grant request naming service 'physics'
+physics.unarmed_route_refused	accepted	status=400 this broker serves no physics profile, so it signs no physics grant
+geometry.run_completed_with_gpu_proof	accepted	wall=0.503s rays=262144 result_sha256=0898779a2735fb6353b4e36a67ce1d3339d1472a365f9ab4da61cc415c8f2ebb launch_ms=2.392 hits=177170 misses=84974 reference_agreement=262144
+geometry.result_carries_summary_alone	accepted	counts, proof, and digests; no per-body or per-ray state
+geometry.nvml_compute_visibility	observed	runtime_samples=2 lease_held_samples=2
+geometry.grant_replay_refused	accepted	the authorization is spent; a grant admits one search and the operator issues another
+geometry.run_without_grant_refused	accepted	authorization names no grant
+geometry.count_outside_grant_refused	accepted	the run arguments leave the grant: arguments differ
+geometry.held_lease_refuses_run	accepted	the geometry service refused the run: another workload holds the lease; one runs at a time
+geometry.lease_free_after_holder_released	accepted	$HOME/qwen-webui-state/vulkan-workload.lock
+geometry.runtime_deadline_ends_the_run	observed	deadline_not_crossed rays=1048576 wall=1.053s under 1s launch_ms=2.475 hits=708682 misses=339894 reference_agreement=1048576
+geometry.timed_out_runtime_reaped	accepted	no runtime process survives the deadline
+geometry.browser_prompt_used	observed	Trace 262144 rays through the geometry scene and tell me how many of them hit something.
+geometry.browser_turn_ran	accepted	grant_posts=1 tool_posts=1 origins=http://127.0.0.1:8080,http://127.0.0.1:8571
+geometry.browser_origins_bounded	accepted	http://127.0.0.1:8080,http://127.0.0.1:8571
+geometry.browser_reply	observed	Out of **262,144** rays traced through the geometry scene, **177,170** hit something.  That gives a hit rate of approximately **67.6%** (177,170 / 262,144). 
+geometry.browser_tool_message_completed	accepted	status=completed proof=true rays=262144
+teardown_clean	accepted	torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port 8080 free
+geometry.residue_clean	accepted	geometry_teardown=clean state_directory=$HOME/qwen-webui-state/geometry
+session_secret_removed	accepted	OUT/web-mcp/authorize-session.secret
+checks_total	observed	33
+admission	accepted	every check accepted

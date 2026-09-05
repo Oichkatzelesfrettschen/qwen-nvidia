@@ -1105,12 +1105,24 @@ teardown reads before it signals and proves the lane's residue gone. The
 page's device toggle offers the lane's tool for one turn, a proposal opens
 one dialog naming the lane, profile, scene, runtime digest, and count
 against the ceiling, and an approval posts one grant and one `POST /tools`.
-`scripts/admit-sidecar-session.sh` runs the physics lane through that
-chain on the device with the ledger row raised in a copy, replays every
-page request with curl including a held lease and a run past the
-profile's deadline, drives the page turn, and proves the teardown;
-`evidence/physics/session-integration/` carries the preregistration and
-the runs. Every ledger row stays `refused`.
+`scripts/admit-sidecar-session.sh` runs the lanes `QWEN_ADMISSION_LANES`
+names, `physics`, `geometry`, or both, through that chain on the device
+with each ledger row raised in a copy, replays every page request with
+curl including a held lease and a run past the profile's deadline, drives
+one page turn per lane, and proves the teardown; with both lanes armed it
+adds a grant signed for one service presented at the other's tool, refused
+by the child ahead of any service call, and a contention arm releasing one
+run per lane from one barrier against the one lease, where both complete,
+the driver's client list names at most one runtime per sample, and the
+second holder's status line states the `waited_ms` it paid.
+`evidence/physics/session-integration/` carries the physics record and
+`evidence/geometry/session-integration/` the geometry and shared-lease
+records. The geometry deadline arm is observed rather than required: the
+protocol ceiling of 1048576 rays ran in about 0.3 s standalone and in
+0.42 to 1.05 s through the chain, against the 1 s floor the ledger admits,
+so a crossing is a host or runtime observation and the deadline path is
+proven on the physics lane and under the fake runtimes. Every ledger row
+stays `refused`.
 
 A geometry query reaches the device the way a physics simulation does: one
 service, one lease, one profile ledger, and a runtime that proves where it
@@ -1894,7 +1906,9 @@ scripts/physics-teardown-check.sh [STATE_DIRECTORY]
                                                 # no service, runtime, socket, or held lease
 scripts/admit-physics-runtime.sh OUT [STEPS]    # one D6 chain on the device through the service, proof retained
 scripts/qwen-sidecar-launch.sh [PROFILE]        # web presets with a physics or geometry lane armed, loopback only
-scripts/admit-sidecar-session.sh OUT            # the physics lane through the served session: grant, run, refusals, page turn, teardown
+QWEN_ADMISSION_LANES=physics,geometry scripts/admit-sidecar-session.sh OUT
+                                                # one or both sidecar lanes through the served session: grant, run, refusals,
+                                                # page turn per lane, cross-service and contention arms, teardown
 
 # The geometry lane
 scripts/build-geometry-runtime.sh OUT           # the OptiX ray runtime with its SM89 PTX embedded, never executed here
