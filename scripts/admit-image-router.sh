@@ -341,7 +341,16 @@ printf '%s\t%s\tui-mediated\t%s\t%s\t3\t1\t12000\tno\t%s\t%s\tui-mediated\tfake\
 # --height, --prompt, --output, --sampler, and --cfg. A path swapped without
 # its template reaches the runtime as an argument error, which reads as a
 # service defect rather than as the configuration mistake it is.
-image_runtime=${QWEN_IMAGE_RUNTIME:-"$HOME/src/stable-diffusion.cpp-qwen-apu/build-raven2/bin/sd-cli"}
+image_runtime=${QWEN_IMAGE_RUNTIME:-"$HOME/src/stable-diffusion.cpp-qwen-nvidia/build-cuda-sm89/bin/sd-cli"}
+# The device the runtime's --backend names. sd-cli resolves module placement
+# through that flag and refuses a name that does not resolve, so the name is
+# the CUDA device on this host and a Vulkan name reaches only a hand-run
+# diagnostic build.
+image_backend=${QWEN_IMAGE_BACKEND:-cuda0}
+case $image_backend in
+    cuda[0-9]* | vulkan[0-9]*) ;;
+    *) printf 'QWEN_IMAGE_BACKEND names a cudaN or vulkanN device: %s\n' "$image_backend" >&2; restore_ordinary; exit 2 ;;
+esac
 case ${QWEN_IMAGE_RUNTIME_TEMPLATE:-} in
     sd-cli | fixture) runtime_template=$QWEN_IMAGE_RUNTIME_TEMPLATE ;;
     '')
@@ -364,7 +373,7 @@ if [ ! -x "$image_runtime" ]; then
     restore_ordinary
     exit 1
 fi
-record image_runtime_present accepted "$image_runtime template=$runtime_template"
+record image_runtime_present accepted "$image_runtime template=$runtime_template backend=$image_backend"
 
 image_parameters=$output_directory/image-parameters.json
 QWEN_ADMISSION_TEMPLATE=$runtime_template \
@@ -381,6 +390,7 @@ QWEN_ADMISSION_IMAGE_MAX_STEPS=$image_max_steps \
 QWEN_ADMISSION_IMAGE_MAX_DIMENSION=$image_max_dimension \
 QWEN_ADMISSION_IMAGE_TIMEOUT=$image_timeout \
 QWEN_ADMISSION_RUNTIME_PATH=$image_runtime \
+QWEN_ADMISSION_IMAGE_BACKEND=$image_backend \
 QWEN_ADMISSION_MODEL_DIRECTORY=$image_model_path \
 QWEN_ADMISSION_TAESD_PATH=$image_taesd_path \
 python3 - <<'PY'
@@ -395,7 +405,7 @@ if template == "sd-cli":
     argv = [
         "--model", "{model_path}",
         "--taesd", os.environ["QWEN_ADMISSION_TAESD_PATH"],
-        "--backend", "vulkan0",
+        "--backend", os.environ["QWEN_ADMISSION_IMAGE_BACKEND"],
         "-W", "{width}", "-H", "{height}",
         "--steps", "{steps}",
         "--sampling-method", "{sampler}",
@@ -418,7 +428,7 @@ else:
         "--sampler", "{sampler}", "--cfg", "{cfg}",
         "--prompt", "{prompt}", "--negative-prompt", "{negative_prompt}",
         "--model", "{model_path}",
-        "--backend", "vulkan0",
+        "--backend", os.environ["QWEN_ADMISSION_IMAGE_BACKEND"],
     ]
 parameters = {
     os.environ["QWEN_ADMISSION_IMAGE_PROFILE_ID"]: {

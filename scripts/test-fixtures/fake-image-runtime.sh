@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# The stand-in for the pinned Vulkan image runtime that lets the image service
+# The stand-in for the pinned CUDA image runtime that lets the image service
 # be tested without a device. It reads the same argv the profile template
 # renders, writes a PNG of exactly the requested dimensions whose pixels are a
 # deterministic function of the seed, and leaves every failure the service is
@@ -37,10 +37,10 @@ usage() {
 
 if [ "${1:-}" = --list-devices ]; then
     if [ -n "${QWEN_FAKE_IMAGE_DEVICE_DESCRIPTION:-}" ]; then
-        printf 'Vulkan0\t%s\n' "$QWEN_FAKE_IMAGE_DEVICE_DESCRIPTION"
+        printf 'CUDA0\t%s\n' "$QWEN_FAKE_IMAGE_DEVICE_DESCRIPTION"
         exit 0
     fi
-    printf 'Vulkan0\t%s\n' 'NVIDIA GeForce RTX 4070 Ti (NVIDIA)'
+    printf 'CUDA0\t%s\n' 'NVIDIA GeForce RTX 4070 Ti (NVIDIA)'
     # The Vulkan loader enumerates lavapipe beside the pinned driver when
     # nothing narrows the ICD search path; VK_DRIVER_FILES and
     # VK_ICD_FILENAMES are what scripts/vulkan-runtime-env.sh exports to
