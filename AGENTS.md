@@ -935,6 +935,44 @@ out as the only two transfers, and `run-nvidia-sdk-smoke.sh` runs it under the
 GPU ownership lock. nvJPEG2000, nvTIFF, nvCOMP, and the Python bindings stay
 out of the ledger until a consumer needs them.
 
+A device-resident media input replaces the two host stages ahead of the
+encoder, and `evidence/media/decode-placement/` is what that design is held
+to. The served path decodes every image with stb_image on the host
+(`tools/mtmd/mtmd-helper.cpp`), resizes it with a Pillow-exact fixed-point
+kernel on the host (`tools/mtmd/mtmd-image.cpp`, bicubic under a pad-to-ceil
+canvas for the Qwen3.5 projector and bilinear without padding for LFM2),
+normalizes to F32, and uploads the planar tensor as the encoder's `inp_raw`.
+`scripts/run-media-decode-placement.sh` compiles
+`scripts/media-decode-probe/media-placement.cpp` against the SDK prefixes
+and the promoted closure's libmtmd and runs it under the owner lock: every
+fixture decodes through nvImageCodec under five backend policies, each a
+decoder created with that allowed-backend list and the debug messenger
+retained, so the extension that processed the image is named by the
+library; every decode is compared byte for byte against stb_image; the
+projector's own preprocessor, built from the mmproj by `clip_init` on the
+host, is the reference four CV-CUDA resizes of the device plane are held to
+after the same normalization and the same pad geometry; and a second pass
+runs each policy alone under Nsight Systems so the copies the library makes
+are read from the driver. Run 03 on this device: PNG has one decoder in the
+extension set, the OpenCV one, so a PNG reaching a device target is a CPU
+decode plus one upload of exactly the decoded plane, byte-identical to
+stb_image across RGB, RGBA, and palette encodings; JPEG decodes through
+`nvjpeg_cuda_decoder`, which is the HYBRID_CPU_GPU backend kind on this
+release, since a decoder restricted to GPU_ONLY or the hardware engine
+refuses at creation with `arch_mismatch`, and its capture shows one
+host-to-device copy per JPEG at about two bytes per coefficient sample and
+no upload of the decoded plane; nvJPEG's pixels differ from stb_image's by
+at most 3 on an 8-bit channel over 0.5% to 7% of bytes, an IDCT and
+upsampling rounding difference, and libjpeg-turbo differs from stb by the
+same order. No CV-CUDA arm reproduces either projector's preprocessing
+element for element, so a device resize is a separate preprocessing
+contract: the closest arm is `HQResize` with antialiasing, cubic for the
+Qwen3.5 projector at 0.1% to 4.7% of elements differing by up to 22 levels,
+and linear for LFM2 at 0.03% to 2.3% of elements differing by one level.
+`scripts/summarize-media-decode-placement.py` joins a run into one
+placement and contract row per fixture and refuses a run whose decode
+digests differ between the two projector directories.
+
 A physics simulation reaches the device the way an image generation does: one
 service, one lease, one profile ledger, and a runtime that proves where it ran.
 `scripts/physics-profiles.tsv` carries the fixture, the timestep, the step
@@ -1744,6 +1782,10 @@ scripts/probe-mmvq-tail-logit-margin.sh CONTROL_SERVER SUBJECT_SERVER MODEL_ID O
 scripts/verify-nvidia-sdk.sh [LEDGER]           # every pinned row installed as scripts/nvidia-sdk-artifacts.tsv states
 scripts/fetch-nvidia-sdk.sh ARTIFACT_ID DIR     # one archive, verified against the vendor-published digest
 scripts/run-nvidia-sdk-smoke.sh OUT             # JPEG -> nvImageCodec -> CV-CUDA resize, device-resident between the two
+scripts/run-media-decode-placement.sh OUT [MODEL_ID...]
+                                                # where each codec decodes, what it moves, and what a CV-CUDA resize changes
+                                                # against the projector's own preprocessing; PNG and JPEG fixtures
+scripts/summarize-media-decode-placement.py RUN # one placement and contract row per fixture out of that run
 scripts/probe-page-cache-release.sh SERVER OUT [A_ID] [B_ID]
                                                 # what posix_fadvise(DONTNEED) on a loaded GGUF buys and what its reload costs
 scripts/run-graph-lifecycle-trace.sh SERVER MODEL_ID OUT
@@ -1873,6 +1915,7 @@ python3 scripts/test-read-graph-lifecycle-trace.py
 python3 scripts/test-read-paged-kv-layout.py
 python3 scripts/test-read-embd-handoff-trace.py
 python3 scripts/test-read-nsys-embd-transfers.py
+python3 scripts/test-summarize-media-decode-placement.py
 python3 scripts/test-paged-kv-residency-planner.py
 scripts/test-paged-kv-residency-transactions.sh
 python3 scripts/test-read-server-decode-iterations.py
