@@ -24,8 +24,16 @@ set -eu
 # each slot prefilling alone, so the burst evaluates the last four prompt tokens per slot and
 # every member reaches its first decode pass together; `cold` sends the prompt
 # uncached, which is the shape a served appliance sees. A `primed` burst whose
-# log shows a pass below full width, or more than one prefill pass, fails the
-# level rather than being averaged in.
+# log shows a pass below full width, or more than one prefill pass, is a
+# property of client arrival rather than of the closure: the N requests leave
+# one barrier over N connections and the server opens a pass with whatever has
+# parsed, so a fast checkpoint whose four-token re-evaluation ends inside the
+# arrival skew prefills the burst in two passes and its replies follow that
+# composition. The harness reads the newest burst out of the live log after
+# each measured burst, sets a split one aside under a `.split-N` suffix, and
+# draws it again inside QWEN_CONCURRENCY_SPLIT_REDRAWS per arm and level; a
+# split past that budget fails the level rather than being averaged in, and
+# the summary carries the count each arm spent.
 #
 # `llama_context` sets `cparams.n_ctx_seq = cparams.n_ctx / cparams.n_seq_max`
 # (src/llama-context.cpp:293), so a fixed `--ctx-size` across the sweep shrinks
@@ -52,6 +60,7 @@ usage() {
     printf '             QWEN_CONCURRENCY_PREDICT       tokens per request, default 128\n' >&2
     printf '             QWEN_CONCURRENCY_REPEATS       measured bursts per level, default 4\n' >&2
     printf '             QWEN_CONCURRENCY_ADMISSION     primed (default) or cold\n' >&2
+    printf '             QWEN_CONCURRENCY_SPLIT_REDRAWS primed bursts redrawn per arm and level after an arrival split, default 3\n' >&2
     printf '             QWEN_CONCURRENCY_SLOT_OFFSET   first slot id of every burst, default 0; the server serves level + offset slots\n' >&2
     printf '             QWEN_CONCURRENCY_PASSAGE       prose file the prompt is cut from, default CLAUDE.md\n' >&2
     printf '             QWEN_CONCURRENCY_SUBJECT       second closure, paired against SERVER per level\n' >&2
@@ -77,6 +86,7 @@ prompt_tokens=${QWEN_CONCURRENCY_PROMPT_TOKENS:-448}
 predict=${QWEN_CONCURRENCY_PREDICT:-128}
 repeats=${QWEN_CONCURRENCY_REPEATS:-4}
 admission=${QWEN_CONCURRENCY_ADMISSION:-primed}
+split_redraws=${QWEN_CONCURRENCY_SPLIT_REDRAWS:-3}
 slot_offset=${QWEN_CONCURRENCY_SLOT_OFFSET:-0}
 # Qwen3.5's linear-attention layers hold a recurrent state the server cannot
 # roll back, and server-context.cpp creates a context checkpoint at the prompt
@@ -136,6 +146,7 @@ case $predict in '' | *[!0-9]* | 0) usage ;; esac
 [ "$predict" -ge 2 ] || refuse "QWEN_CONCURRENCY_PREDICT must be at least 2 so a burst is distinguishable from a priming request"
 case $repeats in '' | *[!0-9]* | 0) usage ;; esac
 case $admission in primed | cold) ;; *) refuse "QWEN_CONCURRENCY_ADMISSION takes primed or cold: $admission" ;; esac
+case $split_redraws in '' | *[!0-9]* ) refuse "QWEN_CONCURRENCY_SPLIT_REDRAWS is a count: $split_redraws" ;; esac
 [ "$repeats" -ge 3 ] || refuse "a per-level median needs at least three bursts"
 [ -r "$passage" ] || refuse "passage file is not readable: $passage"
 # A prompt at or above the slot's depth evicts rather than decodes, and the
@@ -301,6 +312,7 @@ printf 'prompt_tokens_requested\t%s\n' "$prompt_tokens" >>"$summary"
 printf 'predict\t%s\n' "$predict" >>"$summary"
 printf 'filled_depth\t%s\n' $((prompt_tokens + predict)) >>"$summary"
 printf 'admission\t%s\n' "$admission" >>"$summary"
+printf 'split_redraws_budget\t%s\n' "$split_redraws" >>"$summary"
 printf 'repeats\t%s\n' "$repeats" >>"$summary"
 printf 'levels\t%s\n' "$levels" >>"$summary"
 printf 'batch\t%s\nubatch\t%s\n' "$batch" "$ubatch" >>"$summary"
@@ -480,6 +492,7 @@ read_level_bursts() {
     # so a reader that parsed fewer states that the witness is short rather
     # than that the bursts were clean.
     expected_bursts=${4:-$((repeats + 1))}
+    redrawn_bursts=${5:-0}
     level_bursts=$output_directory/level-$1.$2.bursts.tsv
     if ! "$iteration_reader" --bursts "$3" >"$level_bursts"; then
         printf 'level %s %s: the iteration reader failed on %s\n' "$1" "$2" "$3" >&2
@@ -499,17 +512,73 @@ read_level_bursts() {
         # burst and are not measured; the warm-up burst is the first measured
         # row and is not held to the claim. The check reads the file the
         # count above validated, so one parse is the witness for both.
-        if awk -F '\t' '
+        # Every split burst the loop set aside is in the log beside its
+        # redraw, so the split count has to equal the redraws spent: one
+        # more is a split past the budget, one fewer is a log the loop's
+        # live read disagrees with.
+        split_bursts=$(awk -F '\t' '
             $1 == "burst" && $6 > 1 { n++; if (n > 1 && ($4 != 1 || $10 != "yes")) bad++ }
-            END { exit !(bad > 0) }' "$level_bursts"
-        then
-            printf 'level %s %s: a primed burst ran below full width or prefilled in two passes\n' "$1" "$2" >&2
+            END { print bad + 0 }' "$level_bursts")
+        if [ "$split_bursts" -ne "$redrawn_bursts" ]; then
+            printf 'level %s %s: %s primed bursts ran below full width or prefilled in two passes where %s were redrawn\n' \
+                "$1" "$2" "$split_bursts" "$redrawn_bursts" >&2
             rm -f "$level_bursts"
             return 1
         fi
     fi
     rm -f "$level_bursts"
     return 0
+}
+
+# Whether the newest measured burst in a live server log prefilled in more
+# than one pass or decoded below its width. The reader groups prompts by
+# arrival gap, so the burst that just returned is the last measured row; a
+# short settle lets the server write that burst's release lines first.
+newest_burst_split() {
+    # newest_burst_split LOG -> 0 split, 1 whole, 2 no measured burst read
+    sleep 1
+    "$iteration_reader" --bursts "$1" | awk -F '\t' '
+        $1 == "burst" && $6 > 1 { passes = $4; full = $10; seen = 1 }
+        END { if (!seen) exit 2; exit !(passes != 1 || full != "yes") }'
+}
+
+# A measured primed burst, redrawn inside the per-arm budget where it split.
+# The split burst's directory keeps its replies under a .split-N suffix, so
+# the composition that produced them stays readable beside the burst that
+# replaced it, and the final log read expects the extra burst.
+control_redraws=0
+subject_redraws=0
+measured_burst() {
+    # measured_burst LEVEL PREDICT DIRECTORY PORT LOG ARM
+    while :; do
+        burst "$1" "$2" "$3" "$4" || return 1
+        [ "$admission" = primed ] || return 0
+        newest_burst_split "$5" && split_status=0 || split_status=$?
+        case $split_status in
+            1) return 0 ;;
+            0) ;;
+            *)
+                printf 'level %s %s: the iteration reader read no measured burst out of the live log\n' "$1" "$6" >&2
+                return 1
+                ;;
+        esac
+        case $6 in
+            control) used=$control_redraws ;;
+            *) used=$subject_redraws ;;
+        esac
+        [ "$used" -lt "$split_redraws" ] || {
+            printf 'level %s %s: a primed burst split with the redraw budget of %s spent\n' "$1" "$6" "$split_redraws" >&2
+            return 0
+        }
+        used=$((used + 1))
+        case $6 in
+            control) control_redraws=$used ;;
+            *) subject_redraws=$used ;;
+        esac
+        mv "$3" "$3.split-$used"
+        mv "$3.client.log" "$3.split-$used.client.log"
+        printf 'level %s %s: primed burst split on arrival, redraw %s of %s\n' "$1" "$6" "$used" "$split_redraws" >&2
+    done
 }
 
 subject_port=$((port + 1))
@@ -543,30 +612,33 @@ for level in $levels; do
     [ -z "$subject_server" ] ||
         burst "$level" "$predict" "$level_directory/warmup-subject" "$subject_port"
 
+    control_redraws=0
+    subject_redraws=0
     repeat=1
     while [ "$repeat" -le "$repeats" ]; do
         if [ -z "$subject_server" ]; then
-            burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
+            measured_burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port" "$log" control
         elif [ $((repeat % 2)) -eq 1 ]; then
             # The two closures alternate which one answers first, so drift
             # inside the pair and order bias cancel across repeats the way the
             # MMVQ width campaigns already require of a paired comparison.
-            burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
-            burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
+            measured_burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port" "$log" control
+            measured_burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port" "$subject_log" subject
         else
-            burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port"
-            burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port"
+            measured_burst "$level" "$predict" "$level_directory/repeat-$repeat-subject" "$subject_port" "$subject_log" subject
+            measured_burst "$level" "$predict" "$level_directory/repeat-$repeat" "$port" "$log" control
         fi
         repeat=$((repeat + 1))
     done
+    printf 'level_%s_split_redraws\tcontrol=%s subject=%s\n' "$level" "$control_redraws" "$subject_redraws" >>"$summary"
 
     stop_server server_pid
     stop_server subject_pid
     assert_placement "$log" "level $level control"
     [ -z "$subject_server" ] || assert_placement "$subject_log" "level $level subject"
     scrub_level_logs "$log" "$subject_log"
-    read_level_bursts "$level" control "${log%.raw}"
-    [ -z "$subject_server" ] || read_level_bursts "$level" subject "${subject_log%.raw}"
+    read_level_bursts "$level" control "${log%.raw}" $((repeats + 1 + control_redraws)) "$control_redraws"
+    [ -z "$subject_server" ] || read_level_bursts "$level" subject "${subject_log%.raw}" $((repeats + 1 + subject_redraws)) "$subject_redraws"
 
     python3 - "$level" "$level_directory" "$repeats" "$([ -n "$subject_server" ] && echo yes || echo no)" >>"$observations" <<'PY'
 import json

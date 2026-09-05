@@ -315,7 +315,8 @@ subject, and a closing null, and `scripts/admit-paged-kv-residency.sh`
 joins it to the granularity probe, the batch-1 identity arms with slot
 state, the layout read of every log, and the primed width-1 and width-3
 sweep. Production serves the ordinary buffer; the tails policy is admitted
-on the 2B and stays off until the tuple that turns it on is measured.
+on the 2B and the 0.8B, which share one attention KV layout to the byte,
+and stays off until the tuple that turns it on is measured.
 
 A measured threshold or rate holds for the device software stack it ran under,
 and `scripts/device-environment-identity.sh` is what records that stack.
@@ -436,8 +437,14 @@ the slot count through `scripts/concurrent-burst-client.py`, which pins each
 request to its slot with `id_slot`, releases N requests from one barrier,
 validates every reply, and under its default primed admission fills each
 slot's cache ahead of the burst so every member reaches its first decode pass
-together; a primed burst whose log shows a pass below full width fails the
-level. The full-width decode rate divides the tokens of those passes by their
+together. A primed burst whose log shows a pass below full width or two
+prefill passes is client arrival skew rather than the closure, since the N
+requests leave one barrier over N connections and the server opens a pass
+with whatever has parsed, and the 0.8B's four-token re-evaluation ends inside
+that skew often enough to split two of five bursts; the sweep reads the newest
+burst out of the live log, sets a split one aside under a `.split-N` suffix,
+redraws it inside `QWEN_CONCURRENCY_SPLIT_REDRAWS` per arm and level, and
+fails the level past that budget. The full-width decode rate divides the tokens of those passes by their
 span, the delivered rate divides every generated token by the client's window,
 and the two answer different questions.
 

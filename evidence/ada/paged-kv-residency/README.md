@@ -435,8 +435,71 @@ claim in either direction needs an alternating paired campaign of its own.
 
 P2-C is admitted on the 2B for tail residency and lifecycle management
 under `--parallel 1` and the ordinary path, with `draft-mtp` refused by the
-constructor and the served default unchanged. The 0.8B arm, interior holes,
-prefix sharing, typed pages, and mixed precision stay outside this record.
+constructor and the served default unchanged. Interior holes, prefix
+sharing, typed pages, and mixed precision stay outside this record.
+
+## P2-C on the 0.8B
+
+`08b-p2c-run-01/` runs the same harness on the same closure `e78064b45887`
+against `qwen35-08b`. The 0.8B declares two KV heads of 256 over 24
+transformer layers at a full-attention interval of 4, so its attention KV
+layout equals the 2B's: 512-wide K and V, 544-byte q8_0 K rows and
+288-byte q4_0 V rows, six attention layers, twelve tensors, 156 units over
+327155712 bytes, and the same 3856-row K crossing. The harness therefore
+ran at its defaults, and every stage but the primed sweep read the 2B's
+table with the 0.8B's own latencies.
+
+| record | reading |
+| --- | --- |
+| granularity, probe | 2097152 and 2097152 bytes; 3 of 3 samples |
+| batch-1 tokens and states | 12 of 12 and 12 of 12; one placement fingerprint |
+| minimum envelope | one commit of 12 units at load, 25165824 bytes, 1331 us |
+| 4096-row envelope | 37748736 bytes at the lifecycle peak, the layout figure, against the 60 MiB allowance |
+| lifecycle transactions | five commits and three reclaims; every reclaim returns to 24 MiB; 5 of 5 gates |
+| commit latency | median 698 us, p95 1328 us in the lifecycle arm, against 2 ms and 10 ms |
+| reclaim latency | median 1135 us, p95 1581 us, one device quiesce each |
+| replies A, B, D and states A, D | identical inside every arm and across the null, the subject, and the closing null |
+| width 1 primed | replies identical in 4 of 4 bursts; delivered ratio 0.9933 |
+| width 3 primed | replies identical in 4 of 4 bursts; delivered ratio 0.9999 |
+| retained unmapped, refused transactions, violations | 0, 0, 0 |
+
+The load-time commit of the twelve floor units reads 951 to 2476 us across
+the identity and primed servers and 10230 us once, on the width-1 subject
+of the retry; that commit runs ahead of the first request and outside the
+per-request bounds, and one sample of twelve units at 10 ms is recorded as
+observed rather than explained.
+
+The primed sweep inside the harness refused at width 3 on the control arm,
+which serves the ordinary buffer: two of its five measured bursts prefilled
+in two passes, and both split bursts parted at token 21 while the whole
+bursts agree. That is the arrival split the 2B runs met once per sweep,
+met twice here because the 0.8B's four-token re-evaluation ends inside the
+skew between three requests leaving one barrier, and it is a property of
+the client and the server's pass boundary rather than of either closure.
+`scripts/run-concurrent-sequence-sweep.sh` now reads the newest burst out
+of the live log after each measured burst, sets a split one aside under a
+`.split-N` suffix, and redraws it inside `QWEN_CONCURRENCY_SPLIT_REDRAWS`
+per arm and level, recording the count spent on a `level_N_split_redraws`
+line and failing the level past the budget. `primed-retry-01/` is the
+sweep run again under that rule on the same closure and environment: no
+burst split, the budget of three went unspent on every arm, and both
+widths passed at 4 of 4 pairs with every subject reply identical to the
+control's. `layout-primed-retry-*-subject.tsv` reads its subject logs
+under the tails expectation, 12 units at width 1 and 30 at width 3, the
+2B's floor geometry. The harness summary keeps the `refused` verdict its
+primed stage wrote, and the retry beside it is the record the admission
+reads.
+
+| claim | preregistered | measured | verdict |
+| --- | --- | --- | --- |
+| steady-state saving at the 4096-row envelope | at or under 60 MiB | 36 MiB, 289406976 bytes saved | holds |
+| mapping latency at a unit boundary | under 2 ms median, 10 ms p95 | commit 698 us median, 1328 us p95; reclaim 1135 us median | holds |
+| serving cost | delivered within 2% at batch 1; primed widths 1 and 3 identical | 0.9933 at width 1, 0.9999 at width 3, one sweep each; replies identical at both widths | holds |
+| identity | exact batch-1 tokens and state bytes, then the primed regime | 12 of 12, 12 of 12; identical at both widths | holds |
+
+P2-C is admitted on the 0.8B under the same terms as the 2B. The program
+holds two classes now; the 4B is outside it, and production still serves
+the ordinary buffer on every row.
 
 ## Admission matrix
 
