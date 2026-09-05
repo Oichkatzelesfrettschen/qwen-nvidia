@@ -233,5 +233,79 @@ check("released bytes refused", code == 1 and any("is nonzero under a fully back
 code, rows, faults = run(subject_log(unit_accounting=(UNITS - 1, TOTAL, 0, 0)), "paged_kv_vmm")
 check("unit count that fails to cover the reservation refused", code == 1 and any("do not cover" in f for f in faults))
 
+
+
+# The tails policy: the buffer line reads residency=tails with nothing
+# allocated or mapped, the kind line agrees, and every transaction line is a
+# commit or reclaim that changed a unit. The reader reports the peak and
+# final allocated figures, the saving against the reservation, and the
+# latency quantiles, and turns the preregistered bounds into refusals.
+def transaction(op, units_changed, published, allocated, released, latency_us, result="ok", step=None):
+    if result == "ok":
+        return ("ggml_backend_cuda_paged_kv_require: paged_kv_residency op=%s result=ok units_changed=%d"
+                " units_published=%d physical_allocated_bytes=%d physical_mapped_bytes=%d"
+                " physical_retained_unmapped_bytes=0 physical_released_bytes=%d latency_us=%d\n"
+                % (op, units_changed, published, allocated, allocated, released, latency_us))
+    return ("ggml_backend_cuda_paged_kv_require: paged_kv_residency op=%s result=refused step=%s unit=4"
+            " status=CUDA_ERROR_OUT_OF_MEMORY units_unwound=2 units_published=%d physical_allocated_bytes=%d"
+            " physical_mapped_bytes=%d physical_retained_unmapped_bytes=0 physical_released_bytes=%d latency_us=%d\n"
+            % (op, step, published, allocated, allocated, released, latency_us))
+
+
+def tails_log(transactions, allocated_at_alloc=0):
+    text = subject_log(mapped=allocated_at_alloc, unit_accounting=(UNITS, allocated_at_alloc, 0, 0))
+    text = text.replace("physical_released_bytes=0\n", "physical_released_bytes=0 residency=tails\n", 1)
+    text = text.replace("kv_buffer_kind=paged_kv_vmm buffer=CUDA0\n", "kv_buffer_kind=paged_kv_vmm buffer=CUDA0 residency=tails\n")
+    return text.replace("llama_memory_recurrent:", "".join(transactions) + "llama_memory_recurrent:", 1)
+
+
+TAILS = ["--expect-residency", "tails"]
+steady = [transaction("commit", 12, 12, 12 * UNIT, 0, 900),
+          transaction("commit", 6, 18, 18 * UNIT, 0, 1200),
+          transaction("reclaim", 6, 12, 12 * UNIT, 6 * UNIT, 1500)]
+code, rows, faults = run(tails_log(steady), "paged_kv_vmm", TAILS)
+check("a tails log with commits and a reclaim holds", code == 0 and rows.get("residency_policy") == "tails"
+      and rows.get("residency_commits") == "2" and rows.get("residency_reclaims") == "1"
+      and rows.get("kv_physical_allocated_max_bytes") == str(18 * UNIT)
+      and rows.get("kv_physical_allocated_final_bytes") == str(12 * UNIT)
+      and rows.get("kv_physical_released_final_bytes") == str(6 * UNIT)
+      and rows.get("memory_saved_bytes") == str(TOTAL - 12 * UNIT)
+      and rows.get("commit_latency_us_median") in ("900", "1200") and rows.get("reclaim_latency_us_p95") == "1500",
+      str(faults) + str(rows))
+code, rows, faults = run(tails_log(steady), "paged_kv_vmm")
+check("a tails log read under the full expectation is refused", code == 1
+      and any("where full was expected" in f for f in faults))
+code, rows, faults = run(subject_log(unit_accounting=(UNITS, TOTAL, 0, 0)), "paged_kv_vmm", TAILS)
+check("a full log read under the tails expectation is refused", code == 1
+      and any("where tails was expected" in f for f in faults))
+code, rows, faults = run(tails_log(steady, allocated_at_alloc=UNIT), "paged_kv_vmm", TAILS)
+check("a tails buffer that backed units at allocation is refused", code == 1
+      and any("nonzero at allocation" in f for f in faults))
+code, rows, faults = run(tails_log([]), "paged_kv_vmm", TAILS)
+check("a tails log without a commit is refused", code == 1 and any("no committed transaction" in f for f in faults))
+code, rows, faults = run(tails_log(steady + [transaction("commit", 0, 12, 12 * UNIT, 6 * UNIT, 500, result="refused", step="map")]),
+                         "paged_kv_vmm", TAILS)
+check("a refused transaction is refused", code == 1 and any("transactions refused" in f and "commit at map" in f for f in faults))
+code, rows, faults = run(tails_log(steady), "paged_kv_vmm", TAILS + ["--max-allocated-bytes", str(17 * UNIT)])
+check("the allocated bound refuses a peak above it", code == 1 and any("peaked at" in f for f in faults))
+code, rows, faults = run(tails_log(steady), "paged_kv_vmm", TAILS + ["--max-allocated-bytes", str(18 * UNIT),
+                                                                      "--max-latency-median-us", "2000", "--max-latency-p95-us", "10000"])
+check("bounds met by the log hold", code == 0, str(faults))
+code, rows, faults = run(tails_log(steady), "paged_kv_vmm", TAILS + ["--max-latency-median-us", "800"])
+check("the median latency bound refuses a commit median above it", code == 1
+      and any("commit latency median" in f for f in faults))
+code, rows, faults = run(tails_log(steady), "paged_kv_vmm", TAILS + ["--max-latency-p95-us", "1400"])
+check("the p95 latency bound refuses a reclaim above it", code == 1 and any("reclaim latency p95" in f for f in faults))
+decreasing = steady + [transaction("commit", 1, 13, 13 * UNIT, 4 * UNIT, 800)]
+code, rows, faults = run(tails_log(decreasing), "paged_kv_vmm", TAILS)
+check("a released figure that decreases is refused", code == 1 and any("decreased" in f for f in faults))
+code, rows, faults = run(tails_log(steady).replace("llama_memory_recurrent:",
+                         "ggml_backend_cuda_paged_kv_assert_resident: paged_kv_residency violation op=set_tensor offset=0 size=1 unit_bytes=2097152\n"
+                         "llama_memory_recurrent:", 1), "paged_kv_vmm", TAILS)
+check("a residency violation line is refused", code == 1 and any("violations" in f for f in faults))
+code, rows, faults = run(tails_log([steady[0].replace("latency_us=900", "latency_us=abc")]), "paged_kv_vmm", TAILS)
+check("a transaction line with a non-numeric field still parses op and result",
+      code == 0 and rows.get("commit_latency_us_median") == "-", str(faults))
+
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)
