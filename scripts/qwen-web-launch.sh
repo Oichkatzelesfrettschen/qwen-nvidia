@@ -48,9 +48,8 @@ set -eu
 
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [PROFILE]\n' "$0" >&2
-    printf '  the profile vocabulary belongs to the backend that serves: cuda-runtime-env.sh takes\n' >&2
-    printf '  default, no-graphs, no-fusion, pdl, unified, custom; vulkan-runtime-env.sh, reached with\n' >&2
-    printf '  QWEN_SERVING_BACKEND=vulkan, takes default, custom\n' >&2
+    printf '  cuda-runtime-env.sh takes the one profile vocabulary:\n' >&2
+    printf '  default, no-graphs, no-fusion, pdl, unified, custom\n' >&2
     printf 'web preset file comes from QWEN_WEB_PRESETS, default $HOME/qwen-webui-state/web-presets.ini\n' >&2
     printf 'the listener is 127.0.0.1; QWEN_BIND_HOST set to any other value refuses the launch\n' >&2
     exit 2

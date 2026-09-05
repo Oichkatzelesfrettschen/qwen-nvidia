@@ -45,9 +45,8 @@ set -eu
 
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [PROFILE]\n' "$0" >&2
-    printf '  the profile vocabulary belongs to the backend that serves: cuda-runtime-env.sh takes\n' >&2
-    printf '  default, no-graphs, no-fusion, pdl, unified, custom; vulkan-runtime-env.sh, reached with\n' >&2
-    printf '  QWEN_SERVING_BACKEND=vulkan, takes default, custom\n' >&2
+    printf '  cuda-runtime-env.sh takes the one profile vocabulary:\n' >&2
+    printf '  default, no-graphs, no-fusion, pdl, unified, custom\n' >&2
     printf 'web preset file comes from QWEN_WEB_PRESETS, default $HOME/qwen-webui-state/web-presets.ini\n' >&2
     printf 'the preset must name an image profile, which requires a validator-gated row in scripts/image-profiles.tsv\n' >&2
     printf 'QWEN_IMAGE_PROFILES_JSON names the validated profile parameters the image service runs a job under\n' >&2

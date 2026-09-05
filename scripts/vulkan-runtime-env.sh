@@ -1,13 +1,14 @@
 #!/bin/sh
 set -eu
 
-# Configure the environment for the Vulkan fallback backend and exec the server.
+# Configure the environment for a Vulkan diagnostic arm and exec the command.
 #
-# CUDA is this host's serving backend and Vulkan is the fallback the same binary
-# reaches: scripts/build-llama-cuda.sh puts both in one llama-server, which
-# enumerates CUDA0 and Vulkan0 for the same card. Naming the device is what
-# keeps the two apart, so qwen-capacity-policy.sh passes `--device Vulkan0` with
-# this wrapper and `--device CUDA0` with cuda-runtime-env.sh.
+# This wrapper is retained for hand-run diagnostics against the dual-backend
+# closure scripts/serving-closures.tsv names by role; no serving selector
+# reaches it. CUDA0 is the one serving device, qwen-capacity-policy.sh runs
+# every launch through cuda-runtime-env.sh, and QWEN_SERVING_BACKEND=vulkan is
+# refused there. A diagnostic arm names `--device Vulkan0` itself, because the
+# dual-backend closure enumerates CUDA0 and Vulkan0 for the same card.
 #
 # The ICD pin narrows the Vulkan loader to one driver. A loader left to search
 # enumerates every installed ICD, and a software rasterizer answering as a

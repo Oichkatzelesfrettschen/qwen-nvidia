@@ -45,19 +45,47 @@ relationship and lists the capabilities that carry no CUDA counterpart yet.
 AMD Ryzen 5 5600X3D, six Zen 3 cores at 3.3 GHz with twelve threads and 96 MiB
 of L3, 31 GiB of DDR4, and one NVIDIA GeForce RTX 4070 Ti: AD104, compute
 capability 8.9, 12282 MiB of GDDR6X on a 192-bit bus, driver 610.57.04 with
-CUDA 13.3. `scripts/build-llama-cuda.sh` builds one binary carrying the CUDA
-and Vulkan backends, so `llama-bench --device` selects between them and two
-rows differ by the backend alone. That script executes no artifact it built and
+CUDA 13.3. `scripts/build-llama-cuda.sh` builds the CUDA closure the appliance
+serves; `QWEN_BUILD_VULKAN=ON` adds the Vulkan backend to a diagnostic closure
+alone, on which `llama-bench --device` selects between the two and two rows
+differ by the backend alone. That script executes no artifact it built and
 ends on `runtime_execution=not_run reason=build_only`, because llama-bench calls
 `ggml_backend_load_all()` ahead of parsing argv and a closing `--version` print
 therefore opened a CUDA context inside a compile; case 30 of
 `scripts/test-gpu-workload-ownership.sh` reads that claim out of every
 `non-gpu-helper` row rather than trusting the ledger.
 
-CUDA is the serving backend and Vulkan is the fallback the same binary reaches.
-That inverts the APU tree, where Vulkan was the only accelerated path the device
-offered, and it changes which ceiling binds: device memory rather than memory
-bandwidth. A 12 GiB carve-out with 2.5 GiB already resident holds one 9B Q4_K_M
+CUDA is the one serving backend, and Vulkan serving and Vulkan admission
+campaigns are retired in this repository. The active contract is:
+
+```text
+LLM inference                 CUDA0
+Vision encoder/projector      CUDA0
+Image generation              CUDA0, through a CUDA-native runtime
+Physics simulation            PhysX with measured CUDA execution
+Geometry and ray queries      OptiX/CUDA
+CPU                           orchestration, parsing, I/O, validation
+
+Automatic CPU fallback        refused
+Automatic Vulkan fallback     refused
+```
+
+`QWEN_SERVING_BACKEND` takes `cuda` alone and `qwen-capacity-policy.sh`,
+`qwen-webui-control.sh`, `run-depth-ladder.sh`, and `probe-filled-depth.sh`
+refuse `vulkan` with status 2 ahead of any launch; `promote-llama-build.sh`
+refuses a build carrying `libggml-vulkan.so`, so the promoted closure
+enumerates CUDA0 alone and `scripts/serving-closures.tsv` names the
+dual-backend closure `572951d25562` by the `diagnostic` role, run by hand for
+a diagnostic question and a dependency of no CUDA work. The retired Vulkan
+scripts, patches, and ledger rows stay in the tree as history or as hand-run
+diagnostics, and `scripts/vulkan-runtime-env.sh` says so in its header. The
+graphics-latency probe is the one named Vulkan exception: it measures desktop
+responsiveness on the graphics queue and stays until a replacement measures
+the same property. The workstation's Vulkan libraries and its compositor are
+outside this contract. That inverts the APU tree, where Vulkan was the only
+accelerated path the device offered, and it changes which ceiling binds:
+device memory rather than memory bandwidth. A 12 GiB carve-out with 2.5 GiB
+already resident holds one 9B Q4_K_M
 trunk, a 0.8B draft, and two KV caches with little room over, so every paired
 serving arm states its resident total before it runs.
 
@@ -537,7 +565,7 @@ choice away from it. `scripts/model-registry.sh tuples MODEL_ID` and
 `tuple TUPLE_ID [FIELD]` read the ledger after validating every row in it, the
 same discipline `emit_servable_rows` applies to the quarantine authority.
 `scripts/probe-filled-depth.sh` names its backend through `QWEN_PROBE_BACKEND`,
-`cuda` by default or `vulkan`, which resolves the device, the tensor override,
+which takes `cuda` alone and resolves the device, the tensor override,
 and the runtime wrapper together at the `default` profile; the device has to
 belong to that backend, the ledger backend is what the load banner proved
 rather than what the environment asked, and an emitted `tuple_id` carries the
@@ -689,13 +717,13 @@ subject. Normal and research presets therefore use the exact set they can
 launch rather than separate registry enumerations. The launcher records the
 snapshot SHA-256 and forwards both path and digest across the tmux boundary.
 The capacity policy validates the current model and quarantine authorities and
-records their SHA-256 identities. After the Vulkan wrapper configures the final
+records their SHA-256 identities. After `cuda-runtime-env.sh` configures the final
 environment, `qwen-router-exec-guard.sh` remeasures the preset and both registry
 identities immediately before it replaces itself with llama-server. A
 terminating launch signal tears down a session whose control start has begun,
 removes the launcher-owned snapshot, and exits with the signal status. The
 tmux session applies the same terminating cleanup to its server, watchdogs, and
-owned snapshot. The preflight reports artifact bytes and fixed host and Vulkan
+owned snapshot. The preflight reports artifact bytes and fixed host and device
 headroom; the subsequent load remains the fit test. Its
 standalone context ceiling never constrains the listener, because each preset
 section supplies its own complete tuple. The capacity policy resolves the
@@ -781,7 +809,7 @@ The CUDA backend runs the packed-integer dot path on this device: the
 Nsight-read kernel audits in `evidence/ada/b789-path-audit/` and
 `evidence/ada/b789-nsys-causality/` observe the DP4A MMVQ family in the
 executed symbols, and `evidence/ada/b789-clean-calibration/` carries the
-per-quant crossover rates that dispatch produces. The Vulkan fallback's
+per-quant crossover rates that dispatch produces. The retired Vulkan path's
 packed-integer capability stays unmeasured here;
 `evidence/legacy/raven2/comparative-findings.tsv` retains the prior host's
 unaccelerated-path finding, keyed to that silicon's own driver capability
@@ -899,7 +927,7 @@ uncensored, or reasoning fine-tune -- receives its own graded reasoning, code,
 tool-selection, and termination admission, and the only arm a fine-tune skips
 is a throughput arm whose architecture, tensor shapes, quantization, backend,
 and serving tuple equal a row already measured. Registry entry needs the
-strict one-token Vulkan load alone; a filled-depth arm, the graded suite, the
+strict one-token CUDA0 load alone; a filled-depth arm, the graded suite, the
 tool-selection grade, and a role comparison against its class control follow
 when the checkpoint is chosen for a role, and visibility in the picker does
 not by itself schedule device time.
@@ -1010,11 +1038,12 @@ down: `run-cuda-baseline-sweep.sh`, `run-speculation-sweep.sh`,
 at its load stage, and `promote-llama-build.sh`. Every other audited entry point
 carries a `# gpu-ownership:` line naming the lane that holds the claim instead.
 
-`QWEN_SERVING_BACKEND` selects the wrapper on that second-to-last line and the
-device the argv names. `cuda` is the default and yields `cuda-runtime-env.sh`
-with `--device CUDA0`; `vulkan` yields `vulkan-runtime-env.sh` with
-`--device Vulkan0`. Naming the device is what keeps the two apart, because the
-promoted binary carries both backends and enumerates CUDA0 and Vulkan0 for the
+`cuda-runtime-env.sh` is the wrapper on that second-to-last line and CUDA0 is
+the device the argv names, through `--device CUDA0` and `-ot .*=CUDA0`.
+`QWEN_SERVING_BACKEND` takes `cuda` alone; `vulkan` once selected
+`vulkan-runtime-env.sh` with `--device Vulkan0` and is refused with status 2.
+The device is still named rather than left to enumeration order, because the
+retained dual-backend diagnostic closure enumerates CUDA0 and Vulkan0 for the
 same card: a router child that named neither allocated on Vulkan0 here while
 every measurement that set the defaults ran on CUDA0.
 
@@ -1025,10 +1054,10 @@ variables the backend reads. It also applies the scheduling policy rather than
 inheriting one -- `QWEN_SERVING_NICE` at 0 and `QWEN_SERVING_CPU_LIST` at the
 online CPU set -- and exports both, so the session and the runtime monitor
 require of the server exactly what the wrapper asked for.
-`vulkan-runtime-env.sh` applies the identical policy for the Vulkan fallback,
-because pinning one core away from the desktop was a prior host's tradeoff on
-a part with two cores total; twelve threads and a discrete card leave nothing
-to buy by repeating it.
+The retained `vulkan-runtime-env.sh` applies the identical policy for a
+hand-run Vulkan diagnostic, because pinning one core away from the desktop was
+a prior host's tradeoff on a part with two cores total; twelve threads and a
+discrete card leave nothing to buy by repeating it.
 
 `unified` is a residency lever rather than a performance one:
 `GGML_CUDA_ENABLE_UNIFIED_MEMORY` lets an allocation exceed the 12 GiB carve-out
@@ -1055,20 +1084,18 @@ in `evidence/ada/cuda-router-serving/` carries nine checks with none rejected,
 both the 2B distill and the 0.8B answering from CUDA0 with both resident at
 5307 MiB of device memory.
 
-Five properties of the Vulkan-side chain surprise a reader who meets one file
-alone.
+Four properties of the chain surprise a reader who meets one file alone.
 
-`vulkan-runtime-env.sh` unsets every `GGML_VK_*` variable, the display and
-vendor-selection variables, and the Vulkan validation-layer variables before
-its profile case runs, so an ambient submission setting reaches the server
-only when the `custom` profile captures it beforehand and restores it after
-the scrub. `default` exports nothing beyond the scrub, pins the ICD to
-`/usr/share/vulkan/icd.d/nvidia_icd.json` (`QWEN_VULKAN_ICD` overrides it), and
-exports `LLAMA_NO_CPU_FALLBACK=1` the way `cuda-runtime-env.sh` does for the
-CUDA path. The submission-profile vocabulary the wrapper carried on the prior
-host -- `paced-60`, `low-serialized`, `low-async` -- named settings measured
-against the prior host's two-compute-unit part;
-`evidence/legacy/raven2/comparative-findings.tsv`
+`cuda-runtime-env.sh` unsets the ambient `GGML_CUDA_*`, `GGML_VK_*`, and
+display and vendor-selection names before its profile case runs, so an
+ambient setting reaches the server only when the `custom` profile captures it
+beforehand and restores it after the scrub, and every profile exports
+`LLAMA_NO_CPU_FALLBACK=1`. The retained `vulkan-runtime-env.sh` scrubs the
+same way and pins the ICD to `/usr/share/vulkan/icd.d/nvidia_icd.json`
+(`QWEN_VULKAN_ICD` overrides it) for a hand-run diagnostic; the
+submission-profile vocabulary it carried on the prior host -- `paced-60`,
+`low-serialized`, `low-async` -- named settings measured against that host's
+two-compute-unit part, `evidence/legacy/raven2/comparative-findings.tsv`
 retains the submission-node-count finding those profiles rested on as
 comparison, and no arm on this device has repeated it.
 
@@ -1081,8 +1108,10 @@ variable exported in the calling shell alone stops at the tmux boundary.
 `stop`, which rewrites that file. The teardown then proves absence and exits
 non-zero on residue.
 
-`model-memory-preflight.sh` reports host and Vulkan headroom and admits every
-launch. A load that exceeds the machine fails at once and names its reason.
+`model-memory-preflight.sh` reports host and device headroom and admits every
+launch, keeping its `vulkan_budget_headroom` and `QWEN_REQUIRED_VULKAN_MIB`
+names as identifiers of the device carve-out figure. A load that exceeds the
+machine fails at once and names its reason.
 
 `qwen-web-launch.sh` exports `QWEN_WEB_BROKER=1` with the broker port, state
 directory, signing key path, and the profile it reads from the preset, so the
@@ -1439,13 +1468,13 @@ scripts/qwen-webui-control.sh status
 scripts/gpu-state-latch.sh status|require-clear|recover
                                          # the latch between a driver failure and the next launch
 
-# Select a checkpoint, a listener, and the serving backend
+# Select a checkpoint and a listener; CUDA0 is the one serving device
 QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
-QWEN_BIND_HOST=0.0.0.0 QWEN_SERVING_BACKEND=vulkan \
+QWEN_BIND_HOST=0.0.0.0 \
     scripts/qwen-launch.sh default
 
 # Build, measure, and admit on this host
-scripts/build-llama-cuda.sh                     # CUDA and Vulkan in one binary, sm_89
+scripts/build-llama-cuda.sh                     # the CUDA closure, sm_89; QWEN_BUILD_VULKAN=ON is a diagnostic closure
 scripts/classify-graphics-latency-probe.sh OUT    # which driver client list names the probe
 scripts/run-cuda-baseline-sweep.sh OUT MODEL...  # mirrored prefill and decode
 scripts/run-speculation-sweep.sh OUT TARGET [DRAFT]
@@ -1794,10 +1823,10 @@ template survey.
 A runtime class establishes a shared throughput expectation and nothing about a
 particular artifact, so admission by load runs every row rather than one
 representative per class. `scripts/run-one-token-admission.sh` fetches each
-candidate and calls `scripts/test-strict-vulkan-placement.sh`, which requires CPU
-tensor placement and CPU graph placement to be rejected, brings a strict Vulkan
-server up, drives a two-token completion, and requires the model, KV, and
-compute buffers to name Vulkan0 with no CPU fallback reached. Its `fetch` stage
+candidate and calls `scripts/test-strict-cuda-placement.sh`, which requires CPU
+tensor placement and CPU graph placement to be rejected, brings a strict CUDA0
+server up, drives a fixed-seed completion twice, and requires the model, KV, and
+compute buffers to name CUDA0 with no CPU fallback reached. Its `fetch` stage
 runs without the device, so eleven gigabytes of transfer happen while the
 appliance still serves and the outage covers the loads alone. A control arm runs
 the same check against a served checkpoint after each new runtime class and
@@ -2005,7 +2034,7 @@ These guidelines came from the previous standalone `AGENTS.md` and join the doct
 Guidance for repository agents (including Jules) working in this repository.
 
 ### Authority Hierarchy & Hardware Boundary
-- The physical Ryzen 5 5600X3D + RTX 4070 Ti appliance is the sole authority for CUDA, Vulkan, memory, performance, thermal, stability, kernel-path, and model-quality claims.
+- The physical Ryzen 5 5600X3D + RTX 4070 Ti appliance is the sole authority for CUDA, memory, performance, thermal, stability, kernel-path, and model-quality claims, and for any hand-run Vulkan diagnostic.
 - The Jules VM is a clone-local development environment, not a measurement host.
 - Never manufacture, infer, simulate, or convert a cloud build, missing device, different GPU, mocked result, static inspection, or unit test into an appliance measurement.
 - Never add or modify retained evidence to imply a hardware experiment occurred.
@@ -2014,11 +2043,11 @@ Guidance for repository agents (including Jules) working in this repository.
 
 ### Operational & Execution Rules
 - **Atomic Script Replacement**: Live scripts under `scripts/` are executed directly by running appliance processes. Always write updates to a temporary file and atomically move/rename over the target (`mv` / `os.replace`). Never perform truncating in-place edits.
-- **CUDA0 Serving Authority**: CUDA0 is the primary serving backend with explicit tensor placement (`-ot .*=CUDA0`). Vulkan0 is the fallback backend supported by the same dual-backend binary.
+- **CUDA0 Serving Authority**: CUDA0 is the one serving backend with explicit tensor placement (`-ot .*=CUDA0`). Vulkan serving is retired; the dual-backend diagnostic closure runs by hand and gates no CUDA work.
 - **Fail-Closed Semantics**: Treat registry, validation-ledger, quarantine, and promotion validation semantics as fail-closed. Treat warnings, unexpected schema changes, and malformed authority input as hard failures.
 - **Prohibition on Cloud Promotions**: Never promote a build, change a measured default, lift a quarantine, increase a validated depth, or grant execution capability based on unmeasured cloud VM results.
 - **Commit & Hygiene Discipline**: Keep local absolute paths, credentials, secrets, private hostnames, and machine-specific unsanitized state out of commits.
 
 ### Verification & Test Discipline
 - **Cloud-Safe Tests**: Run clone-local shell, Python, parser, fixture, lint, and static consistency checks freely.
-- **Appliance-Only Validations**: CUDA execution, NVML/NVIDIA telemetry, Nsight/CUPTI profiling, Vulkan device execution, actual model loading, filled-depth probing, router residency transitions, throughput benchmarks, and promotion admissions are appliance-only unless explicitly running inside a mock/fixture test.
+- **Appliance-Only Validations**: CUDA execution, NVML/NVIDIA telemetry, Nsight/CUPTI profiling, hand-run Vulkan diagnostics, actual model loading, filled-depth probing, router residency transitions, throughput benchmarks, and promotion admissions are appliance-only unless explicitly running inside a mock/fixture test.

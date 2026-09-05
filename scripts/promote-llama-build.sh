@@ -10,9 +10,12 @@ set -eu
 # preset, the executable must report its own version, and it must complete one
 # token entirely on CUDA0, because a binary that loads and then falls back to
 # the CPU backend serves at a third of the rate while looking healthy. CUDA is
-# the serving backend, so CUDA admission decides promotion; a build that also
-# carries libggml-vulkan.so takes an additional Vulkan fallback admission, and
-# a CUDA-only build reports fallback_vulkan=not-built rather than failing.
+# the one serving backend, so CUDA admission decides promotion and the closure
+# has to carry the CUDA backend alone: a build carrying libggml-vulkan.so
+# enumerates Vulkan0 beside CUDA0 for the same card, which is the enumeration
+# that once placed a router child on Vulkan0, so promotion refuses it and the
+# dual-backend closure stays a hand-run diagnostic named by role in
+# scripts/serving-closures.tsv.
 #
 # The gate reads an image through llama-mtmd-cli for the same reason it decodes
 # a token through llama-cli: the projector path fails by answering wrongly. A
@@ -62,6 +65,17 @@ fi
 multimodal_path=$build_directory/bin/llama-mtmd-cli
 if [ ! -x "$multimodal_path" ]; then
     printf 'preset has no executable llama-mtmd-cli: %s\n' "$multimodal_path" >&2
+    exit 1
+fi
+
+# The backend set is read off the build directory ahead of the manifest: a
+# libggml-vulkan.so beside the executables makes the closure dual-backend, and
+# a dual-backend closure is refused for serving whatever the manifest claims,
+# because it enumerates Vulkan0 beside CUDA0 for the same card and that
+# enumeration once placed a router child on Vulkan0.
+if [ -e "$build_directory/bin/libggml-vulkan.so" ]; then
+    printf 'build carries libggml-vulkan.so; a serving closure carries the CUDA backend alone: %s\n' \
+        "$build_directory" >&2
     exit 1
 fi
 
@@ -198,14 +212,8 @@ gpu_ownership_require || exit $?
     exit 1
 }
 
-# The Vulkan backend library decides the fallback fact: a build that carries
-# libggml-vulkan.so takes the Vulkan fallback admission, a CUDA-only build
-# reports not-built. A manifest that names either backend field must agree
-# with the build, so a manifest copied from another closure is caught here.
-fallback_backend=none
-if [ -e "$build_directory/bin/libggml-vulkan.so" ]; then
-    fallback_backend=Vulkan0
-fi
+# A manifest naming a serving backend other than CUDA0, or a fallback backend
+# other than none, is a manifest copied from another closure and is refused.
 manifest_serving=$(awk -F'\t' '$1 == "serving_backend" { print $2; exit }' "$manifest_path")
 manifest_fallback=$(awk -F'\t' '$1 == "fallback_backend" { print $2; exit }' "$manifest_path")
 if [ -n "$manifest_serving" ] && [ "$manifest_serving" != CUDA0 ]; then
@@ -213,9 +221,9 @@ if [ -n "$manifest_serving" ] && [ "$manifest_serving" != CUDA0 ]; then
         "$manifest_serving" >&2
     exit 1
 fi
-if [ -n "$manifest_fallback" ] && [ "$manifest_fallback" != "$fallback_backend" ]; then
-    printf 'manifest fallback_backend %s disagrees with the build: %s\n' \
-        "$manifest_fallback" "$fallback_backend" >&2
+if [ -n "$manifest_fallback" ] && [ "$manifest_fallback" != none ]; then
+    printf 'manifest names a fallback backend; serving admits none: %s\n' \
+        "$manifest_fallback" >&2
     exit 1
 fi
 
@@ -311,13 +319,6 @@ strict_cuda_state=passed
 run_multimodal_smoke CUDA0
 multimodal_cuda_state=passed
 
-fallback_vulkan_state=not-built
-if [ "$fallback_backend" = Vulkan0 ]; then
-    run_strict_smoke Vulkan0
-    run_multimodal_smoke Vulkan0
-    fallback_vulkan_state=passed
-fi
-
 if [ -L "$current_link" ]; then
     ln -sfn "$(readlink "$current_link")" "$previous_link.new"
     mv -T "$previous_link.new" "$previous_link"
@@ -326,7 +327,6 @@ fi
 ln -sfn "$build_directory" "$current_link.new"
 mv -T "$current_link.new" "$current_link"
 
-printf 'promotion=accepted preset=%s target=%s strict_cuda=%s multimodal_cuda=%s fallback_vulkan=%s previous=%s\n' \
+printf 'promotion=accepted preset=%s target=%s strict_cuda=%s multimodal_cuda=%s backend_set=cuda previous=%s\n' \
     "$preset" "$build_directory" "$strict_cuda_state" "$multimodal_cuda_state" \
-    "$fallback_vulkan_state" \
     "$([ -L "$previous_link" ] && readlink "$previous_link" || printf none)"

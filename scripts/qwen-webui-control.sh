@@ -69,32 +69,22 @@ shell_quote() {
 
 case $action in
     start)
-        # The profile vocabulary belongs to the backend that serves. CUDA's
-        # profiles name what cuda-runtime-env.sh exports; the Vulkan names are
-        # vulkan-runtime-env.sh's and stay reachable under
-        # QWEN_SERVING_BACKEND=vulkan.
+        # The profile vocabulary is cuda-runtime-env.sh's, since CUDA0 is the
+        # one serving device; the backend selector is checked here so a
+        # retired value is refused ahead of the tmux boundary rather than
+        # inside the session.
         case ${QWEN_SERVING_BACKEND:-cuda} in
-            cuda)
-                case $profile in
-                    default | no-graphs | no-fusion | pdl | unified | custom) ;;
-                    *)
-                        printf 'unknown CUDA profile: %s\n' "$profile" >&2
-                        exit 2
-                        ;;
-                esac
-                ;;
-            vulkan)
-                case $profile in
-                    default | custom) ;;
-                    *)
-                        printf 'unknown Vulkan profile: %s\n' "$profile" >&2
-                        exit 2
-                        ;;
-                esac
-                ;;
+            cuda) ;;
             *)
-                printf 'QWEN_SERVING_BACKEND takes cuda or vulkan: %s\n' \
-                    "${QWEN_SERVING_BACKEND:-cuda}" >&2
+                printf 'QWEN_SERVING_BACKEND takes cuda: %s\n' "${QWEN_SERVING_BACKEND:-cuda}" >&2
+                printf 'Vulkan serving is retired on this host; the dual-backend diagnostic closure runs by hand\n' >&2
+                exit 2
+                ;;
+        esac
+        case $profile in
+            default | no-graphs | no-fusion | pdl | unified | custom) ;;
+            *)
+                printf 'unknown CUDA profile: %s\n' "$profile" >&2
                 exit 2
                 ;;
         esac

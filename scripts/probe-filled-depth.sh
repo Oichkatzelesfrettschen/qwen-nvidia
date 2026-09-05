@@ -11,12 +11,13 @@ set -eu
 # planted at the head of the fill, so the arm proves execution and long-range
 # attention rather than allocation alone.
 #
-# QWEN_PROBE_BACKEND selects cuda (the default) or vulkan, and the selection
+# QWEN_PROBE_BACKEND names the backend and takes cuda alone, and the name
 # carries through every retained artifact rather than living in the argv
-# alone. cuda resolves device CUDA0, override pattern .*=CUDA0, and wrapper
-# scripts/cuda-runtime-env.sh; vulkan resolves device Vulkan0, override
-# pattern .*=Vulkan0, and wrapper scripts/vulkan-runtime-env.sh. The wrapper
-# applies the scheduling policy and the backend-specific environment scrub
+# alone: device CUDA0, override pattern .*=CUDA0, and wrapper
+# scripts/cuda-runtime-env.sh. Vulkan arms were a diagnostic selection on the
+# same harness and are retired with Vulkan serving; the ledger keeps its
+# backend column because rows measured under that selection remain history.
+# The wrapper applies the scheduling policy and the environment scrub
 # qwen-capacity-policy.sh applies to a served launch, so the arm measures the
 # tuple under the environment the appliance would build it under.
 # QWEN_PROBE_DEVICE overrides the resolved device name alone, keeping the
@@ -26,8 +27,8 @@ set -eu
 #
 # filled-depth-summary.tsv and the emitted validated-tuples row both carry the
 # resolved backend, because scripts/check-validated-tuples.sh admits a row only
-# where its backend equals the one the host currently serves: a depth filled on
-# Vulkan proves nothing about the CUDA registry claim the row would otherwise
+# where its backend equals the one the host serves: a depth filled on another
+# backend proves nothing about the CUDA registry claim the row would otherwise
 # be read against.
 #
 # The acceptance window is asymmetric because decode follows the fill inside
@@ -42,10 +43,10 @@ usage() {
     printf 'usage: %s MODEL_ID OUTPUT_DIRECTORY\n' "$0" >&2
     printf '  QWEN_PROBE_DEPTHS   depths to fill, default the row context_ceiling\n' >&2
     printf '  QWEN_LLAMA_SERVER   server binary, default the promoted build\n' >&2
-    printf '  QWEN_PROBE_BACKEND  cuda (default) or vulkan; selects the device,\n' >&2
+    printf '  QWEN_PROBE_BACKEND  cuda, the one serving backend; names the device,\n' >&2
     printf '                      the tensor override, and the runtime wrapper\n' >&2
     printf '  QWEN_PROBE_DEVICE   overrides the resolved device name alone,\n' >&2
-    printf '                      default CUDA0 for cuda and Vulkan0 for vulkan\n' >&2
+    printf '                      default CUDA0\n' >&2
     printf '  QWEN_PROBE_PORT     listener, default 18093\n' >&2
     printf '  QWEN_PROBE_BATCH    batch size, default the row batch\n' >&2
     printf '  QWEN_PROBE_UBATCH   ubatch size, default the row ubatch\n' >&2
@@ -78,24 +79,19 @@ case $probe_backend in
         default_device=CUDA0
         runtime_wrapper=$script_directory/cuda-runtime-env.sh
         ;;
-    vulkan)
-        default_device=Vulkan0
-        runtime_wrapper=$script_directory/vulkan-runtime-env.sh
-        ;;
     *)
-        printf 'QWEN_PROBE_BACKEND takes cuda or vulkan: %s\n' \
-            "$probe_backend" >&2
+        printf 'QWEN_PROBE_BACKEND takes cuda: %s\n' "$probe_backend" >&2
+        printf 'Vulkan depth arms are retired with Vulkan serving on this host\n' >&2
         exit 2
         ;;
 esac
 resolved_device=${QWEN_PROBE_DEVICE:-$default_device}
 # The device name has to belong to the backend that owns it: a CUDA arm
-# naming Vulkan0, or a Vulkan arm naming CUDA0 or CPU, would run the other
-# backend under this backend's wrapper and ledger label, so the canonical
-# enumeration form is required ahead of any launch.
+# naming Vulkan0 or CPU would run another backend under this backend's wrapper
+# and ledger label, so the canonical enumeration form is required ahead of any
+# launch.
 case $probe_backend:$resolved_device in
     cuda:CUDA[0-9]|cuda:CUDA[0-9][0-9]) ;;
-    vulkan:Vulkan[0-9]|vulkan:Vulkan[0-9][0-9]) ;;
     *)
         printf 'QWEN_PROBE_DEVICE %s does not belong to backend %s\n' \
             "$resolved_device" "$probe_backend" >&2
@@ -419,18 +415,10 @@ llama_cpp_commit=$(git -C "${HOME:?}/src/llama.cpp-qwen-nvidia" rev-parse HEAD)
 runner_sha256=$(sha256sum "$0" | cut -d ' ' -f 1)
 kernel_release=$(uname -r)
 gpu_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-# vulkaninfo names the driver an arm ran a Vulkan backend against; a CUDA arm
-# leaves the field the nvidia-smi driver version already carries on gpu_module
-# and records no separate Vulkan identity. The query runs through the same
-# wrapper at the same profile as the server, so it enumerates the ICD the
-# wrapper pinned rather than whatever the ambient loader would pick.
+# The ledger's vulkan_driver column stays for the rows retained from the
+# Vulkan diagnostic arms; a CUDA arm carries the nvidia-smi driver version on
+# gpu_module and records no separate Vulkan identity.
 vulkan_driver_version=-
-if [ "$probe_backend" = vulkan ] && command -v vulkaninfo >/dev/null 2>&1; then
-    parsed_vulkan_driver=$(QWEN_VULKAN_PROFILE=default "$runtime_wrapper" \
-        timeout 5s vulkaninfo --summary 2>/dev/null |
-        awk -F': *' '/driverInfo/ { print $2; exit }')
-    [ -z "$parsed_vulkan_driver" ] || vulkan_driver_version=$parsed_vulkan_driver
-fi
 measured_at=$(date -u +%Y-%m-%d)
 awk -F'\t' -v OFS='\t' -v model_id="$model_id" \
     -v evidence="$arm_evidence_path" -v commit="$llama_cpp_commit" \

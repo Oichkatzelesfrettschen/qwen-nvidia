@@ -55,7 +55,7 @@ QWEN_PROBE_BACKEND=hip env QWEN_MODEL_REGISTRY="$registry" \
 unknown_backend_status=$?
 set -e
 if [ "$unknown_backend_status" -eq 2 ] &&
-    grep -qF 'QWEN_PROBE_BACKEND takes cuda or vulkan: hip' \
+    grep -qF 'QWEN_PROBE_BACKEND takes cuda: hip' \
         "$temporary_directory/unknown-backend.err"; then
     report unknown_backend_refused accepted
 else
@@ -117,62 +117,31 @@ cuda_emitted_row=$(sed -n '1p' \
     report cuda_emitted_backend_field \
         "backend-$(printf '%s' "$cuda_emitted_row" | awk -F'\t' '{ print $13 }')"
 
-# QWEN_PROBE_BACKEND=vulkan resolves to Vulkan0 through vulkan-runtime-env.sh
-# and the emitted ledger row names backend=vulkan, so a Vulkan diagnostic
-# result can never be read as a CUDA registry claim.
+# QWEN_PROBE_BACKEND=vulkan named the retired Vulkan diagnostic arm. The probe
+# refuses it with status 2 ahead of the registry, the ownership gate, and any
+# launch, and names the retirement, so no Vulkan0 row can be emitted into the
+# ledger from this harness.
 vulkan_directory=$temporary_directory/vulkan-arm
 vulkan_argv=$temporary_directory/vulkan-argv.txt
-vulkan_log=$temporary_directory/vulkan.log
 set +e
 env QWEN_PROBE_BACKEND=vulkan QWEN_FAKE_SERVER_PLACEMENT=vulkan \
     QWEN_POLICY_TEST_OUTPUT="$vulkan_argv" QWEN_PROBE_PORT=18194 QWEN_FAKE_SERVER_PORT=18194 \
     QWEN_MODEL_REGISTRY="$registry" QWEN_MODEL_ROOT="$model_root" \
-    QWEN_GPU_OWNERSHIP_NVIDIA_SMI="$temporary_directory/no-compute-apps.sh" \
-    QWEN_GPU_OWNERSHIP_LOCK="$temporary_directory/ownership.lock" \
     QWEN_LLAMA_SERVER="$fake_server" \
-    QWEN_PROBE_EVIDENCE_PATH="evidence/test-probe-filled-depth/fake-text/" \
-    QWEN_PROBE_READY_TIMEOUT_S=30 \
-    "$probe" fake-text "$vulkan_directory" >"$vulkan_log" 2>&1
+    "$probe" fake-text "$vulkan_directory" \
+    >/dev/null 2>"$temporary_directory/vulkan-backend.err"
 vulkan_status=$?
 set -e
-if [ "$vulkan_status" -eq 0 ]; then
-    report vulkan_backend_arm_completed accepted
+if [ "$vulkan_status" -eq 2 ] &&
+    grep -qF 'QWEN_PROBE_BACKEND takes cuda: vulkan' \
+        "$temporary_directory/vulkan-backend.err" &&
+    grep -qF 'retired' "$temporary_directory/vulkan-backend.err" &&
+    [ ! -e "$vulkan_argv" ] && [ ! -e "$vulkan_directory" ]; then
+    report vulkan_backend_refused accepted
 else
-    report vulkan_backend_arm_completed "status-$vulkan_status"
-    sed -n '1,40p' "$vulkan_log" >&2
+    report vulkan_backend_refused "status-$vulkan_status"
+    sed -n '1,20p' "$temporary_directory/vulkan-backend.err" >&2
 fi
-
-vulkan_argv_accepted=accepted
-for required_argument in \
-    "argument=--device" "argument=Vulkan0" \
-    "argument=--override-tensor" "argument=.*=Vulkan0"; do
-    grep -qxF "$required_argument" "$vulkan_argv" 2>/dev/null ||
-        vulkan_argv_accepted="missing-$required_argument"
-done
-grep -qxF 'cuda_devices=unset' "$vulkan_argv" 2>/dev/null ||
-    vulkan_argv_accepted=missing-cuda-devices-unset-marker
-grep -q '^vk_icd=/' "$vulkan_argv" 2>/dev/null ||
-    vulkan_argv_accepted=missing-vk-icd-pinned-marker
-report vulkan_backend_wrapper_and_device "$vulkan_argv_accepted"
-
-grep -qF 'load_tensors: Vulkan0 model buffer size' \
-    "$vulkan_directory/d4096-b128-ub32.server.log" 2>/dev/null &&
-    report vulkan_placement_banner accepted ||
-    report vulkan_placement_banner rejected
-
-vulkan_summary_row=$(awk -F'\t' 'NR == 2 { print }' \
-    "$vulkan_directory/filled-depth-summary.tsv" 2>/dev/null || true)
-[ "$(printf '%s' "$vulkan_summary_row" | awk -F'\t' '{ print $3 }')" = vulkan ] &&
-    report vulkan_summary_backend_column accepted ||
-    report vulkan_summary_backend_column \
-        "backend-$(printf '%s' "$vulkan_summary_row" | awk -F'\t' '{ print $3 }')"
-
-vulkan_emitted_row=$(sed -n '1p' \
-    "$vulkan_directory/validated-tuples-rows.tsv" 2>/dev/null || true)
-[ "$(printf '%s' "$vulkan_emitted_row" | awk -F'\t' '{ print $13 }')" = vulkan ] &&
-    report vulkan_emitted_backend_field accepted ||
-    report vulkan_emitted_backend_field \
-        "backend-$(printf '%s' "$vulkan_emitted_row" | awk -F'\t' '{ print $13 }')"
 
 # QWEN_PROBE_DEVICE overrides the device name alone: the backend's own wrapper
 # still runs and the override pattern still derives from the overridden name.
@@ -203,15 +172,13 @@ grep -qxF 'vk_icd=unset' "$override_argv" 2>/dev/null ||
     override_accepted=missing-vk-icd-unset-marker
 report device_override_keeps_backend_wrapper "$override_accepted"
 
-# One model measured on both backends yields two ledger rows, and the id
-# carries the backend so the two stay distinct.
+# The emitted id carries the backend, so a row retained from the Vulkan
+# diagnostic arms stays distinct from the CUDA row of the same geometry.
 cuda_tuple_id=$(printf '%s' "$cuda_emitted_row" | awk -F'\t' '{ print $1 }')
-vulkan_tuple_id=$(printf '%s' "$vulkan_emitted_row" | awk -F'\t' '{ print $1 }')
-if [ "$cuda_tuple_id" = fake-text-cuda-d4096-b128-ub32 ] &&
-    [ "$vulkan_tuple_id" = fake-text-vulkan-d4096-b128-ub32 ]; then
+if [ "$cuda_tuple_id" = fake-text-cuda-d4096-b128-ub32 ]; then
     report tuple_ids_qualified_by_backend accepted
 else
-    report tuple_ids_qualified_by_backend "ids-$cuda_tuple_id-$vulkan_tuple_id"
+    report tuple_ids_qualified_by_backend "ids-$cuda_tuple_id"
 fi
 
 # The summary carries what the server proved and what the kernel scheduled.
@@ -225,10 +192,10 @@ else
     report summary_records_placement_and_scheduling "placement-$cuda_placement-nice-$cuda_nice"
 fi
 
-# A device name from the other backend, or the host, is refused before any
-# launch, whatever the requested backend.
+# A device name from another backend, or the host, is refused before any
+# launch.
 mismatch_accepted=accepted
-for pairing in cuda:Vulkan0 cuda:CPU vulkan:CUDA0 vulkan:CPU; do
+for pairing in cuda:Vulkan0 cuda:CPU; do
     set +e
     env QWEN_PROBE_BACKEND="${pairing%%:*}" QWEN_PROBE_DEVICE="${pairing#*:}" \
         QWEN_MODEL_REGISTRY="$registry" QWEN_MODEL_ROOT="$model_root" \

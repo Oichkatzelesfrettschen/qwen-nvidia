@@ -4,9 +4,12 @@
 # checkpoint in scripts/web-profiles.tsv.
 #
 # placement names where each component executes: `A` puts the text encoder,
-# the diffusion trunk, and the VAE on Vulkan; `B` runs the text encoder on the
-# CPU with diffusion and VAE on Vulkan; `C` runs the text encoder and the VAE
-# on the CPU with diffusion alone on Vulkan. The arm binds the bundle's own
+# the diffusion trunk, and the VAE on the device; `B` runs the text encoder on
+# the CPU with diffusion and VAE on the device; `C` runs the text encoder and
+# the VAE on the CPU with diffusion alone on the device. The device is CUDA0
+# under a CUDA-native image runtime, which is the runtime a fresh admission on
+# this host builds; the letters named Vulkan placements under the prior host's
+# runtime and keep their meaning as component splits. The arm binds the bundle's own
 # composition, so scripts/image-registry.sh requires arm B to name a text
 # encoder and arm C to name a text encoder and a VAE -- a bundle that omits the
 # component an arm places has no arm to place it on. That requirement is
@@ -86,10 +89,14 @@
 # establishes all four of the following, each as a retained record under
 # evidence/image-appliance/ or a sibling this section can be extended to name:
 #
-#   1. A placement arm measured on this device's own Vulkan ICD (the pinned
-#      nvidia_icd.json runtime image-service.py already spawns), since the
-#      DDR4-sharing argument above does not transfer to a discrete card and no
-#      arm has been re-run against a PCIe-separated CPU/GPU split.
+#   1. A placement arm measured under a CUDA-native image runtime, with each
+#      component's placement read off the runtime's own device accounting
+#      (text encoder, diffusion trunk, and VAE each named on CUDA0 or on the
+#      CPU), since the DDR4-sharing argument above does not transfer to a
+#      discrete card and no arm has been run against a PCIe-separated
+#      CPU/GPU split. A Vulkan-ICD arm proves nothing here: Vulkan serving
+#      is retired on this host and the row would carry a new CUDA profile
+#      identity rather than reinterpreting this one.
 #   2. A device-memory budget probe against the 12282 MiB carve-out this host
 #      actually carries, replacing the 4388-MiB-against-11.42-GiB prior-host UMA
 #      figure with one measured against this carve-out and the resident LLM

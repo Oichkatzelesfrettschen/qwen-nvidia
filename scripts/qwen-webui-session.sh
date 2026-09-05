@@ -392,13 +392,10 @@ fi
 # The session owns the state directory, so it names the one the Vulkan workload
 # lease lives in; qwen-capacity-policy.sh derives the lock path from it and
 # image-service.py opens the same file under its own --state-dir.
-# One positional profile reaches the wrapper the serving backend selects, so
-# the name is exported under that wrapper's own variable and the other stays
-# absent rather than carrying a value from the wrong vocabulary.
-case ${QWEN_SERVING_BACKEND:-cuda} in
-    vulkan) runtime_profile_variable=QWEN_VULKAN_PROFILE ;;
-    *)      runtime_profile_variable=QWEN_CUDA_PROFILE ;;
-esac
+# One positional profile reaches cuda-runtime-env.sh under its own variable;
+# qwen-webui-control.sh refused any other QWEN_SERVING_BACKEND ahead of the
+# tmux boundary.
+runtime_profile_variable=QWEN_CUDA_PROFILE
 
 env "$runtime_profile_variable=$runtime_profile" \
 QWEN_WEBUI_STATE_DIRECTORY=$state_directory \
@@ -411,22 +408,15 @@ printf '%s\n' "$server_pid" >"$pid_file"
 ready_for_monitor=0
 attempt=0
 inference_cpu=${QWEN_INFERENCE_CPU:-0}
-# The runtime policy the session requires is the one its wrapper applies, and
-# the two wrappers apply different ones. vulkan-runtime-env.sh pins one core
-# at nice 19 because the APU's second core is the desktop's; cuda-runtime-env.sh
-# runs across every core at the desktop's own priority and exports both values,
-# so the check reads back what was asked for rather than a constant.
-case ${QWEN_SERVING_BACKEND:-cuda} in
-    vulkan)
-        expected_affinity=$inference_cpu
-        expected_nice=19
-        ;;
-    *)
-        expected_affinity=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2>/dev/null || echo 0)}
-        expected_nice=${QWEN_SERVING_NICE:-0}
-        ;;
-esac
-# Model loading performs one-time Vulkan allocation and transfer work before the
+# The runtime policy the session requires is the one cuda-runtime-env.sh
+# applies: every online core at the desktop's own priority, both values
+# exported, so the check reads back what was asked for rather than a constant.
+# QWEN_INFERENCE_CPU is read for the record alone; the one-core pin belonged
+# to a two-core prior host.
+: "$inference_cpu"
+expected_affinity=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2>/dev/null || echo 0)}
+expected_nice=${QWEN_SERVING_NICE:-0}
+# Model loading performs one-time device allocation and transfer work before the
 # HTTP service can accept inference. Arm the service-latency watchdog only after
 # llama-server reports itself ready, while still requiring the runtime CPU
 # policy before admitting the session.

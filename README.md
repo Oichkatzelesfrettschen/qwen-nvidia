@@ -16,9 +16,10 @@ conclusions that still bear on a decision here.
 
 ## Backend
 
-`scripts/build-llama-cuda.sh` builds one `llama-server` carrying both the CUDA
-and Vulkan backends, so `llama-bench --device` selects between them and two
-rows differ by the backend alone. `CMAKE_CUDA_ARCHITECTURES=89` emits one SM89
+`scripts/build-llama-cuda.sh` builds the `llama-server` the appliance serves
+with the CUDA backend alone; `QWEN_BUILD_VULKAN=ON` adds the Vulkan backend to
+a diagnostic closure, on which `llama-bench --device` selects between the two
+and two rows differ by the backend alone. `CMAKE_CUDA_ARCHITECTURES=89` emits one SM89
 SASS variant plus compute_89 PTX for driver JIT and `cuobjdump`. The compact
 local-serving arm selects `89-real` explicitly and emits SASS alone.
 `GGML_CUDA_FA_ALL_QUANTS=ON` compiles flash-attention
@@ -26,16 +27,19 @@ kernels for the served `cache_type_k=q8_0`/`cache_type_v=q4_0` pair rather than
 leaving it off the flash-attention path, and the build runs through `g++-15`
 because nvcc refuses a host compiler newer than GCC 15.
 
-CUDA0 is the serving backend, and the promoted closure `88681bf4d161`
-carries the CUDA backend alone. Vulkan is reached by switching closure to
-the retained diagnostic `572951d25562`, which builds both backends, rather
-than by a device flag inside the promoted process;
-`scripts/serving-closures.tsv` names each closure by role.
-`QWEN_SERVING_BACKEND` selects the wrapper and `--device` names the device
-the argv carries. Serving defaults are CUDA graphs on, kernel fusion on, programmatic
+CUDA0 is the one serving backend, and the promoted closure `88681bf4d161`
+carries the CUDA backend alone. Vulkan serving and Vulkan admission campaigns
+are retired in this repository: `QWEN_SERVING_BACKEND` takes `cuda` alone and
+the launch chain refuses `vulkan`, `scripts/promote-llama-build.sh` refuses a
+build carrying `libggml-vulkan.so`, and the retained diagnostic closure
+`572951d25562`, which builds both backends, runs by hand for a diagnostic
+question and gates no CUDA work; `scripts/serving-closures.tsv` names each
+closure by role. The graphics-latency probe stays as a narrowly named Vulkan
+diagnostic exception until a replacement measures the same desktop property.
+Serving defaults are CUDA graphs on, kernel fusion on, programmatic
 dependent launch unset, `--fit off`, and explicit tensor placement
-`-ot .*=CUDA0`; a launch that names neither device risks the scheduler
-allocating on Vulkan0 for the same card, which is what `--device` and `-ot`
+`-ot .*=CUDA0`; a launch that names no device risks the scheduler allocating
+on Vulkan0 under the diagnostic closure, which is what `--device` and `-ot`
 exist to prevent. The device memory carve-out, not host bandwidth, sets the
 serving ceiling: 12282 MiB holds one 9B Q4_K_M trunk, a 0.8B draft, and two KV
 caches with little room left over.
@@ -125,9 +129,9 @@ Q8_0 at sixteen (`evidence/ada/promotion-88681bf4d161/`).
 `scripts/promote-llama-build.sh` decides promotion on CUDA0: a strict
 one-token placement check and a multimodal smoke both run with
 `LLAMA_NO_CPU_FALLBACK=1` and require every weight buffer to name CUDA0. A
-build that also carries `libggml-vulkan.so` takes the same two smokes on
-Vulkan0 as a separate fallback admission, and a CUDA-only build reports
-`fallback_vulkan=not-built`. The served closure is configuration `88681bf4d161`
+build that also carries `libggml-vulkan.so` is refused ahead of both smokes,
+and an accepted promotion reports `backend_set=cuda`.
+The served closure is configuration `88681bf4d161`
 (`evidence/ada/promotion-88681bf4d161/`), using 89-real, CUDA only, Q6_K MMVQ
 threshold 10, and Q8_0 MMVQ threshold 16. Configuration `31d0775c5bc6` is
 retained as the rollback target, and configuration `572951d25562` is retained
