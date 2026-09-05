@@ -11,7 +11,8 @@ content is read.
 
 The reply is one JSON object against a closed schema:
 
-    {"hard_constraints": [{"name": str, "passed": bool, "observation": str}],
+    {"hard_constraints": [{"name": str, "status": "pass"|"fail"|"uncertain",
+                           "observation": str}],
      "composition_change_required": bool,
      "prompt_delta": str,
      "regenerate": bool}
@@ -22,7 +23,7 @@ grammar (`build_verdict_schema`, wired through `json_schema_to_grammar` at
 The grammar cannot enforce a caller's own constraint list against duplicate
 names, since a JSON Schema `enum` admits the same value twice, so the parser
 here still admits that object and nothing else. Prose around it, a missing
-key, an extra key, a `passed` that is a number rather than a boolean, and a
+key, an extra key, a `status` outside its three words, and a
 constraint list naming anything other than the constraints the caller declared
 are each refused with the code that says which rule failed, because a tolerant
 parser would report a verdict the model did not state and hide the reply shape
@@ -52,10 +53,24 @@ against the digest the caller named, so `bad_digest`, `artifact_http_error`,
 `artifact_too_large`, and `artifact_digest_mismatch` refuse a control arm the
 way they refuse a real one.
 
+A constraint's `status` is one of three words. `pass` and `fail` state what
+the image shows; `uncertain` states that the model could not decide from the
+image, which is an answer of its own rather than a pass by default or a fail
+by caution. An uncertain constraint admits no correction, since there is no
+named failure to correct, and it counts against a promotion the way a fail
+does, since a tuple whose reviewer cannot decide has not been reviewed.
+
 Regeneration is admitted rather than obeyed. `correction_admitted` requires the
 reply to fail at least one named constraint, to set `regenerate`, and to carry a
 non-empty `prompt_delta`; a reply that asks to regenerate with every constraint
 passing states no failure to correct and is answered with the reason.
+
+`--binding KEY=VALUE` names what a verdict is bound to beyond the artifact
+digest, the prompt hash, and the model id: the reviewer's projector digest,
+its serving tuple, the image profile. Every binding is recorded verbatim on
+the verdict record and the audit line, beside a digest of the constraint
+list, so a verdict read later is joined to the exact reviewer and request
+that produced it rather than to a model name alone.
 """
 
 import argparse
@@ -81,7 +96,10 @@ VERDICT_KEYS = (
     "prompt_delta",
     "regenerate",
 )
-CONSTRAINT_KEYS = ("name", "passed", "observation")
+CONSTRAINT_KEYS = ("name", "status", "observation")
+CONSTRAINT_STATUSES = ("pass", "fail", "uncertain")
+BINDING_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+BINDING_VALUE_MAX_CHARS = 200
 CONSTRAINT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MAX_CONSTRAINTS = 8
@@ -145,10 +163,13 @@ def system_instruction(constraints):
         "Answer with one JSON object and nothing around it.",
         "The object carries exactly these four keys:",
         '  "hard_constraints": one entry per named constraint, in the order '
-        "given, each an object with exactly the keys name, passed, and "
+        "given, each an object with exactly the keys name, status, and "
         "observation.",
         "    name repeats the constraint name exactly.",
-        "    passed is the JSON literal true or false.",
+        '    status is one of the strings "pass", "fail", or "uncertain": '
+        "pass where the image shows the constraint met, fail where it shows "
+        "the constraint broken, and uncertain where the image does not let "
+        "you decide.",
         "    observation is one sentence of at most "
         f"{OBSERVATION_MAX_CHARS} characters stating what the image shows for "
         "that constraint.",
@@ -255,7 +276,7 @@ def build_verdict_schema(constraints):
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "enum": names},
-                        "passed": {"type": "boolean"},
+                        "status": {"type": "string", "enum": list(CONSTRAINT_STATUSES)},
                         "observation": {"type": "string", "maxLength": OBSERVATION_MAX_CHARS},
                     },
                     "required": list(CONSTRAINT_KEYS),
@@ -452,9 +473,10 @@ def parse_verdict(document, constraint_names):
                 "a constraint entry carries the keys " + ", ".join(sorted(entry_keys)))
         if not isinstance(entry["name"], str):
             raise ReviewRefused("constraint_name_not_string", "a constraint name is no string")
-        if not isinstance(entry["passed"], bool):
+        if not isinstance(entry["status"], str) or entry["status"] not in CONSTRAINT_STATUSES:
             raise ReviewRefused(
-                "passed_not_bool", f"passed for {entry['name']} is no JSON boolean")
+                "status_not_enum",
+                f"status for {entry['name']} is none of " + ", ".join(CONSTRAINT_STATUSES))
         if not isinstance(entry["observation"], str):
             raise ReviewRefused(
                 "observation_not_string", f"observation for {entry['name']} is no string")
@@ -470,7 +492,7 @@ def parse_verdict(document, constraint_names):
             "the verdict names constraints the caller did not declare")
     return {
         "hard_constraints": [
-            {"name": entry["name"], "passed": entry["passed"],
+            {"name": entry["name"], "status": entry["status"],
              "observation": entry["observation"]}
             for entry in entries],
         "composition_change_required": parsed["composition_change_required"],
@@ -480,7 +502,36 @@ def parse_verdict(document, constraint_names):
 
 
 def failed_constraint_names(verdict):
-    return [entry["name"] for entry in verdict["hard_constraints"] if not entry["passed"]]
+    return [entry["name"] for entry in verdict["hard_constraints"] if entry["status"] == "fail"]
+
+
+def uncertain_constraint_names(verdict):
+    return [entry["name"] for entry in verdict["hard_constraints"] if entry["status"] == "uncertain"]
+
+
+def constraints_digest(constraints):
+    """One digest over the declared names and descriptions, in order."""
+    canonical = json.dumps([[name, description] for name, description in constraints],
+                           separators=(",", ":"), sort_keys=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def parse_binding(value):
+    """Return one `key=value` binding, refusing a key outside the name rule."""
+    key, separator, bound = value.partition("=")
+    if not separator:
+        raise SystemExit(f"a binding is spelled key=value: {value}")
+    key = key.strip()
+    bound = bound.strip()
+    if not BINDING_KEY_PATTERN.match(key):
+        raise SystemExit(
+            "a binding key is lowercase, starts with a letter, and holds "
+            f"letters, digits, and underscores: {key}")
+    if not bound or len(bound) > BINDING_VALUE_MAX_CHARS or any(c.isspace() for c in bound):
+        raise SystemExit(
+            f"binding {key} states a value of 1 to {BINDING_VALUE_MAX_CHARS} "
+            "characters without whitespace")
+    return key, bound
 
 
 def correction_admitted(verdict):
@@ -503,7 +554,8 @@ def correction_admitted(verdict):
 
 def audit_line(model, digest, prompt_hash, constraint_names, verdict=None,
                wall_seconds=0.0, reasoning_emitted=False, refusal_code=None,
-               image_mode="real", swap_digest=None):
+               image_mode="real", swap_digest=None, bindings=None,
+               constraints_sha256=None):
     """Return one line of what happened, free of every image-derived string.
 
     `observation` and `prompt_delta` are text a model wrote after reading an
@@ -526,16 +578,23 @@ def audit_line(model, digest, prompt_hash, constraint_names, verdict=None,
         "swap_sha256=" + (swap_digest if swap_digest else "-"),
         f"wall_seconds={wall_seconds:.2f}",
         f"reasoning_emitted={'yes' if reasoning_emitted else 'no'}",
+        "constraints_sha256=" + (constraints_sha256 or "-"),
     ]
+    for key in sorted(bindings or {}):
+        fields.append(f"binding_{key}={bindings[key]}")
     if verdict is None:
         fields.append(f"status=refused:{refusal_code}")
         return " ".join(fields)
     failed = failed_constraint_names(verdict)
+    uncertain = uncertain_constraint_names(verdict)
     admitted, _reason = correction_admitted(verdict)
     delta = verdict["prompt_delta"]
     fields.extend([
+        f"passed={len(constraint_names) - len(failed) - len(uncertain)}",
         f"failed={len(failed)}",
         "failed_names=" + (",".join(failed) if failed else "-"),
+        f"uncertain={len(uncertain)}",
+        "uncertain_names=" + (",".join(uncertain) if uncertain else "-"),
         f"composition_change_required={'yes' if verdict['composition_change_required'] else 'no'}",
         f"regenerate={'yes' if verdict['regenerate'] else 'no'}",
         f"correction_admitted={'yes' if admitted else 'no'}",
@@ -548,7 +607,8 @@ def audit_line(model, digest, prompt_hash, constraint_names, verdict=None,
 
 def review_artifact(router_origin, artifact_origin, api_key, model, digest,
                     prompt_hash, constraints, timeout=REVIEW_TIMEOUT_SECONDS,
-                    image_mode="real", swap_digest=None, cache_prompt=True):
+                    image_mode="real", swap_digest=None, cache_prompt=True,
+                    bindings=None):
     """Run one review end to end and return what a caller acts on.
 
     The returned record holds the verdict, the failed names, the correction
@@ -624,7 +684,8 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
         refusal.audit = audit_line(
             model, digest, prompt_hash, names, wall_seconds=wall_seconds,
             reasoning_emitted=reasoning_emitted, refusal_code=refusal.code,
-            image_mode=image_mode, swap_digest=swap_digest)
+            image_mode=image_mode, swap_digest=swap_digest, bindings=bindings,
+            constraints_sha256=constraints_digest(constraints))
         refusal.raw_reply = raw_reply
         raise
     admitted, reason = correction_admitted(verdict)
@@ -637,6 +698,9 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
         "verdict": verdict,
         "raw_reply": raw_reply,
         "failed": failed_constraint_names(verdict),
+        "uncertain": uncertain_constraint_names(verdict),
+        "bindings": dict(bindings or {}),
+        "constraints_sha256": constraints_digest(constraints),
         "correction_admitted": admitted,
         "correction_reason": reason,
         "reasoning_emitted": reasoning_emitted,
@@ -644,7 +708,9 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
         "audit": audit_line(model, digest, prompt_hash, names, verdict=verdict,
                             wall_seconds=wall_seconds,
                             reasoning_emitted=reasoning_emitted,
-                            image_mode=image_mode, swap_digest=swap_digest),
+                            image_mode=image_mode, swap_digest=swap_digest,
+                            bindings=bindings,
+                            constraints_sha256=constraints_digest(constraints)),
     }
 
 
@@ -704,6 +770,9 @@ def main(argv):
                              "warm prefix carried from an earlier arm changes nothing")
     parser.add_argument("--verdict-json", default="",
                         help="write the verdict record to this path")
+    parser.add_argument("--binding", action="append", default=[], metavar="KEY=VALUE",
+                        help="one fact the verdict is bound to, recorded verbatim on the "
+                             "record and the audit line: projector digest, tuple, profile")
     arguments = parser.parse_args(argv)
 
     # A swap digest and the swapped mode name each other, so either alone is an
@@ -723,6 +792,12 @@ def main(argv):
 
     constraints = validate_constraints(
         [parse_constraint(value) for value in arguments.constraint])
+    bindings = {}
+    for value in arguments.binding:
+        key, bound = parse_binding(value)
+        if key in bindings:
+            parser.error(f"binding {key} is stated twice")
+        bindings[key] = bound
     api_key = read_api_key(arguments)
     try:
         record = review_artifact(
@@ -731,13 +806,15 @@ def main(argv):
             constraints, timeout=arguments.timeout,
             image_mode=arguments.image_mode,
             swap_digest=arguments.swap_sha256 or None,
-            cache_prompt=not arguments.no_prompt_cache)
+            cache_prompt=not arguments.no_prompt_cache,
+            bindings=bindings)
     except ReviewRefused as refusal:
         line = getattr(refusal, "audit", None) or audit_line(
             arguments.model, arguments.sha256, arguments.prompt_hash,
             [name for name, _description in constraints], refusal_code=refusal.code,
             image_mode=arguments.image_mode,
-            swap_digest=arguments.swap_sha256 or None)
+            swap_digest=arguments.swap_sha256 or None, bindings=bindings,
+            constraints_sha256=constraints_digest(constraints))
         sys.stdout.write(line + "\n")
         sys.stderr.write(f"image-review refused: {refusal.message}\n")
         raw_reply = getattr(refusal, "raw_reply", None)

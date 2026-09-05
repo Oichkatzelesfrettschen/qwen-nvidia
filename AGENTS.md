@@ -1655,6 +1655,32 @@ passing every constraint it cannot see refutes the visual grounding, and swapped
 observations agreeing with A rather than B report the same thing through a
 second route.
 
+A constraint's verdict is one of three words rather than a boolean. `pass`
+and `fail` state what the image shows and `uncertain` states that the image
+did not let the model decide, which the schema's `status` enum admits as an
+answer of its own: an uncertain constraint admits no correction, since it
+names no failure to correct, and counts against a promotion, since a tuple
+whose reviewer could not decide has not been reviewed. A verdict is bound
+beyond the artifact digest, the prompt hash, and the model id:
+`image-review.py --binding KEY=VALUE` carries the reviewer's projector
+digest, model digest, serving tuple, and server closure onto the record and
+the audit line beside a digest of the constraint list, so a verdict read
+later names the exact reviewer and request that produced it.
+`scripts/run-vision-review-calibration.sh` is what gives pass, fail, and
+uncertain a measured meaning ahead of the first artifact they judge: six
+arms per repeat over two drawings whose content
+`scripts/generate-quality-images.py` declares, bars.png meeting three
+declared constraints and shapes.png meeting none, so correct, violating,
+withheld, swapped, absent-digest, and closing arms read grounding,
+discrimination, identity, and schema conformance against a declaration
+rather than a judgment. `scripts/admit-vision-review-calibration.sh` runs it
+on the device through the served review path, the image service's artifact
+listener under the Web UI credential and llama-server standalone at the
+reviewer's registry tuple with its projector, three repeats per reviewer
+with device memory sampled through load, arms, and unload;
+`evidence/image-appliance/vision-review-calibration/` carries the
+preregistration and the runs.
+
 `patches/llama-router-tools-proxy.patch` is what puts the route on the router
 port. At f280b269 `server.cpp` registers `/tools` only in a process whose own
 MCP manager holds a server, and the router branch proxies chat, props, and
@@ -1754,6 +1780,12 @@ scripts/image-review.py --router-origin URL --artifact-origin URL --model ID \
 scripts/run-vision-review-control.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
     SHA256_A SHA256_B PROMPT_HASH OUTPUT_DIR --constraint NAME=DESCRIPTION
                                                 # real, withheld, swapped, and a closing real arm
+scripts/run-vision-review-calibration.sh ROUTER_ORIGIN ARTIFACT_ORIGIN MODEL \
+    SHA256_A SHA256_B SHA256_ABSENT PROMPT_HASH OUTPUT_DIR [--repeat N] \
+    [--binding KEY=VALUE]... --constraint NAME=DESCRIPTION...
+                                                # correct, violating, withheld, swapped, absent, closing; readings per arm
+scripts/admit-vision-review-calibration.sh OUT [REVIEWER_ID...]
+                                                # those arms on the device through the served review path, residency sampled
 scripts/run-graph-alias-ab.sh OUTPUT_DIR [MODEL_ID...]
                                                 # token identity across the graph optimizer
 scripts/run-concurrent-sequence-sweep.sh SERVER MODEL_ID OUT

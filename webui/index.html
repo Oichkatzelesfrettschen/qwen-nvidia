@@ -104,6 +104,7 @@
   .image-review ul { list-style:none; margin:.3rem 0; padding:0; font-size:13px; }
   .image-review li { margin:.15rem 0; }
   .image-review li.fail { color:var(--bad); }
+  .image-review li.uncertain { color:var(--warn); }
   .image-review-note { font-size:12px; }
   .image-review-note.bad { color:var(--bad); }
   .code-job { margin:.4rem 0; padding:.5rem .7rem; border:1px solid var(--line);
@@ -1861,7 +1862,7 @@ async function handleCodeJobCall(toolName, callId, argumentText, turnGeneration,
 //
 // The verdict is one JSON object against a closed schema, parsed here the way
 // scripts/image-review.py parses it: prose, an extra key, a missing key, a
-// `passed` that is not a boolean, and a constraint list naming anything other
+// `status` outside pass, fail, and uncertain, and a constraint list naming anything other
 // than what this page declared are each refused, because a tolerant parse
 // would render a verdict the model did not state.
 //
@@ -1876,7 +1877,8 @@ const REVIEW_TIMEOUT_MS = 300000;
 const IMAGE_CORRECTION_CAP = 2;
 const REVIEW_VERDICT_KEYS = ['hard_constraints', 'composition_change_required',
                              'prompt_delta', 'regenerate'];
-const REVIEW_CONSTRAINT_KEYS = ['name', 'passed', 'observation'];
+const REVIEW_CONSTRAINT_KEYS = ['name', 'status', 'observation'];
+const REVIEW_CONSTRAINT_STATUSES = ['pass', 'fail', 'uncertain'];
 const REVIEW_OBSERVATION_MAX_CHARS = 300;
 const REVIEW_PROMPT_DELTA_MAX_CHARS = 200;
 
@@ -1953,9 +1955,11 @@ function reviewSystemInstruction(constraints) {
     'Answer with one JSON object and nothing around it.',
     'The object carries exactly these four keys:',
     '  "hard_constraints": one entry per named constraint, in the order given, ' +
-      'each an object with exactly the keys name, passed, and observation.',
+      'each an object with exactly the keys name, status, and observation.',
     '    name repeats the constraint name exactly.',
-    '    passed is the JSON literal true or false.',
+    '    status is one of the strings "pass", "fail", or "uncertain": pass where '
+      + 'the image shows the constraint met, fail where it shows the constraint broken, '
+      + 'and uncertain where the image does not let you decide.',
     `    observation is one sentence of at most ${REVIEW_OBSERVATION_MAX_CHARS} ` +
       'characters stating what the image shows for that constraint.',
     '  "composition_change_required": true where the image needs a different ' +
@@ -1999,11 +2003,44 @@ async function artifactDataUri(sha256, signal) {
   return `data:image/png;base64,${btoa(binary)}`;
 }
 
+function buildReviewVerdictSchema(constraints) {
+  /* The same closed schema scripts/image-review.py sends as response_format,
+     so the server's grammar bounds the page's review the way it bounds the
+     calibrated one: the constraint count and the name enum come from the
+     page's own declaration, and status admits the three words alone. */
+  const names = constraints.map(constraint => constraint.name);
+  return {
+    type: 'object',
+    properties: {
+      hard_constraints: {
+        type: 'array', minItems: names.length, maxItems: names.length,
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', enum: names },
+            status: { type: 'string', enum: REVIEW_CONSTRAINT_STATUSES },
+            observation: { type: 'string', maxLength: REVIEW_OBSERVATION_MAX_CHARS }
+          },
+          required: REVIEW_CONSTRAINT_KEYS,
+          additionalProperties: false
+        }
+      },
+      composition_change_required: { type: 'boolean' },
+      prompt_delta: { type: 'string', maxLength: REVIEW_PROMPT_DELTA_MAX_CHARS },
+      regenerate: { type: 'boolean' }
+    },
+    required: REVIEW_VERDICT_KEYS,
+    additionalProperties: false
+  };
+}
+
 function buildReviewRequestBody(visionModel, dataUri, promptHash, constraints) {
   // `tools` is absent rather than empty: the review offers no executable
   // surface, so the reply has none to propose. Thinking is off and the budget
   // is fixed, because a reasoning span inside 400 tokens ends the object
-  // unclosed.
+  // unclosed. response_format carries the verdict schema, which the pinned
+  // server converts to a grammar, so the calibrated CLI path and this page
+  // bound the sampled tokens the same way.
   const names = constraints.map(constraint => constraint.name).join(', ');
   return {
     model: visionModel,
@@ -2023,7 +2060,8 @@ function buildReviewRequestBody(visionModel, dataUri, promptHash, constraints) {
     top_k: 1,
     seed: 1,
     stream: false,
-    chat_template_kwargs: { enable_thinking: false }
+    chat_template_kwargs: { enable_thinking: false },
+    response_format: { type: 'json_schema', json_schema: { schema: buildReviewVerdictSchema(constraints) } }
   };
 }
 
@@ -2085,8 +2123,8 @@ function parseReviewVerdict(reply, names) {
     if (entry.name !== names[index]) {
       throw new Error(`the verdict names ${entry.name} where ${names[index]} was declared`);
     }
-    if (typeof entry.passed !== 'boolean') {
-      throw new Error(`passed for ${entry.name} is no JSON boolean`);
+    if (!REVIEW_CONSTRAINT_STATUSES.includes(entry.status)) {
+      throw new Error(`status for ${entry.name} is none of ${REVIEW_CONSTRAINT_STATUSES.join(', ')}`);
     }
     if (typeof entry.observation !== 'string'
         || entry.observation.length > REVIEW_OBSERVATION_MAX_CHARS) {
@@ -2099,8 +2137,9 @@ function parseReviewVerdict(reply, names) {
 function reviewCorrectionAdmitted(verdict) {
   /* Three facts admit a correction: a constraint the model marked failed, the
      regenerate flag, and a delta stating what to change. Any other combination
-     is reported with the fact it lacks, which is what the card renders. */
-  const failed = verdict.hard_constraints.filter(entry => !entry.passed);
+     is reported with the fact it lacks, which is what the card renders. An
+     uncertain constraint names no failure to correct, so it admits nothing. */
+  const failed = verdict.hard_constraints.filter(entry => entry.status === 'fail');
   if (!verdict.regenerate) {
     return { admitted: false, reason: 'the verdict asks for no regeneration' };
   }
@@ -2128,11 +2167,11 @@ function renderReviewChecklist(card, verdict, visionModel) {
   const list = document.createElement('ul');
   for (const entry of verdict.hard_constraints) {
     const item = document.createElement('li');
-    item.className = entry.passed ? 'pass' : 'fail';
+    item.className = entry.status;
     // textContent: an observation is text a model wrote after reading an image
     // whose own text this appliance treats as content, so it renders as text
     // and never as markup.
-    item.textContent = `${entry.passed ? 'pass' : 'fail'} ${entry.name}: ${entry.observation}`;
+    item.textContent = `${entry.status} ${entry.name}: ${entry.observation}`;
     list.append(item);
   }
   block.append(list);

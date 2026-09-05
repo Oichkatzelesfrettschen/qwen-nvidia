@@ -300,7 +300,7 @@ def review_verdict(body):
                 ]
     return json.dumps({
         "hard_constraints": [
-            {"name": name, "passed": True,
+            {"name": name, "status": "pass",
              "observation": "The frame meets this constraint."}
             for name in declared
         ],

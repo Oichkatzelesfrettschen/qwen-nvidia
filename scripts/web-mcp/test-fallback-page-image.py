@@ -109,8 +109,8 @@ PAIRED_REVIEW_MODEL = "lfm25-vl-16b"
 PAIRED_LANGUAGE_MODEL = "web-image-admission"
 PASSING_REVIEW_VERDICT = {
     "hard_constraints": [
-        {"name": "prompt_subject", "passed": True, "observation": "A fox stands in snow."},
-        {"name": "negative_prompt_absent", "passed": True, "observation": "The frame is sharp."},
+        {"name": "prompt_subject", "status": "pass", "observation": "A fox stands in snow."},
+        {"name": "negative_prompt_absent", "status": "pass", "observation": "The frame is sharp."},
     ],
     "composition_change_required": False,
     "prompt_delta": "",
@@ -119,8 +119,8 @@ PASSING_REVIEW_VERDICT = {
 REVIEW_PROMPT_DELTA = "a single fox, centred, alone in the frame"
 REGENERATE_REVIEW_VERDICT = {
     "hard_constraints": [
-        {"name": "prompt_subject", "passed": False, "observation": "Two foxes share the frame."},
-        {"name": "negative_prompt_absent", "passed": True, "observation": "The frame is sharp."},
+        {"name": "prompt_subject", "status": "fail", "observation": "Two foxes share the frame."},
+        {"name": "negative_prompt_absent", "status": "pass", "observation": "The frame is sharp."},
     ],
     "composition_change_required": True,
     "prompt_delta": REVIEW_PROMPT_DELTA,

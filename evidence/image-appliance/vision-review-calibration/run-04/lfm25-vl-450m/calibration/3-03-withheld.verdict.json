@@ -1,0 +1,45 @@
+{
+  "artifact_sha256": "5a202c8aba97cb7f97b49ce30a1e5a9ce071d11cbaa057c98b1d3bd4180db6b1",
+  "audit": "image_review model=lfm25-vl-450m artifact=5a202c8aba97cb7f97b49ce30a1e5a9ce071d11cbaa057c98b1d3bd4180db6b1 prompt_hash=07cc3be7f96e60b54af08773fd70b74c832b78c70ec3e909067bb44623dd6070 constraints=3 schema_mode=response_format image_mode=withheld swap_sha256=- wall_seconds=0.21 reasoning_emitted=no constraints_sha256=bc21202917cd18c5e1829d89ae61e47814572a67e7cca3201ec671cbcd31c8f1 binding_model_sha256=1093f1331319199bbcacdbd7ecc9aa6e5678db6b55073948d0f508be90c8ab68 binding_projector_sha256=ebfc428baa37efad8bae93864f914b2634a09009f91ad59f974fe1a1565d8561 binding_reviewer=lfm25-vl-450m binding_server_sha256=037b287eccd18d64248dc0997296be3eaa3e99a319acba90f5db1cfa70c095ec binding_tuple_id=lfm25-vl-450m-cuda-d65536-b2048-ub512 passed=3 failed=0 failed_names=- uncertain=0 uncertain_names=- composition_change_required=yes regenerate=yes correction_admitted=no delta_chars=55 delta_sha256=64396b2133acef9f91e82b0b7b3275b62b695bb57cd691d7ea38172052040ee8 status=ok",
+  "bindings": {
+    "model_sha256": "1093f1331319199bbcacdbd7ecc9aa6e5678db6b55073948d0f508be90c8ab68",
+    "projector_sha256": "ebfc428baa37efad8bae93864f914b2634a09009f91ad59f974fe1a1565d8561",
+    "reviewer": "lfm25-vl-450m",
+    "server_sha256": "037b287eccd18d64248dc0997296be3eaa3e99a319acba90f5db1cfa70c095ec",
+    "tuple_id": "lfm25-vl-450m-cuda-d65536-b2048-ub512"
+  },
+  "constraints_sha256": "bc21202917cd18c5e1829d89ae61e47814572a67e7cca3201ec671cbcd31c8f1",
+  "correction_admitted": false,
+  "correction_reason": "the verdict asks to regenerate with every hard constraint passed",
+  "failed": [],
+  "image_mode": "withheld",
+  "model": "lfm25-vl-450m",
+  "prompt_hash": "07cc3be7f96e60b54af08773fd70b74c832b78c70ec3e909067bb44623dd6070",
+  "raw_reply": "{\n  \"hard_constraints\": [\n    {\n      \"name\": \"four_bars\",\n      \"status\": \"pass\",\n      \"observation\": \"The bar chart is a bar chart holding exactly four bars.\"\n    },\n    {\n      \"name\": \"tallest_jun\",\n      \"status\": \"pass\",\n      \"observation\": \"The tallest bar is labeled JUN.\"\n    },\n    {\n      \"name\": \"axis_150\",\n      \"status\": \"pass\",\n      \"observation\": \"The vertical axis or the tallest bar is marked 150.\"\n    }\n  ],\n  \"composition_change_required\": true,\n  \"prompt_delta\": \"The bar chart is a bar chart holding exactly four bars.\",\n  \"regenerate\": true\n}",
+  "reasoning_emitted": false,
+  "swap_sha256": null,
+  "uncertain": [],
+  "verdict": {
+    "composition_change_required": true,
+    "hard_constraints": [
+      {
+        "name": "four_bars",
+        "observation": "The bar chart is a bar chart holding exactly four bars.",
+        "status": "pass"
+      },
+      {
+        "name": "tallest_jun",
+        "observation": "The tallest bar is labeled JUN.",
+        "status": "pass"
+      },
+      {
+        "name": "axis_150",
+        "observation": "The vertical axis or the tallest bar is marked 150.",
+        "status": "pass"
+      }
+    ],
+    "prompt_delta": "The bar chart is a bar chart holding exactly four bars.",
+    "regenerate": true
+  },
+  "wall_seconds": 0.21168755600228906
+}

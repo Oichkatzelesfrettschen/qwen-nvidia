@@ -105,7 +105,7 @@ done
 mkdir -p "$output_directory"
 summary_path=$output_directory/summary.tsv
 audit_log_path=$output_directory/audit.log
-printf 'arm\timage_mode\tswap_sha256\tstatus\tconstraints\tpassed\tfailed\tregenerate\twall_seconds\texit_status\n' >"$summary_path"
+printf 'arm\timage_mode\tswap_sha256\tstatus\tconstraints\tpassed\tfailed\tuncertain\tregenerate\twall_seconds\texit_status\n' >"$summary_path"
 : >"$audit_log_path"
 
 refused_arms=0
@@ -161,21 +161,23 @@ run_arm() {
     arm_status=$(audit_field status "$arm_audit")
     arm_constraints=$(audit_field constraints "$arm_audit")
     arm_failed=$(audit_field failed "$arm_audit")
+    arm_uncertain=$(audit_field uncertain "$arm_audit")
     arm_regenerate=$(audit_field regenerate "$arm_audit")
     arm_wall_seconds=$(audit_field wall_seconds "$arm_audit")
     arm_swap_field=$(audit_field swap_sha256 "$arm_audit")
     if [ "$arm_status" = ok ]; then
-        arm_passed=$((arm_constraints - arm_failed))
+        arm_passed=$((arm_constraints - arm_failed - arm_uncertain))
     else
         arm_passed=-
         arm_failed=-
+        arm_uncertain=-
         arm_regenerate=-
         refused_arms=$((refused_arms + 1))
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$arm_label" "$arm_image_mode" "${arm_swap_field:--}" \
         "${arm_status:-unknown}" "${arm_constraints:-0}" "$arm_passed" \
-        "$arm_failed" "$arm_regenerate" "${arm_wall_seconds:--}" \
+        "$arm_failed" "$arm_uncertain" "$arm_regenerate" "${arm_wall_seconds:--}" \
         "$arm_exit_status" >>"$summary_path"
 }
 

@@ -61,8 +61,8 @@ CONSTRAINT_NAMES = [name for name, _description in CONSTRAINTS]
 
 PASSING_VERDICT = {
     "hard_constraints": [
-        {"name": "subject_count", "passed": True, "observation": "One fox stands in frame."},
-        {"name": "background_color", "passed": True, "observation": "The field reads white."},
+        {"name": "subject_count", "status": "pass", "observation": "One fox stands in frame."},
+        {"name": "background_color", "status": "pass", "observation": "The field reads white."},
     ],
     "composition_change_required": False,
     "prompt_delta": "",
@@ -70,8 +70,8 @@ PASSING_VERDICT = {
 }
 REGENERATE_VERDICT = {
     "hard_constraints": [
-        {"name": "subject_count", "passed": False, "observation": "Two foxes stand in frame."},
-        {"name": "background_color", "passed": True, "observation": "The field reads white."},
+        {"name": "subject_count", "status": "fail", "observation": "Two foxes stand in frame."},
+        {"name": "background_color", "status": "pass", "observation": "The field reads white."},
     ],
     "composition_change_required": True,
     "prompt_delta": "a single fox, alone in the frame",
@@ -171,7 +171,7 @@ def serve(handler):
 
 def run_review(reply, constraints=None, artifact_bytes=ONE_PIXEL_PNG,
                artifact_digest=None, digest=None, prompt_hash=PROMPT_HASH,
-               artifacts=None, image_mode="real", swap_digest=None):
+               artifacts=None, image_mode="real", swap_digest=None, bindings=None):
     """Run one review against a stub answering `reply`, returning (record, error, state)."""
     state = {"lock": threading.Lock(), "chat_bodies": [], "unauthorized_reads": 0}
     server, thread, origin = serve(
@@ -183,7 +183,7 @@ def run_review(reply, constraints=None, artifact_bytes=ONE_PIXEL_PNG,
         record = image_review.review_artifact(
             origin, origin, API_KEY, VISION_MODEL, digest or ARTIFACT_SHA256,
             prompt_hash, constraints or CONSTRAINTS, timeout=30,
-            image_mode=image_mode, swap_digest=swap_digest)
+            image_mode=image_mode, swap_digest=swap_digest, bindings=bindings)
     except image_review.ReviewRefused as error:
         refusal = error
     finally:
@@ -257,6 +257,55 @@ def test_accepted_verdict():
     if record["raw_reply"] != verdict_text(PASSING_VERDICT):
         failures.append("the record does not retain the raw reply text")
     return failures, ["accepted_verdict=" + audit]
+
+
+def test_uncertain_verdict():
+    """An uncertain constraint is an answer: no failure, no correction, counted."""
+    uncertain = dict(PASSING_VERDICT, hard_constraints=[
+        dict(PASSING_VERDICT["hard_constraints"][0], status="uncertain"),
+        PASSING_VERDICT["hard_constraints"][1]], regenerate=True,
+        prompt_delta="make the subject count visible")
+    record, refusal, _state = run_review(message_with(verdict_text(uncertain)))
+    failures = []
+    if refusal is not None:
+        return ["an uncertain verdict was refused: " + refusal.code], []
+    if record["failed"]:
+        failures.append("an uncertain constraint was reported as failed")
+    if record["uncertain"] != ["subject_count"]:
+        failures.append("the uncertain names are " + repr(record["uncertain"]))
+    if record["correction_admitted"]:
+        failures.append("an uncertain verdict admitted a correction")
+    audit = record["audit"]
+    for expected in ("uncertain=1", "uncertain_names=subject_count", "failed=0", "passed=1",
+                     "correction_admitted=no"):
+        if expected not in audit:
+            failures.append("the audit line lacks " + expected + ": " + audit)
+    return failures, ["uncertain_verdict=" + audit]
+
+
+def test_bindings_are_recorded():
+    """Every binding and the constraints digest reach the record and the audit line."""
+    bindings = {"projector_sha256": "ab" * 32, "tuple_id": "lfm25-vl-450m-cuda-d65536-b2048-ub512"}
+    record, refusal, _state = run_review(message_with(verdict_text(PASSING_VERDICT)), bindings=bindings)
+    failures = []
+    if refusal is not None:
+        return ["a bound review was refused: " + refusal.code], []
+    if record["bindings"] != bindings:
+        failures.append("the record does not carry the bindings: " + json.dumps(record["bindings"]))
+    expected_digest = hashlib.sha256(json.dumps(
+        [[name, description] for name, description in CONSTRAINTS],
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+    if record["constraints_sha256"] != expected_digest:
+        failures.append("the constraints digest differs from the declaration's")
+    audit = record["audit"]
+    for expected in ("binding_projector_sha256=" + "ab" * 32, "binding_tuple_id=lfm25-vl-450m-cuda-d65536-b2048-ub512",
+                     "constraints_sha256=" + expected_digest):
+        if expected not in audit:
+            failures.append("the audit line lacks " + expected)
+    record, refusal, _state = run_review(message_with(PROSE_REPLY), bindings=bindings)
+    if refusal is None or "binding_tuple_id=" not in getattr(refusal, "audit", ""):
+        failures.append("a refused review's audit line drops the bindings")
+    return failures, ["bindings=" + ",".join(sorted(bindings))]
 
 
 def test_response_format_carries_bounded_schema():
@@ -375,26 +424,33 @@ def test_refusals():
          message_with(verdict_text(
              {key: value for key, value in PASSING_VERDICT.items() if key != "regenerate"})),
          "missing_keys", {}),
-        ("passed_not_bool",
+        ("status_not_enum",
          message_with(verdict_text(dict(
              PASSING_VERDICT,
              hard_constraints=[
-                 {"name": "subject_count", "passed": 1, "observation": "One fox."},
-                 {"name": "background_color", "passed": True, "observation": "White."}]))),
-         "passed_not_bool", {}),
+                 {"name": "subject_count", "status": "maybe", "observation": "One fox."},
+                 {"name": "background_color", "status": "pass", "observation": "White."}]))),
+         "status_not_enum", {}),
+        ("status_boolean",
+         message_with(verdict_text(dict(
+             PASSING_VERDICT,
+             hard_constraints=[
+                 {"name": "subject_count", "status": True, "observation": "One fox."},
+                 {"name": "background_color", "status": "pass", "observation": "White."}]))),
+         "status_not_enum", {}),
         ("unnamed_constraint",
          message_with(verdict_text(dict(
              PASSING_VERDICT,
              hard_constraints=[
-                 {"name": "subject_count", "passed": True, "observation": "One fox."},
-                 {"name": "lighting", "passed": True, "observation": "Bright."}]))),
+                 {"name": "subject_count", "status": "pass", "observation": "One fox."},
+                 {"name": "lighting", "status": "pass", "observation": "Bright."}]))),
          "constraint_names", {}),
         ("duplicated_name",
          message_with(verdict_text(dict(
              PASSING_VERDICT,
              hard_constraints=[
-                 {"name": "subject_count", "passed": True, "observation": "One fox."},
-                 {"name": "subject_count", "passed": True, "observation": "Still one fox."}]))),
+                 {"name": "subject_count", "status": "pass", "observation": "One fox."},
+                 {"name": "subject_count", "status": "pass", "observation": "Still one fox."}]))),
          "constraint_names", {}),
         ("constraint_count",
          message_with(verdict_text(dict(
@@ -733,6 +789,72 @@ def test_control_runner_drives_the_four_arms():
     return failures, lines
 
 
+def test_calibration_runner_reads_six_arms():
+    """`scripts/run-vision-review-calibration.sh` reads pass, fail, and uncertain per arm.
+
+    The stub answers from the pixels the request carried: A passes, B fails
+    one constraint, and a request without an image is uncertain, so the six
+    readings follow the arm design rather than a fixed verdict.
+    """
+    b_url = "data:image/png;base64," + base64.b64encode(SWAP_PIXEL_PNG).decode("ascii")
+
+    def reply(body):
+        images = [part["image_url"]["url"] for part in user_content(body) if part.get("type") == "image_url"]
+        if not images:
+            status = ["uncertain", "uncertain"]
+        elif images[0] == b_url:
+            status = ["fail", "pass"]
+        else:
+            status = ["pass", "pass"]
+        verdict = dict(PASSING_VERDICT, hard_constraints=[
+            dict(PASSING_VERDICT["hard_constraints"][0], status=status[0]),
+            dict(PASSING_VERDICT["hard_constraints"][1], status=status[1])])
+        return message_with(verdict_text(verdict))
+
+    state = {"lock": threading.Lock(), "chat_bodies": [], "unauthorized_reads": 0}
+    server, thread, origin = serve(make_handler(state, reply, artifacts=BOTH_ARTIFACTS))
+    output_directory = tempfile.mkdtemp(prefix="vision-review-calibration-")
+    failures = []
+    lines = []
+    try:
+        completed = subprocess.run(
+            ["sh", os.path.join(THIS_DIRECTORY, "run-vision-review-calibration.sh"),
+             origin, origin, VISION_MODEL, ARTIFACT_SHA256, SWAP_SHA256, "0" * 64, PROMPT_HASH,
+             output_directory, "--repeat", "2", "--binding", "tuple_id=fixture-tuple",
+             "--constraint", "subject_count=exactly one fox is visible",
+             "--constraint", "background_color=the background is snow, and reads white"],
+            env=dict(os.environ, QWEN_API_KEY=API_KEY), capture_output=True, text=True, timeout=300)
+        if completed.returncode != 0:
+            failures.append("the runner exited {}: {}".format(completed.returncode, completed.stderr.strip()))
+        with open(os.path.join(output_directory, "summary.tsv")) as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+        readings = [(row["arm"], row["reading"]) for row in rows]
+        expected = [("01-correct", "grounded_pass"), ("02-violating", "discriminated"),
+                    ("03-withheld", "withheld_declined"), ("04-swapped", "follows_pixels"),
+                    ("05-absent", "refused_as_expected"), ("06-correct-closing", "grounded_pass")] * 2
+        if readings != expected:
+            failures.append("the readings are " + repr(readings))
+        if [row["uncertain"] for row in rows if row["arm"] == "03-withheld"] != ["2", "2"]:
+            failures.append("the withheld arm did not count two uncertain constraints")
+        if len(state["chat_bodies"]) != 10:
+            failures.append("the stub saw {} chat bodies where ten arms reach the model".format(len(state["chat_bodies"])))
+        summary_line = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+        for expected_field in ("vision_review_calibration=complete", "grounded_pass=2/2", "discriminated=2/2",
+                               "ungrounded_pass=0/2", "follows_text=0/2", "refused_reads=2/2", "malformed_replies=0"):
+            if expected_field not in summary_line:
+                failures.append("the summary line lacks " + expected_field + ": " + summary_line)
+        with open(os.path.join(output_directory, "1-01-correct.verdict.json")) as handle:
+            record = json.load(handle)
+        if record.get("bindings") != {"tuple_id": "fixture-tuple"}:
+            failures.append("the arm record does not carry the binding")
+        lines.append("calibration_runner=six_arms")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        shutil.rmtree(output_directory, ignore_errors=True)
+    return failures, lines
+
+
 def test_declared_bounds():
     failures = []
     if image_review.REVIEW_TIMEOUT_SECONDS != 300:
@@ -760,6 +882,8 @@ def test_declared_bounds():
 def main():
     arms = [
         ("accepted_verdict", test_accepted_verdict),
+        ("uncertain_verdict", test_uncertain_verdict),
+        ("bindings", test_bindings_are_recorded),
         ("response_format_schema", test_response_format_carries_bounded_schema),
         ("regenerate_verdict", test_regenerate_verdict_admits_one_correction),
         ("regenerate_without_failure", test_regenerate_without_a_named_failure_is_not_admitted),
@@ -771,6 +895,7 @@ def main():
         ("prompt_cache", test_prompt_cache_is_stated_by_the_caller),
         ("image_mode_arguments", test_image_mode_argument_refusals),
         ("control_runner", test_control_runner_drives_the_four_arms),
+        ("calibration_runner", test_calibration_runner_reads_six_arms),
         ("raw_reply_on_refusal", test_raw_reply_retained_on_refusal),
         ("tools_key", test_a_tools_key_is_refused_through_the_reply),
         ("artifact_credential", test_the_artifact_read_carries_the_credential),
