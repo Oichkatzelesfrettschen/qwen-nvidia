@@ -82,7 +82,7 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # ggml-cuda.cu and a proc-address entry at its registry, regions no other
 # candidate writes, and takes the last position because the diagnostic stage
 # below cuts its ggml-cuda.cu hunks against the tree this stage produces.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch"
+candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
 # mmq.cuh belongs in the list exactly while a candidate rewrites it, and no
