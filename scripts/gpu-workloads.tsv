@@ -125,3 +125,7 @@ graph-lifecycle-transition-client.py	non-gpu-helper	none	no	no	no	yes	n-a	none
 probe-paged-kv-residency-lifecycle.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 admit-paged-kv-residency.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-embd-handoff.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
+geometry-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+build-geometry-runtime.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+geometry-teardown-check.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
+admit-geometry-runtime.sh	measurement-campaign	cuda	yes	yes	exports	no	yes	acquires

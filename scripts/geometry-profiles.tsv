@@ -1,0 +1,20 @@
+# The geometry fixtures the service queries, one row per profile. A request
+# names a profile_id and a ray count and nothing else the query reads: the
+# scene, the query set, and the device belong to the row, so a caller chooses
+# among fixtures and supplies no geometry, native code, path, or OptiX or CUDA
+# flag. The service validates the ledger whole before it answers a request,
+# the way physics-profiles.tsv is read.
+#
+# profile_id       the name a request carries
+# scene            the fixture the runtime builds; the runtime refuses a name it
+#                  does not carry
+# query_set        the ray set the runtime generates from the count
+# max_rays         the ceiling a request's rays is bounded by
+# timeout_s        the service's deadline for one job
+# execution_policy refused or validator-gated, the same reading the web,
+#                  image, and physics ledgers give the field: refused emits
+#                  no tool
+# device_index     the CUDA device the runtime binds
+#
+# profile_id	scene	query_set	max_rays	timeout_s	execution_policy	device_index
+geometry-cube-orbit-a	cube-and-plane	orbit	1048576	60	refused	0
