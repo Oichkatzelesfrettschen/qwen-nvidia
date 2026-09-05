@@ -183,9 +183,18 @@ if [ "$skip_sweep" = 0 ]; then
     # would turn the comparison into paged against paged and only the log
     # states which kind each arm served.
     primed_slot_depth=$(awk -F'\t' '$1 == "slot_depth" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
-    case $primed_slot_depth in '' | *[!0-9]*) primed_slot_depth=0 ;; esac
     primed_slot_offset=$(awk -F'\t' '$1 == "slot_offset" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
-    case $primed_slot_offset in '' | *[!0-9]*) primed_slot_offset=0 ;; esac
+    # An absent or malformed depth or offset is a refusal rather than a zero,
+    # since a zero would bind the layout to a geometry the sweep never wrote.
+    case $primed_slot_depth in '' | *[!0-9]* | 0)
+        record primed_geometry "refused slot_depth=${primed_slot_depth:--}"
+        refusals=$((refusals + 1)); primed_slot_depth=0 ;;
+    esac
+    case $primed_slot_offset in '' | *[!0-9]*)
+        record primed_geometry "refused slot_offset=${primed_slot_offset:--}"
+        refusals=$((refusals + 1)); primed_slot_offset=0 ;;
+    esac
+    record primed_geometry "slot_depth=$primed_slot_depth slot_offset=$primed_slot_offset"
     for level in $widths; do
         level_streams=$((level + primed_slot_offset))
         for primed_arm in subject control; do
