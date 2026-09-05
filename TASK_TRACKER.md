@@ -13,7 +13,7 @@ question and gates no CUDA work.
 | --- | --- |
 | LLM inference | CUDA0 |
 | Vision encoder and projector | CUDA0 |
-| Image generation | CUDA0, through a CUDA-native runtime still to be admitted |
+| Image generation | CUDA0, through the CUDA-native `sd-cli` admitted in `evidence/image-appliance/cuda-runtime-admission/` |
 | Physics simulation | PhysX with measured CUDA execution |
 | Geometry and ray queries | OptiX over CUDA |
 | CPU | orchestration, parsing, I/O, validation |
@@ -35,7 +35,7 @@ compositor are outside this contract.
 | Typed or mixed-format KV | not implemented | kept separate from P2 |
 | PhysX sidecar | runtime proof retained (`evidence/physics/d6-runtime-proof/`); profile `refused` | authorized service-chain admission |
 | Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`); `patches/llama-mtmd-device-embd.patch` feeds the projector output to the language model as a device view, admitted on `qwen35-2b` and `lfm25-vl-450m` with identical bytes and tokens (`evidence/ada/embd-handoff/`), off by default | the decode-side handoff, then a served vision tuple under the device path |
-| CUDA image generation | no admitted CUDA profile | build and admit one CUDA-native runtime and profile |
+| CUDA image generation | `sd-cli` under `SD_CUDA=ON` admitted through the router on `image-sdxs-512-a`, row still refused (`evidence/image-appliance/cuda-runtime-admission/`) | the vision review arm on the CUDA runtime, then promotion |
 | OptiX geometry | service, protocol, runtime, fake-runtime test, and admission in the tree; `geometry-cube-orbit-a` refused (`evidence/geometry/`) | the device admission, then the MCP wrapper and session integration |
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.

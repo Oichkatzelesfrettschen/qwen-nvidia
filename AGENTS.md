@@ -1035,6 +1035,22 @@ proves no service, runtime, socket, or held lease remains, and
 admission's shape over the geometry claims. Every checked-in row reads
 `refused`; `evidence/geometry/` carries the preregistration and the runs.
 
+Image generation runs on a CUDA-native runtime. `scripts/build-image-runtime-cuda.sh`
+compiles `sd-cli` from `leejet/stable-diffusion.cpp` at the commit
+`evidence/image-appliance/stable-diffusion-cpp-pin.md` pins, with the ggml
+gitlink read out of the pinned tree rather than the ambient submodule,
+under `SD_CUDA=ON` for SM89 with `g++-15` as the host compiler, prints the
+binary's SHA-256 as the runtime identity, and executes nothing it built.
+`scripts/admit-image-router.sh` names the runtime's `--backend` from
+`QWEN_IMAGE_BACKEND`, `cuda0` by default, and the fake runtime's
+`--list-devices` names `CUDA0`. `evidence/image-appliance/cuda-runtime-admission/`
+carries the admission on the device: one generation through the router in
+5.4 s at nice 19 with every module on `cuda0`, identical PNG bytes at one
+seed across two runs, every refusal the design rests on refused once, and
+the served page turn accepted with the 4B distill and refused with the 2B,
+which answers an image request in prose. Every `scripts/image-profiles.tsv`
+row still reads `refused`.
+
 ## Three runtime classes, one primary target
 
 The 2B class is the appliance's primary performance target, the 0.8B class its
@@ -1736,6 +1752,7 @@ scripts/admit-geometry-runtime.sh OUT [RAYS]    # one orbit query on the device 
 
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
+scripts/build-image-runtime-cuda.sh [OUT]       # sd-cli under SD_CUDA=ON for SM89, never executed here
 QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
 
 # Hash-pinned model fetches
