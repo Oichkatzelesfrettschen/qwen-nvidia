@@ -187,7 +187,8 @@ class WorkloadLease:
         except sidecar_runtime.LeaseIdentityRefused as error:
             os.close(descriptor)
             raise LeaseUnavailable(str(error)) from None
-        deadline = time.monotonic() + self.wait_seconds
+        wait_started = time.monotonic()
+        deadline = wait_started + self.wait_seconds
         while True:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -198,8 +199,11 @@ class WorkloadLease:
                     raise LeaseUnavailable("another workload holds the lease; one runs at a time") from None
                 time.sleep(LEASE_WAIT_POLL_SECONDS)
         self.descriptor = descriptor
-        self.write_status("state=held holder=physics-service pid=%d job=%s since=%s"
-                          % (os.getpid(), job_id, utc_timestamp(time.time())))
+        # waited_ms states how long the acquire polled behind another holder,
+        # so a contention record reads the wait off the status line itself
+        self.write_status("state=held holder=physics-service pid=%d job=%s since=%s waited_ms=%d"
+                          % (os.getpid(), job_id, utc_timestamp(time.time()),
+                             round((time.monotonic() - wait_started) * 1000)))
 
     def write_status(self, line):
         with contextlib.suppress(OSError):
