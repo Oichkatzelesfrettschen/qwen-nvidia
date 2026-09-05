@@ -29,13 +29,18 @@ def tensor_line(name, ggml_type, row, nbytes, offset, unit=UNIT, padded=None, st
             % (name, ggml_type, DEPTH, row, nbytes, nbytes, padded, offset, unit, start, extent))
 
 
-def subject_log(mapped=None, tensors=None):
+def subject_log(mapped=None, tensors=None, unit_accounting=None):
     total = len(LAYERS) * (K_BYTES + V_BYTES)
     mapped = total if mapped is None else mapped
+    tail = ""
+    if unit_accounting is not None:
+        units, allocated, retained, released = unit_accounting
+        tail = (" units=%d physical_allocated_bytes=%d physical_retained_unmapped_bytes=%d"
+                " physical_released_bytes=%d" % (units, allocated, retained, released))
     lines = ["load: some other line\n",
              "ggml_backend_cuda_paged_kv_alloc_buffer: paged_kv_buffer device=0 requested_bytes=%d"
              " virtual_reserved_bytes=%d physical_mapped_bytes=%d unit_bytes=%d granularity_minimum=%d"
-             " granularity_recommended=%d access=device_rw\n" % (total, total, mapped, UNIT, UNIT, UNIT)]
+             " granularity_recommended=%d access=device_rw%s\n" % (total, total, mapped, UNIT, UNIT, UNIT, tail)]
     if tensors is None:
         tensors = []
         offset = 0
@@ -205,6 +210,28 @@ check("stream count differing from the caller refused", code == 1 and any("3 wer
 
 code, rows, faults = run(subject_log().replace("access=device_rw\n", "access=device_rw TRAILING\n"), "paged_kv_vmm")
 check("a buffer record with trailing text refused", code == 1 and any("match no record pattern" in f for f in faults))
+
+# The P2 allocation boundary adds four fields: units, allocated, retained
+# unmapped, released. A fully backed boundary reads allocated == mapped ==
+# reserved with nothing retained or released and units * unit == reserved; a
+# P1 log without them reads n/a rather than faulting.
+TOTAL = len(LAYERS) * (K_BYTES + V_BYTES)
+UNITS = TOTAL // UNIT
+code, rows, faults = run(subject_log(unit_accounting=(UNITS, TOTAL, 0, 0)), "paged_kv_vmm")
+check("unit accounting accepted when fully backed", code == 0 and rows.get("unit_accounting") == "present"
+      and rows.get("kv_physical_allocated_bytes") == str(TOTAL) and rows.get("kv_units") == str(UNITS),
+      str(faults))
+code, rows, faults = run(subject_log(), "paged_kv_vmm")
+check("a P1 log without unit accounting reads n/a", code == 0 and rows.get("unit_accounting") == "absent"
+      and rows.get("kv_physical_allocated_bytes") == "n/a")
+code, rows, faults = run(subject_log(unit_accounting=(UNITS, TOTAL - UNIT, 0, 0)), "paged_kv_vmm")
+check("allocated under mapped refused", code == 1 and any("disagree under a fully backed boundary" in f for f in faults))
+code, rows, faults = run(subject_log(unit_accounting=(UNITS, TOTAL, UNIT, 0)), "paged_kv_vmm")
+check("retained unmapped bytes refused", code == 1 and any("is nonzero under a fully backed boundary" in f for f in faults))
+code, rows, faults = run(subject_log(unit_accounting=(UNITS, TOTAL, 0, UNIT)), "paged_kv_vmm")
+check("released bytes refused", code == 1 and any("is nonzero under a fully backed boundary" in f for f in faults))
+code, rows, faults = run(subject_log(unit_accounting=(UNITS - 1, TOTAL, 0, 0)), "paged_kv_vmm")
+check("unit count that fails to cover the reservation refused", code == 1 and any("do not cover" in f for f in faults))
 
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)

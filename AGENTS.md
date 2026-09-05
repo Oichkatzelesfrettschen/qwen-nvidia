@@ -229,9 +229,11 @@ minimum allocation granularity read through
 `cuMemGetAllocationGranularity(CU_MEM_ALLOC_GRANULARITY_MINIMUM)`, which
 `scripts/probe-cuda-vmm-layout.sh` records beside the recommended value the
 pinned pool reads, both 2 MiB on this device. `alloc_buffer` reserves one
-virtual range, backs it whole with `cuMemCreate` and `cuMemMap`, grants the
-device read/write access, and prints requested, virtual, and mapped byte
-counts; `init_tensor` asserts every tensor's start and extent on the unit
+virtual range and backs every unit of it with its own `cuMemCreate` handle,
+its own `cuMemMap`, and its own access grant, then prints requested,
+virtual, and mapped byte counts beside the unit count and the allocated,
+retained-unmapped, and released totals, which read reserved, zero, and zero
+while every unit stays backed; `init_tensor` asserts every tensor's start and extent on the unit
 and prints one record per tensor. `LLAMA_KV_PAGED_BUFFER=1` makes
 `llama_kv_cache` resolve the type through the registry's proc-address table
 for every attention K and V tensor, and a backend, device, or placement that
@@ -250,6 +252,38 @@ admitted and stays off for serving; a 2 MiB unit divides by neither the
 544-byte q8_0 K row nor the 288-byte q4_0 V row, so a sparse mapping maps
 units rather than cells, and that mapping is a separate transition designed
 against this record.
+
+`evidence/ada/paged-kv-residency/README.md` is the P2 contract that
+transition is held to, written ahead of any unmap. P1's one `cuMemCreate`
+handle mapped by one `cuMemMap` is not an independently reclaimable layout,
+because `cuMemUnmap` removes a mapping whole and the driver returns physical
+memory only after every mapping and handle reference to it is gone, so the
+first P2 change is the allocation boundary alone: one reservation backed by
+one handle, one map, and one access grant per unit, every unit mapped, and
+the P1 identity gates repeated before any unit is left unmapped. Residency
+is then decided by the access envelope rather than by cell occupancy:
+`get_n_kv` pads the attention extent to `max(256, GGML_PAD(used_max_p1, 256))`
+per stream from row 0, `set_rows` writes at global row indices,
+`build_graph_shift` views every K row of every stream, `update` copies whole
+streams, and `ggml_backend_buffer_clear` memsets the whole buffer, so the
+mapped set covers the union of live state, attention envelope, pass writes,
+maintenance ranges, and in-flight references, and reclaims tails alone at
+quiescence. `scripts/paged-kv-residency-planner.py` is the shadow planner
+(P2-B): it computes those five classes per unit from a layout and an event
+stream, names what holds every retained unit and every release it would
+propose, and in `--commit-tails` mode simulates the P2-C lifecycle with the
+five accounting quantities, counting an unmapped unit kept for reuse as
+cached rather than reclaimed. Its arithmetic gives the contract's backing
+table, 36, 168, and 312 MiB at 4096, 32768, and 65536 padded rows on the
+2B layout, and states that under the pinned padding rule an interior hole
+lies inside the attention envelope, so the tail is the only reclaimable
+region. `scripts/test-paged-kv-residency-planner.py` holds it to that
+layout. `evidence/ada/paged-kv-residency/2b-p2a-run-01/` is the P2-A null
+on closure `f35fe5a95a43`: 156 units each with its own handle, mapping, and
+access grant, 12 of 12 tokens and 12 of 12 state files identical, allocated
+equal to mapped equal to reserved at 327155712 bytes, and primed widths 1
+and 3 identical, so the boundary change moves nothing observable. P2 stops
+at proven tail residency and lifecycle management.
 
 A measured threshold or rate holds for the device software stack it ran under,
 and `scripts/device-environment-identity.sh` is what records that stack.
@@ -1576,6 +1610,8 @@ scripts/admit-paged-kv-buffer.sh BUILD OUT [MODEL_ID]
                                                 # the paged KV buffer: probe, batch-1 identity with state bytes, layout, primed widths
 scripts/read-paged-kv-layout.py LOG --expect paged_kv_vmm|device_default
                                                 # the KV buffer accounting one server log records, held to the P1 claim
+scripts/paged-kv-residency-planner.py EVENTS.jsonl --out DIR [--commit-tails] [--layout-from-log LOG]
+                                                # the P2 shadow planner: which units every requirement holds, which tails a quiescence would release
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
@@ -1669,6 +1705,7 @@ scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
 python3 scripts/test-read-graph-lifecycle-trace.py
 python3 scripts/test-read-paged-kv-layout.py
+python3 scripts/test-paged-kv-residency-planner.py
 python3 scripts/test-read-server-decode-iterations.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
