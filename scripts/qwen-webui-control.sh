@@ -149,6 +149,13 @@ case $action in
                               QWEN_IMAGE_PROFILE QWEN_IMAGE_TOKEN_KEY_FILE \
                               QWEN_IMAGE_STATE_DIR \
                               QWEN_IMAGE_SERVICE_SOCKET \
+                              QWEN_PHYSICS_SERVICE QWEN_PHYSICS_SERVICE_PROGRAM \
+                              QWEN_PHYSICS_PROFILES QWEN_PHYSICS_RUNTIME \
+                              QWEN_PHYSICS_PROFILE \
+                              QWEN_GEOMETRY_SERVICE QWEN_GEOMETRY_SERVICE_PROGRAM \
+                              QWEN_GEOMETRY_PROFILES QWEN_GEOMETRY_RUNTIME \
+                              QWEN_GEOMETRY_PROFILE \
+                              QWEN_VULKAN_LATENCY_PROBE \
                               QWEN_VULKAN_ICD; do
             eval "forwarded_value=\${$forwarded_name:-}"
             if [ -n "$forwarded_value" ]; then

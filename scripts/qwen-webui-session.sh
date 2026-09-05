@@ -95,6 +95,25 @@ image_service_program=${QWEN_IMAGE_SERVICE_PROGRAM:-"$script_directory/image-ser
 image_service_profiles_json=${QWEN_IMAGE_PROFILES_JSON:-}
 image_service_origin=${QWEN_IMAGE_PAGE_ORIGIN:-"http://${QWEN_BIND_HOST:-127.0.0.1}:$server_port"}
 image_service_log=$state_directory/image-service.log
+# The two device sidecars follow the image service's shape: an enable flag,
+# a program, a ledger, and a runtime binary per lane, one state directory
+# per lane under this session's, and the compute lease this session names.
+# Each service proves at launch that the lease it was handed is the file the
+# session named, by device and inode, so a service configured against another
+# file refuses to start rather than serializing against nothing.
+physics_service_pid=""
+physics_service_enabled=${QWEN_PHYSICS_SERVICE:-0}
+physics_service_program=${QWEN_PHYSICS_SERVICE_PROGRAM:-"$script_directory/physics-service.py"}
+physics_service_profiles=${QWEN_PHYSICS_PROFILES:-"$script_directory/physics-profiles.tsv"}
+physics_service_runtime=${QWEN_PHYSICS_RUNTIME:-}
+physics_service_log=$state_directory/physics-service.log
+geometry_service_pid=""
+geometry_service_enabled=${QWEN_GEOMETRY_SERVICE:-0}
+geometry_service_program=${QWEN_GEOMETRY_SERVICE_PROGRAM:-"$script_directory/geometry-service.py"}
+geometry_service_profiles=${QWEN_GEOMETRY_PROFILES:-"$script_directory/geometry-profiles.tsv"}
+geometry_service_runtime=${QWEN_GEOMETRY_RUNTIME:-}
+geometry_service_log=$state_directory/geometry-service.log
+compute_lease_path=$state_directory/vulkan-workload.lock
 case ${QWEN_ROUTER_PRESETS:-} in
     "$state_directory"/.router-presets.active.*)
         router_preset_snapshot=$QWEN_ROUTER_PRESETS
@@ -132,6 +151,12 @@ cleanup() {
         kill "$image_service_pid" 2>/dev/null || true
         wait "$image_service_pid" 2>/dev/null || true
     fi
+    for sidecar_pid in "$physics_service_pid" "$geometry_service_pid"; do
+        if [ -n "$sidecar_pid" ]; then
+            kill "$sidecar_pid" 2>/dev/null || true
+            wait "$sidecar_pid" 2>/dev/null || true
+        fi
+    done
     if [ -n "$router_preset_snapshot" ]; then
         rm -f -- "$router_preset_snapshot"
         router_preset_snapshot=''
@@ -167,6 +192,16 @@ require_broker_running() {
         ! process_running "$image_service_pid"; then
         printf 'state=failed reason=image_service_exited image_service_pid=%s utc=%s\n' \
             "$image_service_pid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+        exit 1
+    fi
+    if [ "$physics_service_enabled" = 1 ] && ! process_running "$physics_service_pid"; then
+        printf 'state=failed reason=physics_service_exited physics_service_pid=%s utc=%s\n' \
+            "$physics_service_pid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+        exit 1
+    fi
+    if [ "$geometry_service_enabled" = 1 ] && ! process_running "$geometry_service_pid"; then
+        printf 'state=failed reason=geometry_service_exited geometry_service_pid=%s utc=%s\n' \
+            "$geometry_service_pid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
         exit 1
     fi
 }
@@ -246,6 +281,8 @@ if [ "$broker_enabled" = 1 ]; then
         --state-dir "$broker_state_directory" \
         --profile "$QWEN_WEB_PROFILE" \
         --image-profile "${QWEN_IMAGE_PROFILE:-}" \
+        --physics-profile "${QWEN_PHYSICS_PROFILE:-}" \
+        --geometry-profile "${QWEN_GEOMETRY_PROFILE:-}" \
         --provider "${QWEN_WEB_PROVIDER:-exa}" \
         --api-key-file "$api_key_file" \
         >"$broker_log" 2>&1 9>&- &
@@ -387,6 +424,83 @@ if [ "$image_service_enabled" = 1 ]; then
     # port are read from the line the service printed rather than assumed.
     image_service_listener=$(sed -n 's/^listening //p' "$image_service_log" |
         sed -n '1p' | tr ' ' ':')
+fi
+
+# start_sidecar_service LANE PROGRAM PROFILES RUNTIME LOG: one service, under
+# the compute lease this session names with its identity, the signing key so
+# every run requires the grant the MCP child spent, and the language profile
+# the grant is signed for. The pid, start time, and socket are read back the
+# way the image service's are.
+start_sidecar_service() {
+    sidecar_lane=$1
+    sidecar_program=$2
+    sidecar_profiles=$3
+    sidecar_runtime=$4
+    sidecar_log=$5
+    if [ ! -r "$sidecar_program" ] || [ ! -r "$sidecar_profiles" ] || [ ! -x "$sidecar_runtime" ]; then
+        printf 'state=failed reason=%s_service_unavailable program=%s profiles=%s runtime=%s utc=%s\n' \
+            "$sidecar_lane" "$sidecar_program" "$sidecar_profiles" "${sidecar_runtime:-<unset>}" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+        exit 1
+    fi
+    sidecar_state_directory=$state_directory/$sidecar_lane
+    mkdir -p "$sidecar_state_directory"
+    chmod 700 "$sidecar_state_directory"
+    : >"$sidecar_log"
+    chmod 600 "$sidecar_log"
+    : >>"$compute_lease_path"
+    compute_lease_identity=$(stat -c '%d:%i' "$compute_lease_path")
+    QWEN_GPU_COMPUTE_LEASE=$compute_lease_path \
+    QWEN_GPU_COMPUTE_LEASE_IDENTITY=$compute_lease_identity \
+    QWEN_SIDECAR_TOKEN_KEY_FILE=${QWEN_IMAGE_TOKEN_KEY_FILE:-${QWEN_WEB_TOKEN_KEY_FILE:-}} \
+    QWEN_SIDECAR_LANGUAGE_PROFILE=${QWEN_WEB_PROFILE:-} \
+        python3 "$sidecar_program" --state-dir "$sidecar_state_directory" \
+        --profiles "$sidecar_profiles" --runtime "$sidecar_runtime" \
+        >"$sidecar_log" 2>&1 9>&- &
+    sidecar_started_pid=$!
+    attempt=0
+    sidecar_ready=0
+    while [ "$attempt" -lt 300 ]; do
+        if grep -q '^listening' "$sidecar_log" 2>/dev/null; then
+            sidecar_ready=1
+            break
+        fi
+        if ! kill -0 "$sidecar_started_pid" 2>/dev/null; then
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.1
+    done
+    if [ "$sidecar_ready" -ne 1 ]; then
+        printf 'state=failed reason=%s_service_not_listening log=%s utc=%s\n' \
+            "$sidecar_lane" "$sidecar_log" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+        exit 1
+    fi
+    sidecar_started_start_time=$(sed 's/^.*) //' "/proc/$sidecar_started_pid/stat" | awk '{ print $20 }')
+    sidecar_started_socket=$(sed -n 's/^listening socket=\([^ ]*\).*/\1/p' "$sidecar_log" | sed -n '1p')
+    sidecar_started_runtime_sha256=$(sed -n 's/^listening .*runtime_sha256=\([0-9a-f]*\).*/\1/p' "$sidecar_log" | sed -n '1p')
+}
+physics_service_start_time=''
+physics_service_socket=''
+physics_service_runtime_sha256=''
+if [ "$physics_service_enabled" = 1 ]; then
+    start_sidecar_service physics "$physics_service_program" "$physics_service_profiles" \
+        "$physics_service_runtime" "$physics_service_log"
+    physics_service_pid=$sidecar_started_pid
+    physics_service_start_time=$sidecar_started_start_time
+    physics_service_socket=$sidecar_started_socket
+    physics_service_runtime_sha256=$sidecar_started_runtime_sha256
+fi
+geometry_service_start_time=''
+geometry_service_socket=''
+geometry_service_runtime_sha256=''
+if [ "$geometry_service_enabled" = 1 ]; then
+    start_sidecar_service geometry "$geometry_service_program" "$geometry_service_profiles" \
+        "$geometry_service_runtime" "$geometry_service_log"
+    geometry_service_pid=$sidecar_started_pid
+    geometry_service_start_time=$sidecar_started_start_time
+    geometry_service_socket=$sidecar_started_socket
+    geometry_service_runtime_sha256=$sidecar_started_runtime_sha256
 fi
 
 # The session owns the state directory, so it names the one the Vulkan workload
@@ -578,6 +692,12 @@ fi
 if [ -n "$image_service_pid" ]; then
     broker_status_field="$broker_status_field image_service_pid=$image_service_pid"
 fi
+if [ -n "$physics_service_pid" ]; then
+    broker_status_field="$broker_status_field physics_service_pid=$physics_service_pid"
+fi
+if [ -n "$geometry_service_pid" ]; then
+    broker_status_field="$broker_status_field geometry_service_pid=$geometry_service_pid"
+fi
 printf 'state=running server_pid=%s monitor_pid=%s latency_watchdog_pid=%s kernel_hazard_watchdog_pid=%s%s profile=%s host=%s port=%s context=%s latency_mode=%s utc=%s\n' \
     "$server_pid" "$monitor_pid" "$latency_watchdog_pid" \
     "$kernel_hazard_watchdog_pid" "$broker_status_field" "$runtime_profile" \
@@ -641,6 +761,16 @@ if [ -n "$image_service_pid" ]; then
         "$image_service_pid" "$image_service_start_time" \
         "${image_service_socket:-unrecorded}" \
         "${image_service_listener:-unrecorded}" >>"$status_file"
+fi
+if [ -n "$physics_service_pid" ]; then
+    printf 'physics_service_identity pid=%s start_time=%s socket=%s runtime_sha256=%s lease=%s\n' \
+        "$physics_service_pid" "$physics_service_start_time" "${physics_service_socket:-unrecorded}" \
+        "${physics_service_runtime_sha256:-unrecorded}" "$compute_lease_path" >>"$status_file"
+fi
+if [ -n "$geometry_service_pid" ]; then
+    printf 'geometry_service_identity pid=%s start_time=%s socket=%s runtime_sha256=%s lease=%s\n' \
+        "$geometry_service_pid" "$geometry_service_start_time" "${geometry_service_socket:-unrecorded}" \
+        "${geometry_service_runtime_sha256:-unrecorded}" "$compute_lease_path" >>"$status_file"
 fi
 
 supervised_component=server

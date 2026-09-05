@@ -840,6 +840,58 @@ class BrokerTest(unittest.TestCase):
             self.assertEqual(status, 400, body)
             self.assertIn(named, json.loads(body)["error"])
 
+    def sidecar_grant_body(self, **overrides):
+        fields = {
+            "context": "qwen-sidecar-run-v1",
+            "service": "physics",
+            "language_profile": "default",
+            "sidecar_profile": "physics-fixture-a",
+            "runtime_sha256": "ab" * 32,
+            "scene": "d6-chain-4",
+            "count": 600,
+            "count_ceiling": 3600,
+            "conversation_generation": 0,
+        }
+        fields.update(overrides)
+        return fields
+
+    def test_sidecar_grant_binds_lane_and_profiles(self):
+        """A physics grant signs at the physics endpoint for the armed profile alone.
+
+        The endpoint names the lane, the body names it again, and the broker
+        armed one profile per lane, so a body naming the other lane, another
+        sidecar profile, or another language profile is refused ahead of a
+        signature; the geometry endpoint on the same broker refuses a physics
+        body, and a broker that armed no geometry lane refuses a geometry body.
+        """
+        broker = self.launch(**{"--physics-profile": "physics-fixture-a"})
+        secret = self.session_secret()
+        status, _, body = broker.request(
+            "POST", "/grant-physics", json.dumps(self.sidecar_grant_body()),
+            self.grant_headers(secret))
+        self.assertEqual(status, 200, body)
+        self.assertTrue(json.loads(body)["authorization"])
+        for overrides, named in (
+            ({"sidecar_profile": "physics-other"}, "physics profile"),
+            ({"language_profile": "web-other"}, "language profile"),
+            ({"service": "geometry", "sidecar_profile": "geometry-x", "scene": "cube-and-plane"}, "naming service"),
+        ):
+            status, _, body = broker.request(
+                "POST", "/grant-physics", json.dumps(self.sidecar_grant_body(**overrides)),
+                self.grant_headers(secret))
+            self.assertEqual(status, 400, body)
+            self.assertIn(named, json.loads(body)["error"])
+        status, _, body = broker.request(
+            "POST", "/grant-geometry", json.dumps(self.sidecar_grant_body()),
+            self.grant_headers(secret))
+        self.assertEqual(status, 400, body)
+        self.assertIn("no geometry profile", json.loads(body)["error"])
+        status, _, body = broker.request(
+            "POST", "/grant-physics", json.dumps(self.sidecar_grant_body(count=4000)),
+            self.grant_headers(secret))
+        self.assertEqual(status, 400, body)
+        self.assertIn("count_ceiling", json.loads(body)["error"])
+
     def test_image_grant_refused_where_no_lane_is_armed(self):
         """A launch that armed no image lane signs no generation grant."""
         broker = self.launch()
@@ -860,6 +912,8 @@ class BrokerTest(unittest.TestCase):
                 "protocol",
                 "profile",
                 "image_profile",
+                "physics_profile",
+                "geometry_profile",
                 "coding_profile",
                 "provider",
                 "pid",

@@ -68,9 +68,12 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-admit-candidate-static.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-verify-representation-pair.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-web-mcp.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-authorize-broker.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/web-mcp/test-sidecar-grant.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/sidecar-mcp/test-sidecar-mcp.py
 scripts/test-fallback-webui-model-selection.sh
 scripts/test-fallback-webui-web-authorization.sh
 scripts/test-fallback-webui-code-authorization.sh
+scripts/test-fallback-webui-sidecar-authorization.sh
 scripts/test-web-tools-roundtrip.sh
 node scripts/test-fallback-webui-model-state.mjs
 scripts/test-one-token-admission.sh

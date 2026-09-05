@@ -1793,6 +1793,118 @@ else
     cat "$work/image-gated.err" >&2
 fi
 
+# A physics row raised to validator-gated emits one physics server per section
+# beside the web one, carrying the lane, both profiles, the socket, the state
+# directory, the ledger, and the runtime digest the child reads, and the
+# section's tag set gains the lane's own term. The geometry ledger stays
+# all-refused, so the emitted object holds web and physics alone.
+physics_profiles_gated=$work/physics-profiles-gated.tsv
+printf '# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\n' \
+    >"$physics_profiles_gated"
+printf 'physics-fixture-a\td6-chain-4\t0.016666667\t3600\t9.81\tyes\tyes\t120\tvalidator-gated\t0\n' \
+    >>"$physics_profiles_gated"
+sidecar_mcp_server_program=$work/sidecar-mcp-server.py
+printf '#!/usr/bin/env python3\n' >"$sidecar_mcp_server_program"
+physics_state_directory=$work/private/physics-state
+mkdir -p "$physics_state_directory"
+presets_physics_gated=$work/presets-physics-gated.ini
+if build "$web_profiles_ok" "$presets_physics_gated" \
+    env QWEN_IMAGE_PROFILES="$image_profiles_refused" \
+    QWEN_IMAGE_MCP_SERVER="$image_mcp_server_program" \
+    QWEN_IMAGE_TOKEN_KEY_FILE="$image_token_key_file" \
+    QWEN_IMAGE_STATE_DIR="$image_state_directory" \
+    QWEN_IMAGE_SERVICE_SOCKET="$image_service_socket" \
+    QWEN_IMAGE_PROFILES_JSON="$image_profiles_json" \
+    QWEN_PHYSICS_PROFILES="$physics_profiles_gated" \
+    QWEN_PHYSICS_STATE_DIR="$physics_state_directory" \
+    QWEN_PHYSICS_RUNTIME_SHA256="$(printf 'runtime' | sha256sum | cut -d ' ' -f 1)" \
+    QWEN_SIDECAR_MCP_SERVER="$sidecar_mcp_server_program" \
+    QWEN_WEB_MCP_SERVER="$mcp_server_program" \
+    QWEN_WEB_SEARCH_KEY_FILE="$search_key_file" \
+    QWEN_WEB_TOKEN_KEY_FILE="$image_token_key_file" \
+    QWEN_WEB_STATE_DIR="$web_state_directory" \
+    >"$work/physics-gated.log" 2>"$work/physics-gated.err"; then
+    outcome=ok
+    grep -q '^LLAMA_ARG_TAGS = web-research,validator-gated,physics$' \
+        "$presets_physics_gated" || outcome=wrong_tags
+    grep -Fqx '# qwen_physics_profile=physics-fixture-a' "$presets_physics_gated" ||
+        outcome=marker_absent
+    grep -Fqx '# qwen_geometry_profile=-' "$presets_physics_gated" ||
+        outcome=geometry_marker_absent
+    physics_config=$(sed -n 's/^LLAMA_ARG_MCP_SERVERS_CONFIG = //p' "$presets_physics_gated")
+    if [ -r "$physics_config" ]; then
+        python3 - "$physics_config" "$physics_state_directory" "$physics_profiles_gated" <<'PY' || outcome=configuration_mismatch
+import json, sys
+document = json.load(open(sys.argv[1]))
+servers = document["mcpServers"]
+assert set(servers) == {"web", "physics"}, sorted(servers)
+physics = servers["physics"]
+environment = physics["env"]
+assert physics["timeout_ms"] == 360000
+assert environment["QWEN_SIDECAR_SERVICE"] == "physics"
+assert environment["QWEN_SIDECAR_LANGUAGE_PROFILE"] == "web-fixture-ok"
+assert environment["QWEN_SIDECAR_PROFILE"] == "physics-fixture-a"
+assert environment["QWEN_SIDECAR_STATE_DIR"] == sys.argv[2]
+assert environment["QWEN_SIDECAR_SERVICE_SOCKET"] == sys.argv[2] + "/physics-service.sock"
+assert environment["QWEN_SIDECAR_PROFILES"] == sys.argv[3]
+assert len(environment["QWEN_SIDECAR_RUNTIME_SHA256"]) == 64
+assert environment["QWEN_SIDECAR_MCP_TIMEOUT_S"] == "360"
+assert environment["QWEN_SIDECAR_TOKEN_KEY_FILE"]
+PY
+    else
+        outcome=configuration_unreadable
+    fi
+    report physics_gated_row_emits_its_server "$outcome"
+else
+    report physics_gated_row_emits_its_server failed
+    cat "$work/physics-gated.err" >&2
+fi
+
+# A physics row emits under the authorizer alone, and a runtime digest that is
+# no SHA-256 refuses the run rather than reaching the child.
+presets_physics_unarmed=$work/presets-physics-unarmed.ini
+if build "$web_profiles_ok" "$presets_physics_unarmed" \
+    env QWEN_WEB_AUTHORIZER_READY=0 QWEN_IMAGE_PROFILES="$image_profiles_refused" \
+    QWEN_PHYSICS_PROFILES="$physics_profiles_gated" \
+    QWEN_WEB_MCP_SERVER="$mcp_server_program" \
+    QWEN_WEB_SEARCH_KEY_FILE="$search_key_file" \
+    QWEN_WEB_TOKEN_KEY_FILE="$image_token_key_file" \
+    QWEN_WEB_STATE_DIR="$web_state_directory" \
+    >"$work/physics-unarmed.log" 2>"$work/physics-unarmed.err"; then
+    report physics_gated_row_waits_for_the_authorizer generator_emitted
+else
+    # every emitting row withholds under an absent authorizer, the web row
+    # included, so the generator ends without a section and says so
+    if grep -q 'physics_preset_skipped profile=physics-fixture-a execution_policy=validator-gated authorizer=absent' \
+        "$work/physics-unarmed.err" && ! grep -q 'qwen_physics_profile=physics-fixture-a' "$work/physics-unarmed.log"; then
+        report physics_gated_row_waits_for_the_authorizer ok
+    else
+        report physics_gated_row_waits_for_the_authorizer wrong_outcome
+        cat "$work/physics-unarmed.err" >&2
+    fi
+fi
+if build "$web_profiles_ok" "$work/presets-physics-bad-digest.ini" \
+    env QWEN_IMAGE_PROFILES="$image_profiles_refused" \
+    QWEN_PHYSICS_PROFILES="$physics_profiles_gated" \
+    QWEN_PHYSICS_STATE_DIR="$physics_state_directory" \
+    QWEN_PHYSICS_RUNTIME_SHA256="not-a-digest" \
+    QWEN_IMAGE_TOKEN_KEY_FILE="$image_token_key_file" \
+    QWEN_SIDECAR_MCP_SERVER="$sidecar_mcp_server_program" \
+    QWEN_WEB_MCP_SERVER="$mcp_server_program" \
+    QWEN_WEB_SEARCH_KEY_FILE="$search_key_file" \
+    QWEN_WEB_TOKEN_KEY_FILE="$image_token_key_file" \
+    QWEN_WEB_STATE_DIR="$web_state_directory" \
+    >"$work/physics-bad-digest.log" 2>"$work/physics-bad-digest.err"; then
+    report physics_bad_runtime_digest_refuses generator_accepted
+else
+    if grep -q 'names no SHA-256' "$work/physics-bad-digest.err"; then
+        report physics_bad_runtime_digest_refuses ok
+    else
+        report physics_bad_runtime_digest_refuses wrong_reason
+        cat "$work/physics-bad-digest.err" >&2
+    fi
+fi
+
 # The image tag is a third term in LLAMA_ARG_TAGS, and qwen-capacity-policy.sh
 # rejoins each section to the ledger by the policy word its tags carry. The
 # real policy runs over the armed preset here, because every other arm drives

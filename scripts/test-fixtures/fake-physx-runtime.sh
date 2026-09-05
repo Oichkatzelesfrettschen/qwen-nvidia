@@ -24,6 +24,7 @@ printf 'pid=%s nice=%s\n' "$$" "$(awk '{print $19}' /proc/self/stat)" >"$here/ru
 case $mode in
     crash) printf 'physx_runtime=rejected reason=cuda_context_invalid\n' >&2; exit 1 ;;
     hang) sleep 3600 ;;
+    flood) head -c 2097152 /dev/zero | tr '\0' 'x'; exit 0 ;;
     prose) printf 'the simulation ran fine\n'; exit 0 ;;
 esac
 active=true

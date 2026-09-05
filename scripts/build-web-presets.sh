@@ -322,6 +322,31 @@ case $image_mcp_timeout_ms in
         ;;
 esac
 
+# The two device sidecars follow the image lane's shape: one ledger row per
+# lane raised to validator-gated emits one MCP server in every section, with
+# the child's inputs travelling as paths and identities the child reads
+# itself. scripts/sidecar-mcp/server.py serves either lane by
+# QWEN_SIDECAR_SERVICE, so one program, one key file, and one timeout name
+# cover both, and the per-lane socket, ledger, and runtime digest differ.
+sidecar_mcp_server=${QWEN_SIDECAR_MCP_SERVER:-}
+sidecar_token_key_file=${QWEN_SIDECAR_TOKEN_KEY_FILE:-$image_token_key_file}
+sidecar_mcp_timeout_ms=${QWEN_SIDECAR_MCP_TIMEOUT_MS:-360000}
+case $sidecar_mcp_timeout_ms in
+    '' | 0* | *[!0-9]*)
+        printf 'QWEN_SIDECAR_MCP_TIMEOUT_MS must be a positive decimal integer: %s\n' \
+            "$sidecar_mcp_timeout_ms" >&2
+        exit 2
+        ;;
+esac
+physics_profiles=${QWEN_PHYSICS_PROFILES:-$script_directory/physics-profiles.tsv}
+physics_state_directory=${QWEN_PHYSICS_STATE_DIR:-"${HOME:?}/qwen-webui-state/physics"}
+physics_service_socket=${QWEN_PHYSICS_SERVICE_SOCKET:-$physics_state_directory/physics-service.sock}
+physics_runtime_sha256=${QWEN_PHYSICS_RUNTIME_SHA256:-}
+geometry_profiles=${QWEN_GEOMETRY_PROFILES:-$script_directory/geometry-profiles.tsv}
+geometry_state_directory=${QWEN_GEOMETRY_STATE_DIR:-"${HOME:?}/qwen-webui-state/geometry"}
+geometry_service_socket=${QWEN_GEOMETRY_SERVICE_SOCKET:-$geometry_state_directory/geometry-service.sock}
+geometry_runtime_sha256=${QWEN_GEOMETRY_RUNTIME_SHA256:-}
+
 # A JSON string value carries the path verbatim, so a quote or a backslash in it
 # would change the parsed value and a control character would place a byte in
 # the string that RFC 8259 section 7 admits only as an escape. Refusing the
@@ -639,6 +664,84 @@ if [ -n "$image_profile_id" ]; then
     require_image_mcp_inputs
 fi
 
+# One sidecar profile per lane emits, under the image lane's rules: refused
+# rows say so, validator-gated rows emit under the authorizer alone, and two
+# emitting rows of one lane stop the run.
+sidecar_lane_profile() {
+    # sidecar_lane_profile LANE LEDGER POLICY_COLUMN: print the one emitting row's id
+    sidecar_lane=$1
+    sidecar_ledger=$2
+    sidecar_policy_column=$3
+    [ -r "$sidecar_ledger" ] || {
+        printf '%s profile ledger is unreadable: %s\n' "$sidecar_lane" "$sidecar_ledger" >&2
+        exit 1
+    }
+    awk -F '\t' -v lane="$sidecar_lane" -v column="$sidecar_policy_column" -v ready="$authorizer_ready" '
+        /^#/ || NF == 0 { next }
+        $column == "refused" {
+            printf "%s_preset_skipped profile=%s execution_policy=refused\n", lane, $1 > "/dev/stderr"
+            next
+        }
+        $column != "validator-gated" {
+            printf "%s profile %s carries execution_policy %s, which is outside the vocabulary\n", lane, $1, $column > "/dev/stderr"
+            exit 3
+        }
+        ready != "1" {
+            printf "%s_preset_skipped profile=%s execution_policy=validator-gated authorizer=absent\n", lane, $1 > "/dev/stderr"
+            next
+        }
+        chosen != "" {
+            printf "%s profiles %s and %s both emit, and a section carries one %s server\n", lane, chosen, $1, lane > "/dev/stderr"
+            exit 3
+        }
+        { chosen = $1 }
+        END { if (chosen != "") print chosen }
+    ' "$sidecar_ledger"
+}
+physics_profile_id=$(sidecar_lane_profile physics "$physics_profiles" 9) || exit 1
+geometry_profile_id=$(sidecar_lane_profile geometry "$geometry_profiles" 6) || exit 1
+physics_profiles_sha256=$(sha256sum -- "$physics_profiles" | cut -d ' ' -f 1)
+geometry_profiles_sha256=$(sha256sum -- "$geometry_profiles" | cut -d ' ' -f 1)
+
+require_sidecar_mcp_inputs() {
+    # require_sidecar_mcp_inputs LANE SOCKET STATE_DIR RUNTIME_SHA256 PROFILES
+    for sidecar_input_name in QWEN_SIDECAR_MCP_SERVER QWEN_SIDECAR_TOKEN_KEY_FILE \
+        QWEN_"$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"_SERVICE_SOCKET \
+        QWEN_"$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"_STATE_DIR \
+        QWEN_"$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"_RUNTIME_SHA256; do
+        case $sidecar_input_name in
+            QWEN_SIDECAR_MCP_SERVER) sidecar_input_value=$sidecar_mcp_server ;;
+            QWEN_SIDECAR_TOKEN_KEY_FILE) sidecar_input_value=$sidecar_token_key_file ;;
+            *_SERVICE_SOCKET) sidecar_input_value=$2 ;;
+            *_STATE_DIR) sidecar_input_value=$3 ;;
+            *) sidecar_input_value=$4 ;;
+        esac
+        if [ -z "$sidecar_input_value" ]; then
+            printf '%s profile emits a configuration and %s names nothing\n' "$1" "$sidecar_input_name" >&2
+            exit 1
+        fi
+        case $sidecar_input_name in
+            *_RUNTIME_SHA256)
+                printf '%s' "$sidecar_input_value" | grep -Eq '^[0-9a-f]{64}$' || {
+                    printf '%s names no SHA-256: %s\n' "$sidecar_input_name" "$sidecar_input_value" >&2
+                    exit 1
+                } ;;
+            *) require_json_safe_path "$sidecar_input_name" "$sidecar_input_value" ;;
+        esac
+    done
+    require_json_safe_path "$1_profiles" "$5"
+    if [ ! -f "$sidecar_mcp_server" ]; then
+        printf 'QWEN_SIDECAR_MCP_SERVER names no regular file: %s\n' "$sidecar_mcp_server" >&2
+        exit 1
+    fi
+}
+if [ -n "$physics_profile_id" ]; then
+    require_sidecar_mcp_inputs physics "$physics_service_socket" "$physics_state_directory" "$physics_runtime_sha256" "$physics_profiles"
+fi
+if [ -n "$geometry_profile_id" ]; then
+    require_sidecar_mcp_inputs geometry "$geometry_service_socket" "$geometry_state_directory" "$geometry_runtime_sha256" "$geometry_profiles"
+fi
+
 registry_field() {
     registry_field_row=$1
     registry_field_name=$2
@@ -778,6 +881,13 @@ mkdir -p "$mcp_config_directory_temporary"
     printf '# qwen_image_mcp_timeout_ms=%s\n' "$image_mcp_timeout_ms"
     printf '# qwen_image_review_model=%s\n' "${image_profile_review_model:--}"
     printf '# qwen_image_review_section=%s\n' "${review_section:--}"
+    printf '# qwen_physics_profiles_path=%s\n' "$physics_profiles"
+    printf '# qwen_physics_profiles_sha256=%s\n' "$physics_profiles_sha256"
+    printf '# qwen_physics_profile=%s\n' "${physics_profile_id:--}"
+    printf '# qwen_geometry_profiles_path=%s\n' "$geometry_profiles"
+    printf '# qwen_geometry_profiles_sha256=%s\n' "$geometry_profiles_sha256"
+    printf '# qwen_geometry_profile=%s\n' "${geometry_profile_id:--}"
+    printf '# qwen_sidecar_mcp_timeout_ms=%s\n' "$sidecar_mcp_timeout_ms"
     if [ "$allow_unvalidated_depth" = 1 ]; then
         printf '# qwen-web-presets: unvalidated-depth-override\n'
     fi
@@ -1089,15 +1199,28 @@ while profile_id=; IFS='	' read -r profile_id model_id _web_mode context \
         require_mcp_inputs
     fi
     emit_image_server=0
+    emit_physics_server=0
+    emit_geometry_server=0
+    [ -z "$image_profile_id" ] || emit_image_server=1
+    [ -z "$physics_profile_id" ] || emit_physics_server=1
+    [ -z "$geometry_profile_id" ] || emit_geometry_server=1
+    # Each server object closes with the separator JSON requires between two
+    # members where another follows it, in the emission order web, image,
+    # physics, geometry.
     web_server_separator=
-    if [ -n "$image_profile_id" ]; then
-        emit_image_server=1
-        # A second server follows the web object, so the web object closes with
-        # the separator JSON requires between two members.
+    image_server_separator=
+    physics_server_separator=
+    if [ "$emit_image_server" = 1 ] || [ "$emit_physics_server" = 1 ] || [ "$emit_geometry_server" = 1 ]; then
         web_server_separator=,
     fi
+    if [ "$emit_physics_server" = 1 ] || [ "$emit_geometry_server" = 1 ]; then
+        image_server_separator=,
+    fi
+    if [ "$emit_geometry_server" = 1 ]; then
+        physics_server_separator=,
+    fi
     emit_mcp_configuration=0
-    if [ "$emit_web_server" = 1 ] || [ "$emit_image_server" = 1 ]; then
+    if [ "$emit_web_server" = 1 ] || [ "$emit_image_server" = 1 ] || [ "$emit_physics_server" = 1 ] || [ "$emit_geometry_server" = 1 ]; then
         emit_mcp_configuration=1
     fi
 
@@ -1107,6 +1230,8 @@ while profile_id=; IFS='	' read -r profile_id model_id _web_mode context \
     if [ "$emit_image_server" = 1 ]; then
         image_tag_suffix=,image
     fi
+    [ "$emit_physics_server" = 1 ] && image_tag_suffix="$image_tag_suffix,physics"
+    [ "$emit_geometry_server" = 1 ] && image_tag_suffix="$image_tag_suffix,geometry"
 
     profile_mcp_config=$mcp_config_directory_marker/$profile_id.json
     profile_mcp_config_temporary=$mcp_config_directory_temporary/$profile_id.json
@@ -1214,8 +1339,39 @@ while profile_id=; IFS='	' read -r profile_id model_id _web_mode context \
             printf '        "QWEN_IMAGE_MCP_TIMEOUT_S": "%s"\n' \
                 "$((image_mcp_timeout_ms / 1000))"
             printf '      }\n'
-            printf '    }\n'
+            printf '    }%s\n' "$image_server_separator"
         } >>"$profile_mcp_config_temporary"
+    fi
+    # emit_sidecar_server LANE PROFILE SOCKET STATE_DIR RUNTIME_SHA256 PROFILES SEPARATOR
+    emit_sidecar_server() {
+        {
+            printf '    "%s": {\n' "$1"
+            printf '      "command": "python3",\n'
+            printf '      "timeout_ms": %s,\n' "$sidecar_mcp_timeout_ms"
+            printf '      "args": [\n'
+            printf '        "%s"\n' "$sidecar_mcp_server"
+            printf '      ],\n'
+            printf '      "env": {\n'
+            printf '        "QWEN_SIDECAR_SERVICE": "%s",\n' "$1"
+            printf '        "QWEN_SIDECAR_LANGUAGE_PROFILE": "%s",\n' "$profile_id"
+            printf '        "QWEN_SIDECAR_PROFILE": "%s",\n' "$2"
+            printf '        "QWEN_SIDECAR_TOKEN_KEY_FILE": "%s",\n' "$sidecar_token_key_file"
+            printf '        "QWEN_SIDECAR_STATE_DIR": "%s",\n' "$4"
+            printf '        "QWEN_SIDECAR_SERVICE_SOCKET": "%s",\n' "$3"
+            printf '        "QWEN_SIDECAR_PROFILES": "%s",\n' "$6"
+            printf '        "QWEN_SIDECAR_RUNTIME_SHA256": "%s",\n' "$5"
+            printf '        "QWEN_SIDECAR_MCP_TIMEOUT_S": "%s"\n' "$((sidecar_mcp_timeout_ms / 1000))"
+            printf '      }\n'
+            printf '    }%s\n' "$7"
+        } >>"$profile_mcp_config_temporary"
+    }
+    if [ "$emit_physics_server" = 1 ]; then
+        emit_sidecar_server physics "$physics_profile_id" "$physics_service_socket" "$physics_state_directory" \
+            "$physics_runtime_sha256" "$physics_profiles" "$physics_server_separator"
+    fi
+    if [ "$emit_geometry_server" = 1 ]; then
+        emit_sidecar_server geometry "$geometry_profile_id" "$geometry_service_socket" "$geometry_state_directory" \
+            "$geometry_runtime_sha256" "$geometry_profiles" ""
     fi
     if [ "$emit_mcp_configuration" = 1 ]; then
         {
@@ -1341,10 +1497,10 @@ verify_assembled_sections() {
                 }
             }
             # A ui-mediated section reaches no network of its own, so a
-            # configuration belongs to it only where the image tag names the
-            # generation server it carries.
+            # configuration belongs to it only where a device lane tag names
+            # the server it carries: image, physics, or geometry.
             if (tags_value ~ /(^|,)ui-mediated(,|$)/ &&
-                tags_value !~ /(^|,)image(,|$)/ &&
+                tags_value !~ /(^|,)(image|physics|geometry)(,|$)/ &&
                 seen_key["LLAMA_ARG_MCP_SERVERS_CONFIG"]) {
                 printf "assembled section %s is ui-mediated and carries LLAMA_ARG_MCP_SERVERS_CONFIG\n", \
                     section > "/dev/stderr"

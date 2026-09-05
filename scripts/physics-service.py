@@ -43,6 +43,7 @@ import time
 SERVICE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SERVICE_DIRECTORY)
 import physics_protocol as protocol  # noqa: E402
+import sidecar_runtime  # noqa: E402
 
 PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
 LEASE_FILE_NAME = "vulkan-workload.lock"
@@ -53,6 +54,7 @@ PROFILE_COLUMNS = (
     "gpu_broadphase", "timeout_s", "execution_policy", "device_index",
 )
 SCENES = ("d6-chain-4",)
+MAX_RUNTIME_STDERR_BYTES = 65536
 MAX_RUNTIME_OUTPUT_BYTES = 1 << 20
 
 
@@ -70,6 +72,14 @@ class ProfileRefused(ServiceError):
 
 class ServiceBusy(ServiceError):
     reason = "busy"
+
+
+class GrantDenied(ServiceError):
+    reason = "grant_refused"
+
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
 
 
 class LeaseUnavailable(ServiceError):
@@ -204,6 +214,13 @@ class PhysicsService:
         self.settings = settings
         self.profiles = load_profiles(settings["profiles"])
         self.runtime_sha256 = sha256_file(settings["runtime"])
+        # The lease the session named is required and, where the session
+        # passed its identity, proven to be the same file; a mismatch refuses
+        # the launch rather than serializing against a file no server holds.
+        try:
+            self.lease_path = sidecar_runtime.require_lease_identity()
+        except sidecar_runtime.LeaseIdentityRefused as error:
+            raise ProfileRefused("lease identity: %s" % error) from None
         self.lease = WorkloadLease(settings["state_dir"], settings["lease_wait_s"])
         self.busy = threading.Lock()
         self.child = None
@@ -234,6 +251,17 @@ class PhysicsService:
                 raise ProfileRefused("profile %s reads %s" % (profile_id, profile["execution_policy"]))
             if steps > profile["max_steps"]:
                 raise InvalidArgument("steps %d exceeds the profile ceiling %d" % (steps, profile["max_steps"]))
+            # A service launched with a signing key revalidates the grant the
+            # MCP child verified, ahead of the lease: a request that reached
+            # the socket some other way meets the same refusal here.
+            if self.settings.get("token_key_file"):
+                try:
+                    sidecar_runtime.require_grant(
+                        self.settings["token_key_file"], message.get("authorization"), "physics",
+                        self.settings.get("language_profile", ""), profile_id, self.runtime_sha256,
+                        profile["scene"], steps, time.time())
+                except sidecar_runtime.GrantRefused as error:
+                    raise GrantDenied(error.reason, str(error)) from None
             if not self.busy.acquire(blocking=False):
                 raise ServiceBusy("a simulation is running")
             try:
@@ -283,10 +311,14 @@ class PhysicsService:
         except OSError as error:
             raise RuntimeFailed("runtime did not start: %s" % error) from None
         try:
-            stdout, stderr = self.child.communicate(timeout=profile["timeout_s"])
+            stdout, stderr = sidecar_runtime.collect_output(
+                self.child, profile["timeout_s"], MAX_RUNTIME_OUTPUT_BYTES, MAX_RUNTIME_STDERR_BYTES)
         except subprocess.TimeoutExpired:
             self.terminate_child()
             raise RuntimeTimeout("runtime exceeded %d s" % profile["timeout_s"]) from None
+        except sidecar_runtime.OutputOverflow as overflow:
+            self.terminate_child()
+            raise RuntimeFailed("runtime %s exceeds its byte limit; the runtime was ended" % overflow.stream) from None
         finally:
             returncode = self.child.returncode
             self.child = None
@@ -298,8 +330,6 @@ class PhysicsService:
             with open(os.path.join(self.settings["state_dir"], "runtime-stderr.txt"), "w",
                       encoding="utf-8") as handle:
                 handle.write("request=%s exit=%s\n%s" % (request_id, returncode, stderr_text))
-        if len(stdout) > MAX_RUNTIME_OUTPUT_BYTES:
-            raise RuntimeFailed("runtime output exceeds %d bytes" % MAX_RUNTIME_OUTPUT_BYTES)
         if returncode != 0:
             named = [line for line in stderr_text.splitlines()
                      if line.startswith(("physx_runtime=rejected", "physx: "))]
@@ -406,6 +436,10 @@ def main():
         "profiles": args.profiles,
         "runtime": os.path.abspath(args.runtime),
         "lease_wait_s": args.lease_wait_s,
+        # a key file makes every run require the grant the MCP child spent;
+        # the language profile is the section the grant was signed for
+        "token_key_file": os.environ.get("QWEN_SIDECAR_TOKEN_KEY_FILE", ""),
+        "language_profile": os.environ.get("QWEN_SIDECAR_LANGUAGE_PROFILE", ""),
     }
     try:
         service = PhysicsService(settings)

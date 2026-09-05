@@ -37,6 +37,8 @@ entrypoint	role	backend	top_level_owner	nested_owner_capability	active_compute_l
 cuda-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 image-review.py	active-workload	cuda	no	yes	no	yes	no	inherits
 image-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
+sidecar-mcp/server.py	non-gpu-helper	none	no	no	no	yes	n-a	none
+sidecar_runtime.py	non-gpu-helper	none	no	no	no	yes	n-a	none
 physics-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
 build-physics-runtime.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
 physics-teardown-check.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
@@ -78,12 +80,14 @@ run-speculation-sweep.sh	measurement-campaign	cuda	yes	yes	no	no	yes	acquires
 admit-cuda-router-serving.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-evict-first-transition.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-image-router.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+admit-sidecar-session.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-router-speculation-roster.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-paged-kv-buffer.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 admit-web-router-fake.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 compare-model-candidate.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 measure-served-decode.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 qwen-image-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
+qwen-sidecar-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 qwen-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 qwen-web-launch.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates
 qwen-webui-control.sh	nested-orchestrator	cuda	no	no	no	no	n-a	delegates

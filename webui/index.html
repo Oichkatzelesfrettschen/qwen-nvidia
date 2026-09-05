@@ -130,6 +130,7 @@
   <label class="chip"><input type="checkbox" id="tools"> offer a demo tool</label>
   <label class="chip"><input type="checkbox" id="web-tools"> web</label>
   <label class="chip"><input type="checkbox" id="image-tools"> image</label>
+  <label class="chip"><input type="checkbox" id="sidecar-tools"> device</label>
   <label class="chip"><input type="checkbox" id="code-tools"> code</label>
   <input class="key" type="text" id="broker-origin" placeholder="approval broker origin" autocomplete="off">
   <input class="key" type="text" id="artifact-origin" placeholder="image artifact origin" autocomplete="off">
@@ -182,6 +183,27 @@
   </div>
 </dialog>
 <!-- end image generation dialog -->
+
+<!--
+  Device sidecar approval dialog. A physics simulation or a geometry query is
+  one bounded operation the model proposes and a human authorizes with the
+  same exact-argument discipline: the broker signs its qwen-sidecar-run-v1
+  grant over the lane, the profile, the runtime digest, the scene, and the
+  count shown here, and the served path refuses any other run.
+-->
+<dialog class="approval" id="sidecar-approval">
+  <h2 id="sidecar-approval-title">Authorize one device run</h2>
+  <p class="why">The model proposes these exact arguments. An approval signs a
+    grant over them and admits one run of this profile on the device; the
+    service refuses any other profile, runtime, scene, or count.</p>
+  <p class="approval-note" id="sidecar-approval-note" hidden></p>
+  <dl class="args" id="sidecar-approval-args"></dl>
+  <div class="approval-actions">
+    <button class="act" id="sidecar-approve-deny">deny</button>
+    <button class="act" id="sidecar-approve-once">approve once</button>
+  </div>
+</dialog>
+<!-- end device sidecar dialog -->
 
 <!--
   Code mode approval dialog. One dialog serves both coding approvals with the
@@ -570,6 +592,7 @@ let imageToolsModel = null;
 let imageToolsGeneration = -1;
 
 function forgetImageTools() {
+  forgetSidecarTools();
   imageToolDefinitionCached = null;
   imageCancelToolNameCached = null;
   imageToolBoundsCached = null;
@@ -617,6 +640,213 @@ async function resolveImageTools(selectedModel, generation) {
   return { definition, cancelToolName, bounds };
 }
 // ==== end image generation: tool discovery ==================================
+
+// ==== device sidecars: tool discovery ======================================
+// The two device sidecars each serve one MCP tool: the physics server serves
+// `simulate_rigid` and the geometry server `ray_query`, listed by llama-server
+// as `<server>_<tool>`. Each definition's profile_id property carries the
+// scene and the runtime digest the grant binds (`x_scene`,
+// `x_runtime_sha256`), read here from the listing rather than typed anywhere.
+const SIDECAR_LANES = {
+  physics: { tool: 'physics_simulate_rigid', countLabel: 'steps', grantPath: '/grant-physics',
+             title: 'Authorize one physics simulation' },
+  geometry: { tool: 'geometry_ray_query', countLabel: 'rays', grantPath: '/grant-geometry',
+              title: 'Authorize one geometry ray query' }
+};
+const SIDECAR_GRANT_CONTEXT = 'qwen-sidecar-run-v1';
+const SIDECAR_RUNS_PER_TURN = 1;
+let sidecarToolsCached = null;
+let sidecarToolsModel = null;
+let sidecarToolsGeneration = -1;
+
+function forgetSidecarTools() {
+  sidecarToolsCached = null;
+  sidecarToolsModel = null;
+  sidecarToolsGeneration = -1;
+}
+
+function sidecarLaneOf(toolName) {
+  return Object.keys(SIDECAR_LANES).find(lane => SIDECAR_LANES[lane].tool === toolName) || null;
+}
+
+function sidecarBoundsOf(definition) {
+  /* Read the served profile, ceiling, scene, and runtime digest out of one
+     listed definition; a listing lacking any of them offers nothing. */
+  const properties = definition && definition.function && definition.function.parameters
+    && definition.function.parameters.properties;
+  if (!properties || !properties.profile_id || !properties.count) return null;
+  const profile = Array.isArray(properties.profile_id.enum) ? properties.profile_id.enum[0] : null;
+  const ceiling = Number.isInteger(properties.count.maximum) ? properties.count.maximum : null;
+  const scene = properties.profile_id.x_scene;
+  const runtime = properties.profile_id.x_runtime_sha256;
+  if (!profile || !ceiling || typeof scene !== 'string' || !/^[0-9a-f]{64}$/.test(runtime || '')) return null;
+  return { profile, ceiling, scene, runtime };
+}
+
+async function resolveSidecarTools(selectedModel, generation) {
+  /* Return { lane: { definition, bounds } } for the lanes the model's section lists. */
+  if (sidecarToolsModel === selectedModel && sidecarToolsGeneration === generation) {
+    return sidecarToolsCached || {};
+  }
+  let listed = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      listed = await fetchWebToolListing(selectedModel);
+      break;
+    } catch {
+      if (attempt === 0) await sleep(TOOLS_LISTING_RETRY_DELAY_MS);
+    }
+  }
+  const lanes = {};
+  if (listed !== null) {
+    for (const lane of Object.keys(SIDECAR_LANES)) {
+      const entry = listed.find(row => row && row.tool === SIDECAR_LANES[lane].tool);
+      const definition = entry ? webToolDefinition(entry) : null;
+      const bounds = definition ? sidecarBoundsOf(definition) : null;
+      if (definition && bounds) lanes[lane] = { definition, bounds };
+    }
+  }
+  if (modelStateMatches(selectedModel, generation)) {
+    sidecarToolsCached = lanes;
+    sidecarToolsModel = selectedModel;
+    sidecarToolsGeneration = generation;
+  }
+  return lanes;
+}
+
+function proposedSidecarFields(lane, argumentText, bounds) {
+  /* Return { profile, count } from the proposal's argument text, the JSON
+     string llama-server streamed for the call, or throw the bound it left. */
+  let args;
+  try {
+    args = JSON.parse(argumentText);
+  } catch {
+    throw new Error('the model proposed arguments that are not one JSON object');
+  }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('the model proposed arguments that are not one JSON object');
+  }
+  const proposedProfile = typeof args.profile_id === 'string' ? args.profile_id : bounds.profile;
+  const count = args.count;
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error(`the model proposed no positive ${SIDECAR_LANES[lane].countLabel}`);
+  }
+  if (count > bounds.ceiling) {
+    throw new Error(`the model proposed ${count} ${SIDECAR_LANES[lane].countLabel} where the profile admits at most ${bounds.ceiling}`);
+  }
+  return { profile: bounds.profile, proposedProfile, profileReplaced: proposedProfile !== bounds.profile, count };
+}
+
+async function postSidecarGrant(lane, fields, secret, signal) {
+  const response = await fetch(`${brokerOrigin()}${SIDECAR_LANES[lane].grantPath}`, {
+    method: 'POST',
+    mode: 'cors',
+    headers: { 'Content-Type': 'application/json', [BROKER_SESSION_HEADER]: secret },
+    body: JSON.stringify(fields),
+    signal
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
+async function requestSidecarGrant(lane, fields, signal) {
+  const secret = await brokerSession(signal);
+  let { response, payload } = await postSidecarGrant(lane, fields, secret, signal);
+  if (response.status === 403 && payload.code === STALE_SESSION_SECRET_CODE) {
+    brokerSessionSecret = null;
+    brokerSessionOrigin = null;
+    const refreshed = await brokerSession(signal);
+    ({ response, payload } = await postSidecarGrant(lane, fields, refreshed, signal));
+  }
+  if (!response.ok || typeof payload.authorization !== 'string') {
+    throw new Error(payload.error || `the approval broker refused: HTTP ${response.status}`);
+  }
+  return payload.authorization;
+}
+
+function renderSidecarApprovalFields(lane, fields, bounds) {
+  const list = $('#sidecar-approval-args');
+  list.textContent = '';
+  const row = (label, value) => {
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const detail = document.createElement('dd');
+    detail.textContent = value;
+    list.append(term, detail);
+  };
+  row('lane', lane);
+  row('profile', fields.profile);
+  row('scene', bounds.scene);
+  row('runtime sha256', bounds.runtime);
+  row(SIDECAR_LANES[lane].countLabel, `${fields.count} of at most ${bounds.ceiling}`);
+}
+
+function approveSidecarRun(lane, fields, bounds, proposalModel) {
+  /* Mirrors approveImageGeneration(): one approval or a refusal, a single-use
+     grant, and an abort of the in-flight grant request on denial. */
+  return new Promise(resolve => {
+    const dialog = $('#sidecar-approval');
+    const note = $('#sidecar-approval-note');
+    $('#sidecar-approval-title').textContent = SIDECAR_LANES[lane].title;
+    note.hidden = true;
+    note.textContent = '';
+    renderSidecarApprovalFields(lane, fields, bounds);
+    if (fields.profileReplaced) {
+      note.hidden = false;
+      note.textContent = `the model proposed profile ${fields.proposedProfile}; ` +
+        `this appliance serves ${fields.profile}, and the grant names the served profile`;
+    }
+    const once = $('#sidecar-approve-once');
+    const deny = $('#sidecar-approve-deny');
+    let settled = false;
+    const controller = new AbortController();
+    const finish = outcome => {
+      if (settled) return;
+      settled = true;
+      once.onclick = null;
+      deny.onclick = null;
+      dialog.onclose = null;
+      once.disabled = false;
+      dialog.close();
+      resolve(outcome);
+    };
+    once.onclick = async () => {
+      once.disabled = true;
+      try {
+        if (requestModel !== proposalModel) {
+          finish({ decision: 'deny',
+                   reason: `it was proposed by model ${proposalModel}, the current model is ${requestModel}` });
+          return;
+        }
+        const grantFields = {
+          context: SIDECAR_GRANT_CONTEXT,
+          service: lane,
+          language_profile: requestModel,
+          sidecar_profile: fields.profile,
+          runtime_sha256: bounds.runtime,
+          scene: bounds.scene,
+          count: fields.count,
+          count_ceiling: bounds.ceiling,
+          conversation_generation: conversationGeneration
+        };
+        const authorization = await requestSidecarGrant(lane, grantFields, controller.signal);
+        finish({ decision: 'once', authorization });
+      } catch (error) {
+        finish({ decision: 'failed', reason: String(error.message || error) });
+      }
+    };
+    deny.onclick = () => {
+      controller.abort();
+      finish({ decision: 'deny' });
+    };
+    dialog.onclose = () => {
+      controller.abort();
+      finish({ decision: 'deny' });
+    };
+    dialog.showModal();
+  });
+}
+// ==== end device sidecars: tool discovery ==================================
 
 // The broker origin resolves in one order: a `?broker=` query parameter, then
 // the `qwen-web-broker` meta tag the served page carries, then the loopback
@@ -879,14 +1109,17 @@ $('#web-tools').checked = false;
 // visit would offer image generation to a turn the user opened with no such
 // intent.
 $('#image-tools').checked = false;
+// The Device toggle is the same per-turn choice: it governs whether the
+// physics and geometry tools are offered at all.
+$('#sidecar-tools').checked = false;
 
 // Code mode is exclusive: one authority surface at a time. Turning Code on
-// clears and disables the demo, Web, and Image toggles, so a turn carries
-// either the coding tools or the others, never a mixed set.
+// clears and disables the demo, Web, Image, and Device toggles, so a turn
+// carries either the coding tools or the others, never a mixed set.
 $('#code-tools').checked = false;
 $('#code-tools').addEventListener('change', () => {
   const codeOn = $('#code-tools').checked;
-  for (const id of ['#tools', '#web-tools', '#image-tools']) {
+  for (const id of ['#tools', '#web-tools', '#image-tools', '#sidecar-tools']) {
     if (codeOn) $(id).checked = false;
     $(id).disabled = codeOn;
   }
@@ -2527,7 +2760,7 @@ $('#input').addEventListener('keydown', e => {
 });
 $('#send').onclick = send;
 
-async function buildRequestBody(messages, webPermission, imagePermission, codePermission) {
+async function buildRequestBody(messages, webPermission, imagePermission, codePermission, sidecarPermission = false) {
   /* A reasoning model emits its <think> block inside the same budget the answer
      is drawn from, so a budget that fits an answer alone ends the turn on
      `length` with an empty message and the reasoning discarded. The budget is
@@ -2567,18 +2800,24 @@ async function buildRequestBody(messages, webPermission, imagePermission, codePe
     const { definition } = await resolveImageTools(requestModel, modelStateGeneration);
     if (definition) tools.push(definition);
   }
+  // The device toggle offers whichever sidecar tools the section lists; a
+  // turn run with it off offers the model no device-reaching surface.
+  if (sidecarPermission) {
+    const lanes = await resolveSidecarTools(requestModel, modelStateGeneration);
+    for (const lane of Object.keys(lanes)) tools.push(lanes[lane].definition);
+  }
   if (tools.length) body.tools = tools;
   return body;
 }
 
-async function streamCompletion(messages, view, webPermission, imagePermission, codePermission) {
+async function streamCompletion(messages, view, webPermission, imagePermission, codePermission, sidecarPermission = false) {
   const t0 = performance.now();
   let first = null, streamChunks = 0, completionTokens = null;
   let serverTimings = null, answer = '', reasoning = '', finish = null;
   const toolCalls = {};
   const resp = await fetch('./v1/chat/completions', {
     method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(await buildRequestBody(messages, webPermission, imagePermission, codePermission))
+    body: JSON.stringify(await buildRequestBody(messages, webPermission, imagePermission, codePermission, sidecarPermission))
   });
   if (!resp.ok) {
     const detail = await resp.text();
@@ -3034,7 +3273,7 @@ function answerCall(callId, toolName, content, turnGeneration) {
 async function runProposedTools(calls, callIds, view, roundBudgetExhausted, fetchBudget,
                                  searchBudget, turnGeneration, proposalModel,
                                  webPermission, imagePermission, imageBudget, imageCancelToolName, imageBounds,
-                                 codePermission) {
+                                 codePermission, sidecarPermission = false, sidecarBudget = null) {
   /* Execute this round's proposed calls and answer each one.
 
      A proposed `web_search_exa` is shown to a human with the arguments it
@@ -3193,6 +3432,68 @@ async function runProposedTools(calls, callIds, view, roundBudgetExhausted, fetc
       continue;
     }
     // ==== end image generation: dispatch ====================================
+    // ==== device sidecars: dispatch ========================================
+    const sidecarLane = sidecarLaneOf(toolName);
+    if (sidecarLane) {
+      if (!sidecarPermission) {
+        refused = true;
+        answerCall(callId, toolName, `The device surface is off for this turn; ${toolName} did not run.`, turnGeneration);
+        continue;
+      }
+      if (roundBudgetExhausted) {
+        refused = true;
+        answerCall(callId, toolName, `The round budget is exhausted; ${toolName} did not run.`, turnGeneration);
+        continue;
+      }
+      if (requestModel !== proposalModel) {
+        refused = true;
+        answerCall(callId, toolName,
+          `The ${toolName} call did not run: it was proposed by model ${proposalModel}, ` +
+          `the current model is ${requestModel}.`, turnGeneration);
+        continue;
+      }
+      const lanes = await resolveSidecarTools(requestModel, modelStateGeneration);
+      const listed = lanes[sidecarLane];
+      if (!listed) {
+        refused = true;
+        answerCall(callId, toolName, `The ${sidecarLane} lane is not served for this model; ${toolName} did not run.`, turnGeneration);
+        continue;
+      }
+      if (!sidecarBudget || (sidecarBudget[sidecarLane] || 0) <= 0) {
+        refused = true;
+        answerCall(callId, toolName,
+          `The per-turn budget of ${SIDECAR_RUNS_PER_TURN} ${sidecarLane} run is spent; this run did not run.`, turnGeneration);
+        continue;
+      }
+      let sidecarFields;
+      try {
+        sidecarFields = proposedSidecarFields(sidecarLane, calls[index].args, listed.bounds);
+      } catch (error) {
+        refused = true;
+        answerCall(callId, toolName, `The ${sidecarLane} run did not run: ${error.message || error}`, turnGeneration);
+        continue;
+      }
+      sidecarBudget[sidecarLane] -= 1;
+      const sidecarOutcome = await approveSidecarRun(sidecarLane, sidecarFields, listed.bounds, proposalModel);
+      if (sidecarOutcome.decision === 'failed') {
+        refused = true;
+        answerCall(callId, toolName, `The ${sidecarLane} run did not run: ${sidecarOutcome.reason}.`, turnGeneration);
+        continue;
+      }
+      if (sidecarOutcome.decision !== 'once') {
+        refused = true;
+        answerCall(callId, toolName, sidecarOutcome.reason
+          ? `The ${sidecarLane} run did not run: ${sidecarOutcome.reason}.`
+          : `The user refused this ${sidecarLane} run. It did not run.`, turnGeneration);
+        continue;
+      }
+      const params = { profile_id: sidecarFields.profile, count: sidecarFields.count,
+                       authorization: sidecarOutcome.authorization };
+      const text = await executeWebTool(toolName, params, proposalModel);
+      answerCall(callId, toolName, text, turnGeneration);
+      continue;
+    }
+    // ==== end device sidecars: dispatch ====================================
     if (toolName === WEB_FETCH_TOOL_NAME) {
       if (fetchBudget.remaining <= 0) {
         refused = true;
@@ -3308,6 +3609,11 @@ async function send() {
   // one user turn owns it, and the visible toggle already names the next.
   const imagePermission = $('#image-tools').checked;
   $('#image-tools').checked = false;
+  // The device surface carries the same per-turn snapshot, and one run per
+  // lane per turn is the whole allowance.
+  const sidecarPermission = $('#sidecar-tools').checked;
+  $('#sidecar-tools').checked = false;
+  const sidecarBudget = { physics: SIDECAR_RUNS_PER_TURN, geometry: SIDECAR_RUNS_PER_TURN };
   // Code mode stays selected across turns: a coding job outlives one turn,
   // and resetting the toggle would strand an open worktree with no surface
   // to continue it. The snapshot still governs this turn alone.
@@ -3344,7 +3650,7 @@ async function send() {
       const proposalModel = requestModel;
       let outcome;
       try {
-        outcome = await streamCompletion(history, view, webPermission, imagePermission, codePermission);
+        outcome = await streamCompletion(history, view, webPermission, imagePermission, codePermission, sidecarPermission);
       } catch (err) {
         view.meta.className = 'meta bad';
         view.meta.textContent = String(err.message || err);
@@ -3375,7 +3681,7 @@ async function send() {
         outcome.calls, callIds, view, round === CONTINUATION_CAP - 1, fetchBudget,
         searchBudget, turnGeneration, proposalModel, webPermission,
         imagePermission, imageBudget, imageCancelToolName, imageBounds,
-        codePermission);
+        codePermission, sidecarPermission, sidecarBudget);
       if (turnGeneration !== conversationGeneration) return;
       if (requestModel !== proposalModel) {
         // The picker stays enabled while a tool request is in flight, so
