@@ -278,8 +278,8 @@ table, 36, 168, and 312 MiB at 4096, 32768, and 65536 padded rows on the
 2B layout, and states that under the pinned padding rule an interior hole
 lies inside the attention envelope, so the tail is the only reclaimable
 region. `scripts/test-paged-kv-residency-planner.py` holds it to that
-layout. `evidence/ada/paged-kv-residency/2b-p2a-run-01/` is the P2-A null
-on closure `f35fe5a95a43`: 156 units each with its own handle, mapping, and
+layout. `evidence/ada/paged-kv-residency/2b-p2a-run-02/` is the P2-A null
+on closure `adb111abc7cf`: 156 units each with its own handle, mapping, and
 access grant, 12 of 12 tokens and 12 of 12 state files identical, allocated
 equal to mapped equal to reserved at 327155712 bytes, and primed widths 1
 and 3 identical, so the boundary change moves nothing observable. P2 stops

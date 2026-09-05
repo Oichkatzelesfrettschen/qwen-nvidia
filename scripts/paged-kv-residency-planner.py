@@ -38,6 +38,9 @@ import sys
 ATTENTION_PAD = 256
 CLASSES = ("live", "attention", "writes", "maintenance", "inflight")
 
+BUFFER_LINE = re.compile(
+    r"paged_kv_buffer device=(?P<device>\d+) requested_bytes=(?P<requested>\d+)"
+    r" virtual_reserved_bytes=(?P<virtual>\d+) physical_mapped_bytes=(?P<mapped>\d+)")
 TENSOR_LINE = re.compile(
     r"paged_kv_tensor name=(?P<name>\S+) type=(?P<type>\S+) ne0=(?P<ne0>\d+) ne1=(?P<ne1>\d+)"
     r" ne2=(?P<ne2>\d+) row_bytes=(?P<row>\d+) nbytes=(?P<nbytes>\d+) alloc_bytes=(?P<alloc>\d+)"
@@ -77,7 +80,10 @@ class Layout:
                 raise PlannerFault(f"tensor {name} offset {offset!r} is not a unit multiple")
             if not isinstance(row, int) or row <= 0:
                 raise PlannerFault(f"tensor {name} row_bytes {row!r} is not positive")
-            operand = t.get("operand") or ("K" if "_k_" in name else "V" if "_v_" in name else "?")
+            operand = t.get("operand") or ("K" if "_k_" in name else "V" if "_v_" in name else None)
+            if operand not in ("K", "V"):
+                raise PlannerFault(f"tensor {name} has no K or V operand; name it cache_k_l* or cache_v_l*"
+                                   " or state operand explicitly")
             self.tensors.append({"name": name, "offset": offset, "row_bytes": row,
                                  "operand": operand, "nbytes": row * kv_size * n_stream})
         self.tensors.sort(key=lambda t: t["offset"])
@@ -118,21 +124,45 @@ class Layout:
 
     @classmethod
     def from_log(cls, path):
+        """Build the layout from a server log's paged_kv_tensor lines.
+
+        Every tensor has to name one unit, one cell count, and one stream
+        count, its nbytes has to equal row * cells * streams, and the tensors
+        have to cover the buffer line's reservation, because a layout read
+        from the last tensor alone would model an earlier tensor at the wrong
+        extent and classify its storage as an unused tail.
+        """
         tensors = []
-        unit = kv = ns = None
+        geometries = set()
+        reserved = None
         with open(path, encoding="utf-8", errors="replace") as handle:
             for line in handle:
+                b = BUFFER_LINE.search(line)
+                if b:
+                    if reserved is not None:
+                        raise PlannerFault(f"{path}: more than one paged_kv_buffer line")
+                    reserved = int(b.group("virtual"))
+                    continue
                 m = TENSOR_LINE.search(line)
                 if not m:
                     continue
-                unit = int(m.group("unit"))
-                kv = int(m.group("ne1"))
-                ns = int(m.group("ne2"))
-                tensors.append({"name": m.group("name"), "offset": int(m.group("offset")),
-                                "row_bytes": int(m.group("row"))})
+                unit, kv, ns = int(m.group("unit")), int(m.group("ne1")), int(m.group("ne2"))
+                row, nbytes = int(m.group("row")), int(m.group("nbytes"))
+                if nbytes != row * kv * ns:
+                    raise PlannerFault(f"{path}: tensor {m.group('name')} nbytes {nbytes} is not"
+                                       f" row {row} * cells {kv} * streams {ns}")
+                geometries.add((unit, kv, ns))
+                tensors.append({"name": m.group("name"), "offset": int(m.group("offset")), "row_bytes": row})
         if not tensors:
             raise PlannerFault(f"no paged_kv_tensor line in {path}")
-        return cls(unit, kv, ns, tensors)
+        if len(geometries) != 1:
+            raise PlannerFault(f"{path}: tensors disagree on unit, cells, or streams: {sorted(geometries)}")
+        unit, kv, ns = next(iter(geometries))
+        layout = cls(unit, kv, ns, tensors)
+        if reserved is not None and reserved != layout.total_bytes:
+            raise PlannerFault(f"{path}: the tensors cover {layout.total_bytes} bytes where the buffer"
+                               f" reserved {reserved}")
+        return layout
 
 
 def runs(cells):

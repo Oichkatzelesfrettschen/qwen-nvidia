@@ -219,6 +219,12 @@ report("cell_out_of_range_refused", refused(lambda: make().apply({"event": "ubat
 report("unknown_event_refused", refused(lambda: make().apply({"event": "evict"}), "unknown event"))
 report("bad_stream_refused", refused(lambda: make().apply({"event": "seq_rm", "stream": 5, "all": True}), "stream"))
 report("stream_copy_to_self_refused", refused(lambda: make(n_stream=2).apply({"event": "stream_copy", "src": 1, "dst": 1}), "src equals dst"))
+bad = layout_dict()
+bad["tensors"][0]["name"] = "key_l3"
+report("unresolved_operand_refused", refused(lambda: planner.Layout.from_dict(bad), "no K or V operand"))
+bad = layout_dict()
+bad["tensors"][0]["operand"] = "Q"
+report("foreign_operand_refused", refused(lambda: planner.Layout.from_dict(bad), "no K or V operand"))
 
 # 14. The command line: reports written, summary line, log-derived layout, refusal status.
 with tempfile.TemporaryDirectory() as work:
@@ -255,6 +261,25 @@ with tempfile.TemporaryDirectory() as work:
         handle.write(json.dumps({"event": "ubatch", "streams": [{"cells": [1]}]}) + "\n")
     run = subprocess.run([sys.executable, SCRIPT, events, "--out", os.path.join(work, "nolayout")], capture_output=True, text=True)
     report("cli_refuses_without_layout", run.returncode == 1 and "first event must be the layout" in run.stderr)
+    # A log whose tensors disagree on geometry, or whose nbytes contradicts
+    # row * cells * streams, or whose tensors fail to cover the reservation,
+    # is refused rather than planned at the last tensor's extent.
+    with open(log) as handle:
+        good = handle.read()
+    with open(events, "w") as handle:
+        handle.write(json.dumps({"event": "ubatch", "streams": [{"cells": [1]}]}) + "\n")
+    shrunk = good.replace("name=cache_k_l3 type=q8_0 ne0=512 ne1=%d" % DEPTH,
+                          "name=cache_k_l3 type=q8_0 ne0=512 ne1=%d" % (DEPTH // 2), 1)
+    with open(log, "w") as handle:
+        handle.write(shrunk)
+    run = subprocess.run([sys.executable, SCRIPT, events, "--out", os.path.join(work, "shrunk"), "--layout-from-log", log], capture_output=True, text=True)
+    report("log_with_disagreeing_geometry_refused", run.returncode == 1 and ("is not row" in run.stderr or "disagree" in run.stderr), run.stderr.strip()[-160:])
+    with open(log, "w") as handle:
+        handle.write("ggml_backend_cuda_paged_kv_alloc_buffer: paged_kv_buffer device=0 requested_bytes=1 virtual_reserved_bytes=%d"
+                     " physical_mapped_bytes=%d unit_bytes=%d granularity_minimum=%d granularity_recommended=%d access=device_rw\n"
+                     % (G * 200, G * 200, G, G, G) + good)
+    run = subprocess.run([sys.executable, SCRIPT, events, "--out", os.path.join(work, "uncovered"), "--layout-from-log", log], capture_output=True, text=True)
+    report("log_whose_tensors_fail_to_cover_the_reservation_refused", run.returncode == 1 and "reserved" in run.stderr, run.stderr.strip()[-160:])
 
 print("test_paged_kv_residency_planner=%s failures=%d" % ("accepted" if failures == 0 else "rejected", failures))
 sys.exit(1 if failures else 0)

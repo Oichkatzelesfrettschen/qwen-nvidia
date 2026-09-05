@@ -102,8 +102,12 @@ to the padded `used_max_p1`, an interior hole left by `seq_rm` lies inside
 the attention envelope of the stream that holds cells above it, so the units
 under the hole are held by the attention requirement rather than merely
 retained by policy. The interior class in the planner is the guard for a
-padding rule that stops starting at row 0; under the pinned rule it reads
-zero and the tail is the only reclaimable region.
+padding rule that stops starting at row 0; under the pinned rule and one
+stream it reads zero and the tail is the only reclaimable region. Across
+streams the regions of one tensor are adjacent, so a unit on a shared
+boundary can be held by one stream's requirement while the other stream's
+side of it sits below that stream's high-water mark, which the planner
+reports as interior for that region rather than as a tail.
 
 ### Tails first, interior holes stay backed
 
@@ -225,6 +229,18 @@ M(h) = 6 * G * ( ceil(544*h / G) + ceil(288*h / G) )
 | 32768 | 168 MiB | 144 MiB |
 | 65536 | 312 MiB | 0 MiB |
 
+The same arithmetic states what the 2 MiB unit costs at small envelopes.
+The smallest nonempty envelope, 256 padded rows, holds 1.219 MiB of logical
+K and V across the six layers and requires 24 MiB of backing, one unit per
+tensor, about twenty times its logical bytes; 3840 rows still fit in 24 MiB,
+4096 rows require 36 MiB, 7168 rows 36 MiB, and 7424 rows 48 MiB. The first
+K unit growth is triggered by padding at used depth 3841, ahead of the
+physical row crossing at row 3855, so the padding rule rather than the row
+size decides where units are committed at the low end. The standing envelope
+also keeps the padded tail of every inactive sequence backed; releasing that
+padding between activations would trade memory for recommit traffic while
+preserving live bytes, and it is measured rather than assumed.
+
 These are layout calculations. A measured residency adds maintenance ranges,
 inactive but preserved sequences, in-flight references, and any retained
 pool before it is reported. Residency is updated when a unit boundary or a
@@ -241,18 +257,21 @@ device run and are not lowered after one:
 | --- | --- | --- |
 | P2-A identity | every P1 gate holds: 12 of 12 token arms and 12 of 12 state files identical, one placement fingerprint, `physical_mapped_bytes == virtual_reserved_bytes`, padding 0 | one differing token, state byte, or fingerprint refuses the boundary change |
 | P2-B planner | every retained unit and every proposed release explained; the test matrix passes; the planner replayed over a retained P2-A log proposes releases only at quiescence and only in tails | an unexplained unit, or a release below a high-water mark |
-| P2-C steady-state saving | at a 4096-row envelope on the 2B, `physical_allocated_bytes` at or under 48 MiB (36 MiB layout figure plus one unit per tensor of maintenance and in-flight slack) | a reading above 48 MiB with no explained holder |
+| P2-C steady-state saving | at a 4096-row envelope on the 2B, `physical_allocated_bytes` at or under 60 MiB (the 36 MiB layout figure plus one 2 MiB unit for each of the twelve tensors as maintenance and in-flight slack) | a reading above 60 MiB with no explained holder |
 | P2-C mapping latency | a commit or reclaim transaction at a unit boundary under 2 ms at the median and under 10 ms at the 95th percentile, measured beside and separated from steady decode | a boundary crossing that stalls decode past 10 ms |
 | P2-C serving cost | delivered decode rate within 2% of the fully backed P1 arm at batch 1, primed widths 1 and 3 identical in reply | a regression past 2%, or one differing reply |
 | P2-C identity | exact batch-1 tokens and state bytes against the P1 control, then the primed multi-sequence regime | any difference |
 
 ## P2-A result
 
-`2b-p2a-run-01/` runs `scripts/admit-paged-kv-buffer.sh` against closure
-`f35fe5a95a43`, the pinned tree with the crossover patch and the P2-A form
-of `patches/llama-cuda-paged-kv-buffer.patch`, on the 2B under the same
-harness that admitted P1; the subject arm is that closure's own binary under
-`LLAMA_KV_PAGED_BUFFER=1`.
+`2b-p2a-run-02/` runs `scripts/admit-paged-kv-buffer.sh` against closure
+`adb111abc7cf`, the pinned tree with the crossover patch and the P2-A form
+of `patches/llama-cuda-paged-kv-buffer.patch` as committed, on the 2B under
+the same harness that admitted P1; the subject arm is that closure's own
+binary under `LLAMA_KV_PAGED_BUFFER=1`. `2b-p2a-run-01/` is the same run on
+closure `f35fe5a95a43`, the form of the patch ahead of the review pass that
+moved the unit table's host allocation ahead of the reservation and put the
+context under an owning pointer; both runs read the same table.
 
 | record | reading |
 | --- | --- |
@@ -264,8 +283,8 @@ harness that admitted P1; the subject arm is that closure's own binary under
 | virtual_reserved, physical_allocated, physical_mapped | 327155712 bytes each; padding 0 |
 | physical_retained_unmapped, physical_released | 0, 0 |
 | tensors in the paged buffer | 12, layout and census as in P1 |
-| primed width 1 | replies identical in 4 of 4 bursts, delivered ratio 0.9968 |
-| primed width 3 | replies identical in 4 of 4 bursts, delivered ratio 1.0018 |
+| primed width 1 | replies identical in 4 of 4 bursts, delivered ratio 1.0003 (0.9968 in run-01) |
+| primed width 3 | replies identical in 4 of 4 bursts, delivered ratio 1.0003 (1.0018 in run-01) |
 | kernel ring, client set | 0 hazard lines; the compositor and one browser GPU process across every arm |
 | verdict | admitted |
 
