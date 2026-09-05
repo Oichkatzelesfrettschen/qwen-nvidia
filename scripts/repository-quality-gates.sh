@@ -112,6 +112,8 @@ scripts/test-gpu-quiescence-gate.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-nsys-mat-mul-kernels.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-graph-lifecycle-trace.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-paged-kv-layout.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-embd-handoff-trace.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-read-nsys-embd-transfers.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-paged-kv-residency-planner.py
 scripts/test-paged-kv-residency-transactions.sh
 python3 scripts/test-read-server-decode-iterations.py

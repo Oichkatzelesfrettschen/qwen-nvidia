@@ -60,18 +60,19 @@ index a04177f9f..06b8b75f7 100644
  
      enum llama_model_kv_override_type {
 diff --git a/src/llama-batch.cpp b/src/llama-batch.cpp
-index 2b98a552f..074b51e11 100644
+index 2b98a552f..b2bb30425 100644
 --- a/src/llama-batch.cpp
 +++ b/src/llama-batch.cpp
-@@ -5,6 +5,7 @@
+@@ -5,6 +5,8 @@
  #include "llama-memory.h"
  
  #include <cassert>
 +#include <cinttypes>
++#include <cstdlib>
  #include <cstring>
  #include <algorithm>
  #include <sstream>
-@@ -224,6 +225,8 @@ bool llama_batch_allocr::init(
+@@ -224,6 +226,8 @@ bool llama_batch_allocr::init(
              /*.seq_id_unq   =*/ this->seq_id_unq.data(),
              /*.seq_idx      =*/ this->seq_idx.data(),
              /*.output       =*/ batch.logits,
@@ -80,7 +81,7 @@ index 2b98a552f..074b51e11 100644
              /*.data         =*/ {},
          };
  
-@@ -430,6 +433,8 @@ llama_ubatch llama_batch_allocr::ubatch_reserve(uint32_t n_seq_tokens, uint32_t
+@@ -430,6 +434,8 @@ llama_ubatch llama_batch_allocr::ubatch_reserve(uint32_t n_seq_tokens, uint32_t
          /*.seq_id_unq   =*/ udata->seq_id_unq.data(),
          /*.seq_idx      =*/ udata->seq_idx.data(),
          /*.output       =*/ udata->output.data(),
@@ -89,7 +90,7 @@ index 2b98a552f..074b51e11 100644
          /*.data         =*/ std::move(udata),
      };
  
-@@ -756,6 +761,28 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
+@@ -756,6 +762,45 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
      const int64_t n_embd_all = batch.embd ? (int64_t) n_tokens*n_embd : 0;
      const int64_t n_pos_all  =              (int64_t) n_tokens*n_pos_per_embd;
  
@@ -98,6 +99,23 @@ index 2b98a552f..074b51e11 100644
 +    // strategies keep a single sequence's tokens in order, and a split that
 +    // interleaved rows would need a gather the view cannot express.
 +    int64_t embd_dev_offset = 0;
++    if (batch.embd || batch.embd_dev) {
++        // The embedding handoff trace states which rows of the batch this
++        // ubatch selects, so a reader joins the ubatch's digest to the rows of
++        // the chunk it came from; the host path carries no offset of its own.
++        static const bool trace = [] {
++            const char * value = getenv("LLAMA_EMBD_HANDOFF_TRACE");
++            return value && strcmp(value, "1") == 0;
++        }();
++        if (trace) {
++            bool contiguous = true;
++            for (size_t i = 1; i < idxs.size(); ++i) {
++                contiguous = contiguous && idxs[i] == idxs[i - 1] + 1;
++            }
++            LLAMA_LOG_INFO("embd_ubatch source=%s batch_row_first=%d batch_row_last=%d n_tokens=%u contiguous=%s\n",
++                    batch.embd_dev ? "device" : "host", idxs.front(), idxs.back(), n_tokens, contiguous ? "yes" : "no");
++        }
++    }
 +    if (batch.embd_dev) {
 +        GGML_ASSERT(!batch.embd && !batch.token);
 +        for (size_t i = 1; i < idxs.size(); ++i) {
@@ -118,7 +136,7 @@ index 2b98a552f..074b51e11 100644
      udata->token     .resize(n_tokens);
      udata->embd      .resize(n_embd_all);
      udata->pos       .resize(n_pos_all);
-@@ -831,6 +858,8 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
+@@ -831,6 +876,8 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
          /*.seq_id_unq   =*/ udata->seq_id_unq.data(),
          /*.seq_idx      =*/ udata->seq_idx.data(),
          /*.output       =*/ udata->output.data(),
@@ -127,7 +145,7 @@ index 2b98a552f..074b51e11 100644
          /*.data         =*/ std::move(udata),
      };
  
-@@ -939,6 +968,8 @@ struct llama_batch llama_batch_get_one(
+@@ -939,6 +986,8 @@ struct llama_batch llama_batch_get_one(
          /*n_seq_id =*/ nullptr,
          /*seq_id   =*/ nullptr,
          /*logits   =*/ nullptr,
@@ -136,7 +154,7 @@ index 2b98a552f..074b51e11 100644
      };
  }
  
-@@ -951,6 +982,8 @@ struct llama_batch llama_batch_init(int32_t n_tokens_alloc, int32_t embd, int32_
+@@ -951,6 +1000,8 @@ struct llama_batch llama_batch_init(int32_t n_tokens_alloc, int32_t embd, int32_
          /*n_seq_id =*/ nullptr,
          /*seq_id   =*/ nullptr,
          /*logits   =*/ nullptr,
@@ -191,7 +209,7 @@ index 1c75bc54d..a4f050d65 100644
      if (!memory) {
          LLAMA_LOG_DEBUG("%s: cannot decode batches with this context (calling encode() instead)\n", __func__);
 diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
-index 8fca8e1bc..a0267a9d7 100644
+index 8fca8e1bc..108452a1c 100644
 --- a/src/llama-graph.cpp
 +++ b/src/llama-graph.cpp
 @@ -18,6 +18,8 @@
@@ -203,7 +221,7 @@ index 8fca8e1bc..a0267a9d7 100644
  #include <cstring>
  #include <numeric>
  #include <sstream>
-@@ -66,6 +68,45 @@ static bool can_reuse_kq_mask(
+@@ -66,6 +68,54 @@ static bool can_reuse_kq_mask(
  
  // impl
  
@@ -240,16 +258,25 @@ index 8fca8e1bc..a0267a9d7 100644
 +        ggml_backend_tensor_get(embd, readback.data(), 0, nbytes);
 +        host_bytes = readback.data();
 +    }
++    // rowchain digests the sequence of per-row digests, so a reader holding
++    // the projector's per-row digests recomputes the value for any row range
++    // and checks that this ubatch read exactly those rows in that order
++    const size_t row_bytes = (size_t) n_embd*ggml_element_size(embd);
++    uint64_t rowchain = 1469598103934665603ULL;
++    for (int64_t row = 0; row < n_tokens; ++row) {
++        const uint64_t row_digest = llm_graph_fnv1a64((const uint8_t *) host_bytes + (size_t) row*row_bytes, row_bytes);
++        rowchain = llm_graph_fnv1a64(&row_digest, sizeof(row_digest)) ^ (rowchain*1099511628211ULL);
++    }
 +    ggml_backend_buffer_t buffer = embd->view_src ? embd->view_src->buffer : embd->buffer;
-+    LLAMA_LOG_INFO("embd_handoff source=%s n_tokens=%" PRId64 " n_embd=%" PRId64 " offset=%" PRId64 " buffer=%s digest=%016" PRIx64 "\n",
++    LLAMA_LOG_INFO("embd_handoff source=%s n_tokens=%" PRId64 " n_embd=%" PRId64 " offset=%" PRId64 " buffer=%s digest=%016" PRIx64 " rowchain=%016" PRIx64 "\n",
 +            source, n_tokens, n_embd, offset, buffer ? ggml_backend_buffer_name(buffer) : "none",
-+            llm_graph_fnv1a64(host_bytes, nbytes));
++            llm_graph_fnv1a64(host_bytes, nbytes), rowchain);
 +}
 +
  void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
      if (ubatch->token) {
          const int64_t n_tokens = ubatch->n_tokens;
-@@ -79,6 +120,18 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
+@@ -79,6 +129,18 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
          const int64_t n_tokens = ubatch->n_tokens;
  
          ggml_backend_tensor_set(embd, ubatch->embd, 0, n_tokens*n_embd*ggml_element_size(embd));
@@ -268,7 +295,7 @@ index 8fca8e1bc..a0267a9d7 100644
      }
  }
  
-@@ -86,7 +139,13 @@ bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
+@@ -86,7 +148,13 @@ bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
      bool res = true;
  
      res &= (!params.ubatch.token) || (tokens && tokens->ne[0] == params.ubatch.n_tokens);
@@ -283,7 +310,7 @@ index 8fca8e1bc..a0267a9d7 100644
  
      return res;
  }
-@@ -2318,9 +2377,29 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
+@@ -2318,9 +2386,29 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
      ggml_set_input(inp->tokens);
      res->t_inp_tokens = inp->tokens;
  
@@ -375,10 +402,10 @@ index e2dcd0b2e..946450b44 100644
  
              const int ret = llama_decode(ctx, batch_view);
 diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
-index 90de19575..a1ca6d972 100644
+index 90de19575..be7ecce22 100644
 --- a/tools/mtmd/clip.cpp
 +++ b/tools/mtmd/clip.cpp
-@@ -4357,6 +4357,40 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
+@@ -4357,6 +4357,51 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
      return clip_encode(ctx, &params);
  }
  
@@ -416,10 +443,21 @@ index 90de19575..a1ca6d972 100644
 +    return h;
 +}
 +
++// one digest per output row, so a reader recomputes the digest chain of any
++// row range the language model later consumes
++static void clip_embd_handoff_rows(const char * dst, const void * data, const ggml_tensor * embeddings) {
++    const size_t row_bytes = (size_t) embeddings->ne[0]*ggml_element_size(embeddings);
++    const int64_t n_rows = ggml_nelements(embeddings)/embeddings->ne[0];
++    for (int64_t row = 0; row < n_rows; ++row) {
++        LOG_INF("clip_embd_row dst=%s row=%" PRId64 " digest=%016llx\n", dst, row,
++                (unsigned long long) clip_fnv1a64((const uint8_t *) data + (size_t) row*row_bytes, row_bytes));
++    }
++}
++
  // persisted state slots of the gen-audio decoder, per pipeline
  static std::vector<c2w_state_slot> list_gen_state_slots(const clip_hparams & hparams, const clip_model & model) {
      switch (model.proj_type) {
-@@ -5653,8 +5687,9 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
+@@ -5653,8 +5698,9 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
          return false;
      }
  
@@ -431,7 +469,7 @@ index 90de19575..a1ca6d972 100644
  
      if (embeddings != nullptr) {
          // sanity check (assuming that all images in batch have the same number of tokens, so we only check the first one)
-@@ -5670,18 +5705,77 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
+@@ -5670,18 +5716,79 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
  
          // copy output to user buffer if provided
          // if output is empty, skip the copy
@@ -450,6 +488,7 @@ index 90de19575..a1ca6d972 100644
 +                LOG_INF("clip_embd_handoff dst=host src_backend=%s bytes=%zu digest=%016llx\n",
 +                        src_backend ? ggml_backend_name(src_backend) : "none", (size_t) ggml_nbytes(embeddings),
 +                        (unsigned long long) clip_fnv1a64(out_batch_embd.data(), ggml_nbytes(embeddings)));
++                clip_embd_handoff_rows("host", out_batch_embd.data(), embeddings);
 +            }
 +        } else if (params->out_embd_dev == nullptr) {
              LOG_WRN("%s: output buffer is empty, skipping copy\n", __func__);
@@ -505,6 +544,7 @@ index 90de19575..a1ca6d972 100644
 +            LOG_INF("clip_embd_handoff dst=device src_backend=%s dst_buffer=%s bytes=%zu digest=%016llx\n",
 +                    src_backend ? ggml_backend_name(src_backend) : "none", ggml_backend_buffer_name(dst->buffer),
 +                    readback.size(), (unsigned long long) clip_fnv1a64(readback.data(), readback.size()));
++            clip_embd_handoff_rows("device", readback.data(), embeddings);
 +        }
 +    }
 +
@@ -594,12 +634,30 @@ index f907346c7..b4bb692e4 100644
      }
  };
 diff --git a/tools/mtmd/mtmd-helper.cpp b/tools/mtmd/mtmd-helper.cpp
-index f1defb647..1a80f3879 100644
+index f1defb647..4cd07173c 100644
 --- a/tools/mtmd/mtmd-helper.cpp
 +++ b/tools/mtmd/mtmd-helper.cpp
-@@ -115,33 +115,25 @@ private:
+@@ -16,6 +16,8 @@
+ 
+ #include <algorithm>
+ #include <cinttypes>
++#include <cstdlib>
++#include <cstring>
+ #include <vector>
+ 
+ //#define MTMD_AUDIO_DEBUG
+@@ -114,34 +116,34 @@ private:
+     bool enabled_;
  };
  
++static bool mtmd_helper_embd_handoff_trace() {
++    static const bool enabled = [] {
++        const char * value = getenv("LLAMA_EMBD_HANDOFF_TRACE");
++        return value && strcmp(value, "1") == 0;
++    }();
++    return enabled;
++}
++
  // Helper function for decoding an image whose embeddings have already been calculated
 -int32_t mtmd_helper_decode_image_chunk(
 +// the decode over a prepared batch; the host and device entry points below
@@ -635,7 +693,23 @@ index f1defb647..1a80f3879 100644
  
      if (mtmd_decode_use_mrope(ctx)) {
          if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
-@@ -199,6 +191,59 @@ int32_t mtmd_helper_decode_image_chunk(
+@@ -172,6 +174,15 @@ int32_t mtmd_helper_decode_image_chunk(
+         llama_batch batch_embd_view = batch_embd.get_view(pos_offset, n_tokens_batch);
+ 
+         LOG_INF("decoding %s batch %d/%d, n_tokens_batch = %d\n", name, i_batch+1, n_img_batches, n_tokens_batch);
++        if (mtmd_helper_embd_handoff_trace()) {
++            // which rows of the chunk this llama_decode carries, so the
++            // ubatch rows the batch allocator then selects are chunk-relative
++            LOG_INF("mtmd_decode_view mode=%s tensor=%s chunk_row_offset=%" PRId64 " view_offset=%d n_tokens=%d chunk_n_tokens=%d\n",
++                    batch_embd_view.embd_dev ? "device" : "host",
++                    batch_embd_view.embd_dev ? ggml_get_name(batch_embd_view.embd_dev) : "host",
++                    batch_embd_view.embd_dev ? batch_embd.batch.embd_dev_offset : (int64_t) 0,
++                    pos_offset, n_tokens_batch, n_tokens);
++        }
+ 
+         int64_t t1 = ggml_time_ms();
+         int32_t ret = llama_decode(lctx, batch_embd_view);
+@@ -199,6 +210,70 @@ int32_t mtmd_helper_decode_image_chunk(
      return 0;
  }
  
@@ -689,7 +763,18 @@ index f1defb647..1a80f3879 100644
 +
 +    int32_t n_tokens = mtmd_input_chunk_get_n_tokens(chunk);
 +    decode_embd_batch batch_embd(encoded_embd_dev, row_offset, n_tokens, n_pos_per_embd, n_mmproj_embd);
-+    return mtmd_helper_decode_embd_chunk_impl(ctx, lctx, chunk, batch_embd, n_past, seq_id, n_batch, new_n_past, callback, user_data);
++    const int32_t ret = mtmd_helper_decode_embd_chunk_impl(ctx, lctx, chunk, batch_embd, n_past, seq_id, n_batch, new_n_past, callback, user_data);
++    // The language model reads the batch's tensor in place, and llama_decode
++    // returns with its graph still queued on the device, so the tensor's
++    // lifetime has to outlast that graph. llama_synchronize waits for every
++    // queued compute of the context, on success and on failure alike, so
++    // when this call returns the caller may free the batch at any later
++    // point, including a cancellation between chunks, with no consumer left
++    // in flight. Producer completion is already established inside
++    // clip_encode: the projector graph computes synchronously and the copy
++    // into the tensor synchronizes its stream before returning.
++    llama_synchronize(lctx);
++    return ret;
 +}
 +
  int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
@@ -721,18 +806,20 @@ index 58dfb1525..ea66904a6 100644
  // video input helpers (requires ffmpeg/ffprobe installed on the system)
  // the notion of video only exists at the helper level, it is not visible to the core mtmd library
 diff --git a/tools/mtmd/mtmd.cpp b/tools/mtmd/mtmd.cpp
-index 5b306180d..abd8ef4d4 100644
+index 5b306180d..4e0ced6c3 100644
 --- a/tools/mtmd/mtmd.cpp
 +++ b/tools/mtmd/mtmd.cpp
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,9 @@
  #include "debug/mtmd-debug.h"
  
  #include "llama.h"
 +#include "ggml-cpp.h"
++
++#include <cinttypes>
  
  // fix problem with std::min and std::max
  #if defined(_WIN32)
-@@ -418,6 +419,10 @@ struct mtmd_batch {
+@@ -418,6 +421,10 @@ struct mtmd_batch {
      mtmd_context * ctx;
      std::vector<const mtmd_input_chunk *> entries;
      std::vector<float> output_embd; // aggregated output embedding for the whole batch
@@ -743,7 +830,7 @@ index 5b306180d..abd8ef4d4 100644
      mtmd_batch(mtmd_context * ctx): ctx(ctx) {}
      int32_t n_tokens() const {
          int32_t n = 0;
-@@ -490,6 +495,9 @@ struct mtmd_context {
+@@ -490,6 +497,9 @@ struct mtmd_context {
      bool print_timings;
      int n_threads;
      std::string media_marker;
@@ -753,7 +840,7 @@ index 5b306180d..abd8ef4d4 100644
      const int n_embd_text = -1; // -1 means llm context not provided, skip checking this
      const llama_vocab * vocab = nullptr; // can be nullptr if text_model is not provided
      mtmd_pos_type pos_type;
-@@ -544,6 +552,12 @@ struct mtmd_context {
+@@ -544,6 +554,12 @@ struct mtmd_context {
              throw std::runtime_error("media_marker must not be empty");
          }
  
@@ -766,7 +853,16 @@ index 5b306180d..abd8ef4d4 100644
          if (text_model) {
              auto decoder_rope_type = llama_model_rope_type(text_model);
              switch (decoder_rope_type) {
-@@ -2068,6 +2082,49 @@ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
+@@ -2023,6 +2039,8 @@ int32_t mtmd_batch_add_chunk(mtmd_batch * batch, const mtmd_input_chunk * chunk)
+     return 3; // "cannot batch" error code
+ }
+ 
++static void mtmd_embd_handoff_log_batch(const mtmd_batch * batch, const char * mode);
++
+ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
+     if (batch->entries.empty()) {
+         LOG_ERR("%s: batch is empty\n", __func__);
+@@ -2068,6 +2086,51 @@ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
  
      LOG_DBG("%s: encoding batch with %zu entries and total %zu tokens\n",
              __func__, batch->entries.size(), mtmd_input_chunk_get_n_tokens(batch_chunk.get()));
@@ -805,6 +901,7 @@ index 5b306180d..abd8ef4d4 100644
 +            return 1;
 +        }
 +        batch->output_embd.clear();
++        mtmd_embd_handoff_log_batch(batch, "device");
 +        bool ok = clip_image_batch_encode_device(
 +            ctx->ctx_v,
 +            ctx->n_threads,
@@ -813,15 +910,53 @@ index 5b306180d..abd8ef4d4 100644
 +        return ok ? 0 : 1;
 +    }
 +
++    mtmd_embd_handoff_log_batch(batch, "host");
      int32_t res = mtmd_encode_chunk_impl(
          batch->ctx,
          batch_chunk.get(),
-@@ -2075,6 +2132,32 @@ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
+@@ -2075,6 +2138,69 @@ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
      return res;
  }
  
 +bool mtmd_embd_device(const mtmd_context * ctx) {
 +    return ctx->embd_device;
++}
++
++// The embedding handoff trace names each encoded batch by a serial, the
++// output it holds, and the row range of every chunk inside it, so a reader
++// joins the projector's per-row digests to the rows each ubatch consumes.
++static bool mtmd_embd_handoff_trace() {
++    static const bool enabled = [] {
++        const char * value = getenv("LLAMA_EMBD_HANDOFF_TRACE");
++        return value && strcmp(value, "1") == 0;
++    }();
++    return enabled;
++}
++
++static uint64_t mtmd_embd_batch_serial() {
++    static uint64_t serial = 0;
++    return ++serial;
++}
++
++static void mtmd_embd_handoff_log_batch(const mtmd_batch * batch, const char * mode) {
++    if (!mtmd_embd_handoff_trace()) {
++        return;
++    }
++    const uint64_t serial = mtmd_embd_batch_serial();
++    const ggml_tensor * t = batch->embd_dev;
++    LOG_INF("mtmd_embd_batch serial=%" PRIu64 " mode=%s n_entries=%zu n_tokens=%d tensor=%s data=%p buffer=%s\n",
++            serial, mode, batch->entries.size(), batch->n_tokens(),
++            t ? ggml_get_name(t) : "host", t ? t->data : nullptr,
++            t && t->buffer ? ggml_backend_buffer_name(t->buffer) : "host");
++    int64_t row_offset = 0;
++    for (size_t i = 0; i < batch->entries.size(); ++i) {
++        const mtmd_input_chunk * c = batch->entries[i];
++        const int64_t n_tokens = (int64_t) mtmd_input_chunk_get_n_tokens(c);
++        const char * image_id = mtmd_input_chunk_get_id(c);
++        LOG_INF("mtmd_embd_entry serial=%" PRIu64 " entry=%zu image=%s row_offset=%" PRId64 " n_tokens=%" PRId64 "\n",
++                serial, i, image_id && *image_id ? image_id : "-", row_offset, n_tokens);
++        row_offset += n_tokens;
++    }
 +}
 +
 +bool mtmd_batch_output_is_device(const mtmd_batch * batch) {
@@ -850,10 +985,10 @@ index 5b306180d..abd8ef4d4 100644
      try {
          return mtmd_batch_encode_impl(batch);
 diff --git a/tools/mtmd/mtmd.h b/tools/mtmd/mtmd.h
-index ef88efd31..c22d45295 100644
+index ef88efd31..4b1d6a2a2 100644
 --- a/tools/mtmd/mtmd.h
 +++ b/tools/mtmd/mtmd.h
-@@ -331,6 +331,16 @@ MTMD_API int32_t mtmd_batch_add_chunk(mtmd_batch * batch, const mtmd_input_chunk
+@@ -331,6 +331,18 @@ MTMD_API int32_t mtmd_batch_add_chunk(mtmd_batch * batch, const mtmd_input_chunk
  MTMD_API int32_t mtmd_batch_encode(mtmd_batch * batch);
  MTMD_API float * mtmd_batch_get_output_embd(mtmd_batch * batch, const mtmd_input_chunk * chunk);
  
@@ -861,8 +996,10 @@ index ef88efd31..c22d45295 100644
 +// encoded into a tensor the batch owns on the projector's device, the host
 +// output stays empty, and a chunk's embeddings are named as that tensor and
 +// a row offset for llama_batch::embd_dev; the tensor lives until the batch
-+// is freed. mtmd_batch_output_is_device() reports which output an encoded
-+// batch holds.
++// is freed, and mtmd_helper_decode_image_chunk_device() returns only after
++// the language model's graphs over it have retired, so freeing the batch
++// after that call leaves no consumer in flight.
++// mtmd_batch_output_is_device() reports which output an encoded batch holds.
 +MTMD_API bool                 mtmd_embd_device(const mtmd_context * ctx);
 +MTMD_API bool                 mtmd_batch_output_is_device(const mtmd_batch * batch);
 +MTMD_API struct ggml_tensor * mtmd_batch_get_output_embd_device(mtmd_batch * batch, const mtmd_input_chunk * chunk, int64_t * row_offset);

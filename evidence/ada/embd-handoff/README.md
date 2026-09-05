@@ -2,15 +2,19 @@
 
 ## Claim
 
-A vision request's image embeddings can pass from the projector's last
-graph node to the language model's first without leaving the device, with
-the bytes the language model reads and the tokens it produces identical to
-the host path's under the same request history.
+A vision request's image embeddings pass from the projector's last graph
+node to the language model's first as a device-resident handoff with one
+batch-owned device copy, with the bytes the language model reads and the
+tokens it produces identical to the host path's under the same request
+history. The claim is stated for the copy it keeps: the host detour is
+gone and one device-to-device copy into storage the mtmd batch owns
+remains, so the mechanism is a device handoff rather than a zero-copy one.
 
-## The round trip the ordinary path pays
+## The four stages the ordinary path pays
 
-At pin `f280b269` the projector output crosses the host four times on the
-way to the language model:
+At pin `f280b269` the projector output passes through four stages on the
+way to the language model, one device-to-host copy, a host pointer
+handoff, one host-to-host copy, and one host-to-device upload:
 
 1. `clip_encode` (`tools/mtmd/clip.cpp`) reads the scheduler's output tensor
    into `params->out_embd` with `ggml_backend_tensor_get`, a device-to-host
@@ -197,3 +201,148 @@ spread separates the device arm from the host arms.
 The handoff is admitted on `qwen35-2b` and `lfm25-vl-450m` as a candidate
 under `LLAMA_MTMD_EMBD_DEVICE=1`, off by default, and the served path
 leaves it off until a served vision tuple is measured under it.
+
+## Run 04: completeness on the committed form
+
+Runs 02 and 03 covered chunks of 45 to 88 tokens, each inside one ubatch
+and one `llama_decode`, and left the row-offset paths, the batch lifetime,
+and the transfer question open. Run 04 closes them on closure
+`228f5a79ba2c`, the pinned tree with the four candidate patches and the
+revised handoff patch at `89-real`, server
+`c453ba34641a14640f60b8bfea0b7d8fa4de1d1bc1bb329fde068c1359376214`, with
+`qwen35-2b-run-04/` and `lfm25-vl-450m-run-04/` both admitted at zero
+refused checks.
+
+The patch gains three things ahead of the run. The recorder names every
+encoded batch, its tensor, and each chunk's row range, digests every
+projector output row, and per ubatch records the batch rows selected and a
+`rowchain`, the FNV-1a 64 chain over the per-row digests of exactly the
+bytes the graph read, so `read-embd-handoff-trace.py` joins each consumed
+slice to its source rows and holds coverage, order, and the chain per
+chunk; the join is what lets a slice at a nonzero offset be compared
+against the rows it claims rather than against a whole-tensor digest.
+`mtmd_helper_decode_image_chunk_device` calls `llama_synchronize` before
+it returns, because `llama_decode` returns with its graph still queued
+(`graph_compute` is the asynchronous form and the context synchronizes
+under pipeline parallelism alone), so a batch freed at slot release could
+otherwise be read after free by a graph the decode had queued; producer
+completion was already explicit, `clip_encode` computing synchronously and
+the CUDA buffer copy synchronizing its stream. And the trace lines are
+paired as the allocator issues them: every ubatch of a decode is split
+ahead of the first graph, so the reader queues the ubatch lines and each
+graph input takes the oldest.
+
+### Request shapes and the encoder's own token counts
+
+The sequence is five shapes, twice per identity arm: one image; two
+same-shape images adjacent; two images separated by text; one large image;
+two large images separated by text. `scripts/handoff-images/` carries the
+large fixtures, the graded `bars` and `shapes` drawings at three times
+their size. The projector's token counts per fixture are read from the
+trace rather than inferred:
+
+| fixture | qwen35-2b tokens | lfm25-vl-450m tokens |
+| --- | ---: | ---: |
+| bars.png | 88 | 88 |
+| shapes.png | 60 | 77 |
+| compare-a.png, compare-b.png | 45 each | 77 each |
+| bars-large.png | 816, one chunk | 234 and 256, two tiles |
+| shapes-large.png | 570, one chunk | 240 and 256, two tiles |
+
+The 2B's projector encodes a large image as one chunk past the 512-token
+ubatch, and the 450M's cuts it into tiles it emits as separate chunks with
+text between them. Neither projector's graph builder declares batch
+support at this pin, so `mtmd_batch_add_chunk` admits one chunk per media
+batch on both rows and the several-chunks-in-one-batch path, with its
+nonzero row offset inside the batch tensor, stays at zero on these rows;
+the reader's own test exercises that join on a synthetic two-entry batch.
+The five other conditions are required of the campaign as a whole and
+the comparison refuses where a geometry pair leaves one unreached; this
+one is reported per geometry and required only where a caller lists it,
+so the record names it as unreached rather than passed.
+
+### Identity at two geometries
+
+| stage and geometry | qwen35-2b | lfm25-vl-450m |
+| --- | --- | --- |
+| registry, batch 2048 and ubatch 512 | 16 chunks, 22 slices, 6 chunks split across ubatches, 6 slices at a nonzero offset | 52 chunks, 52 slices, none split |
+| split, batch 64 and ubatch 32 | 16 chunks, 164 slices, every chunk split across ubatches and 10 across `llama_decode` calls, 148 slices at a nonzero offset | 52 chunks, 366 slices, every chunk split across both, 314 at a nonzero offset |
+
+On every arm of every geometry the reader's verdict holds: every chunk's
+rows are consumed exactly once in order, every slice's rowchain equals
+the chain over the projector's rows it names, every ubatch is a contiguous
+row range, and every device-arm view offset equals the joined tensor row.
+Across host, device, and host-close the ten replies are identical token
+for token, every slice's byte digest is identical at its joined position,
+and every chunk's per-row projector digests are identical. The final
+partial ubatch is exercised in every arm, 304 rows of the 2B's 816-token
+chunk at the registry geometry and the tails of every chunk at the split
+one. Prefill time per request is an observation: the 2B's 842-token large
+request reads 169 to 177 ms across the six registry-geometry requests,
+the device arm's 169 and 171 inside the host arms' 169 to 176, and 261 to
+273 ms at the split geometry, where the device arm's 269 and 273 sit at
+and 4 ms above the host arms' 261 to 268; a latency claim needs a paired
+campaign and none is made.
+
+### Lifetime
+
+The identity device arms allocate one batch tensor per request and the
+driver hands consecutive allocations the same storage: 16 batches at 2
+addresses on the 2B and 52 at 2 on the 450M, so 14 and 50 consecutive
+batches respectively landed at an address the previous batch had used,
+which is the reuse the graph-reuse guard compares tensor, storage,
+buffer, and offset against, and every one of those requests read the
+right bytes.
+
+The lifetime stage abandons a large-image request at 0.02, 0.1, and 0.6
+seconds after sending, each with `ignore_eos` and a 2048-token budget,
+and follows each with an ordinary request. The server reads the
+connection per generated token and never inside prompt processing, so
+each disconnect took effect in generation: the 2B released the three
+slots at 1026 to 1027 tokens of a 842-token prompt and the 450M at 2485
+to 2582 tokens of 1805, in both arms, with the slot's media batch freed at
+that release. Every following request completed, the server answered
+`/health` after each, and the six completed requests of the device arm
+match the host arm on replies, slice digests, and projector rows. A
+cancellation between split ubatches is therefore unreachable through the
+served path, since the server holds the connection unread until the first
+generated token; what the stage establishes is that a batch freed after
+its decode, at any later point, leaves no consumer in flight, which the
+synchronize in the device helper is what guarantees.
+
+### Transfer, recorder off
+
+The transfer stage runs the five shapes once per arm at the registry
+geometry with `LLAMA_EMBD_HANDOFF_TRACE` unset, under `nsys launch` with
+the capture started after the load, and `read-nsys-embd-transfers.py`
+lists every copy against the embedding sizes the identity stage recorded:
+every ubatch slice and every batch's whole output.
+
+| arm | qwen35-2b | lfm25-vl-450m |
+| --- | --- | --- |
+| host | 8 device-to-host reads, one per batch, after `k_bin_bcast` or `rms_norm_f32`; 11 host-to-device uploads, one per ubatch, ahead of `rms_norm_f32` | 26 reads, one per batch; 27 uploads ahead of `k_get_rows_float` against 26 slices |
+| device | 8 device-to-device copies, one per batch; zero embedding-sized copies in either host direction | 26 device-to-device copies; zero reads; one 1048576-byte pinned-to-device upload ahead of `k_get_rows_float` |
+
+The 450M's extra upload appears once in each arm at the language model's
+first kernel, in the host arm as one more sized upload than the sequence
+has slices, so it is a scheduler-staged graph input whose byte count
+coincides with a 256-row chunk of the 1024-wide embedding rather than an
+embedding. The gate takes the host arm's sized copies beyond one upload
+per slice and one read per batch as a multiset of byte counts, exempts a
+device-arm host copy only where it takes one of those byte counts out of
+that multiset, classes any copy of a whole number of rows beside the
+exact sizes, and requires the device-to-device count to equal the batch
+count; the record lists every host-direction copy with its neighbors. The replies with the recorder off
+agree between host and device on all five requests of both rows. The
+device path's whole traffic for the handoff is one device-to-device copy
+per batch, and the host path's staging reads and uploads are absent.
+
+### What run 04 leaves open
+
+The handoff is admitted as a candidate on `qwen35-2b` and
+`lfm25-vl-450m` under `LLAMA_MTMD_EMBD_DEVICE=1`, default-off. A
+projector that batches several chunks into one tensor would exercise the
+in-batch row offset the reader joins but neither served row reaches. The
+MTP context still refuses a device batch. Device-resident media decode and
+preprocessing, the stages ahead of the projector, are a separate
+transition with their own codec placement and preprocessing contract.
