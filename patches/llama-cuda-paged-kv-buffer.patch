@@ -29,7 +29,7 @@ index 14dd1098c..7375ed150 100644
          int     warp_size;                      // Number of threads in a dispatch
          bool    supports_cooperative_launch;    // whether cooperative launch is supported
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 2456f7dcc..97bdff4e2 100644
+index 2456f7dcc..b7ce8b8bf 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -286,6 +286,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
@@ -168,7 +168,7 @@ index 2456f7dcc..97bdff4e2 100644
  };
  
  static const char * ggml_backend_cuda_buffer_type_get_name(ggml_backend_buffer_type_t buft) {
-@@ -882,9 +977,133 @@ static bool ggml_backend_buft_is_cuda(ggml_backend_buffer_type_t buft) {
+@@ -882,9 +977,137 @@ static bool ggml_backend_buft_is_cuda(ggml_backend_buffer_type_t buft) {
      return buft->iface.get_name == ggml_backend_cuda_buffer_type_get_name;
  }
  
@@ -283,7 +283,11 @@ index 2456f7dcc..97bdff4e2 100644
 +                  ctx->vmm_units.size(), ctx->vmm_physical_allocated_bytes,
 +                  ctx->vmm_physical_retained_unmapped_bytes, ctx->vmm_physical_released_bytes);
 +
-+    return ggml_backend_buffer_init(buft, ggml_backend_cuda_buffer_interface, ctx_holder.release(), size);
++    // ggml_backend_buffer_init allocates the buffer object with a throwing
++    // new, so ownership of the context passes only after it has succeeded.
++    ggml_backend_buffer_t buffer = ggml_backend_buffer_init(buft, ggml_backend_cuda_buffer_interface, ctx, size);
++    ctx_holder.release();
++    return buffer;
 +}
 +#endif // defined(GGML_USE_VMM)
 +
@@ -302,7 +306,7 @@ index 2456f7dcc..97bdff4e2 100644
      ggml_cuda_set_device(buft_ctx->device);
  
      void * dev_ptr;
-@@ -902,9 +1121,20 @@ static ggml_backend_buffer_t ggml_backend_cuda_buffer_type_alloc_buffer(ggml_bac
+@@ -902,9 +1125,20 @@ static ggml_backend_buffer_t ggml_backend_cuda_buffer_type_alloc_buffer(ggml_bac
  }
  
  static size_t ggml_backend_cuda_buffer_type_get_alignment(ggml_backend_buffer_type_t buft) {
@@ -325,7 +329,7 @@ index 2456f7dcc..97bdff4e2 100644
  }
  
  static size_t ggml_backend_cuda_buffer_type_get_alloc_size(ggml_backend_buffer_type_t buft, const ggml_tensor * tensor) {
-@@ -960,6 +1190,43 @@ ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
+@@ -960,6 +1194,43 @@ ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
      return &ggml_backend_cuda_buffer_types[device];
  }
  
@@ -369,7 +373,7 @@ index 2456f7dcc..97bdff4e2 100644
  // Communication context for multi-GPU AllReduce during tensor parallelism.
  //
  // Created once per meta backend instance.  Resources for the selected mode
-@@ -2436,7 +2703,7 @@ static void ggml_backend_cuda_set_tensor_async(ggml_backend_t backend, ggml_tens
+@@ -2436,7 +2707,7 @@ static void ggml_backend_cuda_set_tensor_async(ggml_backend_t backend, ggml_tens
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
@@ -378,7 +382,7 @@ index 2456f7dcc..97bdff4e2 100644
  
      CUDA_CHECK(cudaMemcpyAsync((char *) tensor->data + offset, data, size, cudaMemcpyHostToDevice, cuda_ctx->stream()));
  }
-@@ -2445,7 +2712,7 @@ static void ggml_backend_cuda_get_tensor_async(ggml_backend_t backend, const ggm
+@@ -2445,7 +2716,7 @@ static void ggml_backend_cuda_get_tensor_async(ggml_backend_t backend, const ggm
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
@@ -387,7 +391,7 @@ index 2456f7dcc..97bdff4e2 100644
  
      CUDA_CHECK(cudaMemcpyAsync(data, (const char *) tensor->data + offset, size, cudaMemcpyDeviceToHost, cuda_ctx->stream()));
  }
-@@ -2455,7 +2722,7 @@ static void ggml_backend_cuda_set_tensor_2d_async(ggml_backend_t backend, struct
+@@ -2455,7 +2726,7 @@ static void ggml_backend_cuda_set_tensor_2d_async(ggml_backend_t backend, struct
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
@@ -396,7 +400,7 @@ index 2456f7dcc..97bdff4e2 100644
  
      CUDA_CHECK(cudaMemcpy2DAsync(
          (char *) tensor->data + offset, stride_tensor, data, stride_data, size, n_copies, cudaMemcpyHostToDevice, cuda_ctx->stream()));
-@@ -2466,7 +2733,7 @@ static void ggml_backend_cuda_get_tensor_2d_async(ggml_backend_t backend, const
+@@ -2466,7 +2737,7 @@ static void ggml_backend_cuda_get_tensor_2d_async(ggml_backend_t backend, const
      ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
      ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
  
@@ -405,7 +409,7 @@ index 2456f7dcc..97bdff4e2 100644
  
      CUDA_CHECK(cudaMemcpy2DAsync(
          data, stride_data, (const char *) tensor->data + offset, stride_tensor, size, n_copies, cudaMemcpyDeviceToHost, cuda_ctx->stream()));
-@@ -4165,12 +4432,12 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+@@ -4165,12 +4436,12 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                  // On integrated GPUs (APUs, e.g. RDNA3.5) the scheduler may place a
                  // node's output on the host-visible buffer, which the compute path
                  // handles. Allow that here, mirroring the src-tensor check below.
@@ -420,7 +424,7 @@ index 2456f7dcc..97bdff4e2 100644
                                 (integrated && ggml_backend_buft_is_cuda_host(node->src[j]->buffer->buft)));
                      }
                  }
-@@ -5492,6 +5759,9 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+@@ -5492,6 +5763,9 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
      if (strcmp(name, "ggml_backend_get_features") == 0) {
          return (void *)ggml_backend_cuda_get_features;
      }

@@ -264,14 +264,16 @@ device run and are not lowered after one:
 
 ## P2-A result
 
-`2b-p2a-run-02/` runs `scripts/admit-paged-kv-buffer.sh` against closure
-`adb111abc7cf`, the pinned tree with the crossover patch and the P2-A form
+`2b-p2a-run-03/` runs `scripts/admit-paged-kv-buffer.sh` against closure
+`bc2846e23fd2`, the pinned tree with the crossover patch and the P2-A form
 of `patches/llama-cuda-paged-kv-buffer.patch` as committed, on the 2B under
 the same harness that admitted P1; the subject arm is that closure's own
-binary under `LLAMA_KV_PAGED_BUFFER=1`. `2b-p2a-run-01/` is the same run on
-closure `f35fe5a95a43`, the form of the patch ahead of the review pass that
-moved the unit table's host allocation ahead of the reservation and put the
-context under an owning pointer; both runs read the same table.
+binary under `LLAMA_KV_PAGED_BUFFER=1`. `2b-p2a-run-01/` (closure
+`f35fe5a95a43`) and `2b-p2a-run-02/` (closure `adb111abc7cf`) are the same
+run on the two forms of the patch ahead of the review passes that put the
+context under an owning pointer, sized the unit table ahead of the
+reservation, and released ownership only after the buffer object exists;
+all three runs read the same table.
 
 | record | reading |
 | --- | --- |
@@ -283,8 +285,8 @@ context under an owning pointer; both runs read the same table.
 | virtual_reserved, physical_allocated, physical_mapped | 327155712 bytes each; padding 0 |
 | physical_retained_unmapped, physical_released | 0, 0 |
 | tensors in the paged buffer | 12, layout and census as in P1 |
-| primed width 1 | replies identical in 4 of 4 bursts, delivered ratio 1.0003 (0.9968 in run-01) |
-| primed width 3 | replies identical in 4 of 4 bursts, delivered ratio 1.0003 (1.0018 in run-01) |
+| primed width 1 | replies identical in 4 of 4 bursts, delivered ratio 0.9993 (0.9968 and 1.0003 in runs 01 and 02) |
+| primed width 3 | replies identical in 4 of 4 bursts, delivered ratio 0.9978 (1.0018 and 1.0003 in runs 01 and 02) |
 | kernel ring, client set | 0 hazard lines; the compositor and one browser GPU process across every arm |
 | verdict | admitted |
 

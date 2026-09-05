@@ -214,7 +214,13 @@ bad["tensors"][1]["offset"] += 1
 report("misaligned_offset_refused", refused(lambda: planner.Layout.from_dict(bad), "unit multiple"))
 bad = layout_dict()
 bad["tensors"][1]["offset"] = bad["tensors"][0]["offset"]
-report("overlap_refused", refused(lambda: planner.Layout.from_dict(bad), "overlaps"))
+report("overlap_refused", refused(lambda: planner.Layout.from_dict(bad), "missing a tensor or misordered"))
+bad = layout_dict()
+del bad["tensors"][0]
+report("layout_with_a_gap_refused", refused(lambda: planner.Layout.from_dict(bad), "missing a tensor or misordered"))
+bad = layout_dict()
+bad["tensors"][0]["offset"] += G
+report("layout_not_starting_at_zero_refused", refused(lambda: planner.Layout.from_dict(bad), "missing a tensor or misordered"))
 report("cell_out_of_range_refused", refused(lambda: make().apply({"event": "ubatch", "streams": [{"cells": [DEPTH]}]}), "outside"))
 report("unknown_event_refused", refused(lambda: make().apply({"event": "evict"}), "unknown event"))
 report("bad_stream_refused", refused(lambda: make().apply({"event": "seq_rm", "stream": 5, "all": True}), "stream"))
@@ -280,6 +286,11 @@ with tempfile.TemporaryDirectory() as work:
                      % (G * 200, G * 200, G, G, G) + good)
     run = subprocess.run([sys.executable, SCRIPT, events, "--out", os.path.join(work, "uncovered"), "--layout-from-log", log], capture_output=True, text=True)
     report("log_whose_tensors_fail_to_cover_the_reservation_refused", run.returncode == 1 and "reserved" in run.stderr, run.stderr.strip()[-160:])
+    missing = "".join(line + "\n" for line in good.splitlines() if "name=cache_k_l3 " not in line)
+    with open(log, "w") as handle:
+        handle.write(missing)
+    run = subprocess.run([sys.executable, SCRIPT, events, "--out", os.path.join(work, "missing"), "--layout-from-log", log], capture_output=True, text=True)
+    report("log_missing_one_tensor_refused", run.returncode == 1 and "missing a tensor" in run.stderr, run.stderr.strip()[-160:])
 
 print("test_paged_kv_residency_planner=%s failures=%d" % ("accepted" if failures == 0 else "rejected", failures))
 sys.exit(1 if failures else 0)

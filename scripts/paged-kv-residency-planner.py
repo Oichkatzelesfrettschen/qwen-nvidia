@@ -87,11 +87,16 @@ class Layout:
             self.tensors.append({"name": name, "offset": offset, "row_bytes": row,
                                  "operand": operand, "nbytes": row * kv_size * n_stream})
         self.tensors.sort(key=lambda t: t["offset"])
+        # The allocator packs every tensor at the unit-padded end of the one
+        # before it from offset 0, so a layout with a gap is a layout missing
+        # a tensor, and a planner fed it would release the missing tensor's
+        # units as tails.
         end = 0
         for t in self.tensors:
-            if t["offset"] < end:
-                raise PlannerFault(f"tensor {t['name']} overlaps the tensor before it")
-            end = t["offset"] + t["nbytes"]
+            if t["offset"] != end:
+                raise PlannerFault(f"tensor {t['name']} starts at {t['offset']} where the padded end of the"
+                                   f" tensor before it is {end}; the layout is missing a tensor or misordered")
+            end = t["offset"] + -(-t["nbytes"] // unit_bytes) * unit_bytes
         self.total_bytes = -(-end // unit_bytes) * unit_bytes if end else 0
         self.unit_count = self.total_bytes // unit_bytes
         if self.unit_count == 0:
