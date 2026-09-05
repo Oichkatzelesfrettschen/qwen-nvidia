@@ -42,6 +42,12 @@ Naming no MODEL_ID runs qwen38-2b-distill.
   QWEN_IDENTITY_PROMPTS  prompt TSV, default the six state-carrying prompts
   QWEN_IDENTITY_CONTROL_ARGS  extra llama-server arguments for both control arms
   QWEN_IDENTITY_SUBJECT_ARGS  extra llama-server arguments for the subject arm
+  QWEN_IDENTITY_CONTROL_ENV   NAME=VALUE words exported to both control arms' servers
+  QWEN_IDENTITY_SUBJECT_ENV   NAME=VALUE words exported to the subject arm's server
+  QWEN_IDENTITY_SLOT_STATE    1 saves slot 0 after every prompt and compares the
+                              state files byte for byte across the arms
+  QWEN_IDENTITY_KEEP_STATE    1 retains the state files; the default keeps
+                              their digests and sizes alone
 USAGE
     exit 2
 }
@@ -65,6 +71,42 @@ thread_count=${QWEN_IDENTITY_THREADS:-1}
 # the harness into a runtime-flag comparison on one closure.
 control_arguments=${QWEN_IDENTITY_CONTROL_ARGS:-}
 subject_arguments=${QWEN_IDENTITY_SUBJECT_ARGS:-}
+# An environment word reaches the server the way an argument does and names
+# an axis the argv cannot: a switch read inside the library rather than parsed
+# by the server. Each word is NAME=VALUE with no whitespace, split on spaces
+# and handed to env(1) ahead of the binary.
+control_environment=${QWEN_IDENTITY_CONTROL_ENV:-}
+subject_environment=${QWEN_IDENTITY_SUBJECT_ENV:-}
+for environment_word in $control_environment $subject_environment; do
+    case $environment_word in
+    [A-Za-z_]*=*) ;;
+    *)
+        printf 'refused: environment word is not NAME=VALUE: %s\n' \
+            "$environment_word" >&2
+        exit 2 ;;
+    esac
+done
+# A token comparison reads what the sampler chose; a slot-state comparison
+# reads the bytes the cache holds behind those choices. A subject that changes
+# where KV bytes are physically backed has a claim on the second, so the
+# harness can save slot 0 through the server's own state route after every
+# prompt and hash the file. The file carries the token ids and the attention
+# and recurrent payloads the memory module serializes, and two arms that
+# computed the same values write the same bytes.
+slot_state=${QWEN_IDENTITY_SLOT_STATE:-0}
+case $slot_state in 0 | 1) ;; *)
+    printf 'refused: QWEN_IDENTITY_SLOT_STATE must be 0 or 1: %s\n' "$slot_state" >&2
+    exit 2 ;;
+esac
+# A state file holds the recurrent store beside the attention cells, about
+# 22 MB per prompt on the 2B, so the files leave once compared and the
+# summary keeps their digests and sizes; the retained record is the
+# comparison, and a reader that needs the bytes reruns the arm.
+keep_state=${QWEN_IDENTITY_KEEP_STATE:-0}
+case $keep_state in 0 | 1) ;; *)
+    printf 'refused: QWEN_IDENTITY_KEEP_STATE must be 0 or 1: %s\n' "$keep_state" >&2
+    exit 2 ;;
+esac
 readiness_seconds=${QWEN_IDENTITY_READY_SECONDS:-300}
 request_seconds=${QWEN_IDENTITY_REQUEST_SECONDS:-1800}
 appliance_port=${QWEN_SERVER_PORT:-8080}
@@ -137,6 +179,21 @@ state-machine	A machine has states S0, S1, S2, S3 and transitions: on 0 go S0->S
 constraints	Five houses in a row are numbered 1 to 5. Each has one colour from red, blue, green, white, yellow and one occupant from Ana, Ben, Cara, Dan, Eve. Apply these clues one at a time, and after each clue print everything you have established so far: the red house is immediately left of the green house; Ana lives in the blue house; Cara lives in house 1; the yellow house is house 5; Ben lives immediately right of the white house; Dan does not live in house 3; the green house is house 4. Then give the complete assignment.
 PROMPTS
 fi
+
+# The verdict divides by the prompt set, so the set is validated before a
+# server starts: at least one row, every row carrying an id and a text, and
+# no id repeated, since a repeated id would overwrite its own tokens file and
+# a blank file would let zero comparisons read as identical.
+prompt_count=$(awk -F'\t' 'NF >= 2 && $1 != "" && $2 != "" { count++ } END { print count + 0 }' "$prompt_file")
+prompt_rows=$(awk 'NF > 0 { count++ } END { print count + 0 }' "$prompt_file")
+prompt_unique=$(awk -F'\t' 'NF >= 2 && $1 != "" && $2 != "" { print $1 }' "$prompt_file" | sort -u | wc -l)
+if [ "$prompt_count" -eq 0 ] || [ "$prompt_count" -ne "$prompt_rows" ] ||
+    [ "$prompt_unique" -ne "$prompt_count" ]; then
+    printf 'refused: prompt file needs unique id<TAB>text rows on every line: %s\n' \
+        "$prompt_file" >&2
+    exit 2
+fi
+printf 'prompt_count\t%s\n' "$prompt_count" >>"$summary_file"
 
 request_builder=$output_directory/build-request.py
 cat >"$request_builder" <<'PYTHON'
@@ -226,6 +283,8 @@ start_server() {
     arm_log=$9
     shift 9
     arm_extra_arguments=$1
+    arm_environment=$2
+    arm_slot_directory=$3
 
     # The extra arguments are the axis that lets one closure answer for a
     # runtime flag. A flag that moves where a computation runs -- backend
@@ -233,9 +292,14 @@ start_server() {
     # has to answer the identity question before it answers the rate question,
     # and without this the harness could only compare two builds. Both arms are
     # empty by default, so a two-closure run is unchanged.
+    arm_slot_arguments=''
+    if [ "$slot_state" = 1 ]; then
+        mkdir -p "$arm_slot_directory"
+        arm_slot_arguments="--slot-save-path $arm_slot_directory"
+    fi
     # shellcheck disable=SC2086
-    LLAMA_NO_CPU_FALLBACK=1 \
-        "$arm_build/$server_relative_path" $arm_extra_arguments \
+    env $arm_environment LLAMA_NO_CPU_FALLBACK=1 \
+        "$arm_build/$server_relative_path" $arm_extra_arguments $arm_slot_arguments \
         --model "$arm_model_path" \
         --host 127.0.0.1 \
         --port "$server_port" \
@@ -357,13 +421,16 @@ for model_id in "$@"; do
         fi
 
         case $arm_name in
-        subject) arm_extra=$subject_arguments ;;
-        *) arm_extra=$control_arguments ;;
+        subject) arm_extra=$subject_arguments; arm_env=$subject_environment ;;
+        *) arm_extra=$control_arguments; arm_env=$control_environment ;;
         esac
+        printf 'environment\t%s\t%s\t%s\n' "$model_id" "$arm_name" \
+            "${arm_env:--}" >>"$summary_file"
         start_server "$arm_build" "$model_path" "$model_context" \
             "$model_batch" "$model_ubatch" "$model_cache_k" \
             "$model_cache_v" "$model_flash_attention" \
-            "$arm_directory/server.log" "$arm_extra" || {
+            "$arm_directory/server.log" "$arm_extra" "$arm_env" \
+            "$arm_directory/slots" || {
             printf 'closure_identity\t%s\t%s\trefused\tserver_start\n' \
                 "$model_id" "$arm_name" >>"$summary_file"
             refusals=$((refusals + 1))
@@ -393,6 +460,26 @@ for model_id in "$@"; do
                 "$prompt_id" \
                 "$(sha256sum "$prompt_directory/tokens.txt" | awk '{ print $1 }')" \
                 >>"$summary_file"
+            if [ "$slot_state" = 1 ]; then
+                # The completion returned, so slot 0 is idle and holds the
+                # prompt and reply cells; the save route serializes them.
+                curl --silent --show-error --fail-with-body \
+                    --max-time "$request_seconds" \
+                    --header 'Content-Type: application/json' \
+                    --data "{\"filename\":\"$prompt_id.bin\"}" \
+                    "http://127.0.0.1:$server_port/slots/0?action=save" \
+                    >"$prompt_directory/slot-save.json"
+                [ -s "$arm_directory/slots/$prompt_id.bin" ] || {
+                    printf 'refused: slot state file absent after save: %s\n' \
+                        "$arm_directory/slots/$prompt_id.bin" >&2
+                    exit 1
+                }
+                printf 'slot_state\t%s\t%s\t%s\t%s\t%s\n' "$model_id" \
+                    "$arm_name" "$prompt_id" \
+                    "$(sha256sum "$arm_directory/slots/$prompt_id.bin" | awk '{ print $1 }')" \
+                    "$(stat -c %s "$arm_directory/slots/$prompt_id.bin")" \
+                    >>"$summary_file"
+            fi
         done <"$prompt_file"
 
         stop_server
@@ -404,6 +491,24 @@ for model_id in "$@"; do
         [ -d "$comparison_directory" ] || continue
         while IFS="$(printf '\t')" read -r prompt_id prompt_text; do
             [ -n "$prompt_id" ] || continue
+            if [ "$slot_state" = 1 ]; then
+                left_state=$control_directory/slots/$prompt_id.bin
+                right_state=$comparison_directory/slots/$prompt_id.bin
+                if [ ! -s "$left_state" ] || [ ! -s "$right_state" ]; then
+                    printf 'state_identity\t%s\t%s\t%s\tnot_run\tmissing_state\n' \
+                        "$model_id" "$comparison" "$prompt_id" >>"$summary_file"
+                elif cmp -s "$left_state" "$right_state"; then
+                    printf 'state_identity\t%s\t%s\t%s\tidentical\tbytes=%s\n' \
+                        "$model_id" "$comparison" "$prompt_id" \
+                        "$(stat -c %s "$left_state")" >>"$summary_file"
+                else
+                    printf 'state_identity\t%s\t%s\t%s\tdivergent\tfirst_byte=%s\n' \
+                        "$model_id" "$comparison" "$prompt_id" \
+                        "$(cmp "$left_state" "$right_state" 2>/dev/null | awk '{ print $5 }' | tr -d ',')" \
+                        >>"$summary_file"
+                    divergences=$((divergences + 1))
+                fi
+            fi
             left=$control_directory/$prompt_id/tokens.txt
             right=$comparison_directory/$prompt_id/tokens.txt
             if [ ! -s "$left" ] || [ ! -s "$right" ]; then
@@ -424,6 +529,14 @@ for model_id in "$@"; do
         done <"$prompt_file"
     done
 
+    if [ "$slot_state" = 1 ] && [ "$keep_state" = 0 ]; then
+        for arm_name in control-open subject control-close; do
+            rm -f "$output_directory/$model_id/$arm_name/slots/"*.bin
+        done
+        printf 'slot_state_files\t%s\tremoved\tdigests_retained\n' "$model_id" \
+            >>"$summary_file"
+    fi
+
     open_placement=$(awk -F'\t' -v m="$model_id" \
         '$1 == "placement" && $2 == m && $3 == "control-open" { print $4 }' \
         "$summary_file")
@@ -443,13 +556,18 @@ for model_id in "$@"; do
 done
 
 # Retained evidence carries the checkout and model paths the run resolved, and
-# a Git copy replaces the home prefix with $HOME. Scrubbing every retained text
-# file at the end closes that at the source rather than leaving it to the
-# authority check to catch one directory at a time.
+# a Git copy replaces the home prefix with $HOME and a MAC address with <mac>,
+# since the kernel ring the harness reads carries firewall lines naming link
+# addresses. Scrubbing every retained text file at the end closes that at the
+# source rather than leaving it to the authority check to catch one directory
+# at a time, and trailing whitespace leaves with it.
 scrub_local_paths() {
     find "$1" -type f \( -name '*.txt' -o -name '*.json' -o -name '*.log' \
         -o -name '*.tsv' -o -name '*.stdout' -o -name '*.stderr' \) \
-        -exec sed -i "s#$HOME#\$HOME#g" {} +
+        -exec sed -i -E \
+            -e "s#$HOME#\$HOME#g" \
+            -e 's/([0-9A-Fa-f]{2}:){5,}[0-9A-Fa-f]{2}/<mac>/g' \
+            -e 's/[[:space:]]+$//' {} +
 }
 
 closing_clients=$(client_fingerprint)
@@ -461,11 +579,29 @@ read_kernel_ring close
 # a control-close divergence names device drift under the pair; a subject
 # divergence at an unchanged threshold value names the patch itself.
 subject_divergences=$(awk -F'\t' \
-    '$1 == "identity" && $3 == "subject" && $5 == "divergent" { count++ } END { print count + 0 }' \
+    '($1 == "identity" || $1 == "state_identity") && $3 == "subject" && $5 == "divergent" { count++ } END { print count + 0 }' \
     "$summary_file")
 control_divergences=$(awk -F'\t' \
-    '$1 == "identity" && $3 == "control-close" && $5 == "divergent" { count++ } END { print count + 0 }' \
+    '($1 == "identity" || $1 == "state_identity") && $3 == "control-close" && $5 == "divergent" { count++ } END { print count + 0 }' \
     "$summary_file")
+
+# The verdict is complete only where every (model, arm, prompt) tuple read
+# identical: a not_run row, a missing model, or an absent state comparison
+# leaves the count short and the run reads incomplete rather than identical.
+models_run=$(awk -F'\t' '$1 == "geometry" { count++ } END { print count + 0 }' "$summary_file")
+expected_comparisons=$((models_run * 2 * prompt_count))
+token_identical=$(awk -F'\t' \
+    '$1 == "identity" && $5 == "identical" { count++ } END { print count + 0 }' "$summary_file")
+state_identical=$(awk -F'\t' \
+    '$1 == "state_identity" && $5 == "identical" { count++ } END { print count + 0 }' "$summary_file")
+if [ "$slot_state" = 1 ]; then
+    expected_state=$expected_comparisons
+else
+    expected_state=0
+fi
+printf 'comparisons\texpected=%s tokens_identical=%s states_identical=%s models_requested=%s models_run=%s\n' \
+    "$expected_comparisons" "$token_identical" "$state_identical" "$#" "$models_run" \
+    >>"$summary_file"
 
 if [ "$refusals" -gt 0 ]; then
     verdict=refused
@@ -473,6 +609,10 @@ elif [ "$control_divergences" -gt 0 ]; then
     verdict=control-drift
 elif [ "$subject_divergences" -gt 0 ]; then
     verdict=subject-divergent
+elif [ "$models_run" -ne "$#" ] || [ "$expected_comparisons" -eq 0 ] ||
+    [ "$token_identical" -ne "$expected_comparisons" ] ||
+    [ "$state_identical" -ne "$expected_state" ]; then
+    verdict=incomplete
 else
     verdict=identical
 fi

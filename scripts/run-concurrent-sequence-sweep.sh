@@ -92,6 +92,11 @@ case $admission in
 esac
 passage=${QWEN_CONCURRENCY_PASSAGE:-"$script_directory/../CLAUDE.md"}
 subject_server=${QWEN_CONCURRENCY_SUBJECT:-}
+# NAME=VALUE words exported to the subject arm's server alone, so one closure
+# can answer for a switch the library reads from its environment; with a word
+# set the subject may name the control's own binary, since the environment is
+# then what varies.
+subject_environment=${QWEN_CONCURRENCY_SUBJECT_ENV:-}
 floor=${QWEN_CONCURRENCY_FLOOR:-0.051}
 nsys_levels=${QWEN_CONCURRENCY_NSYS_LEVELS:-}
 nsys_predict=${QWEN_CONCURRENCY_NSYS_PREDICT:-24}
@@ -125,6 +130,10 @@ case $slot_depth in '' | *[!0-9]* | 0) usage ;; esac
 case $slot_offset in '' | *[!0-9]*) usage ;; esac
 case $prompt_tokens in '' | *[!0-9]* | 0) usage ;; esac
 case $predict in '' | *[!0-9]* | 0) usage ;; esac
+# A measured burst is told from a priming request by its token count, so a
+# reply of one token would count as priming and leave every burst outside
+# the witness; the floor is two tokens.
+[ "$predict" -ge 2 ] || refuse "QWEN_CONCURRENCY_PREDICT must be at least 2 so a burst is distinguishable from a priming request"
 case $repeats in '' | *[!0-9]* | 0) usage ;; esac
 case $admission in primed | cold) ;; *) refuse "QWEN_CONCURRENCY_ADMISSION takes primed or cold: $admission" ;; esac
 [ "$repeats" -ge 3 ] || refuse "a per-level median needs at least three bursts"
@@ -135,7 +144,14 @@ case $admission in primed | cold) ;; *) refuse "QWEN_CONCURRENCY_ADMISSION takes
     refuse "prompt $prompt_tokens plus reply $predict does not fit a slot of $slot_depth"
 if [ -n "$subject_server" ]; then
     [ -x "$subject_server" ] || refuse "subject closure is unusable: $subject_server"
-    [ "$subject_server" != "$server_binary" ] || refuse "the two arms name one closure, so nothing varies"
+    [ "$subject_server" != "$server_binary" ] || [ -n "$subject_environment" ] ||
+        refuse "the two arms name one closure and no subject environment, so nothing varies"
+    for environment_word in $subject_environment; do
+        case $environment_word in
+        [A-Za-z_]*=*) ;;
+        *) refuse "subject environment word is not NAME=VALUE: $environment_word" ;;
+        esac
+    done
     [ "$repeats" -ge 4 ] || refuse "a paired closure comparison requires at least four repeats"
 fi
 if [ -n "$nsys_levels" ]; then
@@ -276,6 +292,7 @@ printf 'control_path\t%s\n' "$(printf '%s' "$server_binary" | scrub_home)" >>"$s
 if [ -n "$subject_server" ]; then
     printf 'subject_sha256\t%s\n' "$(sha256sum "$subject_server" | cut -d' ' -f1)" >>"$summary"
     printf 'subject_path\t%s\n' "$(printf '%s' "$subject_server" | scrub_home)" >>"$summary"
+    printf 'subject_environment\t%s\n' "${subject_environment:--}" >>"$summary"
 fi
 printf 'slot_depth\t%s\n' "$slot_depth" >>"$summary"
 printf 'slot_offset\t%s\n' "$slot_offset" >>"$summary"
@@ -305,6 +322,7 @@ serve() {
     serve_binary=$3
     serve_port=$4
     serve_profile=${5:-}
+    serve_environment=${6:-}
     serve_level=$((serve_level + slot_offset))
     serve_ctx=$((serve_level * slot_depth))
     if [ -n "$serve_profile" ]; then
@@ -318,7 +336,7 @@ serve() {
         "$profiler_wrapper" "$nsys_binary" profile \
             --trace=cuda --cuda-graph-trace=node --sample=none --cpuctxsw=none \
             --output "$serve_profile" --force-overwrite true \
-            -- "$wrapper" "$serve_binary" \
+            -- env $serve_environment "$wrapper" "$serve_binary" \
             --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
@@ -328,7 +346,8 @@ serve() {
             --cache-ram 0 --ctx-checkpoints "$context_checkpoints" --no-context-shift --no-warmup -lv 10 \
             >"$serve_log" 2>&1 9>&- &
     else
-        QWEN_CUDA_PROFILE=default "$wrapper" "$serve_binary" \
+        # shellcheck disable=SC2086
+        env $serve_environment QWEN_CUDA_PROFILE=default "$wrapper" "$serve_binary" \
             --model "$model_path" --alias "$model_id" --host 127.0.0.1 --port "$serve_port" --no-ui \
             --device CUDA0 --split-mode none --n-gpu-layers all --override-tensor '.*=CUDA0' \
             --fit off --parallel "$serve_level" --threads 6 --threads-batch 6 \
@@ -453,21 +472,43 @@ PY
 # admission every measured burst has to show one prefill pass and a history
 # every member decoded in, because that is the claim the level makes.
 read_level_bursts() {
-    # read_level_bursts LEVEL ARM LOG
-    "$iteration_reader" --bursts "$3" | awk -F '\t' -v level="$1" -v arm="$2" -v OFS='\t' \
-        '$1 == "burst" { $1 = ""; print level, arm, substr($0, 2) }' >>"$bursts"
+    # read_level_bursts LEVEL ARM LOG [EXPECTED_BURSTS]
+    # The reader runs once into a file whose exit status is checked, since a
+    # pipeline's status is awk's and a reader that failed would leave the
+    # gate below reading an empty input as an absence of faults. The log has
+    # to carry every burst the client sent, the warm-up and one per repeat,
+    # so a reader that parsed fewer states that the witness is short rather
+    # than that the bursts were clean.
+    expected_bursts=${4:-$((repeats + 1))}
+    level_bursts=$output_directory/level-$1.$2.bursts.tsv
+    if ! "$iteration_reader" --bursts "$3" >"$level_bursts"; then
+        printf 'level %s %s: the iteration reader failed on %s\n' "$1" "$2" "$3" >&2
+        return 1
+    fi
+    measured_bursts=$(awk -F '\t' '$1 == "burst" && $6 > 1 { n++ } END { print n + 0 }' "$level_bursts")
+    if [ "$measured_bursts" -ne "$expected_bursts" ]; then
+        printf 'level %s %s: the log holds %s measured bursts where %s were expected\n' \
+            "$1" "$2" "$measured_bursts" "$expected_bursts" >&2
+        rm -f "$level_bursts"
+        return 1
+    fi
+    awk -F '\t' -v level="$1" -v arm="$2" -v OFS='\t' \
+        '$1 == "burst" { $1 = ""; print level, arm, substr($0, 2) }' "$level_bursts" >>"$bursts"
     if [ "$admission" = primed ]; then
         # The priming requests form their own one-token rows ahead of each
         # burst and are not measured; the warm-up burst is the first measured
-        # row and is not held to the claim.
-        if "$iteration_reader" --bursts "$3" | awk -F '\t' '
+        # row and is not held to the claim. The check reads the file the
+        # count above validated, so one parse is the witness for both.
+        if awk -F '\t' '
             $1 == "burst" && $6 > 1 { n++; if (n > 1 && ($4 != 1 || $10 != "yes")) bad++ }
-            END { exit !(bad > 0) }'
+            END { exit !(bad > 0) }' "$level_bursts"
         then
             printf 'level %s %s: a primed burst ran below full width or prefilled in two passes\n' "$1" "$2" >&2
+            rm -f "$level_bursts"
             return 1
         fi
     fi
+    rm -f "$level_bursts"
     return 0
 }
 
@@ -488,7 +529,7 @@ for level in $levels; do
         prompt_cut=1
     fi
     if [ -n "$subject_server" ]; then
-        serve "$level" "$subject_log" "$subject_server" "$subject_port"
+        serve "$level" "$subject_log" "$subject_server" "$subject_port" '' "$subject_environment"
         subject_pid=$served_pid
         ready "$subject_log" "$subject_pid" "$subject_port"
         assert_placement "$subject_log" "level $level subject load"
@@ -582,7 +623,8 @@ for level in $nsys_levels; do
     profiled_child=''
     assert_placement "$log" "dispatch $level"
     scrub_level_logs "$log"
-    read_level_bursts "$level" dispatch "${log%.raw}"
+    # The dispatch capture sends one burst, so its witness is one.
+    read_level_bursts "$level" dispatch "${log%.raw}" 1
 
     "$nsys_binary" export --type sqlite --force-overwrite true \
         --output "$capture_directory/capture.sqlite" \

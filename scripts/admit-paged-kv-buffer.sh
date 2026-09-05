@@ -1,0 +1,248 @@
+#!/bin/sh
+set -eu
+
+# gpu-ownership: delegated to run-closure-identity-ab.sh and run-concurrent-sequence-sweep.sh, which acquire in turn.
+#
+# Admits the paged KV buffer mechanism on one closure and one checkpoint by
+# asking one question: can the ordinary K and V tensor layout live over a CUDA
+# virtual memory management reservation with the same tensor addresses,
+# types, strides, bytes, graph behavior, and outputs. The subject is the
+# control's own binary with LLAMA_KV_PAGED_BUFFER=1 in its environment, so
+# the closure, the placement, the cache triple, the submission geometry, and
+# the request sequence are held and the buffer kind is the one axis.
+#
+# Four records decide it. The granularity probe states the driver contract
+# and the checkpoint's row geometry against it. The batch-1 identity arms run
+# control, subject, and control again over the six state-carrying prompts,
+# comparing token ids and the bytes of slot 0's saved state after every
+# prompt. The layout reader holds every subject log to the alignment and
+# accounting claim and every control log to the absence of the mechanism.
+# The primed width-3 sweep runs the same two arms at widths 1 and 3 under the
+# admission evidence/ada/concurrent-sequences/README-PRIMED.md shows
+# self-reproducible, and requires every subject reply to equal the control's.
+# The mechanism reads memory_saved=0 by construction: the whole reservation
+# is physically backed, and a sparse mapping is a later transition.
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: admit-paged-kv-buffer.sh BUILD_DIRECTORY OUTPUT_DIRECTORY [MODEL_ID]
+
+BUILD_DIRECTORY holds bin/llama-server built with
+patches/llama-cuda-paged-kv-buffer.patch. Naming no MODEL_ID admits on
+qwen38-2b-distill. OUTPUT_DIRECTORY must be absent or empty.
+
+  QWEN_PAGED_KV_WIDTHS    concurrency levels for the primed sweep, default "1 3"
+  QWEN_PAGED_KV_REPEATS   bursts per level, default 4
+  QWEN_PAGED_KV_SKIP_SWEEP  1 runs the probe and the batch-1 arms alone
+
+The verdict reads admitted only where the batch-1 arms are complete and the
+sweep ran widths 1 and 3 with every pair; a narrower run that refuses
+nothing reads partial.
+USAGE
+    exit 2
+}
+
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+build_directory=$1
+output_directory=$2
+model_id=${3:-qwen38-2b-distill}
+widths=${QWEN_PAGED_KV_WIDTHS:-"1 3"}
+repeats=${QWEN_PAGED_KV_REPEATS:-4}
+skip_sweep=${QWEN_PAGED_KV_SKIP_SWEEP:-0}
+case $skip_sweep in 0 | 1) ;; *) usage ;; esac
+
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+server_binary=$build_directory/bin/llama-server
+[ -x "$server_binary" ] || {
+    printf 'refused: llama-server is absent: %s\n' "$server_binary" >&2
+    exit 2
+}
+if [ -e "$output_directory" ] && [ -n "$(ls -A "$output_directory" 2>/dev/null)" ]; then
+    printf 'refused: output directory is not empty: %s\n' "$output_directory" >&2
+    exit 2
+fi
+# The switch has to exist in the closure before an arm asks for it, and the
+# proc-address entry is the symbol the library resolves it through.
+paged_symbol=$( { nm -D "$server_binary"; for object in $(ldd "$server_binary" | awk '/=>/ { print $3 }'); do nm -D "$object" 2>/dev/null; done; } | grep -c ' ggml_backend_cuda_paged_kv_buffer_type$' || :)
+[ "$paged_symbol" -gt 0 ] || {
+    printf 'refused: the closure exports no ggml_backend_cuda_paged_kv_buffer_type\n' >&2
+    exit 2
+}
+
+umask 077
+mkdir -p "$output_directory"
+output_directory=$(CDPATH='' cd -- "$output_directory" && pwd)
+summary=$output_directory/summary.tsv
+: >"$summary"
+scrub_home() { sed "s|${HOME:?}|\$HOME|g"; }
+record() { printf '%s\t%s\n' "$1" "$2" >>"$summary"; }
+record model_id "$model_id"
+record build_directory "$(printf '%s' "$build_directory" | scrub_home)"
+record server_sha256 "$(sha256sum "$server_binary" | cut -d ' ' -f 1)"
+record subject_environment LLAMA_KV_PAGED_BUFFER=1
+"$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
+
+refusals=0
+stage() {
+    stage_name=$1
+    shift
+    if "$@" >"$output_directory/$stage_name.stdout" 2>"$output_directory/$stage_name.stderr"; then
+        record "stage:$stage_name" completed
+    else
+        record "stage:$stage_name" "failed exit=$?"
+        refusals=$((refusals + 1))
+    fi
+}
+
+stage probe "$script_directory/probe-cuda-vmm-layout.sh" "$output_directory/probe" "$model_id"
+for key in granularity_minimum granularity_recommended vmm_supported probe_client_samples probe_alive_samples; do
+    record "probe:$key" "$(sed -n "s/^$key=//p" "$output_directory/probe/probe.txt" 2>/dev/null || :)"
+done
+# The probe's geometry pass is the independent census of the attention KV
+# tensors the reader holds every paged log to: one row per operand per
+# attention layer at the minimum unit.
+expected_tensors=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { count++ } END { print count + 0 }' \
+    "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || echo 0)
+expected_names=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { printf "%scache_%s_l%s", (n++ ? "," : ""), tolower($3), $2 }' \
+    "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || :)
+expected_layout=$(awk -F'\t' 'NR > 1 && $9 == "minimum" { printf "%scache_%s_l%s=%s:%s", (n++ ? "," : ""), tolower($3), $2, $4, $5 }' \
+    "$output_directory/probe/vmm-layout.tsv" 2>/dev/null || :)
+expected_cells=$("$script_directory/model-registry.sh" id "$model_id" context_default)
+record expected_tensors "$expected_tensors"
+record expected_names "${expected_names:--}"
+record expected_layout "${expected_layout:--}"
+record expected_cells "$expected_cells"
+[ "$expected_tensors" -gt 0 ] || refusals=$((refusals + 1))
+
+stage identity env QWEN_IDENTITY_SUBJECT_ENV=LLAMA_KV_PAGED_BUFFER=1 QWEN_IDENTITY_SLOT_STATE=1 \
+    "$script_directory/run-closure-identity-ab.sh" "$build_directory" "$build_directory" \
+    "$output_directory/identity" "$model_id"
+identity_summary=$output_directory/identity/summary.tsv
+if [ -s "$identity_summary" ]; then
+    record identity_verdict "$(awk -F'\t' '$1 == "verdict" { print $2 "\t" $3 }' "$identity_summary")"
+    record identity_tokens_identical "$(awk -F'\t' '$1 == "identity" && $5 == "identical" { count++ } END { print count + 0 }' "$identity_summary")"
+    record identity_states_identical "$(awk -F'\t' '$1 == "state_identity" && $5 == "identical" { count++ } END { print count + 0 }' "$identity_summary")"
+    record identity_placement "$(awk -F'\t' '$1 == "placement_match" { print $3 "=" $4 }' "$identity_summary" | tr '\n' ' ' | sed 's/ $//')"
+    record identity_comparisons "$(awk -F'\t' '$1 == "comparisons" { print $2 }' "$identity_summary")"
+fi
+
+for arm in control-open subject control-close; do
+    arm_log=$output_directory/identity/$model_id/$arm/server.log
+    [ -s "$arm_log" ] || { record "layout:$arm" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
+    case $arm in subject) expect=paged_kv_vmm ;; *) expect=device_default ;; esac
+    # The batch-1 arms serve the registry's default depth, so the cell count
+    # is bound to it; the primed arms serve level times slot depth and are
+    # held to their own size line alone.
+    case $expect in
+    paged_kv_vmm) expect_tensors="--expect-tensors $expected_tensors --expect-names $expected_names --expect-layout $expected_layout --expect-cells $expected_cells --expect-streams 1" ;;
+    *) expect_tensors="--expect-cells $expected_cells --expect-streams 1" ;;
+    esac
+    # shellcheck disable=SC2086
+    if python3 "$script_directory/read-paged-kv-layout.py" "$arm_log" --expect "$expect" $expect_tensors \
+        >"$output_directory/layout-$arm.tsv" 2>&1; then
+        record "layout:$arm" layout_holds
+    else
+        record "layout:$arm" layout_refused
+        refusals=$((refusals + 1))
+    fi
+done
+for key in kv_logical_bytes kv_virtual_reserved_bytes kv_physical_mapped_bytes kv_alignment_padding_bytes \
+    unit_bytes vmm_granularity_minimum vmm_granularity_recommended attention_layer_count memory_saved_bytes; do
+    record "subject:$key" "$(awk -F'\t' -v k="$key" '$1 == k { print $2 }' "$output_directory/layout-subject.tsv" 2>/dev/null || :)"
+done
+
+if [ "$skip_sweep" = 0 ]; then
+    stage primed env QWEN_CONCURRENCY_LEVELS="$widths" QWEN_CONCURRENCY_ADMISSION=primed \
+        QWEN_CONCURRENCY_REPEATS="$repeats" QWEN_CONCURRENCY_SUBJECT="$server_binary" \
+        QWEN_CONCURRENCY_SUBJECT_ENV=LLAMA_KV_PAGED_BUFFER=1 \
+        "$script_directory/run-concurrent-sequence-sweep.sh" "$server_binary" "$model_id" \
+        "$output_directory/primed"
+    paired=$output_directory/primed/paired.tsv
+    if [ -s "$paired" ]; then
+        # paired.tsv: level, delivered_ratio_median, clears_floor,
+        # reply_identity, pairs; reply identity is slot by slot.
+        awk -F'\t' 'NR > 1 { print "primed:level-" $1 "\treply_identity=" $4 " delivered_ratio=" $2 " pairs=" $5 }' \
+            "$paired" >>"$summary"
+        primed_identity=$(awk -F'\t' 'NR > 1 && $4 != "identical" { bad++ } NR > 1 { seen++ } END { print (seen > 0 && bad == 0) ? "identical" : "diverged" }' "$paired")
+        # Complete means every requested width has a row carrying every
+        # requested pair; a width the sweep dropped or a burst it lost reads
+        # as a shortfall rather than as an absent divergence.
+        primed_levels_complete=$(awk -F'\t' -v repeats="$repeats" 'NR > 1 && $5 == repeats { print $1 }' "$paired" | sort -n | tr '\n' ' ' | sed 's/ $//')
+    else
+        primed_identity=absent
+        primed_levels_complete=''
+    fi
+    record primed_reply_identity "$primed_identity"
+    record primed_levels_complete "${primed_levels_complete:--}"
+    # A primed level N serves N slots of the sweep's slot depth, one stream
+    # each, so its cache holds slot_depth cells over N streams; the depth is
+    # read from the sweep's own summary rather than assumed.
+    # The sweep serves level plus slot offset slots, so the stream count is
+    # bound to both as its summary records them. The control log of every
+    # level is read too, since a paged setting inherited by the control arm
+    # would turn the comparison into paged against paged and only the log
+    # states which kind each arm served.
+    primed_slot_depth=$(awk -F'\t' '$1 == "slot_depth" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
+    primed_slot_offset=$(awk -F'\t' '$1 == "slot_offset" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
+    # An absent or malformed depth or offset is a refusal rather than a zero,
+    # since a zero would bind the layout to a geometry the sweep never wrote.
+    case $primed_slot_depth in '' | *[!0-9]* | 0)
+        record primed_geometry "refused slot_depth=${primed_slot_depth:--}"
+        refusals=$((refusals + 1)); primed_slot_depth=0 ;;
+    esac
+    case $primed_slot_offset in '' | *[!0-9]*)
+        record primed_geometry "refused slot_offset=${primed_slot_offset:--}"
+        refusals=$((refusals + 1)); primed_slot_offset=0 ;;
+    esac
+    record primed_geometry "slot_depth=$primed_slot_depth slot_offset=$primed_slot_offset"
+    for level in $widths; do
+        level_streams=$((level + primed_slot_offset))
+        for primed_arm in subject control; do
+            case $primed_arm in
+            subject) level_log=$output_directory/primed/level-$level.subject.log; expect_kind=paged_kv_vmm
+                expect_extra="--expect-tensors $expected_tensors --expect-names $expected_names --expect-layout $expected_layout" ;;
+            *) level_log=$output_directory/primed/level-$level.server.log; expect_kind=device_default; expect_extra='' ;;
+            esac
+            [ -s "$level_log" ] || { record "layout:primed-$level-$primed_arm" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
+            # shellcheck disable=SC2086
+            if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect "$expect_kind" $expect_extra \
+                --expect-cells "$primed_slot_depth" --expect-streams "$level_streams" \
+                >"$output_directory/layout-primed-$level-$primed_arm.tsv" 2>&1; then
+                record "layout:primed-$level-$primed_arm" layout_holds
+            else
+                record "layout:primed-$level-$primed_arm" layout_refused
+                refusals=$((refusals + 1))
+            fi
+        done
+    done
+else
+    record stage:primed "not_run reason=QWEN_PAGED_KV_SKIP_SWEEP"
+fi
+
+identity_verdict=$(awk -F'\t' '$1 == "identity_verdict" { print $2 }' "$summary")
+primed_identity=$(awk -F'\t' '$1 == "primed_reply_identity" { print $2 }' "$summary")
+primed_levels_complete=$(awk -F'\t' '$1 == "primed_levels_complete" { print $2 }' "$summary")
+# Widths 1 and 3 are the preregistered gate and every requested width has
+# to be complete beside them, so a requested width the sweep lost reads
+# partial rather than admitted.
+gate_widths_complete=yes
+for gate_width in 1 3 $widths; do
+    printf ' %s ' "$primed_levels_complete" | grep -q " $gate_width " || gate_widths_complete=no
+done
+if [ "$refusals" -gt 0 ]; then
+    verdict=refused
+elif [ "$identity_verdict" = subject-divergent ] || [ "$identity_verdict" = control-drift ]; then
+    verdict=rejected
+elif [ "$skip_sweep" = 0 ] && [ "$primed_identity" = diverged ]; then
+    verdict=rejected
+elif [ "$identity_verdict" != identical ] || [ "$skip_sweep" = 1 ] || [ "$gate_widths_complete" = no ]; then
+    verdict=partial
+else
+    verdict=admitted
+fi
+record verdict "$verdict"
+record refusals "$refusals"
+find "$output_directory" -maxdepth 1 -type f \( -name '*.tsv' -o -name '*.stdout' -o -name '*.stderr' \) \
+    -exec sed -i "s#${HOME:?}#\$HOME#g" {} +
+cat "$summary"
+[ "$verdict" = admitted ]

@@ -167,8 +167,12 @@ pointers against the previous compute under that key, and resets warmup
 where they differ, so what a mixed workload pays is a property of its
 topology sequence. `patches/llama-cuda-graph-lifecycle.patch` records that
 decision per compute under `GGML_CUDA_GRAPH_LIFECYCLE`, with a topology digest
-over structure and dimensions that excludes pointer values, and
-`scripts/run-graph-lifecycle-trace.sh` drives one state machine through it:
+over structure and dimensions that excludes pointer values; it sits with the
+dispatch census in the diagnostic stage of `verify-llama-patch-series.sh`,
+which `QWEN_LLAMA_DIAGNOSTIC_PATCHES=1` applies on top of the candidate stage
+and which names no promotion candidate, since a recorder answers a question
+and serves nothing. `scripts/run-graph-lifecycle-trace.sh` drives one state
+machine through it:
 slot A decoding alone, slot B entering with a 256-token uncached prefill, both
 decoding together, B leaving. `evidence/ada/graph-lifecycle/2b-run-02/`
 measures five cycles per arm on the 2B under closure `78385b190cb6`: every
@@ -183,6 +187,41 @@ crosses a 256-row padding boundary, so an N-only cache key is refused on
 record while the closure builds nothing. Slot permutation leaves A's reply
 fixed and moves B's, the prefill-composition effect the concurrency evidence
 records, under an identical topology sequence.
+
+The attention KV cache can live over a CUDA virtual memory management
+reservation with its layout, addresses, bytes, and outputs unchanged, and
+that is the whole of what `patches/llama-cuda-paged-kv-buffer.patch` claims.
+`evidence/ada/paged-kv-census/` is the census of every reader of the KV
+layout at the pin, eighteen surfaces with the recurrent store separated from
+attention KV, and it selected a stable virtual aperture over a staging
+design. The patch adds a KV buffer type sharing the CUDA buffer interfaces,
+so `ggml_backend_buft_is_cuda` and the scheduler treat it as CUDA0 memory,
+with the allocation kind in the buffer context; its alignment is the driver's
+minimum allocation granularity read through
+`cuMemGetAllocationGranularity(CU_MEM_ALLOC_GRANULARITY_MINIMUM)`, which
+`scripts/probe-cuda-vmm-layout.sh` records beside the recommended value the
+pinned pool reads, both 2 MiB on this device. `alloc_buffer` reserves one
+virtual range, backs it whole with `cuMemCreate` and `cuMemMap`, grants the
+device read/write access, and prints requested, virtual, and mapped byte
+counts; `init_tensor` asserts every tensor's start and extent on the unit
+and prints one record per tensor. `LLAMA_KV_PAGED_BUFFER=1` makes
+`llama_kv_cache` resolve the type through the registry's proc-address table
+for every attention K and V tensor, and a backend, device, or placement that
+cannot honor the request ends construction rather than serving from the
+ordinary buffer; `llama_memory_recurrent` reads none of it.
+`scripts/admit-paged-kv-buffer.sh` runs the probe, the batch-1 identity arms
+with slot 0's state saved and compared byte for byte after every prompt,
+`scripts/read-paged-kv-layout.py` over every log, and the primed width-1 and
+width-3 sweep. `evidence/ada/paged-kv-buffer/2b-run-01/` admits it on the
+2B under closure `385e13f0df08`: 12 of 12 token arms and 12 of 12 state
+files identical, one placement fingerprint across the three arms, 327155712
+bytes logical, virtual, and mapped with zero padding, six attention layers
+and no recurrent tensor in the buffer, and every primed reply identical at
+both widths. Memory saved is zero by construction, so the mechanism is
+admitted and stays off for serving; a 2 MiB unit divides by neither the
+544-byte q8_0 K row nor the 288-byte q4_0 V row, so a sparse mapping maps
+units rather than cells, and that mapping is a separate transition designed
+against this record.
 
 A measured threshold or rate holds for the device software stack it ran under,
 and `scripts/device-environment-identity.sh` is what records that stack.
@@ -1502,6 +1541,12 @@ scripts/probe-page-cache-release.sh SERVER OUT [A_ID] [B_ID]
 scripts/run-graph-lifecycle-trace.sh SERVER MODEL_ID OUT
                                                 # the CUDA graph decisions one mixed-service transition pays, lifecycle closure only
 scripts/read-graph-lifecycle-trace.py OUT      # those rows joined to the T0..T3 phases, and the five answers
+scripts/probe-cuda-vmm-layout.sh OUT [MODEL_ID...]
+                                                # both VMM granularities, no context opened, and the KV rows against them
+scripts/admit-paged-kv-buffer.sh BUILD OUT [MODEL_ID]
+                                                # the paged KV buffer: probe, batch-1 identity with state bytes, layout, primed widths
+scripts/read-paged-kv-layout.py LOG --expect paged_kv_vmm|device_default
+                                                # the KV buffer accounting one server log records, held to the P1 claim
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
@@ -1594,6 +1639,7 @@ scripts/test-gpu-workload-ownership.sh
 scripts/test-gpu-quiescence-gate.sh
 python3 scripts/test-read-nsys-mat-mul-kernels.py
 python3 scripts/test-read-graph-lifecycle-trace.py
+python3 scripts/test-read-paged-kv-layout.py
 python3 scripts/test-read-server-decode-iterations.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
@@ -1629,6 +1675,8 @@ scripts/test-vulkan-workload-lease.sh            # path check and patch replay r
 scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included
+QWEN_LLAMA_CANDIDATE_PATCHES=1 QWEN_LLAMA_DIAGNOSTIC_PATCHES=1 scripts/verify-llama-patch-series.sh
+                                                 # and the census and lifecycle recorders on top, promotion_candidate=no
 GGUF_PY_PATH=~/src/llama.cpp-qwen-nvidia/gguf-py \
     scripts/test-gguf-tensor-census.py [MODEL...]
                                                  # needs the pinned gguf-py, and GGUF files for the optional arms
