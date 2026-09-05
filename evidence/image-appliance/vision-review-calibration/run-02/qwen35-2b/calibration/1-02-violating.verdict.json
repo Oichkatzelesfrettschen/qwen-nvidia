@@ -1,0 +1,50 @@
+{
+  "artifact_sha256": "e3c5a55ce72132240d7bdb3920c09caa210777a824e2fd7c7ad37eca07a11c5c",
+  "audit": "image_review model=qwen35-2b artifact=e3c5a55ce72132240d7bdb3920c09caa210777a824e2fd7c7ad37eca07a11c5c prompt_hash=07cc3be7f96e60b54af08773fd70b74c832b78c70ec3e909067bb44623dd6070 constraints=3 schema_mode=response_format image_mode=real swap_sha256=- wall_seconds=1.04 reasoning_emitted=no constraints_sha256=bc21202917cd18c5e1829d89ae61e47814572a67e7cca3201ec671cbcd31c8f1 binding_model_sha256=57a1085840f497d764a7fc5d346922dbde961efb54cc792ea81d694fd846a1d8 binding_projector_sha256=044a0ea136cca70711ae16e23b24d754b44eab6f2462d187aee4d7c7a9503d36 binding_reviewer=qwen35-2b binding_server_sha256=037b287eccd18d64248dc0997296be3eaa3e99a319acba90f5db1cfa70c095ec binding_tuple_id=qwen35-2b-cuda-d65536-b2048-ub512 passed=0 failed=1 failed_names=four_bars uncertain=2 uncertain_names=tallest_jun,axis_150 composition_change_required=yes regenerate=yes correction_admitted=yes delta_chars=146 delta_sha256=442dd0dd39b5fad71ada756e7a3d1cc3505b8a07b324b2847bc04d0953eb66a2 status=ok",
+  "bindings": {
+    "model_sha256": "57a1085840f497d764a7fc5d346922dbde961efb54cc792ea81d694fd846a1d8",
+    "projector_sha256": "044a0ea136cca70711ae16e23b24d754b44eab6f2462d187aee4d7c7a9503d36",
+    "reviewer": "qwen35-2b",
+    "server_sha256": "037b287eccd18d64248dc0997296be3eaa3e99a319acba90f5db1cfa70c095ec",
+    "tuple_id": "qwen35-2b-cuda-d65536-b2048-ub512"
+  },
+  "constraints_sha256": "bc21202917cd18c5e1829d89ae61e47814572a67e7cca3201ec671cbcd31c8f1",
+  "correction_admitted": true,
+  "correction_reason": "the verdict names a failed hard constraint and states its correction",
+  "failed": [
+    "four_bars"
+  ],
+  "image_mode": "real",
+  "model": "qwen35-2b",
+  "prompt_hash": "07cc3be7f96e60b54af08773fd70b74c832b78c70ec3e909067bb44623dd6070",
+  "raw_reply": "{\n  \"hard_constraints\": [\n    {\n      \"name\": \"four_bars\",\n      \"status\": \"fail\",\n      \"observation\": \"The image contains only three shapes (red square, green circle, blue triangle) instead of the required four bars.\"\n    },\n    {\n      \"name\": \"tallest_jun\",\n      \"status\": \"uncertain\",\n      \"observation\": \"Cannot determine which bar is tallest as only three shapes are present and no labels are visible.\"\n    },\n    {\n      \"name\": \"axis_150\",\n      \"status\": \"uncertain\",\n      \"observation\": \"No numerical axis or labels are visible on the chart to verify the 150 value.\"\n    }\n  ],\n  \"composition_change_required\": true,\n  \"prompt_delta\": \"Replace the three shapes with four bars arranged horizontally, add a vertical axis with a label of 150, and ensure the tallest bar is labeled JUN.\",\n  \"regenerate\": true\n}",
+  "reasoning_emitted": false,
+  "swap_sha256": null,
+  "uncertain": [
+    "tallest_jun",
+    "axis_150"
+  ],
+  "verdict": {
+    "composition_change_required": true,
+    "hard_constraints": [
+      {
+        "name": "four_bars",
+        "observation": "The image contains only three shapes (red square, green circle, blue triangle) instead of the required four bars.",
+        "status": "fail"
+      },
+      {
+        "name": "tallest_jun",
+        "observation": "Cannot determine which bar is tallest as only three shapes are present and no labels are visible.",
+        "status": "uncertain"
+      },
+      {
+        "name": "axis_150",
+        "observation": "No numerical axis or labels are visible on the chart to verify the 150 value.",
+        "status": "uncertain"
+      }
+    ],
+    "prompt_delta": "Replace the three shapes with four bars arranged horizontally, add a vertical axis with a label of 150, and ensure the tallest bar is labeled JUN.",
+    "regenerate": true
+  },
+  "wall_seconds": 1.0423108779941685
+}
