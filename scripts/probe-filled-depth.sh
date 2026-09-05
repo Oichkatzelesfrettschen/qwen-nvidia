@@ -237,6 +237,7 @@ start_server() {
         --model "$model_path" \
         --alias "$model_id" \
         --host 127.0.0.1 \
+        --log-verbosity 4 \
         --port "$server_port" \
         --no-ui \
         --device "$resolved_device" \
