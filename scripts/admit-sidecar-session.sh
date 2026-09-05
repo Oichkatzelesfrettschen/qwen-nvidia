@@ -608,6 +608,7 @@ if lane_armed physics && lane_armed geometry; then
     # call, so the refusal lands with no runtime and no lease transition.
     lane_facts geometry
     issue_grant geometry-grant-for-cross /grant-geometry "$(lane_grant_body "$geometry_run_count")"
+    cross_grant_status=$call_status
     cross_params=$(run_params_for "$physics_profile_id" "$physics_run_count" "$issued_authorization")
     start_sampler "$output_directory/cross-clients.raw"
     call cross-service-replay POST "$router_origin/tools" "$(tool_body physics_simulate_rigid "$cross_params")"
@@ -615,35 +616,67 @@ if lane_armed physics && lane_armed geometry; then
     cross_error=$(jq -r '.error // empty' "$call_out" 2>/dev/null)
     cross_runtime_samples=$(grep -c 'physx-rigid-runtime\|optix-ray-runtime' "$output_directory/cross-clients-during.tsv" || :)
     cross_held=$(awk -F '\t' '$2 == "held" && $3 == "tick"' "$output_directory/cross-clients-during.tsv" | wc -l)
-    if [ -n "$cross_error" ] && [ "$cross_runtime_samples" = 0 ] && [ "$cross_held" = 0 ]; then
+    # the refusal has to be the service binding by name: a malformed or
+    # expired grant refuses too, and reads nothing about the binding
+    if [ "$cross_grant_status" = 200 ] && [ "$(printf '%s' "$cross_error" | grep -c 'names another sidecar service')" -ge 1 ] && \
+       [ "$cross_runtime_samples" = 0 ] && [ "$cross_held" = 0 ]; then
         record cross_service_grant_refused accepted "$(printf '%s' "$cross_error" | head -c 120) runtime_samples=0 lease_held_samples=0"
     else
-        record cross_service_grant_refused refused "status=$call_status error=${cross_error:-none} runtime_samples=$cross_runtime_samples lease_held_samples=$cross_held"
+        record cross_service_grant_refused refused "grant_status=$cross_grant_status status=$call_status error=${cross_error:-none} runtime_samples=$cross_runtime_samples lease_held_samples=$cross_held"
     fi
 
     # Contention: one run per lane released from one barrier against the
     # one lease. Both must complete with their proofs, no sample may name
-    # both runtimes, and the holder that acquired second states its wait.
-    lane_facts physics
-    issue_grant physics-grant-for-contention /grant-physics "$(lane_grant_body "$physics_run_count")"
-    physics_contention=$(tool_body physics_simulate_rigid "$(run_params_for "$physics_profile_id" "$physics_run_count" "$issued_authorization")")
-    lane_facts geometry
-    issue_grant geometry-grant-for-contention /grant-geometry "$(lane_grant_body "$geometry_run_count")"
-    geometry_contention=$(tool_body geometry_ray_query "$(run_params_for "$geometry_profile_id" "$geometry_run_count" "$issued_authorization")")
-    exchange=$((exchange + 1))
-    physics_stem=$output_directory/http/$exchange-contention-physics
-    exchange=$((exchange + 1))
-    geometry_stem=$output_directory/http/$exchange-contention-geometry
-    start_sampler "$output_directory/contention-clients.raw"
-    contention_started=$(now)
-    call_into "$physics_stem" POST "$router_origin/tools" "$physics_contention" 9>&- &
-    physics_call_pid=$!
-    call_into "$geometry_stem" POST "$router_origin/tools" "$geometry_contention" 9>&- &
-    geometry_call_pid=$!
-    wait "$physics_call_pid" || :
-    wait "$geometry_call_pid" || :
-    contention_wall=$(elapsed "$contention_started" "$(now)")
-    stop_sampler "$output_directory/contention-clients.raw" "$output_directory/contention-clients-during.tsv"
+    # both runtimes, and the holder that acquired second states a wait
+    # above zero; a draw in which neither waited produced no contention and
+    # measured nothing, so the pair is redrawn under fresh grants up to
+    # QWEN_CONTENTION_REDRAWS times and the last draw is the record.
+    contention_redraws=${QWEN_CONTENTION_REDRAWS:-3}
+    draw=0
+    while :; do
+        draw=$((draw + 1))
+        lane_facts physics
+        issue_grant "physics-grant-for-contention-$draw" /grant-physics "$(lane_grant_body "$physics_run_count")"
+        physics_contention=$(tool_body physics_simulate_rigid "$(run_params_for "$physics_profile_id" "$physics_run_count" "$issued_authorization")")
+        lane_facts geometry
+        issue_grant "geometry-grant-for-contention-$draw" /grant-geometry "$(lane_grant_body "$geometry_run_count")"
+        geometry_contention=$(tool_body geometry_ray_query "$(run_params_for "$geometry_profile_id" "$geometry_run_count" "$issued_authorization")")
+        exchange=$((exchange + 1))
+        physics_stem=$output_directory/http/$exchange-contention-$draw-physics
+        exchange=$((exchange + 1))
+        geometry_stem=$output_directory/http/$exchange-contention-$draw-geometry
+        contention_tsv=$output_directory/contention-$draw-clients-during.tsv
+        # both callers block on the barrier file and leave together when it
+        # appears, so the two requests reach the router within the poll
+        # interval of each other rather than one curl start apart
+        barrier=$output_directory/contention-$draw.barrier
+        rm -f "$barrier"
+        start_sampler "$output_directory/contention-$draw-clients.raw"
+        ( while [ ! -e "$barrier" ]; do sleep 0.01; done
+          call_into "$physics_stem" POST "$router_origin/tools" "$physics_contention" ) 9>&- &
+        physics_call_pid=$!
+        ( while [ ! -e "$barrier" ]; do sleep 0.01; done
+          call_into "$geometry_stem" POST "$router_origin/tools" "$geometry_contention" ) 9>&- &
+        geometry_call_pid=$!
+        sleep 0.2
+        contention_started=$(now)
+        : >"$barrier"
+        wait "$physics_call_pid" || :
+        wait "$geometry_call_pid" || :
+        contention_wall=$(elapsed "$contention_started" "$(now)")
+        stop_sampler "$output_directory/contention-$draw-clients.raw" "$contention_tsv"
+        rm -f "$barrier"
+        holders=$(awk -F '\t' '$3 == "status" && $4 ~ /^state=held/ { print $4 }' "$contention_tsv" |
+            sed -n 's/.*holder=\([a-z-]*\).*waited_ms=\([0-9]*\).*/\1 \2/p' | sort -u)
+        holder_count=$(printf '%s\n' "$holders" | awk 'NF { print $1 }' | sort -u | grep -c . || :)
+        waited=$(printf '%s\n' "$holders" | awk 'NF { print $1 "=" $2 "ms" }' | tr '\n' ' ')
+        max_wait=$(printf '%s\n' "$holders" | awk 'NF && $2 > m { m = $2 } END { print m + 0 }')
+        if [ "$holder_count" = 2 ] && [ "$max_wait" -gt 0 ]; then
+            break
+        fi
+        record "contention_draw_$draw" observed "no wait recorded: holders=$holder_count $waited; redrawn"
+        [ "$draw" -lt "$contention_redraws" ] || break
+    done
     lane_facts physics
     read_run "$physics_stem.response"
     physics_ok=no
@@ -655,33 +688,26 @@ if lane_armed physics && lane_armed geometry; then
     [ "$run_status" = completed ] && [ "$run_proof" = true ] && [ "$result_runtime" = "$geometry_runtime_sha256" ] && geometry_ok=yes
     geometry_figures=$(printf '%s' "$run_text" | jq -r "$lane_figures_jq" 2>/dev/null || :)
     if [ "$physics_ok" = yes ] && [ "$geometry_ok" = yes ]; then
-        record contention_both_complete accepted "wall=${contention_wall}s physics: $physics_figures; geometry: $geometry_figures"
+        record contention_both_complete accepted "draw=$draw wall=${contention_wall}s physics: $physics_figures; geometry: $geometry_figures"
     else
-        record contention_both_complete refused "physics=$physics_ok geometry=$geometry_ok $(head -c 120 "$physics_stem.response") $(head -c 120 "$geometry_stem.response")"
+        record contention_both_complete refused "draw=$draw physics=$physics_ok geometry=$geometry_ok $(head -c 120 "$physics_stem.response") $(head -c 120 "$geometry_stem.response")"
     fi
     # a stamp naming both runtimes in the client list is the overlap the
     # lease exists to prevent
     overlap_stamps=$(awk -F '\t' '$3 == "client" && $4 ~ /physx-rigid-runtime/ { p[$1] = 1 }
         $3 == "client" && $4 ~ /optix-ray-runtime/ { g[$1] = 1 }
-        END { n = 0; for (s in p) if (s in g) n++; print n }' "$output_directory/contention-clients-during.tsv")
-    physics_seen=$(grep -c 'physx-rigid-runtime' "$output_directory/contention-clients-during.tsv" || :)
-    geometry_seen=$(grep -c 'optix-ray-runtime' "$output_directory/contention-clients-during.tsv" || :)
+        END { n = 0; for (s in p) if (s in g) n++; print n }' "$contention_tsv")
+    physics_seen=$(grep -c 'physx-rigid-runtime' "$contention_tsv" || :)
+    geometry_seen=$(grep -c 'optix-ray-runtime' "$contention_tsv" || :)
     if [ "$overlap_stamps" = 0 ]; then
         record contention_runtimes_never_coresident accepted "physics_samples=$physics_seen geometry_samples=$geometry_seen overlapping_samples=0"
     else
         record contention_runtimes_never_coresident refused "overlapping_samples=$overlap_stamps"
     fi
-    holders=$(awk -F '\t' '$3 == "status" && $4 ~ /^state=held/ { print $4 }' "$output_directory/contention-clients-during.tsv" |
-        sed -n 's/.*holder=\([a-z-]*\).*waited_ms=\([0-9]*\).*/\1 \2/p' | sort -u)
-    holder_count=$(printf '%s\n' "$holders" | awk 'NF { print $1 }' | sort -u | grep -c . || :)
-    waited=$(printf '%s\n' "$holders" | awk 'NF { print $1 "=" $2 "ms" }' | tr '\n' ' ')
-    max_wait=$(printf '%s\n' "$holders" | awk 'NF && $2 > m { m = $2 } END { print m + 0 }')
     if [ "$holder_count" = 2 ] && [ "$max_wait" -gt 0 ]; then
-        record contention_second_holder_waited accepted "$waited"
-    elif [ "$holder_count" = 2 ]; then
-        record contention_second_holder_waited observed "both held with no recorded wait: $waited"
+        record contention_second_holder_waited accepted "draw=$draw $waited"
     else
-        record contention_second_holder_waited refused "holders=$holder_count $waited"
+        record contention_second_holder_waited refused "draw=$draw holders=$holder_count $waited; no draw produced a wait"
     fi
 fi
 

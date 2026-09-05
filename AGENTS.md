@@ -1118,8 +1118,9 @@ second holder's status line states the `waited_ms` it paid.
 `evidence/physics/session-integration/` carries the physics record and
 `evidence/geometry/session-integration/` the geometry and shared-lease
 records. The geometry deadline arm is observed rather than required: the
-protocol ceiling of 1048576 rays traces in about 0.3 s standalone, so no
-real run crosses the 1 s floor the ledger admits, and the deadline path is
+protocol ceiling of 1048576 rays ran in about 0.3 s standalone and in
+0.42 to 1.05 s through the chain, against the 1 s floor the ledger admits,
+so a crossing is a host or runtime observation and the deadline path is
 proven on the physics lane and under the fake runtimes. Every ledger row
 stays `refused`.
 

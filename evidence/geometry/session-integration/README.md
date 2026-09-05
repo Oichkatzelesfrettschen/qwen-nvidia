@@ -8,7 +8,7 @@ record is the application integration under the contract
 inside the served session, reached by the model through one MCP tool,
 authorized by one human approval, holding the one lease the physics and
 image lanes hold. The record has two parts. `alone-02/` admits the geometry
-lane by itself, the shape the physics record used. `shared-lease-01/` arms
+lane by itself, the shape the physics record used. `shared-lease-02/` arms
 both lanes in one session and adds the two arms that belong to the pair: a
 grant signed for one service presented at the other's tool, and one run per
 lane released from one barrier against the one lease. "Runtime admitted"
@@ -23,13 +23,16 @@ and a ray count, bounded by the profile's `max_rays`; the proof the reply
 has to carry is `launch_completed` with `reference_disagreement` at zero,
 which is the device answer agreeing with the host reference on every ray;
 and the deadline arm is observed rather than required. The protocol ceiling
-of 1048576 rays traces in about 0.3 s when the built runtime runs
-standalone under the priority wrapper, and `timeout_s` is bounded below at
-1 s by the service, so no real run can cross the floor the ledger admits.
-The arm therefore records which side of the deadline the run landed on and
-still requires the runtime reaped; the deadline path itself is proven on
-the physics lane on the device and on both lanes under the fake runtimes in
-`scripts/test-geometry-service.py`.
+of 1048576 rays ran in about 0.3 s when the built runtime ran standalone
+under the priority wrapper, and in 0.42 to 1.05 s of wall through the whole
+chain in the retained runs, against a `timeout_s` the service bounds below
+at 1 s; the deadline covers the runtime process whole, initialization and
+host reference included, so a host under load could carry a run past it.
+The arm therefore records which side of the deadline the run landed on,
+requires the runtime reaped either way, and reads a crossing as the
+service's timeline rather than as a failure; the deadline path itself is
+proven on the physics lane on the device and on both lanes under the fake
+runtimes in `scripts/test-geometry-service.py`.
 
 `admit-sidecar-session.sh` takes `QWEN_ADMISSION_LANES` and runs one chain
 for every armed lane through a lane table: the builder and binary, the
@@ -99,22 +102,28 @@ leader, and records the lease free before the next arm.
 | page turn | accepted: one `POST /grant-geometry`, one `POST /tools`, origins the router and broker alone, the tool message `status: completed` with the proof, and the model's reply naming 177170 hits of 262144 |
 | teardown | accepted: no server, session, probe, broker, or service; geometry residue clean; session secret gone |
 
-## Run shared-lease-01
+## Run shared-lease-02
 
-`shared-lease-01/` arms both lanes in one session. Every per-lane arm of
-the physics record and of the run above holds again under the pair, the
-physics deadline arm crossing at `exit_s=2.068 sigterm_s=2.005` and
-2.1 s of wall now that the lease is released ahead of it, and the geometry
-deadline arm completing at 0.421 s. The pair's own arms:
+`shared-lease-02/` arms both lanes in one session on the reviewed form of
+the harness. Run 01 accepted every arm on the form ahead of review, whose
+contention arm admitted a draw in which neither holder waited and whose
+cross-service arm accepted any refusal; the harness now releases both
+calls from a barrier file, refuses a draw with no wait after up to three
+redraws under fresh grants, and requires the child's service-mismatch
+phrase. Every per-lane arm of the physics record and of the run above
+holds again under the pair, the physics deadline arm crossing at
+`exit_s=2.068 sigterm_s=2.005` and 2.1 s of wall now that the lease is
+released ahead of it, and the geometry deadline arm completing at
+0.448 s. The pair's own arms:
 
 | arm | outcome |
 | --- | --- |
 | both services share the session lease | accepted: one `vulkan-workload.lock` under the state directory in both identities |
 | listing names both tools | accepted: `geometry_ray_query`, `physics_simulate_rigid` |
 | geometry grant at the physics tool | refused at the child: `the grant names another sidecar service than the executing one`; no runtime sample, no lease sample held |
-| contention, both complete | accepted: 0.826 s of wall for both; physics `simulate_ms` 242.8 with 4 bodies and 4 joints, geometry 177170 hits with agreement 262144 of 262144 |
-| contention, runtimes never coresident | accepted: `optix-ray-runtime` in 2 samples, `physx-rigid-runtime` in 4, no sample naming both |
-| contention, the second holder waited | accepted: `geometry-service` held first at `waited_ms=0`, `physics-service` after it at `waited_ms=300` |
+| contention, both complete | accepted on the first draw: 0.762 s of wall for both; physics `simulate_ms` 244.9 with 4 bodies and 4 joints, geometry 177170 hits with agreement 262144 of 262144 |
+| contention, runtimes never coresident | accepted: `physx-rigid-runtime` in 3 samples, `optix-ray-runtime` in 1, no sample naming both |
+| contention, the second holder waited | accepted: `physics-service` held first at `waited_ms=0`, `geometry-service` after it at `waited_ms=451`; run 01 read the opposite order at 300 ms, so which service acquires first is the barrier's release order and the number is the other lane's run |
 | page turn, physics | accepted: one `POST /grant-physics`, the tool message completed with `gpu_dynamics_active` true |
 | page turn, geometry | accepted: one `POST /grant-geometry`, the tool message completed with `launch_completed` true, the reply naming 177170 of 262144 |
 | teardown | accepted: no server, session, probe, broker, or service; physics and geometry residue clean; session secret gone |
@@ -125,13 +134,14 @@ session's file, one approval buys one run bound to its own service, and a
 grant carried across services refuses at the child before any socket
 opens. Under contention the lease serializes the two runtimes: the driver
 never lists both, the second acquirer states the wait it paid on its own
-status line, and both runs complete with their proofs. Application
+status line, and both runs complete with their proofs; across the two
+runs each service has waited behind the other once. Application
 execution stays unauthorized in both checked-in ledgers, since a served
 run under a copied row is an admission and a policy change is its own
 transition.
 
 **What it leaves open.** The contention arm releases two runs and reads a
-300 ms wait; a queue deeper than two, and a runtime long enough to push a
+wait of a few hundred milliseconds; a queue deeper than two, and a runtime long enough to push a
 waiter past the service's 60 s bound, are unmeasured. The geometry
 deadline stays unobserved on the real runtime because the ledger's floor
 and the runtime's ceiling do not meet; a longer fixture or a lower floor
