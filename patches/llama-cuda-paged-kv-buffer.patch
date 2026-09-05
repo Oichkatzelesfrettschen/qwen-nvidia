@@ -1077,7 +1077,7 @@ index 000000000..7b025474b
 +    ggml_paged_kv_accounting accounting_;
 +};
 diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
-index ec0f5a753..751da7447 100644
+index ec0f5a753..a1877b027 100644
 --- a/src/llama-kv-cache.cpp
 +++ b/src/llama-kv-cache.cpp
 @@ -99,6 +99,75 @@ llama_kv_cache::llama_kv_cache(
@@ -1258,21 +1258,23 @@ index ec0f5a753..751da7447 100644
  }
  
  void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
-@@ -581,6 +700,13 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
+@@ -596,6 +715,15 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
          return;
      }
  
 +    // A shift is applied by a graph over every K row at the next update, so
-+    // the whole tensors are backed ahead of the first cell that records it.
++    // the whole tensors are backed ahead of the first cell that records it,
++    // and after the empty-range return so a call that shifts nothing backs
++    // nothing.
 +    if (!residency_update(false, true)) {
 +        LLAMA_LOG_ERROR("%s: paged KV residency refused the whole-tensor requirement for a K-shift\n", __func__);
 +        GGML_ABORT("paged KV residency refused a K-shift");
 +    }
 +
-     uint32_t new_head = cells.size();
- 
-     if (p0 < 0) {
-@@ -630,6 +756,11 @@ void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, in
+     for (uint32_t i = 0; i < cells.size(); ++i) {
+         if (!cells.pos_in(i, p0, p1)) {
+             continue;
+@@ -643,6 +771,11 @@ void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, in
          return;
      }
  
@@ -1281,10 +1283,10 @@ index ec0f5a753..751da7447 100644
 +        GGML_ABORT("paged KV residency refused a K-shift");
 +    }
 +
-     if (p0 < 0) {
-         p0 = 0;
-     }
-@@ -787,7 +918,10 @@ llama_kv_cache::slot_info_vec_t llama_kv_cache::prepare(const std::vector<llama_
+     for (uint32_t i = 0; i < cells.size(); ++i) {
+         if (!cells.pos_in(i, p0, p1)) {
+             continue;
+@@ -787,7 +920,10 @@ llama_kv_cache::slot_info_vec_t llama_kv_cache::prepare(const std::vector<llama_
          }
  
          // now emplace the ubatch
@@ -1296,7 +1298,7 @@ index ec0f5a753..751da7447 100644
      }
  
      GGML_ASSERT(!states.empty() || !success);
-@@ -822,6 +956,20 @@ bool llama_kv_cache::update(llama_context * lctx, bool do_shift, const stream_co
+@@ -822,6 +958,20 @@ bool llama_kv_cache::update(llama_context * lctx, bool do_shift, const stream_co
  
      auto * sched = lctx->get_sched();
  
@@ -1317,7 +1319,7 @@ index ec0f5a753..751da7447 100644
      if (!sc_info.empty()) {
          assert(n_stream > 1 && "stream copy should never happen with a single stream");
  
-@@ -1092,10 +1240,10 @@ llama_kv_cache::slot_info llama_kv_cache::find_slot(const llama_ubatch & ubatch,
+@@ -1092,10 +1242,10 @@ llama_kv_cache::slot_info llama_kv_cache::find_slot(const llama_ubatch & ubatch,
      return res;
  }
  
@@ -1330,7 +1332,7 @@ index ec0f5a753..751da7447 100644
      }
  
      // keep track of the max sequence position that we would overwrite with this ubatch
-@@ -1168,6 +1316,64 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
+@@ -1168,6 +1318,64 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
  
          head = sinfo.idxs[s].back() + 1;
      }
@@ -1395,7 +1397,7 @@ index ec0f5a753..751da7447 100644
  }
  
  bool llama_kv_cache::get_can_shift() const {
-@@ -2270,7 +2476,10 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
+@@ -2270,7 +2478,10 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
  
          // TODO: we cannot yet restore llama_kv_cell_ext as the apply_ubatch() does not support it yet
          //       see: https://github.com/ggml-org/llama.cpp/pull/16825#issuecomment-3460868350
@@ -1407,7 +1409,7 @@ index ec0f5a753..751da7447 100644
  
          LLAMA_LOG_DEBUG("%s: cell_count = %d, dest_seq_id = %d\n", __func__, cell_count, dest_seq_id);
  
-@@ -2360,6 +2569,14 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+@@ -2360,6 +2571,14 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
          return false;
      }
  
@@ -1422,7 +1424,7 @@ index ec0f5a753..751da7447 100644
      // For each layer, read the keys for each cell, one row is one cell, read as one contiguous block
      for (const auto & layer : layers) {
          const uint32_t il = layer.il;
-@@ -2565,7 +2782,9 @@ bool llama_kv_cache_context::apply() {
+@@ -2565,7 +2784,9 @@ bool llama_kv_cache_context::apply() {
          return true;
      }
  
