@@ -177,21 +177,34 @@ if [ "$skip_sweep" = 0 ]; then
     # A primed level N serves N slots of the sweep's slot depth, one stream
     # each, so its cache holds slot_depth cells over N streams; the depth is
     # read from the sweep's own summary rather than assumed.
+    # The sweep serves level plus slot offset slots, so the stream count is
+    # bound to both as its summary records them. The control log of every
+    # level is read too, since a paged setting inherited by the control arm
+    # would turn the comparison into paged against paged and only the log
+    # states which kind each arm served.
     primed_slot_depth=$(awk -F'\t' '$1 == "slot_depth" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
     case $primed_slot_depth in '' | *[!0-9]*) primed_slot_depth=0 ;; esac
+    primed_slot_offset=$(awk -F'\t' '$1 == "slot_offset" { print $2 }' "$output_directory/primed/summary.tsv" 2>/dev/null || :)
+    case $primed_slot_offset in '' | *[!0-9]*) primed_slot_offset=0 ;; esac
     for level in $widths; do
-        level_log=$output_directory/primed/level-$level.subject.log
-        [ -s "$level_log" ] || { record "layout:primed-$level" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
-        if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect paged_kv_vmm \
-            --expect-tensors "$expected_tensors" --expect-names "$expected_names" \
-            --expect-layout "$expected_layout" \
-            --expect-cells "$primed_slot_depth" --expect-streams "$level" \
-            >"$output_directory/layout-primed-$level.tsv" 2>&1; then
-            record "layout:primed-$level" layout_holds
-        else
-            record "layout:primed-$level" layout_refused
-            refusals=$((refusals + 1))
-        fi
+        level_streams=$((level + primed_slot_offset))
+        for primed_arm in subject control; do
+            case $primed_arm in
+            subject) level_log=$output_directory/primed/level-$level.subject.log; expect_kind=paged_kv_vmm
+                expect_extra="--expect-tensors $expected_tensors --expect-names $expected_names --expect-layout $expected_layout" ;;
+            *) level_log=$output_directory/primed/level-$level.server.log; expect_kind=device_default; expect_extra='' ;;
+            esac
+            [ -s "$level_log" ] || { record "layout:primed-$level-$primed_arm" "not_run log_absent"; refusals=$((refusals + 1)); continue; }
+            # shellcheck disable=SC2086
+            if python3 "$script_directory/read-paged-kv-layout.py" "$level_log" --expect "$expect_kind" $expect_extra \
+                --expect-cells "$primed_slot_depth" --expect-streams "$level_streams" \
+                >"$output_directory/layout-primed-$level-$primed_arm.tsv" 2>&1; then
+                record "layout:primed-$level-$primed_arm" layout_holds
+            else
+                record "layout:primed-$level-$primed_arm" layout_refused
+                refusals=$((refusals + 1))
+            fi
+        done
     done
 else
     record stage:primed "not_run reason=QWEN_PAGED_KV_SKIP_SWEEP"

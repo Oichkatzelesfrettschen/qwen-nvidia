@@ -203,5 +203,8 @@ check("stream count agreeing accepted", code == 0, "; ".join(faults))
 code, rows, faults = run(subject_log(), "paged_kv_vmm", ("--expect-streams", "3"))
 check("stream count differing from the caller refused", code == 1 and any("3 were expected" in f for f in faults))
 
+code, rows, faults = run(subject_log().replace("access=device_rw\n", "access=device_rw TRAILING\n"), "paged_kv_vmm")
+check("a buffer record with trailing text refused", code == 1 and any("match no record pattern" in f for f in faults))
+
 print("failures=%d" % failures)
 sys.exit(1 if failures else 0)

@@ -33,7 +33,7 @@ BUFFER_LINE = re.compile(
     r"paged_kv_buffer device=(?P<device>\d+) requested_bytes=(?P<requested>\d+)"
     r" virtual_reserved_bytes=(?P<virtual>\d+) physical_mapped_bytes=(?P<mapped>\d+)"
     r" unit_bytes=(?P<unit>\d+) granularity_minimum=(?P<minimum>\d+)"
-    r" granularity_recommended=(?P<recommended>\d+) access=(?P<access>\S+)"
+    r" granularity_recommended=(?P<recommended>\d+) access=(?P<access>\S+)\s*$"
 )
 TENSOR_LINE = re.compile(
     r"paged_kv_tensor name=(?P<name>\S+) type=(?P<type>\S+) ne0=(?P<ne0>\d+) ne1=(?P<ne1>\d+)"
