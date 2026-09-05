@@ -34,7 +34,7 @@ compositor are outside this contract.
 | Uniform-format paged KV | P1, P2-A, and P2-C tail residency admitted on the 2B and the 0.8B, default off (`evidence/ada/paged-kv-buffer/`, `evidence/ada/paged-kv-residency/`) | the tuple that turns tails on for a served row |
 | Typed or mixed-format KV | not implemented | kept separate from P2 |
 | PhysX sidecar | runtime proof retained (`evidence/physics/d6-runtime-proof/`); profile `refused` | authorized service-chain admission |
-| Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`) | device-resident projector output into `libmtmd` |
+| Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`); `patches/llama-mtmd-device-embd.patch` feeds the projector output to the language model as a device view, admitted on `qwen35-2b` and `lfm25-vl-450m` with identical bytes and tokens (`evidence/ada/embd-handoff/`), off by default | the decode-side handoff, then a served vision tuple under the device path |
 | CUDA image generation | no admitted CUDA profile | build and admit one CUDA-native runtime and profile |
 | OptiX geometry | pending | bounded geometry-query sidecar |
 The settled operating configuration lives in `README.md`, repository doctrine

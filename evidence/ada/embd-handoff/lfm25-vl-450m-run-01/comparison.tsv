@@ -1,0 +1,17 @@
+check	arm	result	detail
+reply_identity	host	identical	requests=6
+clip_digests	host	identical	rows=6
+graph_digests	host	identical	rows=6
+placement	host	holds	graph_rows=6 clip_rows=6
+clip_to_graph	host	agree	rows=6
+reply_identity	device	refused	missing=- differing=01-bars,02-compare-a,03-shapes,04-bars,05-compare-a,06-shapes
+clip_digests	device	refused	base=6 arm=0
+graph_digests	device	refused	base=6 arm=6
+placement	device	refused	graph_rows=6 clip_rows=0 bad_graph=0 bad_clip=0
+clip_to_graph	device	not_compared	clip=0 graph=6
+reply_identity	host-close	identical	requests=6
+clip_digests	host-close	identical	rows=6
+graph_digests	host-close	identical	rows=6
+placement	host-close	holds	graph_rows=6 clip_rows=6
+clip_to_graph	host-close	agree	rows=6
+refused_checks	-	4	-

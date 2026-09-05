@@ -975,6 +975,33 @@ in 1329 ms, and a clean client list afterwards. Every checked-in row still
 reads `refused`; promotion, the MCP wrapper, and the session integration are
 separate transitions this record informs.
 
+The projector's output can reach the language model without leaving the
+device. At the pin the image embeddings cross the host four times:
+`clip_encode` reads the scheduler's output into a host vector,
+`mtmd_helper_decode_image_chunk` places that vector in `llama_batch::embd`,
+`llama_batch_allocr::ubatch_add` copies the rows of each ubatch, and
+`llm_graph_input_embd::set_input` uploads them into an `inp_embd` the
+scheduler stages through a host buffer, since an input tensor without a
+buffer is assigned to the last backend; the trace reads that buffer as
+`CUDA_Host` on this device. `patches/llama-mtmd-device-embd.patch`
+is the candidate that removes the trip: under `LLAMA_MTMD_EMBD_DEVICE=1` the
+mtmd batch owns one F32 tensor on the projector's buffer type, `clip_encode`
+copies its output there device to device, `llama_batch` names the rows as
+`embd_dev` and `embd_dev_offset`, a ubatch of such a batch has to be one
+contiguous row range, and `build_inp_embd` makes `inp_embd` a view of those
+rows, which the scheduler assigns to the tensor's own backend so the first
+node reads the projector's bytes in place. A device batch carries one
+sequence in row order and a split that selects other rows is refused, graph
+reuse compares the tensor, its storage, its buffer, and the offset, the
+device path requires the projector on a GPU buffer type and refuses a host
+buffer at either end of the copy, and the MTP context refuses a device
+batch. `LLAMA_EMBD_HANDOFF_TRACE=1` digests the projector output where it
+landed and the bytes each ubatch's graph input holds, and
+`scripts/admit-embd-handoff.sh` runs host, device, and host-close arms over
+one image request sequence, requiring identical reply tokens, identical
+digest sequences, and a CUDA0 buffer on every device-arm row;
+`evidence/ada/embd-handoff/` carries the preregistration and the runs.
+
 ## Three runtime classes, one primary target
 
 The 2B class is the appliance's primary performance target, the 0.8B class its
@@ -1655,6 +1682,8 @@ scripts/probe-paged-kv-residency-lifecycle.sh BUILD OUT [MODEL_ID]
                                                 # save, erase, restore, removal, regrowth at the 4096-row envelope, three arms
 scripts/admit-paged-kv-residency.sh BUILD OUT [MODEL_ID]
                                                 # P2-C: probe, identity with state, layout, lifecycle, primed widths
+scripts/admit-embd-handoff.sh BUILD OUT [MODEL_ID]
+                                                # projector output to LLM input on the device: token and digest identity, three arms
 
 # The physics lane
 scripts/build-physics-runtime.sh OUT             # the PhysX D6 runtime against /opt/nvidia/physx, never executed here
