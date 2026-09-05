@@ -1002,6 +1002,39 @@ one image request sequence, requiring identical reply tokens, identical
 digest sequences, and a CUDA0 buffer on every device-arm row;
 `evidence/ada/embd-handoff/` carries the preregistration and the runs.
 
+A geometry query reaches the device the way a physics simulation does: one
+service, one lease, one profile ledger, and a runtime that proves where it
+ran. `scripts/geometry-profiles.tsv` carries the fixture scene, the query
+set, the ray ceiling, the deadline, and `execution_policy` per row, so a
+request carries a `profile_id` and a ray count and no geometry, native code,
+path, or OptiX or CUDA flag. `scripts/geometry_protocol.py` freezes the
+request and reply at version 1 with a closed schema and a 65536-byte line,
+and `scripts/geometry-service.py` listens on a Unix socket under the state
+directory, holds no CUDA context while idle, takes the compute lease, spawns
+`optix-ray-runtime` through `qwen-exec-idle-priority.sh` with a fixed
+environment and a closed descriptor set, and releases the lease after one
+JSON line comes back. `scripts/geometry-runtime/optix-ray-runtime.cpp`
+builds the fixture from a table in its source, creates the OptiX device
+context over the CUDA context, builds a geometry acceleration structure over
+the triangles, creates the pipeline from device programs compiled to SM89
+PTX and embedded in the binary, launches one ray per index, and reads every
+hit back; it then intersects every ray on the host against the same
+triangles, so the reply carries the agreement count between the device and
+the reference beside the proof block, and a device answer the reference
+contradicts reads `failed` with reason `reference_disagreement`. The first
+and only fixture is `cube-and-plane` under the `orbit` query set: a unit cube
+over a ground square, rays from a circle three units out aimed across the
+cube's height, so a set of any size hits the cube faces and the ground and
+misses above. `scripts/build-geometry-runtime.sh` compiles it against
+`/usr/include/optix` from the optix-dev-headers package and the CUDA
+toolkit; the OptiX runtime itself is the driver's `libnvoptix`, loaded at run
+time. `scripts/test-geometry-service.py` drives the service against
+`scripts/test-fixtures/fake-optix-runtime.sh`, `scripts/geometry-teardown-check.sh`
+proves no service, runtime, socket, or held lease remains, and
+`scripts/admit-geometry-runtime.sh` is the device admission, the physics
+admission's shape over the geometry claims. Every checked-in row reads
+`refused`; `evidence/geometry/` carries the preregistration and the runs.
+
 ## Three runtime classes, one primary target
 
 The 2B class is the appliance's primary performance target, the 0.8B class its
@@ -1693,6 +1726,14 @@ scripts/physics-teardown-check.sh [STATE_DIRECTORY]
                                                 # no service, runtime, socket, or held lease
 scripts/admit-physics-runtime.sh OUT [STEPS]    # one D6 chain on the device through the service, proof retained
 
+# The geometry lane
+scripts/build-geometry-runtime.sh OUT           # the OptiX ray runtime with its SM89 PTX embedded, never executed here
+scripts/geometry-service.py --state-dir DIR --profiles FILE --runtime BIN
+                                                # the lease owner, one ray query at a time
+scripts/geometry-teardown-check.sh [STATE_DIRECTORY]
+                                                # no service, runtime, socket, or held lease
+scripts/admit-geometry-runtime.sh OUT [RAYS]    # one orbit query on the device through the service, proof retained
+
 # Rebuild the static UI, and the MMQ kernel-policy build arm
 scripts/build-llama-ui.sh                       # Node on the workstation
 QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
@@ -1788,6 +1829,7 @@ scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
+python3 scripts/test-geometry-service.py
 scripts/test-repository-quality-gates-host-role.sh
 ```
 
