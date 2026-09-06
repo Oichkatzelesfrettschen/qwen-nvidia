@@ -1272,23 +1272,30 @@ implements: `image-service.py`, `physics-service.py`, and `geometry-service.py`
 each hold the lease across one job, while the promoted closure `88681bf4d161`
 reads neither lease name, since
 `patches/llama-server-vulkan-workload-lease.patch` is a candidate armed under
-`QWEN_LLAMA_CANDIDATE_PATCHES=1` alone. That patch acquires in the busy-slot
-branch of `update_slots` and opens its descriptor in `init()`, which
-`load_model` reaches after `common_init_from_params` and `mtmd_init_from_file`
-have already allocated and uploaded to CUDA0 and which a wake from sleep skips
-entirely at `server-context.cpp:1307`, so evaluation and decode are the reach
-the patch establishes and model and projector load are the gap it leaves.
-Its acquire also blocks on an unbounded `flock(LOCK_EX)` where
-`image-service.py` bounds its own wait with `QWEN_IMAGE_LEASE_WAIT_S`, so
-moving the acquire onto a load path takes a deadline with it.
+`QWEN_LLAMA_CANDIDATE_PATCHES=1` alone. That patch opens the descriptor and
+acquires at the top of `load_model`, ahead of the `common_init_from_params` and
+`mtmd_init_from_file` calls that allocate and upload to CUDA0, with the open
+first because an acquire returns true while the descriptor is closed;
+`handle_sleeping_state` reaches the same function on a wake, so the resume path
+is covered by the same pair and the `update_slots` acquire becomes a no-op
+under a load-path hold while the `all_idle` release keeps handing the lease
+back. The wait bound belongs to the caller, so the two call sites take two
+acquires: a load has a caller that carries a refusal and
+`workload_lease_acquire_bounded` polls `LOCK_EX | LOCK_NB` every 50 ms under
+`QWEN_GPU_COMPUTE_LEASE_WAIT_S`, 300 seconds by default, while a decode pass
+keeps the blocking acquire because `server_queue::start_loop` re-enters
+`callback_update_slots` only when a task arrives and a pass that gave up would
+strand its request.
 `scripts/test-load-lease-coverage.sh` holds both boundaries and
-`evidence/lease-coverage/` is the reading it took.
+`evidence/lease-coverage/` carries the reading before the extension and after
+it; its served arms report `not_run` until a built binary and a device window
+drive them.
 
 The order follows from how each
-acquire is contracted to behave rather than from granularity: the lease acquire
-blocks on a bounded deadline, which `image-service.py` implements and the
-candidate llama-server patch has yet to, while the owner lock refuses at once
-with status 75, so a
+acquire behaves rather than from granularity: a lease acquire whose caller can
+carry a refusal blocks on a bounded deadline, which `image-service.py` and the
+candidate llama-server patch's load path each implement, while the owner lock
+refuses at once with status 75, so a
 blocking acquire above a contended non-blocking lock converts a refusal into a
 wait the refusal exists to replace. `gpu_ownership_assert_order` enforces the one
 inversion that can be constructed -- a process holding the compute lease then
@@ -2095,7 +2102,7 @@ python3 scripts/image-mcp/test-image-mcp.py      # image lane, held outside the 
 python3 scripts/test-image-review.py             # image lane, held outside the unattended set
 python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
 scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
-scripts/test-load-lease-coverage.sh              # reads the load path and the candidate patch's reach; refuses on the recorded state (evidence/lease-coverage/) until the acquire moves to load_model, so it stays outside the unattended set
+scripts/test-load-lease-coverage.sh              # applies the lease patch to the pinned server-context.cpp and reads which acquire the load path calls; needs that source tree, and its served arms need a built binary and a device window
 scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included

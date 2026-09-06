@@ -68,27 +68,70 @@ or allocation failure after that line carries the word too. The release then
 has to admit the load and the model has to answer. Both a patched binary and a
 device window are still outstanding.
 
-## What closes it
+## What the extension reads
 
-The open moves ahead of the acquire and both move to the top of `load_model`.
-Order is the whole of it: `workload_lease_acquire` returns true while
+`extended-patch-reach.log` is the same test against the extended patch:
+
+```text
+load_path load_model=1178..1555 weights=1290 projector=1353
+ok load_path_covered covered open=1191 acquire=1194 calls=workload_lease_acquire_bounded weights=1290
+ok resume_skips_init guard=1546 init_call=1547
+ok lease_wait_bounded workload_lease_acquire_bounded=977..1028 blocks on no flock
+load_lease_coverage=partial reach=accepted served=not_run
+```
+
+The open sits at 1191 and the acquire at 1194, both inside `load_model` and
+ninety-six lines ahead of the weights upload. The bound is read from the
+function the load path names rather than from the file, because the two call
+sites take two acquires: swapping `workload_lease_acquire_bounded` for the
+blocking `workload_lease_acquire` at that call site keeps `load_path_covered`
+passing and fails `lease_wait_bounded` on one `flock` call, so the two checks
+discriminate independently.
+
+The terminal state reads `partial` rather than `accepted`, because the served
+stage still has no patched binary to drive: the reach stage settles which
+change to make and settles nothing about what a request behind a held lease
+receives.
+
+`QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh` applies
+the whole candidate stack on top of it, so the extension composes with
+`llama-cuda-mmvq-crossover-ad104`, `llama-cuda-paged-kv-buffer`, and
+`llama-mtmd-device-embd` rather than displacing them.
+
+## What closes it
+The extension is written and its reach is read; the build and the served arms
+remain. The open moves ahead of the acquire and both move to the top of
+`load_model`. Order is the whole of it: an acquire returns true while
 `workload_lease_descriptor` is negative, so an acquire moved on its own past a
 descriptor still opened in `init()` admits every load while reporting success.
 `scripts/test-load-lease-coverage.sh` proves its own predicate against that
 case before it reads the real file.
 
-The wait takes a deadline, because `flock(LOCK_EX)` blocks until signalled
-where `image-service.py` bounds its own wait with `QWEN_IMAGE_LEASE_WAIT_S`,
-and the refusal past it needs a caller that can carry it: `load_model` returning
-false ends the launch on the first load, while `handle_sleeping_state` reaches
-`GGML_ABORT("failed to reload model after sleeping")` on the resume path, so a
-wake that loses the lease would kill the server rather than answer its request.
-Closing the gap therefore changes that path's failure handling as well as the
-acquire's placement, and the served arms measure what a request behind a held
-lease actually receives.
+The wait bound belongs to the caller rather than to the lease, so the two call
+sites take two acquires. A load has a caller that carries a refusal, and the
+owner lock above this one refuses at once with status 75, so an unbounded
+acquire beneath it turns that refusal into a stall:
+`workload_lease_acquire_bounded` polls `LOCK_EX | LOCK_NB` every 50 ms under a
+`QWEN_GPU_COMPUTE_LEASE_WAIT_S` deadline, 300 seconds by default. A decode pass
+keeps the blocking acquire, because `server_queue::start_loop` re-enters
+`callback_update_slots` only when a task arrives or the process terminates, so
+a pass that gave up on the lease would strand its request until unrelated
+traffic woke the loop, and a chat turn waiting behind a generation is what the
+lease is for. Polling bounds a wait and buys no cancellation: `server_queue`
+keeps its running flag private with no accessor and `server.cpp`'s
+`is_terminating` is file static, while the blocking acquire's `EINTR` under
+`sa_flags = 0` is a cancellation the bounded one cannot reach.
 
-Because `load_model` runs on wake, the placement covers the resume path with no
-second lock, and the `all_idle` release keeps handing the lease back unchanged
-while the per-pass acquire becomes a no-op under a load-path hold. A warmup
-decode inside `common_init_from_params` sits inside the same hold by
-construction.
+`handle_sleeping_state` reaches `load_model` on a wake, so the resume path is
+covered by the same pair with no second lock, and a wake that reaches the
+deadline returns false into that function's `GGML_ABORT`. Leaving the server
+asleep instead needs `server_queue::on_sleeping_state` to carry a result rather
+than `void`, since the queue sets its own sleeping flag to false around a void
+callback and would then admit requests against a destroyed context.
+`common/common.h` defaults `sleep_idle_seconds` to -1 and no script in this tree
+sets it, so no served configuration enters that state; the queue signature is a
+separate transition rather than part of this one.
+
+The `all_idle` release keeps handing the lease back unchanged while the per-pass
+acquire becomes a no-op under a load-path hold, and a warmup decode inside
+`common_init_from_params` sits inside the same hold by construction.

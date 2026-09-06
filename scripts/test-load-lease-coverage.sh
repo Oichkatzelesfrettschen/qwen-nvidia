@@ -141,15 +141,21 @@ classify_load_coverage() {
 
     classify_open=$(classify_statement 'workload_lease_open()' \
         "$classify_start" "$classify_weights" "$classify_file")
-    classify_acquire=$(classify_statement 'workload_lease_acquire()' \
+    # The acquire is matched by prefix, because the load path and the decode
+    # path call two functions with two wait semantics and the reach stage has
+    # to name which one the load took.
+    classify_acquire=$(classify_statement 'workload_lease_acquire' \
         "$classify_start" "$classify_weights" "$classify_file")
 
     # workload_lease_acquire returns true while the descriptor is closed, so an
     # acquire ahead of its own open admits every load silently.
     if [ -n "$classify_open" ] && [ -n "$classify_acquire" ] &&
         [ "$classify_open" -lt "$classify_acquire" ]; then
-        printf 'covered open=%s acquire=%s weights=%s\n' \
-            "$classify_open" "$classify_acquire" "$classify_weights"
+        classify_name=$(sed -n "${classify_acquire}p" "$classify_file" |
+            sed -n 's/.*\(workload_lease_acquire[a-z_]*\)(.*/\1/p')
+        printf 'covered open=%s acquire=%s calls=%s weights=%s\n' \
+            "$classify_open" "$classify_acquire" "${classify_name:-unnamed}" \
+            "$classify_weights"
     else
         printf 'uncovered open=%s acquire=%s weights=%s\n' \
             "${classify_open:-absent}" "${classify_acquire:-absent}" "$classify_weights"
@@ -176,10 +182,10 @@ self_test_predicate() {
 
     self_test_write covered.cpp \
         '        if (!workload_lease_open()) { return false; }
-        if (!workload_lease_acquire()) { return false; }' ''
+        if (!workload_lease_acquire_bounded()) { return false; }' ''
     self_test_write after-upload.cpp '' \
         '        if (!workload_lease_open()) { return false; }
-        if (!workload_lease_acquire()) { return false; }'
+        if (!workload_lease_acquire_bounded()) { return false; }'
     self_test_write comment-only.cpp \
         '        // workload_lease_acquire() would go here
         // workload_lease_open() would go here' ''
@@ -189,7 +195,7 @@ self_test_predicate() {
     self_test_write string-literal.cpp \
         '        SRV_INF("%s", "workload_lease_open() workload_lease_acquire()");' ''
     self_test_write acquire-before-open.cpp \
-        '        if (!workload_lease_acquire()) { return false; }
+        '        if (!workload_lease_acquire_bounded()) { return false; }
         if (!workload_lease_open()) { return false; }' ''
 
     self_test_expect() {
@@ -290,17 +296,41 @@ else
                 fail 'resume_skips_init the guarded init() call moved, so the resume path needs rereading'
             fi
 
-            # The doctrine bounds the lease acquire on a deadline, because the
-            # owner lock above it refuses at once and an unbounded wait below
-            # turns a refusal into a stall. A blocking flock is the shape that
-            # breaks it, so the check reads the call rather than a name.
-            blocking_flock=$(grep -c '^[[:space:]]*[^/[:space:]].*flock([^)]*LOCK_EX)' \
-                "$patched_file" || true)
-            if [ "$blocking_flock" -eq 0 ]; then
-                pass 'lease_wait_bounded no flock call blocks without LOCK_NB'
-            else
+            # The bound is a property of the function the load path calls
+            # rather than of the file. The decode pass blocks on purpose --
+            # update_slots re-enters only when a task arrives, so a pass that
+            # gave up would strand its request -- while a load has a caller
+            # that carries a refusal and takes a deadline instead. The check
+            # therefore reads the called function's own body.
+            acquire_name=$(printf '%s\n' "$coverage" |
+                sed -n 's/.*calls=\([a-z_]*\).*/\1/p')
+            acquire_definition=$(grep -n "bool $acquire_name()" "$patched_file" |
+                head -1 | cut -d: -f1)
+            if [ -z "$acquire_name" ] || [ -z "$acquire_definition" ]; then
                 reach_state=refused
-                fail "lease_wait_bounded=no blocking_flock_calls=$blocking_flock -- a load behind a generation stalls its request"
+                fail "lease_wait_bounded the load path calls ${acquire_name:-nothing} and the file defines no such acquire"
+            else
+                acquire_end=$(awk -v start="$acquire_definition" '
+                    NR < start { next }
+                    {
+                        line = $0; opens = gsub(/\{/, "{", line)
+                        line = $0; closes = gsub(/\}/, "}", line)
+                        depth = depth + opens - closes
+                        seen = seen || opens > 0
+                        if (seen && depth <= 0) { print NR; exit }
+                    }' "$patched_file")
+                [ -n "$acquire_end" ] || acquire_end=$acquire_definition
+                blocking_flock=$(awk -v start="$acquire_definition" -v end="$acquire_end" '
+                    NR >= start && NR <= end &&
+                        $0 ~ /flock\([^)]*LOCK_EX\)/ &&
+                        $0 !~ /^[[:space:]]*\/\// { count = count + 1 }
+                    END { print count + 0 }' "$patched_file")
+                if [ "$blocking_flock" -eq 0 ]; then
+                    pass "lease_wait_bounded $acquire_name=$acquire_definition..$acquire_end blocks on no flock"
+                else
+                    reach_state=refused
+                    fail "lease_wait_bounded=no $acquire_name blocks on $blocking_flock flock call(s) -- a load behind a generation stalls its request"
+                fi
             fi
         fi
     fi

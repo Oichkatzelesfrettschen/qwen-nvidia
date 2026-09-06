@@ -1,0 +1,12 @@
+load_path load_model=1178..1555 weights=1290 projector=1353
+ok predicate_self_test covered.cpp=covered
+ok predicate_self_test after-upload.cpp=uncovered
+ok predicate_self_test comment-only.cpp=uncovered
+ok predicate_self_test block-comment.cpp=uncovered
+ok predicate_self_test string-literal.cpp=uncovered
+ok predicate_self_test acquire-before-open.cpp=uncovered
+ok load_path_covered covered open=1191 acquire=1194 calls=workload_lease_acquire_bounded weights=1290
+ok resume_skips_init guard=1546 init_call=1547
+ok lease_wait_bounded workload_lease_acquire_bounded=977..1028 blocks on no flock
+not_run served reason=no_patched_server
+load_lease_coverage=partial reach=accepted served=not_run reach_reason=none served_reason=no_patched_server
