@@ -1282,14 +1282,31 @@ under a load-path hold while the `all_idle` release keeps handing the lease
 back. The wait bound belongs to the caller, so the two call sites take two
 acquires: a load has a caller that carries a refusal and
 `workload_lease_acquire_bounded` polls `LOCK_EX | LOCK_NB` every 50 ms under
-`QWEN_GPU_COMPUTE_LEASE_WAIT_S`, 300 seconds by default, while a decode pass
+`QWEN_GPU_COMPUTE_LEASE_WAIT_S`, 300 seconds by default and forwarded across
+the tmux boundary by `qwen-webui-control.sh`, while a decode pass
 keeps the blocking acquire because `server_queue::start_loop` re-enters
 `callback_update_slots` only when a task arrives and a pass that gave up would
 strand its request.
-`scripts/test-load-lease-coverage.sh` holds both boundaries and
+Lease coverage is admitted with inactivity sleeping disabled: `load_model`
+refuses a configuration naming a lease beside a non-negative
+`sleep_idle_seconds` ahead of the acquire and of every upload, because
+`server_queue::on_sleeping_state` takes a `void` callback whose caller clears
+the queue's sleeping flag whatever the wake returned, so a wake refused for the
+lease would admit requests against a destroyed context. A host function
+returning is not device completion, so `workload_lease_sync_device` calls
+`llama_synchronize` on the target and draft contexts ahead of every release --
+the `all_idle` transition, and `destroy()`, which synchronizes, frees, and
+releases last -- once per ownership transition rather than per token. The
+release reports what the kernel confirmed: `flock(LOCK_UN)` fails before it
+changes anything, so a failure keeps `workload_lease_held` true and latches one
+error line rather than reporting a lease the kernel still holds as given back.
+`scripts/test-load-lease-coverage.sh` holds those boundaries and
 `evidence/lease-coverage/` carries the reading before the extension and after
-it; its served arms report `not_run` until a built binary and a device window
-drive them.
+it; its six served arms -- a load that waits, a load refused on its deadline, a
+fresh attempt after that refusal, a decode that waits behind a holder and
+resumes on the release without a second request, a terminating signal inside a
+wait, and a projector-bearing load -- report `not_run` until a built binary and
+a device window drive them.
 
 The order follows from how each
 acquire behaves rather than from granularity: a lease acquire whose caller can
@@ -2102,7 +2119,7 @@ python3 scripts/image-mcp/test-image-mcp.py      # image lane, held outside the 
 python3 scripts/test-image-review.py             # image lane, held outside the unattended set
 python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
 scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
-scripts/test-load-lease-coverage.sh              # applies the lease patch to the pinned server-context.cpp and reads which acquire the load path calls; needs that source tree, and its served arms need a built binary and a device window
+scripts/test-load-lease-coverage.sh              # applies the lease patch to the pinned server-context.cpp and reads the load path, the sleeping refusal, the synchronize ahead of each release, and which acquire the load calls; needs that source tree, and its six served arms need a built binary and a device window
 scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included

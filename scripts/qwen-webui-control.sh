@@ -130,6 +130,7 @@ case $action in
                               QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
                               QWEN_INFERENCE_CPU \
                               QWEN_BACKEND_SAMPLING \
+                              QWEN_GPU_COMPUTE_LEASE_WAIT_S \
                               QWEN_CACHE_TYPE_K QWEN_CACHE_TYPE_V \
                               QWEN_FLASH_ATTN \
                               QWEN_CACHE_OVERRIDE_CONTEXT_CEILING \
