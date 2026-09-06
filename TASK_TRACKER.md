@@ -201,8 +201,9 @@ context. `scripts/test-probe-lease-shutdown-stall.sh` drives the probe against
 a client-bounded fixture and a lease-bounded one and requires the readings to
 swap, so a probe reporting either cell alone fails. That re-run happened: under the corrected criterion the 2B reads `ended 1s after
 the client left by=eintr attached_exit=no` and the 0.8B `ended 0s`, and the same
-arm on the same binary reaches `teardown: held=no` 0.9 ms after its client
-departs where run-01 ended it on `SIGKILL` at the 30 s bound.
+arm on the same binary reaches `teardown: held=no` 426 microseconds after the
+cancel its client's departure triggers, where run-01 ended it on `SIGKILL` at
+the 30 s bound.
 
 The candidate closure `15bc632adf7f` is built and
 `evidence/lease-coverage/candidate-build-source-identity.tsv` states what it is:

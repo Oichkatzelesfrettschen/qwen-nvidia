@@ -1383,8 +1383,11 @@ before it reads the bound, which holds that server property constant, and the
 interval with the client attached is recorded rather than graded; under it the
 2B reads `ended 1s after the client left by=eintr attached_exit=no` and the
 0.8B `ended 0s`, and `run-02/qwen35-2b/server.1.log` carries the same arm on
-the same binary reaching `teardown: held=no` 0.9 ms after its client's
-departure where run-01 ended it on `SIGKILL` at the 30 s bound. What the arm
+the same binary reaching `teardown: held=no` 426 microseconds after the cancel
+its client's departure triggers, where run-01 ended it on `SIGKILL` at the 30 s
+bound; that line marks the destructor's entry into its lease handling rather
+than the end of the shutdown, whose completion is the harness's own
+whole-second reading. What the arm
 establishes is that a lease wait does not prevent a bounded termination: its
 fixture holder takes the lock and opens no CUDA context, so it reads process
 disappearance under contention rather than device exclusion, and the `by=` term

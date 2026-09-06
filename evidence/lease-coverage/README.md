@@ -382,4 +382,5 @@ now ends its client before reading the bound, and
 `qwen35-08b` reads `served=partial` with
 `served_reason=text_arms_only_projector_none` at the nine its projector-none
 tuple allows. The requalified arm reads `attached_exit=no` on both, and the 2B's
-log reaches `teardown: held=no` 0.9 ms after its client departs.
+log reaches `teardown: held=no` 426 microseconds after the cancel its client's
+departure triggers.

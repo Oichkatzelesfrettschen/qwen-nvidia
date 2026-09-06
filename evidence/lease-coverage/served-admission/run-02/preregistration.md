@@ -22,9 +22,10 @@ projector is attached to the 0.8B: a foreign projector of matching dimensions
 loads cleanly and writes image tokens the language model reads nothing from, so
 attaching one to make a cell green would answer wrongly rather than fail.
 `QWEN_LEASE_PROJECTOR_POLICY=none` on the 0.8B is what separates
-`text_arms_only_projector_none` from `projector_arm_not_run`, and reading the
-second as the first would report a text-path result as an incomplete
-multimodal one.
+`text_arms_only_projector_none` from `projector_arm_not_run`. Reading the
+second as the first is the dangerous direction: it would dress an incomplete
+multimodal admission, a projector-required row handed none, as a row that
+intentionally serves text only.
 
 Each subject writes its own evidence directory, so no run reads a log another
 run left.
@@ -68,7 +69,10 @@ per-stage result and `window-open.log` and `window-close.log` carry the
 telemetry handoff at both ends: the 9B was stopped through its owning tmux
 session against its recorded argv and restarted from it on the same closure at
 6424 MiB, with the state latch clear and the owner lock free at both ends. The
-compositor and two browsers were the only compute clients across the window.
+compositor and two browsers are the only compute clients besides this campaign's
+own servers at the three points the record samples -- before the stop, at each
+harness's ownership acquisition, and after the restart -- rather than at every
+instant between them.
 
 ## Arm G read both predictions
 
@@ -77,16 +81,23 @@ qwen35-2b    ended 1s after the client left by=eintr attached_exit=no
 qwen35-08b   ended 0s after the client left by=eintr attached_exit=no
 ```
 
-`qwen35-2b/server.1.log` dates the whole sequence on the same process run-01
-ended with `SIGKILL`. The decode pass's acquire waits 100 ms and returns
+`qwen35-2b/server.1.log` dates the whole sequence on the same arm and binary
+run-01 ended with `SIGKILL`. The decode pass's acquire waits 100 ms and returns
 `reason=Interrupted system call`, `cleaning up before exit...` follows at
-0.22.395, and then `cancel task, id_task = 17` at 0.27.294 -- 4.899 s later,
-which is the five seconds the arm holds the client attached. The destructor
-runs 0.9 ms after that cancel and writes
-`vulkan workload lease teardown: held=no`. The shutdown that run-01 recorded as
-outliving a 30 s bound completes here in under a millisecond once its client is
-gone, on the same binary and the same arm, which is what
-`../../shutdown-stall/` predicted and what the criterion change was for.
+0.22.395.713, and `cancel task, id_task = 17` lands at 0.27.294.285 --
+4.899 s later, which is the five seconds the arm holds the client attached.
+`vulkan workload lease teardown: held=no` follows that cancel by 426
+microseconds.
+
+That line marks the destructor's entry into its lease handling rather than the
+end of the shutdown: the device synchronize and the frees follow it, and the
+client's departure carries no microsecond timestamp of its own, so what the log
+times is the interval between two of its own boundaries. The process's own
+disappearance is the harness's reading, `ended 1s after the client left`, at
+whole-second resolution. Both say the same thing at different precisions: the
+shutdown run-01 recorded as outliving a 30 s bound proceeds here as soon as its
+client is gone, which is what `../../shutdown-stall/` predicted and what the
+criterion change was for.
 
 `arm_g.exit_with_client_attached` reads `no` in both timelines, so neither
 server left inside the five seconds its client was attached. That is the

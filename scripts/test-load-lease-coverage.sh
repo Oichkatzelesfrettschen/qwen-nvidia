@@ -115,6 +115,17 @@ terminate_bounded() {
 # empty. Sanitizing follows the tree's own convention -- the home prefix, the
 # private hostname, and MAC addresses -- because llama-server's log carries the
 # argv that named the model file and the host that served it.
+# Each replaced string enters sed as a pattern, so every one is escaped first:
+# a bracket, a dot, or the `#` delimiter in a path would otherwise be read as
+# syntax, and `mktemp -d` under the default TMPDIR already produces a dot.
+sanitize_pattern() {
+    printf '%s' "$1" | sed -e 's/[]\\^$.*[]/\\&/g' -e 's/#/\\#/g'
+}
+sanitize_temporary_pattern=$(sanitize_pattern "$temporary_directory")
+sanitize_home_pattern=$(sanitize_pattern "$HOME")
+sanitize_host_pattern=$(sanitize_pattern \
+    "$(hostname 2>/dev/null || printf 'qwen-laptop')")
+
 # One filter for every byte the record keeps, metadata included: a summary row
 # naming the server, the model, and the projector carries the home prefix as
 # surely as a server log does. The run's own mktemp directory is elided first,
@@ -122,9 +133,9 @@ terminate_bounded() {
 # rows that name it are the run's temporary state rather than anything a later
 # reader can follow, and a raw one differs between runs of the same arms.
 sanitize_text() {
-    sed -e "s#$temporary_directory#\$LEASE_TEST_TMPDIR#g" \
-        -e "s#$HOME#\$HOME#g" \
-        -e "s#$(hostname 2>/dev/null || printf 'qwen-laptop')#qwen-laptop#g" \
+    sed -e "s#$sanitize_temporary_pattern#\$LEASE_TEST_TMPDIR#g" \
+        -e "s#$sanitize_home_pattern#\$HOME#g" \
+        -e "s#$sanitize_host_pattern#qwen-laptop#g" \
         -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g'
 }
 

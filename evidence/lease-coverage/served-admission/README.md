@@ -18,7 +18,9 @@ at all -- holding the same interval between the same two log boundaries and
 leaving it at its client's departure, so that arm read a bound a lease-free
 binary reaches rather than lease exclusion. Its terminal result stands as the
 run produced it, and `run-02/qwen35-2b/server.1.log` carries the same arm on the
-same binary completing its teardown 0.9 ms after its client departs.
+same binary reaching `teardown: held=no` 426 microseconds after the cancel its
+client's departure triggers, with the process gone inside the harness's own
+whole-second reading.
 `run-01/qwen35-2b/` carries the record: one sanitized server log per launch,
 every completion body the arms graded, one outcome row per decision, the
 termination timeline, the teardown state read out of each log, and the
