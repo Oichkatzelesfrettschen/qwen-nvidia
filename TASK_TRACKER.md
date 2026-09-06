@@ -33,12 +33,63 @@ compositor are outside this contract.
 | --- | --- | --- |
 | Uniform-format paged KV | P1, P2-A, and P2-C tail residency admitted on the 2B and the 0.8B, the 2B's served tuple measured under tails, default off (`evidence/ada/paged-kv-buffer/`, `evidence/ada/paged-kv-residency/`) | P2 stops here; typed pages and prefix sharing are separate programs |
 | Typed or mixed-format KV | not implemented | kept separate from P2 |
-| PhysX sidecar | runtime proof retained (`evidence/physics/d6-runtime-proof/`); profile `refused`; session integration under one lease contract with single-use grants (`sidecar_grant`, `sidecar-mcp`, lease identity, bounded output; `evidence/physics/session-integration/`) | the served physics turn admitted through `admit-sidecar-session.sh` (`evidence/physics/session-integration/run-07/`) and the shared-lease contention arm against the geometry lane (`evidence/geometry/session-integration/`); promotion of the ledger row is its own transition |
+| PhysX sidecar | runtime proof retained (`evidence/physics/d6-runtime-proof/`); the served physics turn admitted through `admit-sidecar-session.sh` under one lease contract with single-use grants, lease identity by device and inode, and bounded output (`evidence/physics/session-integration/run-07/`); profile `refused` | promotion of `physics-d6-chain-4` is its own policy transition, taken from the combined session record rather than from the lane alone |
 | Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`); `patches/llama-mtmd-device-embd.patch` feeds the projector output to the language model as a device view over a batch-owned device copy, admitted on `qwen35-2b` and `lfm25-vl-450m` with identical bytes and tokens, then completed in run 04 (`evidence/ada/embd-handoff/`): every slice joined to its source rows across split ubatches and split decodes, consumer lifetime synchronized ahead of a batch free, and the recorder-off Nsight capture showing one device-to-device copy per batch and no host staging; off by default | a device-resident media input designed against `evidence/media/decode-placement/` (PNG is a CPU decode plus one upload, JPEG decodes through the hybrid nvJPEG backend, a CV-CUDA resize is a separate preprocessing contract), then a served vision tuple under the device path |
-| CUDA image generation | `sd-cli` under `SD_CUDA=ON` admitted through the router on `image-sdxs-512-a` (`evidence/image-appliance/cuda-runtime-admission/`); the reviewer calibrated on declared fixtures with a three-way constraint status and bound verdicts (`evidence/image-appliance/vision-review-calibration/`): qwen35-2b passes eighteen arms, lfm25-vl-450m fails grounding | `image-sdxs-512-a` promoted to `validator-gated` with `review_model` `qwen35-2b` on the serialized generate-then-review record (`evidence/image-appliance/serialized-review-admission/run-05/`); the bound-one router shape and a second review in one session stay unrun |
-| OptiX geometry | service, protocol, runtime, fake-runtime test, and admission in the tree; `geometry-cube-orbit-a` refused (`evidence/geometry/`) | the device admission (`evidence/geometry/optix-ray-runtime-proof/`), the session integration under the shared lease contract, and the contention arm against the physics lane (`evidence/geometry/session-integration/`); promotion of the ledger row is its own transition |
+| CUDA image generation | `sd-cli` under `SD_CUDA=ON` admitted through the router (`evidence/image-appliance/cuda-runtime-admission/`); the reviewer calibrated on declared fixtures with a three-way constraint status and bound verdicts, where `qwen35-2b` passes eighteen arms and `lfm25-vl-450m` fails grounding (`evidence/image-appliance/vision-review-calibration/`); `image-sdxs-512-a` promoted to `validator-gated` with `review_model` `qwen35-2b` on the serialized generate-then-review record (`evidence/image-appliance/serialized-review-admission/run-05/`), whose serialization is sampled ordering under the image service's lease | the bound-one router shape, a second review in one session, and a load-path lease that makes the reviewer's load mutually exclusive with a generation rather than merely ordered |
+| OptiX geometry | service, protocol, runtime, and device admission retained (`evidence/geometry/optix-ray-runtime-proof/`); the served geometry turn admitted alone and the shared-lease contention arm run against the physics lane, where both complete, the driver lists at most one runtime per sample, and the second holder states its `waited_ms` (`evidence/geometry/session-integration/`); profile `refused` | promotion of `geometry-cube-orbit-a` is its own policy transition; a PhysX-to-OptiX scene transfer is a separate typed-data integration rather than part of the combined session |
+| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, and the candidate `patches/llama-server-vulkan-workload-lease.patch` acquires per decode pass with the model and projector load outside it | `scripts/test-load-lease-coverage.sh` run against the promoted closure as the falsifier, then the patch extended to acquire around `load_model` on a bounded deadline, rebuilt, and re-promoted before the combined session |
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
+
+## Retired programs
+
+Vulkan admission is retired rather than deferred. This repository's serving
+authority is CUDA alone, so validating the dual-backend closure outside
+production would measure an inference backend the contract already closed:
+
+```text
+status=retired
+reason=cuda_only_project_authority
+diagnostic_artifact=572951d25562
+blocks_cuda_work=no
+```
+
+`scripts/serving-closures.tsv` keeps `572951d25562` under the `diagnostic` role
+for a hand-run diagnostic question, and it is a dependency of no CUDA work.
+The graphics-latency probe keeps its narrowly named exception because it
+measures desktop responsiveness on the graphics queue, and the workstation's
+own Vulkan libraries and compositor stay outside the contract. A later
+inference-backend campaign takes a fresh justification rather than this
+program's name.
+
+## Compute lease coverage
+
+The compute lease admits one active device workload among the services that
+take it, and llama-server sits outside that set. `image-service.py`,
+`physics-service.py`, and `geometry-service.py` each take
+`flock` on `$QWEN_GPU_COMPUTE_LEASE` across one job, and `sidecar_runtime.py`
+`require_lease_identity` refuses a sidecar launch whose lease file differs from
+the device and inode the session passed, so the identity check and the lock are
+two steps of one sequence rather than one guarantee. `scripts/qwen-capacity-policy.sh:1210` exports one path under both
+`QWEN_GPU_COMPUTE_LEASE` and the legacy `QWEN_VULKAN_WORKLOAD_LOCK`, and
+`gpu-workload-ownership.sh:129` refuses a configuration naming two files, so
+the name resolves to one lease for every participant that reads it.
+
+The promoted closure `88681bf4d161` reads neither name.
+`patches/llama-server-vulkan-workload-lease.patch` is a candidate at
+`scripts/verify-llama-patch-series.sh:85`, armed under
+`QWEN_LLAMA_CANDIDATE_PATCHES=1` alone, so the served language, vision, and
+reviewer children evaluate and decode outside the lease. That patch also
+leaves the loading paths uncovered where it is applied: `load_model()` calls
+`common_init_from_params` at `server-context.cpp:1051` and
+`mtmd_init_from_file` at `:1114`, both of which allocate and upload to CUDA0,
+and reaches `init()` at `:1308` afterward, which is where the descriptor opens;
+the acquire itself lives in the busy-slot branch of `update_slots`. A wake from
+sleep runs `load_model` with `is_resume` true (`:963`), where the guard at
+`:1307` skips the `init()` call at `:1308` and the function returns at `:1315`,
+so a resumed model uploads its weights with no acquire at any point. Closing that gap is `scripts/test-load-lease-coverage.sh`'s subject and
+a precondition of the combined session, whose one-child transition crosses an
+uncovered load twice.
 
 ## Depth validation
 
@@ -123,13 +174,25 @@ through this runtime rather than a deeper depth.
 
 ## Image lane
 
-`scripts/image-profiles.tsv` carries every profile at `execution_policy=refused`,
-so `scripts/build-web-presets.sh` emits no image MCP configuration from the
-checked-in ledger. The image runtime, build, and standalone harnesses that
-depended on the prior host's driver were removed. Admitting an image profile
-on this host requires a CUDA image runtime placing work on CUDA0,
-a `scripts/image-profiles.tsv` row moved to `validator-gated`, and a fresh
-admission run before any profile serves.
+`scripts/image-profiles.tsv` carries one promoted row. `image-sdxs-512-a`
+reads `execution_policy=validator-gated` with `review_model=qwen35-2b` on
+`evidence/image-appliance/serialized-review-admission/run-05/`, so
+`scripts/build-web-presets.sh` emits its image MCP configuration under
+`QWEN_WEB_AUTHORIZER_READY=1` and every other row stays `refused` and emits
+nothing under every setting. Promoting a second row takes a CUDA image runtime
+placing work on CUDA0, the row moved to `validator-gated`, and its own
+admission run.
+
+What run 05 proves about serialization is sampled ordering under one service's
+lease rather than kernel mutual exclusion across both participants. The run
+served the promoted closure `88681bf4d161`, which carries no
+`patches/llama-server-vulkan-workload-lease.patch`, so `image-service.py` was
+the one lease holder and llama-server loaded the reviewer outside the lease
+entirely. The reviewer's first appearance in the driver's client list 0.135 s
+after an observed free-lease sample is a separation between samples at
+7.39 Hz, and the page's own request order is what placed the review after the
+generation. The bound-one router shape, a second review in one session, and a
+load-path lease all stay unrun.
 
 ## CUDA runtime levers
 
@@ -226,22 +289,32 @@ with its ceiling at 8192 and every rate field empty.
 
 ### The stream-K grid threshold
 
-`evidence/ada/mmq-stream-k-grid/` preregisters the next arm on that dispatch
-and no part of it has run. `patches/llama-cuda-mmq-stream-k-grid.patch` gates
-the tiling-efficiency threshold at `mmq.cuh:1436` on
-`cc == GGML_CUDA_CC_ADA_LOVELACE` and defaults it to the upstream 90, so an
-unpatched tree and every other part keep their selection, and
-`scripts/verify-llama-patch-series.sh` carries it last among the candidates
-with `ggml/src/ggml-cuda/mmq.cuh` added to the digest list it is the first
-candidate to rewrite. `scripts/ad104-stream-k-matrix.tsv` carries thirteen arms
-at `ne11` 17 -- the first width at which Q4_K, Q6_K, and Q8_0 all reach MMQ
-under the promoted thresholds -- across four closures differing by that one
-value: the promoted control, the patch inert at 90, the candidate at 80, and 1,
-where every shape takes the tiling grid and no fixup launches. The regimes are
-fixed from the artifacts' own tensor shapes, which is what makes the 4B at 80 a
-null: it carries no 48-tile class for that threshold to flip. The open work is
-three builds, the audit, and the identity gate, which the accumulation reorder
-is expected to fail.
+`evidence/ada/mmq-stream-k-grid/` closed the campaign across three phases and
+`patches/llama-cuda-mmq-stream-k-grid.patch` is rejected. The patch gates the
+tiling-efficiency threshold at `mmq.cuh:1436` on
+`cc == GGML_CUDA_CC_ADA_LOVELACE` and defaults it to the upstream 90, and it is
+inert at that default (`phase-a-null/`). Grid selection controls divisibility
+and divisibility controls whether the fixup launch exists, 186 against 0
+(`phase-b-witness/`), while removing every fixup costs 18.9% of the pass with
+the direction splitting by tile class. Threshold 80 then changed the 2B's
+emitted tokens at positions 16, 35, and 146 (`phase-c-identity/`), so the patch
+lost the exact greedy token-identity gate the way
+`patches/llama-cuda-mmvq-ncols-19.patch` lost it on the 0.8B. The fixup pass
+reorders floating-point accumulation by construction, which is why identity was
+tested rather than promised.
+
+`scripts/verify-llama-patch-series.sh:175` names it on a `rejected_patch=` line
+beside that one and `llama-cuda-mmq-fixup-pipeline.patch`, each carrying its own
+reason: two patches changed the emitted tokens, and the third held identity,
+passed compute-sanitizer, and moved no counter it was built to move
+(`evidence/ada/mmq-fixup-pipeline/`). A rejected patch leaves the candidate
+stack so the next `mmq.cuh` candidate builds on arithmetic this repository
+still accepts. The threshold is a constant at the upstream 90:
+`scripts/build-llama-cuda.sh:203` refuses `QWEN_CUDA_MMQ_TILING_PERCENT` at
+every other value, and the field stays in the configuration record at 90, which
+holds the identity of every closure the campaign retained.
+`scripts/ad104-stream-k-matrix.tsv` retains the arm matrix
+`run-ad104-path-audit.sh` read.
 
 ## Device ownership for depth campaigns
 

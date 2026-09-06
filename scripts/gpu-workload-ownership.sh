@@ -25,12 +25,20 @@ set -eu
 # The owner lock is held for the whole lifetime of exactly one top-level
 # orchestrator -- one serving session, one measurement campaign, or one
 # standalone image, PhysX, or OptiX campaign. The compute lease at
-# $QWEN_GPU_COMPUTE_LEASE is inner because it covers work that intentionally
-# coexists under one serving session: model load, evaluation and decode, image
-# load and generation, vision review, and the PhysX, OptiX, and TensorRT
-# execution that follows. It leaves out the broker, the HTTP listener, telemetry,
-# the kernel watcher, ordinary file work, an idle resident process, and the
-# graphics-latency monitor, none of which run active compute.
+# $QWEN_GPU_COMPUTE_LEASE is inner because its subject is the work that
+# intentionally coexists under one serving session: model load, evaluation and
+# decode, image load and generation, vision review, and the PhysX, OptiX, and
+# TensorRT execution that follows. It leaves out the broker, the HTTP listener,
+# telemetry, the kernel watcher, ordinary file work, an idle resident process,
+# and the graphics-latency monitor, none of which run active compute.
+#
+# A participant covers what it implements. image-service.py,
+# physics-service.py, and geometry-service.py each hold the lease across one
+# job; the promoted llama-server closure reads neither lease name, because
+# patches/llama-server-vulkan-workload-lease.patch is a candidate rather than a
+# promoted patch, and that patch acquires per decode pass rather than around
+# the model and projector load. scripts/test-load-lease-coverage.sh states that
+# boundary as a runnable claim.
 #
 # The order follows from how each acquire behaves rather than from granularity.
 # The lease acquire blocks on a bounded deadline while the owner lock refuses at
