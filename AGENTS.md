@@ -2235,10 +2235,11 @@ python3 scripts/test-image-review.py             # image lane, held outside the 
 python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
 scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
 scripts/test-load-lease-coverage.sh              # applies the lease patch to the pinned server-context.cpp and reads the load path, the sleeping refusal, the synchronize ahead of each release, and which acquire the load calls; needs that source tree, and its seven served arms need a built binary and a device window
-QWEN_LEASE_TEST_SERVER=scripts/test-fixtures/fake-lease-llama-server.py \
+QWEN_FAKE_LEASE_STALL=client \
+    QWEN_LEASE_TEST_SERVER=scripts/test-fixtures/fake-lease-llama-server.py \
     QWEN_LEASE_TEST_MODEL=FILE QWEN_LEASE_TEST_MMPROJ=FILE \
     QWEN_LEASE_EVIDENCE_DIR=DIR scripts/test-load-lease-coverage.sh
-                                                 # the same seven arms against a lease-aware stand-in on a host with no GPU: it states that the harness reads what it claims to and nothing about a closure. Both paths are read with `-f`, so a regular file is required and `/dev/null` skips the served stage; the stand-in allocates nothing on a device and the ownership authority still refuses a card another client holds
+                                                 # the same seven arms against a lease-aware stand-in on a host with no GPU: it states that the harness reads what it claims to and nothing about a closure. Both paths are read with `-f`, so a regular file is required and `/dev/null` skips the served stage; the stand-in allocates nothing on a device and the ownership authority still refuses a card another client holds. `QWEN_FAKE_LEASE_STALL=client` is what reaches arm G's post-departure branch, since a stand-in that exits on the signal never leaves a server for the client's departure to end
 scripts/test-probe-lease-shutdown-stall.sh       # the shutdown probe's own discrimination, against a fixture whose shutdown is client-bounded by construction; it spends about four minutes inside real observation windows, which is why it stays outside the unattended set
 scripts/probe-lease-shutdown-stall.sh OUT [ARM_ID...]
                                                  # what ends a shutdown a request is still inside: the client's departure or the holder's release

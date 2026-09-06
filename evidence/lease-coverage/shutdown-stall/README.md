@@ -74,6 +74,13 @@ stall on the patch.
 The stack arm runs as its own repetition because `eu-stack` stops the target,
 which contaminates any latency measured afterwards in the same process.
 
+`scripts/test-load-lease-coverage.sh`'s requalified arm G reaches its own new
+branch only against a server that survives its signal, so it is run under
+`QWEN_FAKE_LEASE_STALL=client`, where the fixture holds an orphaned request
+until its client departs. That run reads `attached_exit=no` with the server
+ending inside the bound after the departure, and the other six served arms are
+unmoved, so the branch the served re-run will take has executed.
+
 ## Falsifiers
 
 An exit latency after disconnect far from the 1 s polling interval weakens H1
@@ -114,6 +121,12 @@ sampled continuously.
 | `promoted_in_flight` | `88681bf4d161`, no lease named: alive at 30 s, exits 1340 ms after the client departs |
 | `candidate_in_flight` | `15bc632adf7f` with the lease free: alive at 30 s, exits 1230 ms after the client departs |
 | `stack` | 65 frames at ten seconds |
+
+`run-01/timeline.tsv` predates the annotation `end_server` now writes, so its
+`stack.server_end terminated` row reports only that the probe's own cleanup
+ended that process. That arm's server was alive when cleanup ran and took
+`server.cpp`'s second-interrupt `exit(1)` path, which its own
+`run-01/stack.server.log` records; a later run states both on the row.
 
 H1 holds in every cell and H2 fills none. The client's departure ends the
 shutdown within about one `HTTP_POLLING_SECONDS`, 1230 to 1340 ms across four
