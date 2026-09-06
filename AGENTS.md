@@ -1338,11 +1338,23 @@ promotion gate and is tested apart from the signal arms.
 
 `scripts/test-load-lease-coverage.sh` holds those boundaries and
 `evidence/lease-coverage/` carries the reading before the extension and after
-it; its seven served arms -- a load that waits, a decode that waits behind a
-holder and resumes on the release without a second request, a terminating signal
-inside that decode wait, a load refused on its deadline, a fresh attempt after
-that refusal, a terminating signal inside a load wait, and a projector-bearing
-load -- report `not_run` until a built binary and a device window drive them.
+it; its seven served arms ran on the device against candidate closure
+`15bc632adf7f` and nine of their ten readings pass
+(`evidence/lease-coverage/served-admission/`): a load waits 8810 ms behind a
+holder and then serves, an idle server returns the lease at `idle_ms=0`, a
+decode pass behind a holder writes its own wait line and submits nothing until
+the release, a load refuses on its deadline ahead of any loader line, a fresh
+attempt then loads, a signal inside a load wait ends the process in 1 s by
+default disposition, and a projector-bearing load waits and answers. Loading
+exclusion and evaluation exclusion are therefore measured rather than claimed.
+The tenth refuses the closure: a terminating signal delivered while a decode
+pass waits on a lease another process holds returns from the acquire in 101 ms
+with `reason=Interrupted system call`, and the shutdown that follows outlives a
+30 s bound and ends on `SIGKILL`, where the same binary shutting down with the
+lease free finishes in 44 ms through `teardown: held=yes`. What consumes that
+interval is unresolved, since the log carries no lease line inside it and
+`SIGKILL` discards an unflushed buffer, so `served=refused` and the closure
+stays unpromoted.
 The two shutdown arms are separate because `server.cpp` installs its handlers at
 `:489`, after the `load_model` call at `:465`, so a load wait ends by default
 disposition where a decode wait ends on `EINTR`. Every termination the harness
