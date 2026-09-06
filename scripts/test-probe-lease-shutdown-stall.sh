@@ -2,13 +2,16 @@
 # Prove that probe-lease-shutdown-stall.sh separates the two shutdown paths.
 #
 # The probe's arms are only worth device time if a client-bounded shutdown and a
-# lease-bounded one read differently through them, so this runs every arm
-# against scripts/test-fixtures/fake-lease-llama-server.py under
-# QWEN_FAKE_LEASE_STALL=1, where the fixture reproduces the client-bounded
-# shape: a request the signal caught in flight is never answered, its handler
-# holds until its own client disconnects, and the process waits for every
-# handler before it exits. A passing run states that the probe reads what it
-# claims to read and states nothing about any closure.
+# lease-bounded one read differently through them, so this drives
+# scripts/test-fixtures/fake-lease-llama-server.py in both shapes and requires
+# the readings to swap. QWEN_FAKE_LEASE_STALL=client holds each orphaned
+# request until its own client disconnects, which is llama.cpp's own path;
+# QWEN_FAKE_LEASE_STALL=lease holds it until the compute lease goes free. A
+# probe hard-coded to report either fills the wrong cell under the other. A
+# third run leaves the stall off, so a request that answers before the signal
+# reaches the in-flight staging and has to refuse rather than signal an idle
+# server. A passing run states that the probe reads what it claims to read and
+# states nothing about any closure.
 #
 # gpu-ownership: runs no device command; the probe under test is copied beside a
 # stub authority, so no owner lock is taken and no CUDA context opens.
@@ -53,7 +56,7 @@ output_directory=$temporary_directory/out
 # for a decode still in flight needs the lease held against it; the in-flight
 # arms therefore read the fixture's own reply rather than a stall, which is the
 # one reading this fixture cannot supply and the device run does.
-if QWEN_FAKE_LEASE_STALL=1 \
+if QWEN_FAKE_LEASE_STALL=client \
     QWEN_STALL_CANDIDATE_SERVER="$stub_scripts/fake-lease-llama-server.py" \
     QWEN_STALL_PROMOTED_SERVER="$stub_scripts/fake-lease-llama-server.py" \
     QWEN_STALL_MODEL="$temporary_directory/model.gguf" \
@@ -73,6 +76,8 @@ if [ ! -s "$readings" ]; then
     exit 1
 fi
 
+# The readings file is named at call time rather than captured, because the
+# later shapes read their own runs through the same accessor.
 read_field() {
     awk -F'\t' -v arm="$1" -v key="$2" \
         '$1 == arm && index($2, key) == 1 { sub(key, "", $2); print $2 }' "$readings"
@@ -146,8 +151,61 @@ else
     pass 'sanitization=no home prefix in any retained file'
 fi
 
+# The reversed cell. Under a lease-bounded shutdown the departure has to move
+# nothing and the release has to end it, which is the reading the client-bounded
+# run above produced the other way round.
+lease_output=$temporary_directory/out-lease
+if QWEN_FAKE_LEASE_STALL=lease \
+    QWEN_STALL_CANDIDATE_SERVER="$stub_scripts/fake-lease-llama-server.py" \
+    QWEN_STALL_PROMOTED_SERVER="$stub_scripts/fake-lease-llama-server.py" \
+    QWEN_STALL_MODEL="$temporary_directory/model.gguf" \
+    QWEN_STALL_PORT=18198 \
+    "$stub_scripts/probe-lease-shutdown-stall.sh" "$lease_output" \
+    client_disconnect holder_release \
+    >"$temporary_directory/run-lease.log" 2>&1; then
+    pass 'lease_fixture=exit_zero'
+else
+    fail "lease_fixture=exit_nonzero $(tail -3 "$temporary_directory/run-lease.log" | tr '\n' ' ')"
+fi
+
+readings=$lease_output/readings.tsv
+if [ -s "$readings" ]; then
+    case $(read_field client_disconnect exit_ms_after_disconnect=) in
+        alive) pass 'lease_fixture=departure_moves_nothing' ;;
+        *)     fail "lease_fixture=client_disconnect ended a lease-bounded shutdown: $(read_field client_disconnect exit_ms_after_disconnect=)" ;;
+    esac
+    release_ms=$(read_field holder_release exit_ms_after_holder_release=)
+    case $release_ms in
+        ''|alive) fail "lease_fixture=holder_release=$release_ms expected the release to end it" ;;
+        *)        pass "lease_fixture=release_ends_it ms=$release_ms" ;;
+    esac
+else
+    fail 'lease_fixture=readings absent'
+fi
+
+# The staging negative control. With the stall off the fixture answers in about
+# 0.2 s, so the in-flight arm's request completes before its signal and the
+# staging has to refuse rather than signal a server with nothing in flight.
+complete_output=$temporary_directory/out-complete
+QWEN_STALL_CANDIDATE_SERVER="$stub_scripts/fake-lease-llama-server.py" \
+    QWEN_STALL_PROMOTED_SERVER="$stub_scripts/fake-lease-llama-server.py" \
+    QWEN_STALL_MODEL="$temporary_directory/model.gguf" \
+    QWEN_STALL_PORT=18198 \
+    "$stub_scripts/probe-lease-shutdown-stall.sh" "$complete_output" \
+    candidate_in_flight \
+    >"$temporary_directory/run-complete.log" 2>&1 || true
+
+readings=$complete_output/readings.tsv
+if [ -s "$readings" ] &&
+    awk -F'\t' '$1 == "candidate_in_flight" && $2 == "refused" { found = 1 }
+        END { exit !found }' "$readings"; then
+    pass 'staging=refuses a request that completed before the signal'
+else
+    fail "staging=admitted a completed request: $(awk -F'\t' '$1 == "candidate_in_flight" { print $2 }' "$readings" 2>/dev/null | tr '\n' ' ')"
+fi
+
 if [ "$failures" -eq 0 ]; then
-    printf 'test_probe_lease_shutdown_stall=accepted arms=3\n'
+    printf 'test_probe_lease_shutdown_stall=accepted shapes=client,lease,none\n'
 else
     printf 'test_probe_lease_shutdown_stall=rejected failures=%s\n' "$failures"
     exit 1

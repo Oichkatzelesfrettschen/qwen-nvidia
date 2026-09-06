@@ -1365,8 +1365,10 @@ shutdown in 1230 to 1340 ms, releasing the holder moves nothing, and an
 untouched server exits 2.6 s past its own client's 20 s timeout rather than on
 the signal. The promoted closure `88681bf4d161`, which compiles in no lease at
 all, holds the same join for 30.9 s with a generation in flight and leaves it
-1.34 s after its client departs, so the property belongs to llama.cpp's
-shutdown and production already carries it. The candidate's teardown is reached
+1.34 s after its client departs, so a lease-free binary reaches the same bound
+and production already carries it; each closure carries one in-flight
+observation at one signal timing, which establishes that both exhibit the delay
+rather than that no configuration escapes it. The candidate's teardown is reached
 rather than skipped: once the client leaves, the same log writes
 `teardown: held=no` and the destructor completes. Arm G now ends its client
 before it reads the bound, which holds that server property constant and puts

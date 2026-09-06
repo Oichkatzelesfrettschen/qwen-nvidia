@@ -151,19 +151,34 @@ its timeout left.
 
 ## What this settles
 
-A llama-server at pin `f280b2698` completes no shutdown while a client is still
-attached to a request no pass will answer, and the promoted closure carries that
-property with no lease compiled into it. The refused arm
-`shutdown_while_decode_waits` therefore measured llama.cpp's shutdown with a
-client attached rather than lease exclusion, and its pass criterion is what was
-wrong. That lifts one refusal ground and moves no gate: the provenance gap in
+A llama-server at pin `f280b2698` completed no shutdown in any of these five
+arms while a client was still attached to a request no pass would answer, and
+the promoted closure carries that property with no lease compiled into it. The
+refused arm `shutdown_while_decode_waits` therefore read a bound that a
+lease-free binary reaches as well, so it cannot be evidence about lease
+exclusion and its pass criterion is what was wrong. That lifts one refusal
+ground and moves no gate: the provenance gap in
 `../candidate-build-source-identity.tsv` stands, and the drain-before-destroy
-policy is still untested.
+policy is still untested. Each closure carries one in-flight observation here,
+at one signal timing, so the arms establish that both exhibit the delay rather
+than that no timing or configuration escapes it.
 
-The lease patch's own contribution is to create the unanswerable request under a
-signal, where an ordinary generation reaches the same state whenever a signal
-arrives mid-decode. `promoted_in_flight` and `candidate_in_flight` read within
-110 ms of each other, so the binary is not the variable and the request state is.
+The lease patch's own contribution is to create the unanswerable request out of
+an interrupted acquire; an ordinary generation reached the same state in both
+in-flight arms, where the signal arrived after three seconds of decoding.
+`promoted_in_flight` and `candidate_in_flight` read within 110 ms of each other
+under one observation apiece, which is consistent with the binary not being the
+variable rather than a demonstration of it: a difference smaller than the
+between-arm spread would not show here, and neither arm was repeated.
+
+That the request was still in flight when each arm signalled is read back from
+the logs rather than asserted by the run: `server_response_reader::stop()`
+cancels only while `has_next()` holds, so the `cancel task, id_task = 0` line
+every in-flight arm carries at its client's departure states that the task had
+not completed. The probe now checks that prospectively -- the slot has released
+nothing since staging and the client has written no exit status -- and
+`scripts/test-probe-lease-shutdown-stall.sh` drives a fixture whose request
+answers before the signal to prove the check refuses it.
 
 Two facts stay apart from this one. `server_response::terminate()` has no caller
 anywhere in `tools/server/`, which would bite the blocking `recv(int)` path

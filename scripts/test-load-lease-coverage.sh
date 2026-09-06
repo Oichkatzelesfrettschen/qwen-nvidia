@@ -1451,8 +1451,12 @@ else
                 done
                 record_timeline 'arm_g.exit_with_client_attached' "$arm_g_attached"
 
-                release_client
+                # The departure is timestamped before the release runs,
+                # because release_client polls and may escalate after curl's
+                # socket is already closed, and a deadline started afterwards
+                # would exclude that interval from the bound it measures.
                 arm_g_departed=$(served_monotonic)
+                release_client
                 arm_g_gone=no
                 while [ $(( $(served_monotonic) - arm_g_departed )) -lt 30 ]; do
                     if ! kill -s 0 "$server_pid" 2>/dev/null; then

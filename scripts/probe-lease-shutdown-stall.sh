@@ -170,15 +170,32 @@ start_holder() {
     return 0
 }
 
+# The group carries the flock and the launcher is what this shell has to reap,
+# and setsid makes them one pid only where it exec'd rather than forked, so both
+# are ended. A group that outlived its termination leaves the launcher unreaped
+# rather than waited on, because a blocking wait on a live process is the
+# unbounded stall every termination here exists to replace, and a signal that
+# arrived before the group handshake leaves the launcher pid as the only handle
+# there is.
 stop_holder() {
-    [ -n "$holder_group" ] || return 0
-    holder_outcome=$(terminate_bounded "-$holder_group" 5000 || true)
-    record "$arm_id.holder_release" "$holder_outcome"
-    [ "$holder_outcome" = residue ] && residue_found=yes
-    # The group is what carries the flock and the pid is what this shell has to
-    # reap, and setsid makes them equal only where it exec'd rather than forked,
-    # so both are ended.
-    [ -z "$holder_reaper" ] || wait "$holder_reaper" 2>/dev/null || true
+    if [ -n "$holder_group" ]; then
+        holder_outcome=$(terminate_bounded "-$holder_group" 5000 || true)
+        record "$arm_id.holder_release" "$holder_outcome"
+        [ "$holder_outcome" = residue ] && residue_found=yes
+    else
+        holder_outcome=none
+    fi
+    if [ -n "$holder_reaper" ]; then
+        if [ "$holder_outcome" = none ]; then
+            holder_launcher=$(terminate_bounded "$holder_reaper" 5000 || true)
+            record "$arm_id.holder_launcher" "unnamed_group $holder_launcher"
+            [ "$holder_launcher" = residue ] && residue_found=yes
+        elif [ "$holder_outcome" != residue ]; then
+            wait "$holder_reaper" 2>/dev/null || true
+        else
+            record "$arm_id.holder_launcher" "left_unreaped pid=$holder_reaper"
+        fi
+    fi
     holder_reaper=''
     holder_group=''
     return 0
@@ -259,11 +276,24 @@ start_client() {
 }
 
 stop_client() {
-    [ -n "$client_group" ] || return 0
-    client_outcome=$(terminate_bounded "-$client_group" 5000 || true)
-    record "$arm_id.client_release" "$client_outcome"
-    [ "$client_outcome" = residue ] && residue_found=yes
-    [ -z "$client_reaper" ] || wait "$client_reaper" 2>/dev/null || true
+    if [ -n "$client_group" ]; then
+        client_outcome=$(terminate_bounded "-$client_group" 5000 || true)
+        record "$arm_id.client_release" "$client_outcome"
+        [ "$client_outcome" = residue ] && residue_found=yes
+    else
+        client_outcome=none
+    fi
+    if [ -n "$client_reaper" ]; then
+        if [ "$client_outcome" = none ]; then
+            client_launcher=$(terminate_bounded "$client_reaper" 5000 || true)
+            record "$arm_id.client_launcher" "unnamed_group $client_launcher"
+            [ "$client_launcher" = residue ] && residue_found=yes
+        elif [ "$client_outcome" != residue ]; then
+            wait "$client_reaper" 2>/dev/null || true
+        else
+            record "$arm_id.client_launcher" "left_unreaped pid=$client_reaper"
+        fi
+    fi
     client_reaper=''
     client_group=''
     return 0
@@ -307,11 +337,22 @@ retain_server_log() {
 
 # A server that outlived its arm is ended here rather than left for the next
 # arm's port bind, and the outcome is recorded because an escalation is a
-# reading of its own.
+# reading of its own. server.cpp's handler exits(1) on a second interrupt after
+# printing one line, so a server this function signals a second time did not
+# complete an orderly shutdown whatever terminate_bounded reports; the log is
+# read for that line and the timeline says so.
 end_server() {
     [ -n "$server_pid" ] || return 0
+    end_signalled=no
+    kill -s 0 "$server_pid" 2>/dev/null && end_signalled=yes
     end_outcome=$(terminate_bounded "$server_pid" 20000 || true)
-    record "$arm_id.server_end" "$end_outcome"
+    end_second=no
+    if [ -f "$server_log" ] &&
+        grep -q 'Received second interrupt' "$server_log"; then
+        end_second=yes
+    fi
+    record "$arm_id.server_end" \
+        "$end_outcome alive_at_cleanup=$end_signalled second_interrupt=$end_second"
     [ "$end_outcome" = residue ] && residue_found=yes
     server_pid=''
 }
@@ -331,7 +372,6 @@ stage_arm() {
     stage_binary=$1
     stage_lease=$2
     stage_timeout=$3
-    stage_shape=$4
     start_server "$stage_binary" "$stage_lease"
     stage_health=$(wait_health 180)
     if [ "$stage_health" != served ]; then
@@ -354,6 +394,7 @@ stage_arm() {
         fi
     else
         stage_before=$(grep -c 'processing task' "$server_log" || true)
+        stage_released=$(grep -c 'slot      release' "$server_log" || true)
         start_client "$stage_timeout" "$long_request" || {
             reading "$arm_id" refused 'the client never reported its group'
             return 1
@@ -365,10 +406,20 @@ stage_arm() {
         # The slot has the task; three seconds of decoding puts the signal
         # inside generation rather than inside the launch.
         sleep 3
-    fi
-    if [ "$stage_shape" = decoding ] && ! grep -q 'processing task' "$server_log"; then
-        reading "$arm_id" refused 'the request never reached a slot'
-        return 1
+        # n_predict names a ceiling rather than a floor and the launch line is
+        # historical, so the arm asserts the request is still open at the
+        # moment it signals: the slot has released nothing since staging began
+        # and the client has written no exit status. A request that answered
+        # inside those three seconds is the state this arm exists to exclude,
+        # and it refuses rather than signalling an idle server.
+        if [ "$(grep -c 'slot      release' "$server_log" || true)" -gt "$stage_released" ]; then
+            reading "$arm_id" refused 'the request completed before the signal, so nothing was in flight'
+            return 1
+        fi
+        if [ -s "$client_reply.status" ]; then
+            reading "$arm_id" refused "the client already ended, status=$(cat "$client_reply.status")"
+            return 1
+        fi
     fi
     return 0
 }
@@ -376,7 +427,7 @@ stage_arm() {
 arm_no_intervention() {
     arm_id=no_intervention
     printf 'arm=%s\n' "$arm_id"
-    if stage_arm "$candidate_server" held 20 waiting; then
+    if stage_arm "$candidate_server" held 20; then
         signal_at=$(monotonic_ms)
         kill -s TERM "$server_pid" 2>/dev/null || true
         record "$arm_id.signal" "sent"
@@ -396,7 +447,7 @@ arm_no_intervention() {
 arm_client_disconnect() {
     arm_id=client_disconnect
     printf 'arm=%s\n' "$arm_id"
-    if stage_arm "$candidate_server" held 600 waiting; then
+    if stage_arm "$candidate_server" held 600; then
         signal_at=$(monotonic_ms)
         kill -s TERM "$server_pid" 2>/dev/null || true
         record "$arm_id.signal" "sent"
@@ -418,7 +469,7 @@ arm_client_disconnect() {
 arm_holder_release() {
     arm_id=holder_release
     printf 'arm=%s\n' "$arm_id"
-    if stage_arm "$candidate_server" held 600 waiting; then
+    if stage_arm "$candidate_server" held 600; then
         signal_at=$(monotonic_ms)
         kill -s TERM "$server_pid" 2>/dev/null || true
         record "$arm_id.signal" "sent"
@@ -449,7 +500,7 @@ arm_holder_release() {
 arm_in_flight() {
     arm_id=$1
     printf 'arm=%s\n' "$arm_id"
-    if stage_arm "$2" "$3" 600 decoding; then
+    if stage_arm "$2" "$3" 600; then
         signal_at=$(monotonic_ms)
         kill -s TERM "$server_pid" 2>/dev/null || true
         record "$arm_id.signal" "sent"
@@ -472,7 +523,7 @@ arm_in_flight() {
 arm_stack() {
     arm_id=stack
     printf 'arm=%s\n' "$arm_id"
-    if stage_arm "$candidate_server" held 600 waiting; then
+    if stage_arm "$candidate_server" held 600; then
         kill -s TERM "$server_pid" 2>/dev/null || true
         record "$arm_id.signal" "sent"
         sleep 10
@@ -508,6 +559,9 @@ cleanup_ran=no
 cleanup() {
     [ "$cleanup_ran" = no ] || return 0
     cleanup_ran=yes
+    # The active arm's log is retained before anything is removed, because an
+    # interruption is exactly when the log explains what the readings cannot.
+    [ -z "$arm_id" ] || retain_server_log
     end_server
     stop_client
     stop_holder
