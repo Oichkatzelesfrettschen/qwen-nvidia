@@ -198,12 +198,32 @@ classify_sleep_refusal() {
     classify_acquire=$(classify_statement 'workload_lease_acquire' \
         "$classify_start" "$classify_weights" "$classify_file")
 
+    # Naming the field is not refusing on it: `(void) params.sleep_idle_seconds;`
+    # reads the same as a guard unless the statement is required to leave the
+    # function. The refusal's own block carries that return, so it is read
+    # inside the block rather than anywhere after it.
+    classify_leaves=''
+    if [ -n "$classify_refusal" ] && [ -n "$classify_acquire" ]; then
+        # The window ends at the acquire, so the return the acquire's own
+        # refusal carries never stands in for the sleeping one.
+        classify_window=$((classify_refusal + 6))
+        if [ "$classify_window" -gt "$classify_acquire" ]; then
+            classify_window=$classify_acquire
+        fi
+        classify_leaves=$(classify_statement 'return false' "$classify_refusal" \
+            "$classify_window" "$classify_file")
+    fi
+
     if [ -n "$classify_refusal" ] && [ -n "$classify_acquire" ] &&
-        [ "$classify_refusal" -lt "$classify_acquire" ]; then
-        printf 'refuses refusal=%s acquire=%s\n' "$classify_refusal" "$classify_acquire"
+        [ -n "$classify_leaves" ] &&
+        [ "$classify_refusal" -lt "$classify_acquire" ] &&
+        [ "$classify_leaves" -lt "$classify_acquire" ]; then
+        printf 'refuses refusal=%s returns=%s acquire=%s\n' \
+            "$classify_refusal" "$classify_leaves" "$classify_acquire"
     else
-        printf 'admits refusal=%s acquire=%s\n' \
-            "${classify_refusal:-absent}" "${classify_acquire:-absent}"
+        printf 'admits refusal=%s returns=%s acquire=%s\n' \
+            "${classify_refusal:-absent}" "${classify_leaves:-absent}" \
+            "${classify_acquire:-absent}"
     fi
 }
 
@@ -230,19 +250,25 @@ classify_release_after_sync() {
             if (index(line, "//") > 0) { line = substr(line, 1, index(line, "//") - 1) }
             gsub(/"[^"]*"/, "", line)
             # The definitions declare a return type; the call sites do not.
+            # A member function header opens at one indent inside the class,
+            # so it separates the scope of one call site from the next: a
+            # synchronize in destroy covers no release in update_slots.
+            if (line ~ /^    [A-Za-z_][A-Za-z0-9_:<>* &]*[ *&]([A-Za-z_][A-Za-z0-9_]*)\(.*\)[ ]*\{/) {
+                scope = NR
+            }
             if (line ~ /workload_lease_sync_device\(\)/ && line !~ /void[[:space:]]+workload_lease_sync_device/) {
-                printf "sync %s\n", NR
+                printf "sync %s %s\n", NR, scope
             }
             if (line ~ /workload_lease_release\(\)/ && line !~ /bool[[:space:]]+workload_lease_release/) {
-                printf "release %s\n", NR
+                printf "release %s %s\n", NR, scope
             }
         }' "$classify_file")
 
     classify_verdict=$(printf '%s\n' "$classify_order" | awk '
-        $1 == "sync"    { armed = 1 }
+        $1 == "sync"    { armed = 1; armed_scope = $3 }
         $1 == "release" {
             releases = releases + 1
-            if (!armed) { bad = bad " " $2 }
+            if (!armed || armed_scope != $3) { bad = bad " " $2 }
             armed = 0
         }
         END {
@@ -283,8 +309,27 @@ classify_release_preserves_hold() {
         "$((classify_end + 1))" "$classify_file")
     classify_cleared=$(classify_statement 'workload_lease_held = false' \
         "$classify_start" "$((classify_end + 1))" "$classify_file")
-    classify_returns=$(classify_statement 'return false' "$classify_start" \
-        "$((classify_end + 1))" "$classify_file")
+    # The return is read at the depth the failure block itself opens, so a
+    # return nested inside a latch that admits one log line reads absent: that
+    # body leaves the second failure to fall through to the assignment.
+    classify_returns=$(awk -v start="$classify_unlock" -v limit="$((classify_end + 1))" '
+        NR < start || NR >= limit { next }
+        {
+            line = $0
+            if (index(line, "//") > 0) { line = substr(line, 1, index(line, "//") - 1) }
+            gsub(/"[^"]*"/, "", line)
+            before = depth
+            opens = gsub(/\{/, "{", line)
+            line = $0
+            if (index(line, "//") > 0) { line = substr(line, 1, index(line, "//") - 1) }
+            gsub(/"[^"]*"/, "", line)
+            closes = gsub(/\}/, "}", line)
+            depth = depth + opens - closes
+            if (before == 1 && depth >= 1 && index($0, "return false") > 0) {
+                print NR
+                exit
+            }
+        }' "$classify_file")
 
     if [ -n "$classify_unlock" ] && [ -n "$classify_returns" ] &&
         [ -n "$classify_cleared" ] &&
@@ -410,12 +455,24 @@ self_test_predicate() {
     self_test_release clears-on-failure.cpp \
         '        workload_lease_sync_device();
         workload_lease_release();' "$self_test_release_body_clears"
+    self_test_release_body_latched='        if (flock(workload_lease_descriptor, LOCK_UN) != 0) {
+            if (!workload_lease_release_failed) {
+                workload_lease_release_failed = true;
+                return false;
+            }
+        }
+        workload_lease_held = false;
+        return true;'
+    self_test_release latched-return.cpp \
+        '        workload_lease_sync_device();
+        workload_lease_release();' "$self_test_release_body_latched"
 
     self_test_expect_with classify_release_after_sync sync-then-release.cpp synchronized
     self_test_expect_with classify_release_after_sync release-alone.cpp unsynchronized
     self_test_expect_with classify_release_after_sync second-release-unsynced.cpp unsynchronized
     self_test_expect_with classify_release_preserves_hold sync-then-release.cpp preserved
     self_test_expect_with classify_release_preserves_hold clears-on-failure.cpp cleared
+    self_test_expect_with classify_release_preserves_hold latched-return.cpp cleared
 }
 
 # The reach stage. The patch touches one file, so a copy of that file under the
@@ -550,7 +607,7 @@ else
             # therefore reads the called function's own body.
             acquire_name=$(printf '%s\n' "$coverage" |
                 sed -n 's/.*calls=\([a-z_]*\).*/\1/p')
-            acquire_definition=$(grep -n "bool $acquire_name()" "$patched_file" |
+            acquire_definition=$(grep -n "bool $acquire_name(" "$patched_file" |
                 head -1 | cut -d: -f1)
             if [ -z "$acquire_name" ] || [ -z "$acquire_definition" ]; then
                 reach_state=refused
@@ -697,6 +754,16 @@ else
         grep -q 'workload lease armed' "$server_log"
     }
 
+    # Health staying absent under a hold is also what a server that ignored the
+    # lease and uploaded slowly produces, so the log is read for the wait
+    # itself: the acquire writes `waiting` before it blocks and `acquired ...
+    # bound=deadline` after it takes the lease. The armed line proves the
+    # descriptor opened; this pair proves the load waited on it.
+    arm_waited_for_lease() {
+        grep -q 'workload lease waiting' "$server_log" &&
+            grep -q 'workload lease acquired.*bound=deadline' "$server_log"
+    }
+
     # Arm A. The holder releases inside the configured deadline, so the same
     # process waits, loads, answers, and gives the lease back at its first idle
     # pass.
@@ -728,8 +795,11 @@ else
                 fail "load_after_wait the release admitted no load: $arm_a_after"
             else
                 arm_a_elapsed=$(( $(served_monotonic) - arm_a_start ))
-                if answers; then
-                    pass "load_after_wait served and answered elapsed_s=$arm_a_elapsed"
+                if ! arm_waited_for_lease; then
+                    served_state=refused
+                    fail 'load_after_wait the load reached health without reporting a wait -- a slow upload reads the same as a protected one'
+                elif answers; then
+                    pass "load_after_wait waited, served, and answered elapsed_s=$arm_a_elapsed waited_ms=$(grep -m1 'workload lease acquired' "$server_log" | sed -n 's/.*waited_ms=\([0-9]*\).*/\1/p')"
                 else
                     served_state=refused
                     fail 'load_after_wait the loaded server returned no completion'
@@ -809,6 +879,77 @@ else
             fi
         fi
     fi
+    # Arm G. Arm E signals a server waiting inside load_model, where
+    # server.cpp has yet to install its handlers at :489 and the default
+    # disposition ends the process. A decode pass waits after that
+    # installation, so this arm is where the handler's own path runs. What it
+    # measures either way is the bound and the residue.
+    if [ "$served_state" = accepted ] && [ -n "$server_pid" ]; then
+        arm_g_hold=${QWEN_LEASE_G_HOLD_S:-120}
+        printf 'served_arm=shutdown_while_decode_waits hold_s=%s\n' "$arm_g_hold"
+        if ! hold_lease "$arm_g_hold"; then
+            served_state=refused
+            fail 'shutdown_while_decode_waits the fixture owner never took the lease'
+        else
+            arm_g_waits_before=$(grep -c 'workload lease waiting' "$server_log" || true)
+            arm_g_reply=$temporary_directory/decode-signalled.json
+            arm_g_done=$temporary_directory/decode-signalled-done
+            : >"$arm_g_reply"
+            (
+                curl -fsS --max-time 90 \
+                    -H 'Content-Type: application/json' \
+                    -d '{"prompt":"Reply with the word ok.","n_predict":8,"temperature":0}' \
+                    "http://127.0.0.1:$serving_port/completion" \
+                    >"$arm_g_reply" 2>/dev/null || true
+                printf 'done' >"$arm_g_done"
+            ) &
+            arm_g_client=$!
+
+            # The log carries arm B's wait already, so the new one is counted
+            # rather than matched.
+            arm_g_ready=$(( $(served_monotonic) + 20 ))
+            while [ "$(served_monotonic)" -lt "$arm_g_ready" ] &&
+                [ "$(grep -c 'workload lease waiting' "$server_log" || true)" -le "$arm_g_waits_before" ]; do
+                sleep 0.2
+            done
+
+            if [ "$(grep -c 'workload lease waiting' "$server_log" || true)" -le "$arm_g_waits_before" ]; then
+                served_state=refused
+                fail 'shutdown_while_decode_waits the decode pass never reported the wait it was to be interrupted in'
+                release_holder
+                stop_server
+            else
+                arm_g_start=$(served_monotonic)
+                kill -TERM "$server_pid" 2>/dev/null || true
+                arm_g_gone=no
+                while [ $(( $(served_monotonic) - arm_g_start )) -lt 30 ]; do
+                    if ! kill -0 "$server_pid" 2>/dev/null; then
+                        arm_g_gone=yes
+                        break
+                    fi
+                    sleep 0.2
+                done
+                arm_g_elapsed=$(( $(served_monotonic) - arm_g_start ))
+                if [ "$arm_g_gone" != yes ]; then
+                    kill -KILL "$server_pid" 2>/dev/null || true
+                fi
+                wait "$server_pid" 2>/dev/null || true
+                server_pid=''
+                wait "$arm_g_client" 2>/dev/null || true
+
+                if [ "$arm_g_gone" != yes ]; then
+                    served_state=refused
+                    fail 'shutdown_while_decode_waits the server outlived its signal inside the decode wait'
+                elif flock -n "$lease_path" true 2>/dev/null; then
+                    served_state=refused
+                    fail 'shutdown_while_decode_waits the fixture lock went free, so the wait was not the state that ended'
+                else
+                    pass "shutdown_while_decode_waits ended in ${arm_g_elapsed}s with the holder's lock intact"
+                fi
+                release_holder
+            fi
+        fi
+    fi
     stop_server
 
     # Arm C. The holder outlives the deadline, so the load refuses by name and
@@ -883,17 +1024,29 @@ else
                 fi
                 sleep 0.2
             done
-            wait "$server_pid" 2>/dev/null || true
             arm_e_elapsed=$(( $(served_monotonic) - arm_e_start ))
-            server_pid=''
             if [ "$arm_e_gone" != yes ]; then
+                # The process outlived its bound, so it is killed before the
+                # harness waits on it: a blocking wait here would hand the
+                # failure an unbounded stall of its own.
+                kill -KILL "$server_pid" 2>/dev/null || true
+                wait "$server_pid" 2>/dev/null || true
                 served_state=refused
                 fail 'shutdown_while_waiting the waiting server outlived its signal'
             elif flock -n "$lease_path" true 2>/dev/null; then
+                wait "$server_pid" 2>/dev/null || true
+                server_pid=''
                 served_state=refused
                 fail 'shutdown_while_waiting the fixture lock went free, so the wait was not the state that ended'
             else
-                pass "shutdown_while_waiting ended in ${arm_e_elapsed}s with the holder's lock intact"
+                wait "$server_pid" 2>/dev/null || true
+                server_pid=''
+                # server.cpp installs its SIGINT and SIGTERM handlers at :489,
+                # after the load_model call at :465, so a signal inside the load
+                # path's own wait carries the default disposition. The bound is
+                # what this arm measures; the handler's EINTR path belongs to the
+                # decode wait below.
+                pass "shutdown_while_load_waits ended in ${arm_e_elapsed}s by default disposition, holder lock intact"
             fi
         fi
         release_holder
@@ -902,7 +1055,13 @@ else
     # Arm F. A projector is a second device upload inside the same load, so the
     # admitted reviewer repeats arm A with it attached.
     if [ -z "$served_mmproj" ] || [ ! -f "$served_mmproj" ]; then
+        # A five-arm run states five results, so the stage reports partial
+        # rather than accepting a projector claim no arm measured.
         skip served_arm_projector no_mmproj
+        if [ "$served_state" = accepted ]; then
+            served_state=partial
+            served_reason=projector_arm_not_run
+        fi
     else
         arm_f_hold=${QWEN_LEASE_F_HOLD_S:-10}
         arm_f_wait=$((arm_f_hold + load_seconds + readiness_margin))
@@ -920,11 +1079,11 @@ else
             else
                 release_holder
                 arm_f_after=$(poll_health "$((load_seconds + readiness_margin))")
-                if [ "$arm_f_after" = served ] && answers; then
+                if [ "$arm_f_after" = served ] && arm_waited_for_lease && answers; then
                     pass 'projector_load waited, loaded the projector, and answered'
                 else
                     served_state=refused
-                    fail "projector_load the release admitted no projector-bearing load: $arm_f_after"
+                    fail "projector_load the release admitted no waiting projector-bearing load: $arm_f_after"
                 fi
             fi
             stop_server

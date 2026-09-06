@@ -245,9 +245,14 @@ unrelated traffic woke the loop. That blocking acquire is not a bounded request
 deadline, and the campaign does not read one into it. What the combined run
 requires of that call site is progress -- the waiting request completes on the
 release, with no second request sent -- and bounded termination under a
-terminating signal, both of which
+terminating signal, which
 `scripts/test-load-lease-coverage.sh`'s `decode_waits` and
-`shutdown_while_waiting` arms measure ahead of the campaign.
+`shutdown_while_decode_waits` arms measure ahead of the campaign. Its
+`shutdown_while_load_waits` arm measures a different mechanism and is not read
+for this one: `server.cpp` installs its handlers at `:489`, after the
+`load_model` call at `:465`, so a signal inside the load wait ends the process
+by default disposition while a signal inside a decode wait returns `EINTR` from
+`flock(LOCK_EX)`.
 
 Per-request cancellation while a decode waits stays open rather than claimed. A
 client disconnect or a browser timeout is not evidence that the server discarded

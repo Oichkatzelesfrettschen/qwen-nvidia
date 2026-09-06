@@ -111,30 +111,37 @@ with inactivity sleeping disabled, and `load_model` refuses the configuration
 naming a lease beside a non-negative `sleep_idle_seconds` ahead of the acquire
 and of every upload; `server_queue::start_loop`'s `should_sleep()` returns false
 for a negative interval alone, so sleeping is on at zero as well as above it,
-and `on_sleeping_state` takes a `void` callback whose caller clears the queue's
-sleeping flag whatever the wake returned, which is the state a refusal cannot
-reach. Release follows device completion rather than a host return:
+and `handle_sleeping_state` turns a false return from the wake into
+`GGML_ABORT("failed to reload model after sleeping")` at
+`server-context.cpp:919`, so under sleeping a lease held past the deadline ends
+the server rather than waiting for it; declining the wake instead needs
+`on_sleeping_state` to carry a result rather than `void`. Release follows device
+completion rather than a host return:
 `workload_lease_sync_device` calls `llama_synchronize` on the target and draft
 contexts ahead of the `all_idle` release and inside `destroy()`, which
 synchronizes, frees, and releases last, once per ownership transition rather
-than per token. And the release reports what the kernel confirmed, since
-`flock(LOCK_UN)` fails before it changes anything: a failure keeps
+than per token; a teardown from `~server_context_impl` arrives holding nothing
+and takes the lease back for the frees with one non-blocking attempt, logging
+which of the two it did. And the release reports what the kernel confirmed,
+since `flock(LOCK_UN)` fails before it changes anything: a failure keeps
 `workload_lease_held` true and latches one error line rather than reporting a
 lease the kernel still holds as given back.
 
 `scripts/test-load-lease-coverage.sh` reads `reach=accepted served=not_run`
-against it. Fourteen synthetic bodies split each predicate, and four mutations
-of the real patched file are each caught by their own predicate and by no other:
-a removed synchronize reads `unsynchronized`, a removed sleeping refusal reads
-`admits`, a cleared hold on a refused unlock reads `cleared`, and the blocking
-acquire at the load call site fails `lease_wait_bounded` alone. The six served
-arms -- a load that waits, a load refused on its deadline, a fresh attempt
-after that refusal, a decode that waits behind a holder and resumes on the
-release with no second request, a terminating signal inside a wait, and a
-projector-bearing load -- need a built binary and a device window, and each is
-read only after the `vulkan workload lease armed` line proves the closure
-carries the patch, because an unpatched server handed a lease path loads and
-answers exactly as one that skipped the lease would. That build and the
+against it. Fifteen synthetic bodies split each predicate, each written against
+a demonstrated false positive rather than against its intent -- a `(void)` read
+of the sleeping field, a synchronize in one function covering a release in
+another, and a return nested inside the error latch all read as failures now --
+and four mutations of the real patched file are each caught by their own
+predicate and by no other. The seven served arms -- a load that waits, a decode
+that waits behind a holder and resumes with no second request, a terminating
+signal inside that decode wait, a load refused on its deadline, a fresh attempt
+after that refusal, a terminating signal inside a load wait, and a
+projector-bearing load -- need a built binary and a device window. Each is read
+only after the `vulkan workload lease armed` line proves the closure carries the
+patch, and the load arms read the `waiting` and `acquired` lines rather than
+absence of health, because a server that ignored the lease and uploaded slowly
+looks the same from outside. That build and the
 promotion that follows are the combined session's remaining precondition.
 
 ## Depth validation

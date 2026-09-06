@@ -1,4 +1,4 @@
-load_path load_model=1218..1612 weights=1347 projector=1410
+load_path load_model=1234..1631 weights=1366 projector=1429
 ok predicate_self_test classify_load_coverage covered.cpp=covered
 ok predicate_self_test classify_load_coverage after-upload.cpp=uncovered
 ok predicate_self_test classify_load_coverage comment-only.cpp=uncovered
@@ -13,12 +13,13 @@ ok predicate_self_test classify_release_after_sync release-alone.cpp=unsynchroni
 ok predicate_self_test classify_release_after_sync second-release-unsynced.cpp=unsynchronized
 ok predicate_self_test classify_release_preserves_hold sync-then-release.cpp=preserved
 ok predicate_self_test classify_release_preserves_hold clears-on-failure.cpp=cleared
-ok load_path_covered covered open=1226 acquire=1251 calls=workload_lease_acquire_bounded weights=1347
-ok load_allocations_ordered weights=1347 projector=1410 spec=1380
-ok sleep_refused_before_acquire refuses refusal=1245 acquire=1251
+ok predicate_self_test classify_release_preserves_hold latched-return.cpp=cleared
+ok load_path_covered covered open=1242 acquire=1270 calls=workload_lease_acquire_bounded weights=1366
+ok load_allocations_ordered weights=1366 projector=1429 spec=1399
+ok sleep_refused_before_acquire refuses refusal=1264 returns=1267 acquire=1270
 ok release_after_device_completion synchronized releases=2
-ok release_failure_preserves_hold preserved unlock=1124 refusal=1130 cleared=1133
-ok resume_skips_init guard=1603 init_call=1604
-ok lease_wait_bounded workload_lease_acquire_bounded=978..1029 blocks on no flock
+ok release_failure_preserves_hold preserved unlock=1125 refusal=1131 cleared=1134
+ok resume_skips_init guard=1622 init_call=1623
+ok lease_wait_bounded workload_lease_acquire_bounded=980..1030 blocks on no flock
 not_run served reason=no_patched_server
 load_lease_coverage=partial reach=accepted served=not_run reach_reason=none served_reason=no_patched_server

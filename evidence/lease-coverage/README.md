@@ -66,38 +66,49 @@ outstanding.
 `extended-patch-reach.log` is the same test against the extended patch:
 
 ```text
-load_path load_model=1218..1612 weights=1347 projector=1410
-ok load_path_covered covered open=1226 acquire=1251 calls=workload_lease_acquire_bounded weights=1347
-ok load_allocations_ordered weights=1347 projector=1410 spec=1380
-ok sleep_refused_before_acquire refuses refusal=1245 acquire=1251
+load_path load_model=1234..1631 weights=1366 projector=1429
+ok load_path_covered covered open=1242 acquire=1270 calls=workload_lease_acquire_bounded weights=1366
+ok load_allocations_ordered weights=1366 projector=1429 spec=1399
+ok sleep_refused_before_acquire refuses refusal=1264 returns=1267 acquire=1270
 ok release_after_device_completion synchronized releases=2
-ok release_failure_preserves_hold preserved unlock=1124 refusal=1130 cleared=1133
-ok resume_skips_init guard=1603 init_call=1604
-ok lease_wait_bounded workload_lease_acquire_bounded=978..1029 blocks on no flock
+ok release_failure_preserves_hold preserved unlock=1125 refusal=1131 cleared=1134
+ok resume_skips_init guard=1622 init_call=1623
+ok lease_wait_bounded workload_lease_acquire_bounded=980..1030 blocks on no flock
 load_lease_coverage=partial reach=accepted served=not_run
 ```
 
-The open sits at 1226 and the acquire at 1251, both inside `load_model` and
+The open sits at 1242 and the acquire at 1270, both inside `load_model` and
 ninety-six lines ahead of the weights upload, with the sleeping refusal between
-them at 1245. `load_allocations_ordered` is what lets one comparison cover three
-uploads: the weights at 1347 precede the draft context at 1380 and the projector
-at 1410, so an acquire ahead of the first is ahead of all of them, and a
+them at 1264. `load_allocations_ordered` is what lets one comparison cover three
+uploads: the weights at 1366 precede the draft context at 1399 and the projector
+at 1429, so an acquire ahead of the first is ahead of all of them, and a
 reordering upstream fails the check rather than silently narrowing the claim.
 
-Fourteen synthetic files answer before the real one. Each predicate carries a
-body that satisfies it and a body that does not, so an ordering read over line
+Fifteen synthetic files answer before the real one. Each predicate carries a
+body that satisfies it and bodies that do not, so an ordering read over line
 numbers is proved to discriminate rather than assumed to: an acquire after the
 upload, in a line comment, in a block comment, in a string literal, or ahead of
 its own open all read `uncovered`; a sleeping refusal beneath the acquire or
 absent reads `admits`; a release without a preceding synchronize, or a second
 release under one synchronize, reads `unsynchronized`; and a release body that
-assigns `workload_lease_held = false` on the path a refused unlock takes reads
-`cleared`.
+clears `workload_lease_held` on the path a refused unlock takes reads `cleared`,
+whether the clearing is unguarded or reached by falling out of a latch that
+returns only the first time.
+
+Each predicate is written against a demonstrated false positive rather than
+against its intent. `(void) params.sleep_idle_seconds;` names the field and
+refuses nothing, so the refusal is admitted only where a `return false` sits
+inside its own block ahead of the acquire. A synchronize in `destroy()` covers
+no release in `update_slots`, so the call sites carry their enclosing function
+and a release answers `unsynchronized` unless the synchronize shares it. A
+`return false` nested inside the error latch leaves the second failure falling
+through to the assignment, so the return is read at the depth the failure block
+opens rather than anywhere inside it.
 
 Four mutations of the real patched file confirm the same split end to end, each
 caught by its own predicate and by no other: removing the synchronize ahead of
-the idle release reads `unsynchronized 3005`; removing the sleeping refusal
-reads `admits refusal=absent`; letting the refused unlock fall through to the
+the idle release reads `unsynchronized`; removing the sleeping refusal reads
+`admits refusal=absent`; letting the refused unlock fall through to the
 assignment reads `cleared refusal=absent`; and swapping
 `workload_lease_acquire_bounded` for the blocking `workload_lease_acquire` at
 the load call site keeps `load_path_covered` passing and fails
@@ -154,18 +165,29 @@ upload. `server_context::start_loop` passes `params_base.sleep_idle_seconds *
 1000` to `server_queue::start_loop`, whose `should_sleep()` returns false for a
 negative interval alone, so sleeping is on at zero as well as above it and the
 field's own "if >0" comment in `common/common.h` understates the range. What the
-refusal avoids is a state the patch cannot report through:
-`handle_sleeping_state` reaches `load_model` on the wake, and
-`server_queue::on_sleeping_state` takes a `void` callback whose caller clears the
-queue's sleeping flag whatever the wake did, so a wake refused for the lease
-would leave the queue admitting requests against a destroyed context.
-Recoverable sleep and wake under the lease needs that callback to carry a
-result, which is a queue-state transition of its own. Router eviction and a
-fresh child load are a different mechanism and stay supported.
+refusal avoids is a wake `load_model` cannot decline: `handle_sleeping_state`
+calls it and turns a false return into
+`GGML_ABORT("failed to reload model after sleeping")` at
+`server-context.cpp:919`, so under sleeping a lease an image generation holds
+past the deadline ends the server rather than waiting for it. Declining the wake
+and staying asleep instead needs `server_queue::on_sleeping_state` to carry a
+result rather than `void`, since its caller clears the queue's sleeping flag
+whatever the callback did; that is a queue-state transition of its own. Router
+eviction and a fresh child load are a different mechanism and stay supported.
+
+An idle server released the lease at its last `all_idle` pass, so a teardown
+from `~server_context_impl` arrives holding nothing and takes it back for the
+frees. The attempt is one non-blocking try -- `workload_lease_acquire_bounded`
+takes its deadline as an argument and 0 names exactly that -- rather than the
+load's deadline, because a shutdown blocked behind a 300 second generation
+would outlive the absence `qwen-teardown.sh` proves, while a free that overlaps
+a holder costs that holder a device synchronize rather than correctness. The
+teardown line names which of the two happened, so a free outside the lease is
+recorded rather than assumed away.
 
 ## What the served stage measures
 
-Six arms, each naming its own hold, its own deadline, and its own required
+Seven arms, each naming its own hold, its own deadline, and its own required
 outcome, because a refusal and a successful wait are two behaviors and one arm
 that accepts either measures neither. Elapsed time reads `/proc/uptime` rather
 than the wall clock, since a clock step under NTP moves a deadline the kernel
@@ -173,12 +195,30 @@ does not honor.
 
 | Arm | Hold | Required outcome |
 | --- | --- | --- |
-| `load_after_wait` | released inside the deadline | no health under the hold, then the same process loads, answers, and frees the lease at its first idle pass |
+| `load_after_wait` | released inside the deadline | no health under the hold, the log naming the wait and the acquire, then the same process loads, answers, and frees the lease at its first idle pass |
 | `decode_waits` | taken after the load, released later | no completion inside the hold, then the same request completes with no second request sent |
+| `shutdown_while_decode_waits` | outlives the request | `SIGTERM` ends a server blocked in the decode acquire inside 30 s, with the holder's lock intact |
 | `refused_on_deadline` | outlives the deadline | the server ends naming the deadline, with no loader line ahead of it |
 | `recovery_after_refusal` | released | an explicit fresh attempt loads and answers |
-| `shutdown_while_waiting` | outlives the wait | `SIGTERM` ends the waiting server inside 30 s with the holder's lock intact |
+| `shutdown_while_load_waits` | outlives the wait | `SIGTERM` ends the waiting server inside 30 s with the holder's lock intact |
 | `projector_load` | released inside the deadline | the projector-bearing load obeys the same admission |
+
+The two shutdown arms are separate because two mechanisms end the process.
+`server.cpp` installs its `SIGINT` and `SIGTERM` handlers at `:489`, after the
+`load_model` call at `:465`, so a signal inside the load path's own wait carries
+the default disposition while a signal inside a decode wait returns `EINTR` from
+`flock(LOCK_EX)` under `sa_flags = 0`. Each arm measures the bound and the
+residue; neither claims the other's path.
+
+Health staying absent under a hold is also what a server that ignored the lease
+and uploaded slowly produces, so `load_after_wait` and `projector_load` read the
+wait itself out of the log -- the `waiting` line the acquire writes before it
+blocks, and the `acquired ... bound=deadline` line it writes after -- rather
+than treating absence of health as proof of admission.
+
+An arm that cannot run is a partial stage rather than an accepted one: without
+`QWEN_LEASE_TEST_MMPROJ` the projector arm reports `not_run` and the stage reads
+`partial`, so a six-arm run never states a seven-arm result.
 
 An unpatched `llama-server` handed a lease path loads and answers exactly as one
 that skipped the lease would, because the open returns true on an unset name and

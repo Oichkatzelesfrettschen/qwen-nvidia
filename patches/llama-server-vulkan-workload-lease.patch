@@ -40,9 +40,12 @@ A decode pass keeps the blocking acquire. server_queue::start_loop re-enters
 callback_update_slots only when a task arrives or the process terminates, so a
 pass that gave up on the lease would strand its request until unrelated traffic
 woke the loop, and a chat turn waiting behind an image generation is what the
-lease is for. server.cpp registers SIGINT and SIGTERM with sa_flags = 0, so no
-SA_RESTART covers that block and a terminating signal returns EINTR, which is
-the cancellation the bounded acquire cannot reach.
+lease is for. server.cpp installs its SIGINT and SIGTERM handlers at :489-494
+with sa_flags = 0, so no SA_RESTART covers that block and a terminating signal
+returns EINTR, which is the cancellation the bounded acquire cannot reach. That
+installation follows the load_model call at :465, so a terminating signal during
+the load path's own wait carries the default disposition and ends the process
+outright: bounded either way, and by two different mechanisms.
 
 Lease coverage is admitted with inactivity sleeping disabled, and load_model
 refuses the configuration that asks for both ahead of the acquire and of every
@@ -50,12 +53,14 @@ upload. server_context::start_loop passes params_base.sleep_idle_seconds * 1000
 to server_queue::start_loop, whose should_sleep() returns false for a negative
 interval alone, so sleeping is on at zero as well as above it and the field's
 own "if >0" comment in common/common.h understates the range. What the refusal
-avoids is a state this patch cannot report through: handle_sleeping_state
-reaches load_model on the wake, and server_queue::on_sleeping_state takes a
-void callback whose caller clears the queue's sleeping flag whatever the wake
-did, so a wake refused for the lease would leave the queue admitting requests
-against a destroyed context. Recoverable sleep and wake under the lease needs
-that callback to carry a result, which is a queue-state transition of its own.
+avoids is a wake load_model cannot decline: handle_sleeping_state calls it and
+turns a false return into GGML_ABORT("failed to reload model after sleeping")
+at server-context.cpp:919, so under sleeping a lease an image generation holds
+past the deadline ends the server rather than waiting for it. Declining the
+wake and staying asleep instead needs server_queue::on_sleeping_state to carry
+a result rather than void, since its caller clears the queue's sleeping flag
+whatever the callback did; that is a queue-state transition of its own. Router
+eviction and a fresh child load are a different mechanism and stay supported.
 The value read is the resolved one: load_model assigns params to params_base,
 start_loop reads that field, and server_res_generator reads it again for
 bypass_sleep.
@@ -79,6 +84,16 @@ name the contexts, frees, and releases last, because tearing a context down is
 device work of this server's own. The synchronize sits at the ownership
 transition rather than in the token loop, so an idle transition pays it once and
 a decoded token pays nothing.
+
+An idle server released the lease at its last all_idle pass, so a teardown from
+~server_context_impl arrives holding nothing and takes it back for the frees.
+The attempt is one non-blocking try -- workload_lease_acquire_bounded takes its
+deadline as an argument and 0 names exactly that -- rather than the load's
+deadline, because a shutdown blocked behind a 300 second generation would
+outlive the absence qwen-teardown.sh proves, while a free that overlaps a holder
+costs that holder a device synchronize rather than correctness. The teardown
+line names which of the two happened, so a free outside the lease is recorded
+rather than assumed away.
 
 The release reports what the kernel confirmed. flock(LOCK_UN) fails before it
 changes anything -- EBADF or EINVAL on the descriptor, never a partial release
@@ -139,7 +154,7 @@ evidence/lease-coverage/ carries the reading taken before the extension and
 after it.
 
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index a9edbd7..09324e9 100644
+index a9edbd7..4d08fd3 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
 @@ -26,6 +26,17 @@
@@ -179,7 +194,7 @@ index a9edbd7..09324e9 100644
      server_context_impl() {
          mtmd_helper_log_set(common_log_default_callback, nullptr);
      }
-@@ -887,7 +910,242 @@ private:
+@@ -887,7 +910,258 @@ private:
  
      int64_t t_last_load_progress_ms = 0;
  
@@ -238,24 +253,25 @@ index a9edbd7..09324e9 100644
 +        return 300;
 +    }
 +
-+    // The bound belongs to the caller rather than to the lease. A model load
-+    // has a caller that carries a refusal -- load_model returns false and the
-+    // launch ends -- so it waits under a deadline, because the owner lock above
-+    // this one refuses at once with status 75 and an unbounded acquire beneath
-+    // it would turn that refusal into a stall.
++    // The bound belongs to the caller rather than to the lease, so the caller
++    // names it in seconds. A model load carries a refusal -- load_model returns
++    // false and the launch ends -- so it waits under
++    // workload_lease_wait_seconds(), because the owner lock above this one
++    // refuses at once with status 75 and an unbounded acquire beneath it would
++    // turn that refusal into a stall. A teardown passes 0 and gets the single
++    // non-blocking attempt that value names.
 +    //
 +    // Polling bounds the wait; it buys no cancellation. server_queue keeps its
 +    // running flag private with no accessor, and server.cpp's is_terminating is
 +    // file static, so nothing here reads the termination this loop would have to
 +    // check. The step is bounded at 50 ms and the deadline ends it.
-+    bool workload_lease_acquire_bounded() {
++    bool workload_lease_acquire_bounded(int wait_s) {
 +#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 +        if (workload_lease_descriptor < 0 || workload_lease_held) {
 +            return true;
 +        }
 +
-+        int64_t   waited_ms = 0;
-+        const int wait_s    = workload_lease_wait_seconds();
++        int64_t waited_ms = 0;
 +
 +        if (flock(workload_lease_descriptor, LOCK_EX | LOCK_NB) != 0) {
 +            if (errno != EWOULDBLOCK && errno != EAGAIN) {
@@ -417,12 +433,27 @@ index a9edbd7..09324e9 100644
 +        // ctx_tgt and ctx_dft still name the contexts to wait on; releasing
 +        // ahead of the resets would hand the next holder a device this one is
 +        // still freeing on.
++        //
++        // An idle server released the lease at its last all_idle pass, so a
++        // teardown from ~server_context_impl arrives holding nothing and takes
++        // it back for the frees. The attempt is the single non-blocking one
++        // rather than the load's deadline: a shutdown blocked behind a 300
++        // second generation would outlive the absence qwen-teardown.sh proves,
++        // and a free that overlaps a holder costs that holder a device
++        // synchronize rather than correctness. The line names which of the two
++        // this teardown did.
++        if (!workload_lease_held) {
++            workload_lease_acquire_bounded(0);
++            SRV_INF("vulkan workload lease teardown: held=%s\n",
++                    workload_lease_held ? "yes" : "no");
++        }
++
 +        workload_lease_sync_device();
 +
          spec.reset();
          spec_init.reset();
  
-@@ -901,6 +1159,8 @@ private:
+@@ -901,6 +1175,8 @@ private:
  
          mtmd_free(mctx);
          mctx = nullptr;
@@ -431,7 +462,7 @@ index a9edbd7..09324e9 100644
      }
  
      void handle_sleeping_state(bool new_state) {
-@@ -956,6 +1216,42 @@ private:
+@@ -956,6 +1232,45 @@ private:
      // load the model and initialize llama_context
      // this may also be called to resume from sleeping state
      bool load_model(common_params & params) {
@@ -452,29 +483,32 @@ index a9edbd7..09324e9 100644
 +        // params_base.sleep_idle_seconds * 1000 to server_queue::start_loop,
 +        // whose should_sleep() returns false for a negative interval alone, so
 +        // sleeping is on at zero as well as above it and the field's own
-+        // "if >0" comment in common/common.h understates the range. The state
-+        // it enters is what this patch cannot report a refusal through:
-+        // handle_sleeping_state reaches load_model on the wake, and
-+        // server_queue::on_sleeping_state takes a void callback whose caller
-+        // clears the queue's sleeping flag whatever the wake did, so a wake that
-+        // gave up on the lease would leave the queue admitting requests against
-+        // a destroyed context. params is the resolved value both readers see:
-+        // load_model assigns it to params_base below, start_loop reads that
-+        // field, and server_res_generator reads it again for bypass_sleep.
++        // "if >0" comment in common/common.h understates the range. What the
++        // refusal avoids is a wake this function cannot decline:
++        // handle_sleeping_state calls load_model and turns a false return into
++        // GGML_ABORT("failed to reload model after sleeping"), so under
++        // sleeping a lease held by an image generation past the deadline ends
++        // the server rather than waiting for it. Declining the wake and staying
++        // asleep instead needs server_queue::on_sleeping_state to carry a
++        // result rather than void, since its caller clears the queue's sleeping
++        // flag whatever the callback did. params is the resolved value both
++        // readers see: load_model assigns it to params_base below, start_loop
++        // reads that field, and server_res_generator reads it again for
++        // bypass_sleep.
 +        if (workload_lease_descriptor >= 0 && params.sleep_idle_seconds >= 0) {
 +            SRV_ERR("vulkan workload lease refuses inactivity sleeping: path=%s sleep_idle_seconds=%d\n",
 +                    workload_lease_path.c_str(), params.sleep_idle_seconds);
 +            return false;
 +        }
 +
-+        if (!workload_lease_acquire_bounded()) {
++        if (!workload_lease_acquire_bounded(workload_lease_wait_seconds())) {
 +            return false;
 +        }
 +
          load_progress_data load_progress_text  (this, "text_model");
          load_progress_data load_progress_mmproj(this, "mmproj_model");
          load_progress_data load_progress_spec  (this, "spec_model");
-@@ -2700,6 +2996,14 @@ private:
+@@ -2700,6 +3015,14 @@ private:
              }
  
              if (all_idle) {
@@ -489,7 +523,7 @@ index a9edbd7..09324e9 100644
                  SRV_TRC("%s", "all slots are idle\n");
  
                  metrics_flush_idle();
-@@ -2707,6 +3011,14 @@ private:
+@@ -2707,6 +3030,14 @@ private:
                  return; // skip further processing
  
              } else {
