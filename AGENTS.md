@@ -2034,6 +2034,8 @@ python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
 scripts/test-coding-principal-path.sh       # appliance host role alone
 scripts/test-admit-coding-chain.sh
+scripts/test-coding-page-arm-classification.sh
+python3 scripts/test-drive-fallback-page-phases.py
 scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh
 scripts/test-probe-depth-projector.sh

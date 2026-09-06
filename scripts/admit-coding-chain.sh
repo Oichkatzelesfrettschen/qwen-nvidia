@@ -379,54 +379,57 @@ EOF
     else
         page_status=$?
         # drive-fallback-page.py catches its own exceptions, writes the report
-        # to stdout carrying an `error` object, and returns 1, so the cause of a
-        # refusal lives in page-report.json rather than in page.err. Reading the
-        # stderr tail alone produced two refusals on the GitHub runner whose
-        # detail was empty, which named nothing to triage. The report is the
-        # authority and page.err is the fallback for a death before it is
-        # written.
+        # to stdout carrying an `error` object and its phase timeline, and
+        # returns 1, so the cause of a refusal lives in page-report.json rather
+        # than in page.err. Reading the stderr tail alone produced two refusals
+        # on the GitHub runner whose detail was empty, which named nothing to
+        # triage. scripts/classify-page-arm.sh owns that reading, so
+        # scripts/test-coding-page-arm-classification.sh drives every terminal
+        # shape without a browser rather than waiting for the next unexplained
+        # run to produce one.
         page_elapsed_ms=$(( ($(date +%s) - page_started_at) * 1000 ))
-        page_error=$(python3 - "$output_directory/page-report.json" <<'EOF'
-import json, sys
-try:
-    report = json.load(open(sys.argv[1]))
-except Exception as exc:
-    print("report_unreadable %s" % type(exc).__name__)
-    raise SystemExit(0)
-error = report.get("error")
-if not isinstance(error, dict):
-    print("report_carries_no_error")
-    raise SystemExit(0)
-print("%s: %s" % (error.get("type"), str(error.get("message"))[:200]))
-EOF
-)
-        if [ "$page_status" -gt 128 ]; then
-            page_termination=signal
-        elif [ "${page_error%% *}" = report_unreadable ] ||
-            [ "$page_error" = report_carries_no_error ]; then
-            page_termination=crash
-        else
-            case $page_error in
-            TimeoutError:*) page_termination=timeout ;;
-            *) page_termination=protocol_error ;;
-            esac
-        fi
+        "$script_directory/classify-page-arm.sh" \
+            "$output_directory/page-report.json" \
+            "$output_directory/page.err" \
+            "$page_status" "$page_elapsed_ms" >"$output_directory/page-arm.txt"
+        page_termination=$(sed -n 's/^termination_reason=//p' \
+            "$output_directory/page-arm.txt")
+        page_error=$(sed -n 's/^error=//p' "$output_directory/page-arm.txt")
+        page_last_phase=$(sed -n 's/^last_completed_phase=//p' \
+            "$output_directory/page-arm.txt")
+        page_pending_phase=$(sed -n 's/^pending_phase=//p' \
+            "$output_directory/page-arm.txt")
+        page_deadline=$(sed -n 's/^configured_deadline_s=//p' \
+            "$output_directory/page-arm.txt")
+        # A refusal is triaged later against the stack that produced it, and a
+        # successful rerun writes its own directory rather than replacing this
+        # one, so the identity is retained beside the classification.
         {
-            printf 'termination_reason=%s\n' "$page_termination"
-            printf 'exit_status=%s\n' "$page_status"
-            printf 'elapsed_ms=%s\n' "$page_elapsed_ms"
-            printf 'report_bytes=%s\n' \
-                "$(wc -c <"$output_directory/page-report.json" 2>/dev/null || echo 0)"
-            printf 'stderr_bytes=%s\n' \
-                "$(wc -c <"$output_directory/page.err" 2>/dev/null || echo 0)"
-            printf 'error=%s\n' "$page_error"
-            printf 'stderr_tail=%s\n' \
-                "$(tail -3 "$output_directory/page.err" | tr '\n\t' '; ')"
-        } >"$output_directory/page-arm.txt"
+            printf 'repository_commit=%s\n' \
+                "$(git -C "$script_directory/.." rev-parse HEAD 2>/dev/null || printf unavailable)"
+            # A git status that cannot run produces no text, so its own exit
+            # status decides between a measured clean tree and an
+            # unavailable measurement.
+            if repository_status=$(git -C "$script_directory/.." status --porcelain 2>/dev/null); then
+                if [ -n "$repository_status" ]; then
+                    printf 'repository_dirty=yes\n'
+                else
+                    printf 'repository_dirty=no\n'
+                fi
+            else
+                printf 'repository_dirty=unavailable\n'
+            fi
+            printf 'chromium_version=%s\n' \
+                "$(chromium --version 2>/dev/null | head -1 || printf unavailable)"
+            printf 'kernel_release=%s\n' "$(uname -r)"
+            printf 'python_version=%s\n' \
+                "$(python3 -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || printf unavailable)"
+        } >>"$output_directory/page-arm.txt"
         record coding_page_arm refused \
-            "$(printf '%s exit=%s elapsed_ms=%s %s' "$page_termination" \
-                "$page_status" "$page_elapsed_ms" "$page_error" |
-                tr '\n\t' '; ')"
+            "$(printf '%s exit=%s elapsed_ms=%s deadline_s=%s last_phase=%s pending_phase=%s %s' \
+                "$page_termination" "$page_status" "$page_elapsed_ms" \
+                "$page_deadline" "$page_last_phase" "$page_pending_phase" \
+                "$page_error" | tr '\n\t' '; ')"
     fi
 else
     record coding_page_arm not-run 'chromium absent or page arm disabled'
