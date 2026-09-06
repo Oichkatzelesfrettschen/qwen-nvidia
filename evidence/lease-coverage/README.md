@@ -202,13 +202,13 @@ does not honor.
 
 | Arm | Hold | Required outcome |
 | --- | --- | --- |
-| `load_after_wait` | released inside the deadline | no health under the hold, the log naming the wait and the acquire, then the same process loads, answers, and frees the lease at its first idle pass |
+| `load_after_wait` | outlives the observation, released explicitly | no health under the hold, the hold proved still held when the window closed, the log naming the wait and the acquire, then the same process loads, answers, and frees the lease at its first idle pass |
 | `decode_waits` | taken after the load, released later | no completion inside the hold, then the same request completes with no second request sent |
 | `shutdown_while_decode_waits` | outlives the request | `SIGTERM` ends a server blocked in the decode acquire inside 30 s, with the holder's lock intact |
 | `refused_on_deadline` | outlives the deadline | the server ends naming the deadline, with no loader line ahead of it |
 | `recovery_after_refusal` | released | an explicit fresh attempt loads and answers |
 | `shutdown_while_load_waits` | outlives the wait | `SIGTERM` ends the waiting server inside 30 s with the holder's lock intact |
-| `projector_load` | released inside the deadline | the projector-bearing load obeys the same admission |
+| `projector_load` | outlives the observation, released explicitly | the projector-bearing load obeys the same admission |
 
 The two shutdown arms are separate because two mechanisms end the process.
 `server.cpp` installs its `SIGINT` and `SIGTERM` handlers at `:489`, after the
@@ -221,7 +221,13 @@ Health staying absent under a hold is also what a server that ignored the lease
 and uploaded slowly produces, so `load_after_wait` and `projector_load` read the
 wait itself out of the log -- the `waiting` line the acquire writes before it
 blocks, and the `acquired ... bound=deadline` line it writes after -- rather
-than treating absence of health as proof of admission.
+than treating absence of health as proof of admission. Those two lines are not
+enough on their own either: a holder that expired under the observation window
+produces one `EWOULDBLOCK` and both lines while measuring nothing. The holder
+therefore outlives the window by a wide margin, the arm proves with `flock -n`
+that the lock was still held when the window closed, and the explicit release is
+the event that admits the load, so the arrival is attributable to the release
+rather than to a timer.
 
 An arm that cannot run is a partial stage rather than an accepted one: without
 `QWEN_LEASE_TEST_MMPROJ` the projector arm reports `not_run` and the stage reads

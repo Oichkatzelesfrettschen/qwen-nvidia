@@ -767,22 +767,27 @@ else
     # Arm A. The holder releases inside the configured deadline, so the same
     # process waits, loads, answers, and gives the lease back at its first idle
     # pass.
-    arm_a_hold=${QWEN_LEASE_A_HOLD_S:-10}
-    arm_a_wait=$((arm_a_hold + load_seconds + readiness_margin))
-    printf 'served_arm=load_after_wait hold_s=%s wait_s=%s load_allowance_s=%s margin_s=%s\n' \
-        "$arm_a_hold" "$arm_a_wait" "$load_seconds" "$readiness_margin"
-    if ! hold_lease "$arm_a_hold"; then
+    arm_a_observe=${QWEN_LEASE_A_OBSERVE_S:-10}
+    arm_a_wait=$((arm_a_observe + load_seconds + readiness_margin))
+    printf 'served_arm=load_after_wait observe_s=%s wait_s=%s load_allowance_s=%s margin_s=%s\n' \
+        "$arm_a_observe" "$arm_a_wait" "$load_seconds" "$readiness_margin"
+    # The holder outlives the observation by a wide margin and the explicit
+    # release is what admits the load, so the arrival is attributable to the
+    # release rather than to a timer. A holder that expired under the window
+    # would let a server that ignored the lease pass on one EWOULDBLOCK.
+    if ! hold_lease "$((arm_a_observe * 8 + 300))"; then
         served_state=refused
         fail 'load_after_wait the fixture owner never took the lease'
     else
         arm_a_start=$(served_monotonic)
         start_server "$arm_a_wait"
-        # The hold is short, so health inside it is the whole observation: a
-        # server that answered here loaded beside the holder.
-        arm_a_under_hold=$(poll_health "$((arm_a_hold - 2))")
+        arm_a_under_hold=$(poll_health "$arm_a_observe")
         if ! arm_armed; then
             served_state=refused
             fail 'lease_armed the server under test never opened the lease -- the closure carries no lease patch'
+        elif flock -n "$lease_path" true 2>/dev/null; then
+            served_state=refused
+            fail 'load_after_wait the fixture lease went free inside the observation window'
         elif [ "$arm_a_under_hold" = served ]; then
             served_state=refused
             fail 'load_after_wait the model loaded and served under a held lease'
@@ -1077,16 +1082,20 @@ else
             served_reason=projector_arm_not_run
         fi
     else
-        arm_f_hold=${QWEN_LEASE_F_HOLD_S:-10}
-        arm_f_wait=$((arm_f_hold + load_seconds + readiness_margin))
-        printf 'served_arm=projector_load hold_s=%s wait_s=%s\n' "$arm_f_hold" "$arm_f_wait"
-        if ! hold_lease "$arm_f_hold"; then
+        arm_f_observe=${QWEN_LEASE_F_OBSERVE_S:-10}
+        arm_f_wait=$((arm_f_observe + load_seconds + readiness_margin))
+        printf 'served_arm=projector_load observe_s=%s wait_s=%s\n' "$arm_f_observe" "$arm_f_wait"
+        if ! hold_lease "$((arm_f_observe * 8 + 300))"; then
             served_state=refused
             fail 'projector_load the fixture owner never took the lease'
         else
             start_server "$arm_f_wait" --mmproj "$served_mmproj"
-            arm_f_under_hold=$(poll_health "$((arm_f_hold - 2))")
-            if [ "$arm_f_under_hold" = served ]; then
+            arm_f_under_hold=$(poll_health "$arm_f_observe")
+            if flock -n "$lease_path" true 2>/dev/null; then
+                served_state=refused
+                fail 'projector_load the fixture lease went free inside the observation window'
+                release_holder
+            elif [ "$arm_f_under_hold" = served ]; then
                 served_state=refused
                 fail 'projector_load the projector-bearing load served under a held lease'
                 release_holder
