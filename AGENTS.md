@@ -1325,8 +1325,11 @@ contended teardown                   explicit unprotected-cleanup exception
 ```
 
 A served arm reads `teardown_held=no` as a successful termination rather than as
-teardown exclusion, and `no_destroy` where the process ended before `destroy()`
-ran at all. Closing the exception is a policy rather than a longer wait, since
+teardown exclusion, and `unattributed` where the log carries no such line at
+all: the patch writes it inside `if (!workload_lease_held)`, so a teardown that
+arrived holding the lease and a process that never reached `destroy()` both
+leave it absent, and the idle release and the teardown release print the same
+string. Closing the exception is a policy rather than a longer wait, since
 an emergency exit that waited indefinitely would trade a bounded shutdown for a
 diagram: ordinary router eviction and orderly session teardown drain the active
 holder before destroying an idle child, and unleased cleanup stays reserved for

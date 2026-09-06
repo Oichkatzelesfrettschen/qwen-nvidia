@@ -209,8 +209,17 @@ contended teardown                   explicit unprotected-cleanup exception
 
 The seven arms measure the current behavior against a fixture holder that opens
 no CUDA context, so a shutdown arm reading `teardown_held=no` is a successful
-termination rather than successful teardown exclusion, and `no_destroy` names a
-process that ended before `destroy()` ran at all. Closing the exception is a
+termination rather than successful teardown exclusion. The third reading is
+`unattributed`, and it is unattributed because the patch writes that line inside
+`if (!workload_lease_held)`: a teardown arriving with the lease already held
+writes nothing there and frees inside it, a process ended by default disposition
+never reaches `destroy()` at all, and the log separates those two in no way,
+since the idle release and the teardown release print the same string. The
+patch's own comment at that site asserts that a free overlapping a holder costs
+that holder a device synchronize rather than correctness; that assertion is not
+established by anything measured here, this record governs over it, and the
+comment is corrected at the next rebuild rather than now, because the built
+closure's `source_diff_sha256` is the identity the admission runs under. Closing the exception is a
 policy rather than a longer wait, since an emergency exit that blocked
 indefinitely would trade a bounded shutdown for a diagram: ordinary router
 eviction and orderly session teardown drain the active holder before destroying
