@@ -1,0 +1,59 @@
+# The source the lease candidate closure is built from and what the built
+# closure turned out to be, recorded so the identity is read rather than
+# re-derived. Every value names where it was read: the source rows from git in
+# the pinned checkout, the applied lists from the apply sequence itself, the
+# promoted and candidate marker rows from strings(1) over each closure's
+# llama-server and libllama-server-impl.so, the threshold rows from each
+# closure's CMakeCache.txt, the payload rows from each build log, and the
+# promoted arch and payload from scripts/serving-closures.tsv.
+#
+# The applied order is verify-llama-patch-series.sh's own: the six production
+# patches, then the candidates in ledger order, with the two this closure leaves
+# out named as omitted. The three headers the Vulkan production patches add are
+# staged, since the builder refuses an untracked source file and git diff HEAD
+# carries a staged addition.
+#
+# What the comparison establishes is narrow. The two closures agree on
+# architecture, cubin and ptx counts, both MMVQ thresholds, and the absence of
+# the paged-KV and device-embedding markers, and each lease marker below is read
+# on both sides. It does not establish source equivalence: a marker absent from
+# a binary states that one patch's strings are absent rather than that no other
+# source difference exists.
+#
+# The promoted closure's own source_diff_sha256 is 0d6e3be391768d5b0aaa8854904b
+# 268fbe3867ff4e76c8cba25c201bc5038b0f, read from its build-configuration.tsv,
+# and four reconstructions from today's patch files reproduce none of it: the
+# production series alone, plus view-alias-deps, plus mmvq-crossover, and plus
+# paged-kv and mtmd-embd read ed47ca4c, ed957fe7, f0f1e551, 3e47e7a1, and
+# 9a75d608 respectively. Which patch file moved since that build is unread here,
+# so the promoted set is named by the markers and thresholds its binaries carry
+# rather than by a replayed diff.
+field	value
+repository_commit	e9178d3f8752a2dcd4f75cb4c46bf344bbd8711f
+llama_cpp_commit	f280b26983ad0fdb705a0d9ebf0503e76f2899b0
+source_diff_sha256	76f4b8e888cde28f354482e4fea3d91e609ce634fb9d6654608b68f496a96768
+applied_production	llama-vulkan-low-priority llama-no-cpu-fallback llama-vulkan-duty-cycle llama-vulkan-runtime-submit-limit llama-vulkan-submit-trace llama-router-tools-proxy
+applied_candidate	llama-vulkan-view-alias-deps llama-server-vulkan-workload-lease llama-cuda-mmvq-crossover-ad104
+omitted_candidate	llama-cuda-paged-kv-buffer llama-mtmd-device-embd
+promoted_closure	88681bf4d161
+promoted_arch	89-real
+promoted_cuda_payload	cubin=187 ptx=0
+promoted_marker_QWEN_GPU_COMPUTE_LEASE	absent
+promoted_marker_QWEN_GPU_COMPUTE_LEASE_WAIT_S	absent
+promoted_marker_LLAMA_KV_PAGED_BUFFER	absent
+promoted_marker_LLAMA_MTMD_EMBD_DEVICE	absent
+promoted_cmake_GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE	10
+promoted_cmake_GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE	16
+candidate_closure	15bc632adf7f
+candidate_arch	89-real
+candidate_cuda_payload	cubin=187 ptx=0
+candidate_llama_server_sha256	1060aeda2e4e527dba06e7c9ffe79b93fc79b5a8a8e56ff6d4fae27e9f9db944
+candidate_marker_QWEN_GPU_COMPUTE_LEASE	present
+candidate_marker_QWEN_GPU_COMPUTE_LEASE_WAIT_S	present
+candidate_marker_LLAMA_KV_PAGED_BUFFER	absent
+candidate_marker_LLAMA_MTMD_EMBD_DEVICE	absent
+candidate_cmake_GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE	10
+candidate_cmake_GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE	16
+candidate_libggml_vulkan	absent
+candidate_runtime_execution	not_run reason=build_only
+superseded_closure	c41a15ef4480 arch=89 ptx=187, rebuilt at 89-real because production emits SASS alone
