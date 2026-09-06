@@ -70,10 +70,11 @@ temporary_directory=$(mktemp -d)
 
 # Every retained byte passes this, because a server log names the model path and
 # the run directory and the ledger gate refuses a local absolute path. A
-# compute client's full argv is elided down to its executable: the desktop
-# browsers carry a crash-reporter GUID, a field-trial handle, and a
-# pseudonymization salt in theirs, and what this record needs of a client is
-# which program it is, what it holds, and how the authority classified it.
+# compute client's `name=` field is elided down to its executable: that field is
+# nvidia-smi's `process_name` column, which for the desktop browsers carries
+# their whole command line with a crash-reporter GUID, a field-trial handle, and
+# a pseudonymization salt in it, and what this record needs of a client is which
+# program it is, what it holds, and how the authority classified it.
 # Each replaced string enters sed as a pattern, so every one is escaped first:
 # a bracket, a dot, or the `#` delimiter in a path would otherwise be read as
 # syntax, and `mktemp -d` under the default TMPDIR already produces a dot.

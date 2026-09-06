@@ -66,13 +66,23 @@ Both terminal lines are the ones the table above required.
 bodies, outcome rows, timeline, teardown states, and exit status, and neither
 directory holds a byte the other run wrote. `stage-status.tsv` carries the
 per-stage result and `window-open.log` and `window-close.log` carry the
-telemetry handoff at both ends: the 9B was stopped through its owning tmux
-session against its recorded argv and restarted from it on the same closure at
-6424 MiB, with the state latch clear and the owner lock free at both ends. The
-compositor and two browsers are the only compute clients besides this campaign's
-own servers at the three points the record samples -- before the stop, at each
-harness's ownership acquisition, and after the restart -- rather than at every
-instant between them.
+telemetry handoff at both ends.
+
+What those two logs establish about the handoff is narrower than the operation
+performed. `window-preconditions.tsv` records the 9B's pid, executable, start
+time, argv, working directory, health, and device bytes while it served;
+`window-open.log` records `telemetry_stop=absent`, which is the process's
+disappearance rather than a transcript of the interrupt sent into its owning
+tmux session; and `window-close.log` records the restarted server's executable
+and argv, which match the recorded ones, at 6424 MiB with `/health` reading
+`ok`. The state latch is clear and the owner lock free at both ends.
+
+The compute-client lists are four snapshots rather than a continuous sample,
+and none of them precedes the stop: `window-open.log` lists the three desktop
+clients after the telemetry server is gone, each harness's own ownership
+acquisition lists them again in `qwen35-2b.log` and `qwen35-08b.log`, and
+`window-close.log` lists them beside the restarted 9B. Between those points the
+campaign's own servers ran and nothing else was sampled.
 
 ## Arm G read both predictions
 
@@ -109,10 +119,12 @@ re-examination.
 `scripts/models.tsv` declares `qwen35-08b` projector-none, so its six text arms
 plus the armed-lease reading are the whole admission its tuple allows and
 `text_arms_only_projector_none` is the reason that says so. No projector was
-attached to it. The 2B's own `mmproj-Qwen3.5-2B-f16.gguf` would have loaded
-cleanly at matching dimensions and written image tokens the 0.8B reads nothing
-from, which answers wrongly rather than failing, so a green projector cell
-there would have been the conflation the reason exists to prevent.
+attached to it, and this run measured nothing about what would have happened if
+one had been: the reason a foreign projector is refused is the pairing rule
+`scripts/select-projector.sh` implements, where a projector of matching
+dimensions loads cleanly while writing image tokens into an embedding space its
+own model did not export, so the mismatch answers rather than fails. This run's
+contribution is that the arm was declared unrun rather than filled.
 
 ## What this lifts and what it leaves
 
@@ -125,8 +137,10 @@ policy tested, and the strict CUDA0 admission, the router admission, and the
 serialized image review stay `not_run`, since this window was authorized for
 the served stage.
 
-The harness's own stdout carries the ownership block, which names each compute
-client's full argv and cgroup; the caller retains it through a filter that
-elides both, so a desktop browser's crash-reporter GUID and session identifiers
-stay out of the record. The harness elides its own mktemp directory from every
+The harness's own stdout carries the ownership block, whose `name=` field is
+nvidia-smi's `process_name` column; for the desktop browsers that column carries
+their whole command line, and their cgroup follows it. The caller retains the
+block through a filter that elides both tails, so a crash-reporter GUID and a
+session identifier stay out of the record while the pid, executable, memory,
+start time, and verdict that make up the ownership identity remain. The harness elides its own mktemp directory from every
 byte it retains, which run-01 needed by hand.

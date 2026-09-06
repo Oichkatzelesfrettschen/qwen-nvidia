@@ -1344,9 +1344,8 @@ it; its served arms ran on the device against candidate closure
 `qwen35-2b` reads `served=accepted projector=required` on ten readings with its
 own pinned projector attached, and `qwen35-08b` reads `served=partial` with
 `served_reason=text_arms_only_projector_none` on the nine its projector-none
-tuple allows, since `scripts/models.tsv` declares that row projector-none and a
-foreign projector of matching dimensions would write image tokens the language
-model reads nothing from. A load waits 8910 ms behind a holder and then serves,
+tuple allows, since `scripts/models.tsv` declares that row projector-none and
+the pairing rule `scripts/select-projector.sh` implements refuses a foreign one. A load waits 8910 ms behind a holder and then serves,
 an idle server returns the lease at `idle_ms=0`, a decode pass behind a holder
 writes its own wait line and submits nothing until the release, a load refuses
 on its deadline ahead of any loader line, a fresh attempt then loads, a signal
