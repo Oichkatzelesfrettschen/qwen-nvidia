@@ -32,6 +32,7 @@ serving_port=${QWEN_LEASE_TEST_PORT:-18114}
 temporary_directory=$(mktemp -d)
 holder_group=''
 server_pid=''
+client_group=''
 reach_state=not_run
 reach_reason=''
 served_state=not_run
@@ -39,6 +40,13 @@ served_reason=''
 failures=0
 
 cleanup() {
+    # A request that outlived its arm holds a curl of its own, and the arm that
+    # started it is the one that waits on it in the ordinary path; an abnormal
+    # exit leaves that wait unreached, so the client is signalled here.
+    if [ -n "$client_group" ] && kill -0 "$client_group" 2>/dev/null; then
+        kill "$client_group" 2>/dev/null || true
+        wait "$client_group" 2>/dev/null || true
+    fi
     if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
         kill "$server_pid" 2>/dev/null || true
         wait "$server_pid" 2>/dev/null || true
@@ -489,7 +497,30 @@ elif ! command -v patch >/dev/null 2>&1; then
 else
     patched_tree=$temporary_directory/patched
     mkdir -p "$patched_tree/tools/server"
-    cp "$context_source" "$patched_tree/tools/server/server-context.cpp"
+    # The pinned commit's own copy rather than the working tree's, because a
+    # build campaign leaves that tree carrying this very patch and the stage
+    # would then read a patch that no longer applies as a patch that no longer
+    # works. The working file is the fallback where the path names no checkout.
+    # The pin is read from scripts/build-llama-cuda.sh rather than repeated
+    # here, and the checkout has to be the named directory itself: git discovers
+    # an enclosing repository otherwise, and an unrelated HEAD would be read as
+    # the pinned source.
+    pinned_commit=$(sed -n 's/^expected_commit=\([0-9a-f]\{40\}\)$/\1/p' \
+        "$script_directory/build-llama-cuda.sh" | head -1)
+    source_root=$(git -C "$source_directory" rev-parse --show-toplevel 2>/dev/null || true)
+    source_real=$(CDPATH='' cd -- "$source_directory" 2>/dev/null && pwd -P)
+    if [ -n "$pinned_commit" ] && [ -n "$source_root" ] &&
+        [ "$source_root" = "$source_real" ] &&
+        git -C "$source_directory" cat-file -e "$pinned_commit^{commit}" 2>/dev/null &&
+        git -C "$source_directory" show \
+            "$pinned_commit:tools/server/server-context.cpp" \
+            >"$patched_tree/tools/server/server-context.cpp" 2>/dev/null &&
+        [ -s "$patched_tree/tools/server/server-context.cpp" ]; then
+        printf 'reach_source commit=%s\n' "$pinned_commit"
+    else
+        cp "$context_source" "$patched_tree/tools/server/server-context.cpp"
+        printf 'reach_source working_tree=%s\n' "$context_source"
+    fi
     if ! (cd "$patched_tree" && patch -p1 --forward --silent <"$patch_file"); then
         reach_state=refused
         fail 'reach the lease patch no longer applies to the pinned source'
@@ -660,6 +691,15 @@ elif ! command -v curl >/dev/null 2>&1; then
     served_reason=no_curl
     skip served "$served_reason"
 else
+    # The served stage starts llama-server on CUDA0, so it is a top-level owner
+    # in scripts/gpu-workloads.tsv and takes the authority the way every other
+    # direct non-tmux runner does. The acquire sits inside this branch rather
+    # than at file scope, because the reach stage runs on a clone with no device
+    # and reports its own terminal state there.
+    . "$script_directory/gpu-workload-ownership.sh"
+    gpu_ownership_acquire || exit $?
+    gpu_ownership_inspect || exit 1
+
     served_state=accepted
     lease_path=$temporary_directory/vulkan-workload.lock
     hold_serial=0
@@ -685,8 +725,11 @@ else
         hold_serial=$((hold_serial + 1))
         holder_state=$temporary_directory/holder-state.$hold_serial
         : >"$holder_state"
+        # The holder opens the compute lease on descriptor 9 in a child of its
+        # own, so the owner descriptor is closed ahead of that reuse rather
+        # than inherited under a second meaning.
         setsid sh -c 'exec 9>"$1"; flock -x 9; printf 'held' >"$2"; sleep "$3"' \
-            holder "$lease_path" "$holder_state" "$1" &
+            holder "$lease_path" "$holder_state" "$1" 9>&- &
         holder_group=$!
         hold_waited=0
         while [ ! -s "$holder_state" ] && [ "$hold_waited" -lt 600 ]; do
@@ -708,7 +751,7 @@ else
             "$served_server" --model "$served_model" "$@" \
             --host 127.0.0.1 --port "$serving_port" \
             --device CUDA0 -ot '.*=CUDA0' -ngl 99 \
-            >"$server_log" 2>&1 &
+            >"$server_log" 2>&1 9>&- &
         server_pid=$!
     }
 
@@ -848,8 +891,9 @@ else
                     "http://127.0.0.1:$serving_port/completion" \
                     >"$arm_b_reply" 2>/dev/null || true
                 printf 'done' >"$arm_b_done"
-            ) &
+            ) 9>&- &
             arm_b_client=$!
+            client_group=$arm_b_client
 
             arm_b_deadline=$(( $(served_monotonic) + arm_b_hold - 3 ))
             arm_b_early=no
@@ -907,8 +951,9 @@ else
                     "http://127.0.0.1:$serving_port/completion" \
                     >"$arm_g_reply" 2>/dev/null || true
                 printf 'done' >"$arm_g_done"
-            ) &
+            ) 9>&- &
             arm_g_client=$!
+            client_group=$arm_g_client
 
             # The log carries arm B's wait already, so the new one is counted
             # rather than matched.
