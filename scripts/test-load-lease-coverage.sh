@@ -117,9 +117,13 @@ terminate_bounded() {
 # argv that named the model file and the host that served it.
 # One filter for every byte the record keeps, metadata included: a summary row
 # naming the server, the model, and the projector carries the home prefix as
-# surely as a server log does.
+# surely as a server log does. The run's own mktemp directory is elided first,
+# because the lease path the server logs on every transition and the outcome
+# rows that name it are the run's temporary state rather than anything a later
+# reader can follow, and a raw one differs between runs of the same arms.
 sanitize_text() {
-    sed -e "s#$HOME#\$HOME#g" \
+    sed -e "s#$temporary_directory#\$LEASE_TEST_TMPDIR#g" \
+        -e "s#$HOME#\$HOME#g" \
         -e "s#$(hostname 2>/dev/null || printf 'qwen-laptop')#qwen-laptop#g" \
         -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g'
 }

@@ -1,15 +1,24 @@
 # The served lease arms on the candidate closure
 
 `scripts/test-load-lease-coverage.sh` drove closure `15bc632adf7f` against a
-held compute lease on the RTX 4070 Ti. Nine of ten readings pass and one fails,
-so the stage reads `served=refused` and the closure is not promoted. That tenth
-reading's criterion is since requalified: `../shutdown-stall/` measured the
-promoted closure, which compiles in no lease at all, holding the same interval
-between the same two log boundaries and leaving it at its client's departure,
-so the arm as run here read a bound a lease-free binary reaches rather than
-lease exclusion. The stage's terminal result stands
-as the run produced it and a re-run under the corrected criterion has not
-happened.
+held compute lease on the RTX 4070 Ti across two runs.
+
+`run-02/` is the stage's standing result: `qwen35-2b` reads
+`served=accepted projector=required` on ten readings with its own pinned
+projector attached, and `qwen35-08b` reads
+`served=partial ... served_reason=text_arms_only_projector_none` on the nine its
+projector-none tuple allows. Loading exclusion and evaluation exclusion are
+measured on both model sizes, and `run-02/preregistration.md` states what each
+terminal line had to be before the run and what arm G predicted.
+
+`run-01/` is the earlier run under the criterion since requalified. Nine of its
+ten readings pass and the tenth fails, so it reads `served=refused`;
+`../shutdown-stall/` measured the promoted closure -- which compiles in no lease
+at all -- holding the same interval between the same two log boundaries and
+leaving it at its client's departure, so that arm read a bound a lease-free
+binary reaches rather than lease exclusion. Its terminal result stands as the
+run produced it, and `run-02/qwen35-2b/server.1.log` carries the same arm on the
+same binary completing its teardown 0.9 ms after its client departs.
 `run-01/qwen35-2b/` carries the record: one sanitized server log per launch,
 every completion body the arms graded, one outcome row per decision, the
 termination timeline, the teardown state read out of each log, and the
@@ -24,7 +33,7 @@ idle, and it was restarted from that same argv afterwards.
 carry what each end retained; `run-01/stage-status.tsv` carries the per-stage
 result.
 
-## What the arms read
+## What run-01's arms read
 
 | Arm | Reading |
 | --- | --- |
@@ -44,7 +53,7 @@ claimed: a load behind a holder waits and then serves, and a decode pass behind
 a holder submits nothing until the release, with the pass's own wait line as the
 positive evidence that the lease is what it waited on.
 
-## The failure, and what the record does and does not establish
+## Run-01's failure, and what that record does and does not establish
 
 Under a terminating signal the decode pass's blocking acquire returned without
 the lease and named `reason=Interrupted system call`, and the server then wrote
@@ -89,31 +98,31 @@ attached and called it lease exclusion. The arm now ends its client before it
 reads the bound, which holds that server property constant, and records the
 interval with the client attached as an observation.
 
-## What this costs the program
+## What the two runs cost the program
 
-The refusal ground this arm supplied is lifted, and no gate moves with it. The
-policy `evidence/lease-coverage/README.md` records has an orderly session
-teardown drain the active holder before destroying an idle child, so an
-ordinary combined-session teardown is uncontended by construction and this arm
-never reproduced its shape. What the arm reaches is the emergency-termination
-exception that policy reserves. Promotion still requires the provenance gap of
-`../candidate-build-source-identity.tsv` closed, the drain-before-destroy
-policy tested, and the served stage re-run under the corrected criterion, which
-this record does not carry.
+`run-02` lifts `served=refused` and no gate moves with it. The policy
+`evidence/lease-coverage/README.md` records has an orderly session teardown
+drain the active holder before destroying an idle child, so an ordinary
+combined-session teardown is uncontended by construction and run-01's failing
+arm never reproduced its shape; what that arm reaches is the
+emergency-termination exception the policy reserves. Promotion still requires
+the provenance gap of `../candidate-build-source-identity.tsv` closed and the
+drain-before-destroy policy tested, and the strict CUDA0 admission, the router
+admission, and the serialized image review read `not_run` in both runs.
 
 The candidate closure's other properties stand as
 `candidate-build-source-identity.tsv` states them, provenance gap included. No
 production pointer moved and the promoted closure served nothing during the
 window.
 
-The 2B harness ran its remaining arms after the failure, since the arms are
-independent and each takes and releases its own fixture; what stopped is the
-downstream chain, so the `qwen35-08b` arms, the strict CUDA0 admission, the
-router admission, and the serialized image review read `not_run` rather than
-continuing into an unsettled device state.
+Run-01's 2B harness ran its remaining arms after the failure, since the arms
+are independent and each takes and releases its own fixture; what stopped there
+is the downstream chain, so its `qwen35-08b` arms read `not_run` rather than
+continuing into an unsettled device state. `run-02` ran that subject and
+`run-02/stage-status.tsv` carries both.
 
-`window-open.log` records the state latch clear and the compute clients reduced
-to the three desktop processes after the telemetry stop; the owner lock's
+Run-01's `window-open.log` records the state latch clear and the compute clients
+reduced to the three desktop processes after the telemetry stop; the owner lock's
 availability at that point is evidenced by the harness acquiring it, recorded on
 the `gpu_ownership_lock=held` line of `qwen35-2b.log`, rather than by a separate
 reading. `window-close.log` records the latch clear and the owner lock free, and

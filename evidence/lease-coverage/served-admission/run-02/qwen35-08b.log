@@ -1,0 +1,49 @@
+scripts/test-load-lease-coverage.sh: line 761: 241375 Killed                     setsid "$self_test_stubborn" "$self_test_state" > /dev/null 2>&1
+ok cleanup_bounded a TERM-ignoring child ended by escalation in 2s
+ok cleanup_residue_counted a surviving holder fails the run rather than printing
+reach_source commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
+load_path load_model=1234..1631 weights=1366 projector=1429
+ok predicate_self_test classify_load_coverage covered.cpp=covered
+ok predicate_self_test classify_load_coverage after-upload.cpp=uncovered
+ok predicate_self_test classify_load_coverage comment-only.cpp=uncovered
+ok predicate_self_test classify_load_coverage block-comment.cpp=uncovered
+ok predicate_self_test classify_load_coverage string-literal.cpp=uncovered
+ok predicate_self_test classify_load_coverage acquire-before-open.cpp=uncovered
+ok predicate_self_test classify_sleep_refusal sleep-refused.cpp=refuses
+ok predicate_self_test classify_sleep_refusal sleep-after-acquire.cpp=admits
+ok predicate_self_test classify_sleep_refusal sleep-admitted.cpp=admits
+ok predicate_self_test classify_release_after_sync sync-then-release.cpp=synchronized
+ok predicate_self_test classify_release_after_sync release-alone.cpp=unsynchronized
+ok predicate_self_test classify_release_after_sync second-release-unsynced.cpp=unsynchronized
+ok predicate_self_test classify_release_preserves_hold sync-then-release.cpp=preserved
+ok predicate_self_test classify_release_preserves_hold clears-on-failure.cpp=cleared
+ok predicate_self_test classify_release_preserves_hold latched-return.cpp=cleared
+ok load_path_covered covered open=1242 acquire=1270 calls=workload_lease_acquire_bounded weights=1366
+ok load_allocations_ordered weights=1366 projector=1429 spec=1399
+ok sleep_refused_before_acquire refuses refusal=1264 returns=1267 acquire=1270
+ok release_after_device_completion synchronized releases=2
+ok release_failure_preserves_hold preserved unlock=1125 refusal=1131 cleared=1134
+ok resume_skips_init guard=1622 init_call=1623
+ok lease_wait_bounded workload_lease_acquire_bounded=980..1030 blocks on no flock
+gpu_ownership_lock=held path=/tmp/qwen-ad104-gpu-0.lock
+cuda_client pid=1942 name=/usr/bin/kwin_wayland used=298 MiB exe=unreadable start_time=4765 cgroup=<elided> verdict=record-desktop
+cuda_client pid=3551735 name=/opt/microsoft/msedge/msedge argv=<elided> used=235 MiB exe=/opt/microsoft/msedge/msedge start_time=33296844 cgroup=<elided> verdict=record-desktop
+cuda_client pid=3782701 name=$HOME/.config/discord/app-1.0.156/Discord argv=<elided> used=761 MiB exe=$HOME/.config/discord/app-1.0.156/Discord start_time=46631083 cgroup=<elided> verdict=record-desktop
+named_llama_server_pids=-
+served_arm=load_after_wait observe_s=10 wait_s=120 load_allowance_s=90 margin_s=20
+ok lease_armed path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+ok load_after_wait waited, served, and answered elapsed_s=12 waited_ms=9611
+ok load_after_wait_releases idle_ms=0
+served_arm=decode_waits hold_s=12
+ok decode_waits no decode inside the hold observed_s=9 waits=1
+ok decode_resumes_on_release resumed_ms=400 requests=1
+served_arm=shutdown_while_decode_waits hold_s=120
+ok shutdown_while_decode_waits ended 0s after the client left by=eintr attached_exit=no with the holder's lock intact
+served_arm=refused_on_deadline hold_s=115 wait_s=5
+ok refused_on_deadline named the deadline and uploaded nothing wait_s=5
+served_arm=recovery_after_refusal wait_s=5
+ok recovery_after_refusal a fresh attempt loaded and answered
+served_arm=shutdown_while_waiting hold_s=660 wait_s=600
+ok shutdown_while_load_waits ended in 0s by default disposition, holder lock intact
+not_run served_arm_projector reason=projector_none_declared
+load_lease_coverage=partial reach=accepted served=partial projector=none reach_reason=none served_reason=text_arms_only_projector_none

@@ -1,0 +1,17 @@
+arm	outcome	detail
+lease_armed	pass	path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+load_after_wait	pass	waited, served, and answered elapsed_s=12 waited_ms=9611
+load_after_wait_releases	pass	idle_ms=0
+decode_waits	pass	no decode inside the hold observed_s=9 waits=1
+decode_resumes_on_release	pass	resumed_ms=400 requests=1
+shutdown_while_decode_waits	pass	ended 0s after the client left by=eintr attached_exit=no with the holder's lock intact
+refused_on_deadline	pass	named the deadline and uploaded nothing wait_s=5
+recovery_after_refusal	pass	a fresh attempt loaded and answered
+shutdown_while_load_waits	pass	ended in 0s by default disposition, holder lock intact
+served_arm_projector	not_run	projector_none_declared
+server.1	teardown	no
+server.2	teardown	no
+server.3	teardown	yes
+server.4	teardown	unattributed
+harness	exit_status	0
+cleanup	clear	$LEASE_TEST_TMPDIR
