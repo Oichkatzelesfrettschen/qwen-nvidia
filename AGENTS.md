@@ -1338,16 +1338,23 @@ promotion gate and is tested apart from the signal arms.
 
 `scripts/test-load-lease-coverage.sh` holds those boundaries and
 `evidence/lease-coverage/` carries the reading before the extension and after
-it; its seven served arms ran on the device against candidate closure
-`15bc632adf7f` and nine of their ten readings pass
-(`evidence/lease-coverage/served-admission/`): a load waits 8810 ms behind a
-holder and then serves, an idle server returns the lease at `idle_ms=0`, a
-decode pass behind a holder writes its own wait line and submits nothing until
-the release, a load refuses on its deadline ahead of any loader line, a fresh
-attempt then loads, a signal inside a load wait ends the process in 1 s by
-default disposition, and a projector-bearing load waits and answers. Loading
-exclusion and evaluation exclusion are therefore measured rather than claimed.
-The tenth refused the closure and the criterion is what was wrong. A
+it; its served arms ran on the device against candidate closure
+`15bc632adf7f` on both the 2B and the 0.8B, and
+`evidence/lease-coverage/served-admission/run-02/` is the standing result:
+`qwen35-2b` reads `served=accepted projector=required` on ten readings with its
+own pinned projector attached, and `qwen35-08b` reads `served=partial` with
+`served_reason=text_arms_only_projector_none` on the nine its projector-none
+tuple allows, since `scripts/models.tsv` declares that row projector-none and
+the pairing rule `scripts/select-projector.sh` implements refuses a foreign one. A load waits 8910 ms behind a holder and then serves,
+an idle server returns the lease at `idle_ms=0`, a decode pass behind a holder
+writes its own wait line and submits nothing until the release, a load refuses
+on its deadline ahead of any loader line, a fresh attempt then loads, a signal
+inside a load wait ends the process by default disposition, and a
+projector-bearing load waits and answers. Loading exclusion and evaluation
+exclusion are therefore measured rather than claimed, on both model sizes.
+
+`run-01/` is the earlier run whose tenth reading refused the closure, and the
+criterion is what was wrong. A
 terminating signal delivered while a decode pass waits on a lease another
 process holds ends that acquire with `reason=Interrupted system call`, and the
 shutdown that follows writes `cleaning up before exit` and nothing more,
@@ -1372,7 +1379,14 @@ rather than that no configuration escapes it. The candidate's teardown is reache
 rather than skipped: once the client leaves, the same log writes
 `teardown: held=no` and the destructor completes. Arm G now ends its client
 before it reads the bound, which holds that server property constant, and the
-interval with the client attached is recorded rather than graded. What the arm
+interval with the client attached is recorded rather than graded; under it the
+2B reads `ended 1s after the client left by=eintr attached_exit=no` and the
+0.8B `ended 0s`, and `run-02/qwen35-2b/server.1.log` carries the same arm on
+the same binary reaching `teardown: held=no` 426 microseconds after the cancel
+its client's departure triggers, where run-01 ended it on `SIGKILL` at the 30 s
+bound; that line marks the destructor's entry into its lease handling rather
+than the end of the shutdown, whose completion is the harness's own
+whole-second reading. What the arm
 establishes is that a lease wait does not prevent a bounded termination: its
 fixture holder takes the lock and opens no CUDA context, so it reads process
 disappearance under contention rather than device exclusion, and the `by=` term

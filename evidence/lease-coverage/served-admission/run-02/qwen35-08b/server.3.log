@@ -1,0 +1,42 @@
+0.00.021.327 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.021.581 W srv  llama_server: -----------------
+0.00.021.582 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.021.582 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.021.582 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.021.582 W srv  llama_server: -----------------
+0.00.022.823 I srv  workload_lea: vulkan workload lease armed: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.00.022.830 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0 bound=deadline
+0.00.022.861 I srv    load_model: loading model '$HOME/models/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf'
+0.00.666.396 W model has unused tensor blk.24.attn_norm.weight (size = 4096 bytes) -- ignoring
+0.00.666.401 W model has unused tensor blk.24.post_attention_norm.weight (size = 4096 bytes) -- ignoring
+0.00.666.407 W model has unused tensor blk.24.attn_q.weight (size = 4456448 bytes) -- ignoring
+0.00.666.409 W model has unused tensor blk.24.attn_k.weight (size = 557056 bytes) -- ignoring
+0.00.666.411 W model has unused tensor blk.24.attn_v.weight (size = 557056 bytes) -- ignoring
+0.00.666.417 W model has unused tensor blk.24.attn_output.weight (size = 2228224 bytes) -- ignoring
+0.00.666.420 W model has unused tensor blk.24.attn_q_norm.weight (size = 1024 bytes) -- ignoring
+0.00.666.422 W model has unused tensor blk.24.attn_k_norm.weight (size = 1024 bytes) -- ignoring
+0.00.666.424 W model has unused tensor blk.24.ffn_gate.weight (size = 3899392 bytes) -- ignoring
+0.00.666.426 W model has unused tensor blk.24.ffn_down.weight (size = 3899392 bytes) -- ignoring
+0.00.666.428 W model has unused tensor blk.24.ffn_up.weight (size = 3899392 bytes) -- ignoring
+0.00.666.433 W model has unused tensor blk.24.nextn.eh_proj.weight (size = 2228224 bytes) -- ignoring
+0.00.666.436 W model has unused tensor blk.24.nextn.enorm.weight (size = 4096 bytes) -- ignoring
+0.00.666.438 W model has unused tensor blk.24.nextn.hnorm.weight (size = 4096 bytes) -- ignoring
+0.00.666.445 W model has unused tensor blk.24.nextn.shared_head_norm.weight (size = 4096 bytes) -- ignoring
+0.01.018.373 I cmn          init: llama threadpool init, n_threads = 6
+0.01.097.031 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 262144, kv_unified = 'true'
+0.01.100.242 I srv  llama_server: model loaded
+0.01.100.248 I srv  llama_server: listening on http://127.0.0.1:18114
+0.01.100.344 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.01.228.885 I slot get_availabl: id  3 | task -1 | selected slot by LRU, t_last = -1
+0.01.228.909 I slot launch_slot_: id  3 | task 0 | processing task, is_child = 0
+0.01.229.289 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0
+0.01.268.421 I slot print_timing: id  3 | task 0 | prompt eval time =      15.86 ms /     6 tokens (    2.64 ms per token,   378.24 tokens per second)
+0.01.268.424 I slot print_timing: id  3 | task 0 |        eval time =      23.26 ms /     7 tokens (    3.88 ms per token,   258.00 tokens per second)
+0.01.268.424 I slot print_timing: id  3 | task 0 |       total time =      39.12 ms /    13 tokens
+0.01.268.427 I slot print_timing: id  3 | task 0 |    graphs reused =          6
+0.01.268.441 I slot      release: id  3 | task 0 | stop processing: n_tokens = 12, truncated = 0
+0.01.268.447 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.01.271.731 I srv    operator(): operator(): cleaning up before exit...
+0.01.272.016 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0 bound=deadline
+0.01.272.018 I srv       destroy: vulkan workload lease teardown: held=yes
+0.01.314.908 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock

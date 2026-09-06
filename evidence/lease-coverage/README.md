@@ -368,14 +368,19 @@ production source and carries no such label. The contended-teardown policy is
 the other gate, and a passing functional arm is behavioral evidence rather than
 a substitute for either.
 
-The served stage's own refusal is a third item and it has moved.
-`served-admission/` refused the closure on `shutdown_while_decode_waits`, and
-`shutdown-stall/` names that bound as llama.cpp's own: the shutdown sits in
-`ctx_http.thread.join()` while a worker waits inside
-`server_response::recv_with_timeout` for a task the interrupted pass never
-answered, and it ends at the client's departure one polling interval later, on
-the promoted closure at 30.9 s held and 1.34 s to leave with no lease compiled
-into it. The criterion was wrong rather than the closure, the arm now ends its
-client before reading the bound, and the served stage needs one re-run under
-that criterion before it reads `served=accepted`. That re-run is a device
-window and no result stands in for it.
+The served stage's own refusal is a third item and it has closed.
+`served-admission/run-01/` refused the closure on
+`shutdown_while_decode_waits`, and `shutdown-stall/` names that bound as
+llama.cpp's own: the shutdown sits in `ctx_http.thread.join()` while a worker
+waits inside `server_response::recv_with_timeout` for a task the interrupted
+pass never answered, and it ends at the client's departure one polling interval
+later, on the promoted closure at 30.9 s held and 1.34 s to leave with no lease
+compiled into it. The criterion was wrong rather than the closure, so the arm
+now ends its client before reading the bound, and
+`served-admission/run-02/` ran the stage again on both model sizes:
+`qwen35-2b` reads `served=accepted projector=required` at ten readings and
+`qwen35-08b` reads `served=partial` with
+`served_reason=text_arms_only_projector_none` at the nine its projector-none
+tuple allows. The requalified arm reads `attached_exit=no` on both, and the 2B's
+log reaches `teardown: held=no` 426 microseconds after the cancel its client's
+departure triggers.
