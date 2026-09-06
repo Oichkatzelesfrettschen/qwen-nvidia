@@ -1392,8 +1392,18 @@ else
     # Arm G. Arm E signals a server waiting inside load_model, where
     # server.cpp has yet to install its handlers at :489 and the default
     # disposition ends the process. A decode pass waits after that
-    # installation, so this arm is where the handler's own path runs. What it
-    # measures either way is the bound and the residue.
+    # installation, so this arm is where the handler's own path runs.
+    #
+    # The client leaves before the bound is read, because a llama-server at this
+    # pin completes no shutdown while a client is still attached to a request no
+    # pass will answer, and that property belongs to the server rather than to
+    # the lease: evidence/lease-coverage/shutdown-stall/ measured the promoted
+    # closure, which compiles in no lease at all, holding the same join for
+    # 30.9 s and leaving it 1.34 s after its client departed, with one thread
+    # sample naming ctx_http.thread.join above httplib::ThreadPool::shutdown
+    # above a worker inside server_response::recv_with_timeout. Reading the
+    # bound with the client attached measures that join and calls it lease
+    # exclusion. The attached interval is recorded as the observation it is.
     if [ "$served_state" = accepted ] && [ -n "$server_pid" ]; then
         arm_g_hold=${QWEN_LEASE_G_HOLD_S:-120}
         printf 'served_arm=shutdown_while_decode_waits hold_s=%s\n' "$arm_g_hold"
@@ -1426,16 +1436,41 @@ else
                 stop_server
             else
                 arm_g_start=$(served_monotonic)
-                kill -TERM "$server_pid" 2>/dev/null || true
+                kill -s TERM "$server_pid" 2>/dev/null || true
+
+                # Five seconds with the client attached, recorded rather than
+                # graded: llama.cpp's own join is what an exit inside it would
+                # report, and the promoted closure holds it too.
+                arm_g_attached=no
+                while [ $(( $(served_monotonic) - arm_g_start )) -lt 5 ]; do
+                    if ! kill -s 0 "$server_pid" 2>/dev/null; then
+                        arm_g_attached=yes
+                        break
+                    fi
+                    sleep 0.2
+                done
+                record_timeline 'arm_g.exit_with_client_attached' "$arm_g_attached"
+
+                # The departure is timestamped before the release runs,
+                # because release_client polls and may escalate after curl's
+                # socket is already closed, and a deadline started afterwards
+                # would exclude that interval from the bound it measures. The
+                # loop below compares against this timestamp rather than
+                # counting its own iterations, so the whole bound is measured
+                # from the disconnect: a release that consumed the bound leaves
+                # the loop with no body to run, and the arm fails closed rather
+                # than crediting the server with an exit it never observed.
+                arm_g_departed=$(served_monotonic)
+                release_client
                 arm_g_gone=no
-                while [ $(( $(served_monotonic) - arm_g_start )) -lt 30 ]; do
-                    if ! kill -0 "$server_pid" 2>/dev/null; then
+                while [ $(( $(served_monotonic) - arm_g_departed )) -lt 30 ]; do
+                    if ! kill -s 0 "$server_pid" 2>/dev/null; then
                         arm_g_gone=yes
                         break
                     fi
                     sleep 0.2
                 done
-                arm_g_elapsed=$(( $(served_monotonic) - arm_g_start ))
+                arm_g_elapsed=$(( $(served_monotonic) - arm_g_departed ))
                 arm_g_escalation=none
                 if [ "$arm_g_gone" != yes ]; then
                     arm_g_escalation=$(terminate_bounded "$server_pid" 0 || true)
@@ -1446,11 +1481,10 @@ else
                     wait "$server_pid" 2>/dev/null || true
                 fi
                 server_pid=''
-                release_client
 
                 if [ "$arm_g_gone" != yes ]; then
                     served_state=refused
-                    fail "shutdown_while_decode_waits the server outlived its signal inside the decode wait escalation=$arm_g_escalation"
+                    fail "shutdown_while_decode_waits the server outlived its client's departure escalation=$arm_g_escalation"
                 elif flock -n "$lease_path" true 2>/dev/null; then
                     served_state=refused
                     fail 'shutdown_while_decode_waits the fixture lock went free, so the wait was not the state that ended'
@@ -1463,7 +1497,13 @@ else
                     if grep -q 'workload lease wait ended without the lease' "$server_log"; then
                         arm_g_by=eintr
                     fi
-                    pass "shutdown_while_decode_waits ended in ${arm_g_elapsed}s by=$arm_g_by with the holder's lock intact"
+                    # What this establishes is that a lease wait does not
+                    # prevent a bounded termination: the fixture holder takes
+                    # the lock and opens no CUDA context, so the arm reads
+                    # process disappearance under contention rather than device
+                    # exclusion, and `by=` names which mechanism ended the
+                    # acquire rather than requiring one.
+                    pass "shutdown_while_decode_waits ended ${arm_g_elapsed}s after the client left by=$arm_g_by attached_exit=$arm_g_attached with the holder's lock intact"
                 fi
                 release_holder
             fi

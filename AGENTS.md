@@ -1347,20 +1347,49 @@ the release, a load refuses on its deadline ahead of any loader line, a fresh
 attempt then loads, a signal inside a load wait ends the process in 1 s by
 default disposition, and a projector-bearing load waits and answers. Loading
 exclusion and evaluation exclusion are therefore measured rather than claimed.
-The tenth refuses the closure: a terminating signal delivered while a decode
-pass waits on a lease another process holds ends that acquire with
-`reason=Interrupted system call` after a 101 ms acquisition wait, and the
+The tenth refused the closure and the criterion is what was wrong. A
+terminating signal delivered while a decode pass waits on a lease another
+process holds ends that acquire with `reason=Interrupted system call`, and the
 shutdown that follows writes `cleaning up before exit` and nothing more,
-outlives a 30 s bound, and ends on `SIGKILL`, where the same binary shutting
-down with the lease free writes `teardown: held=yes` and its release across a
-logged 44 ms. The two shutdowns differ in request state and interruption path
-as well as in whether another process holds the lease, so the record states two
-outcomes rather than their cause, and what consumes the interval is unresolved
-because the log carries no lease line inside it and `SIGKILL` discards an
-unflushed buffer. `served=refused` and the closure stays unpromoted. The arm reaches the
-emergency-termination exception the drain-before-destroy policy reserves rather
-than the orderly session teardown that policy specifies, which drains the active
-holder first and is uncontended by construction.
+outlives a 30 s bound, and ends on `SIGKILL`.
+`evidence/lease-coverage/shutdown-stall/` names what consumes that interval:
+the process sits in `ctx_http.thread.join()` at `server.cpp:534` while
+cpp-httplib's listener joins its workers and one worker waits inside
+`server_response::recv_with_timeout` for a result of the task the interrupted
+pass launched and never answered, which `server-context.cpp:4555` reaches
+through `wait_for_all(req.should_stop)` and `server-http.cpp:642` binds to
+httplib's `is_connection_closed`. The wait therefore ends at the client's own
+departure, one `HTTP_POLLING_SECONDS` later, and `scripts/probe-lease-shutdown-stall.sh`
+measured that on the device across five arms: the client's departure ends the
+shutdown in 1230 to 1340 ms, releasing the holder moves nothing, and an
+untouched server exits 2.6 s past its own client's 20 s timeout rather than on
+the signal. The promoted closure `88681bf4d161`, which compiles in no lease at
+all, holds the same join for 30.9 s with a generation in flight and leaves it
+1.34 s after its client departs, so a lease-free binary reaches the same bound
+and production already carries it; each closure carries one in-flight
+observation at one signal timing, which establishes that both exhibit the delay
+rather than that no configuration escapes it. The candidate's teardown is reached
+rather than skipped: once the client leaves, the same log writes
+`teardown: held=no` and the destructor completes. Arm G now ends its client
+before it reads the bound, which holds that server property constant, and the
+interval with the client attached is recorded rather than graded. What the arm
+establishes is that a lease wait does not prevent a bounded termination: its
+fixture holder takes the lock and opens no CUDA context, so it reads process
+disappearance under contention rather than device exclusion, and the `by=` term
+names which mechanism ended the acquire rather than requiring one. `evidence/lease-coverage/shutdown-stall/` is the
+record and `scripts/test-probe-lease-shutdown-stall.sh` holds the probe's
+discrimination against a fixture whose shutdown is client-bounded by
+construction.
+
+Two adjacent facts stay apart from that one. `server_response::terminate()` has
+no caller anywhere in `tools/server/`, which would bite the blocking
+`recv(int)` path rather than this client-bounded poll, and the patch's
+non-`EINTR` `flock` failure path leaves a task unanswered the same way with the
+server still running and `start_loop` not re-entering until unrelated traffic
+arrives; both are reachable and unobserved here. The requalified arm reaches
+the emergency-termination exception the drain-before-destroy policy reserves
+rather than the orderly session teardown that policy specifies, which drains
+the active holder first and is uncontended by construction.
 The two shutdown arms are separate because `server.cpp` installs its handlers at
 `:489`, after the `load_model` call at `:465`, so a load wait ends by default
 disposition where a decode wait ends on `EINTR`. Every termination the harness
@@ -2206,10 +2235,14 @@ python3 scripts/test-image-review.py             # image lane, held outside the 
 python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
 scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
 scripts/test-load-lease-coverage.sh              # applies the lease patch to the pinned server-context.cpp and reads the load path, the sleeping refusal, the synchronize ahead of each release, and which acquire the load calls; needs that source tree, and its seven served arms need a built binary and a device window
-QWEN_LEASE_TEST_SERVER=scripts/test-fixtures/fake-lease-llama-server.py \
-    QWEN_LEASE_TEST_MODEL=/dev/null QWEN_LEASE_TEST_MMPROJ=/dev/null \
+QWEN_FAKE_LEASE_STALL=client \
+    QWEN_LEASE_TEST_SERVER=scripts/test-fixtures/fake-lease-llama-server.py \
+    QWEN_LEASE_TEST_MODEL=FILE QWEN_LEASE_TEST_MMPROJ=FILE \
     QWEN_LEASE_EVIDENCE_DIR=DIR scripts/test-load-lease-coverage.sh
-                                                 # the same seven arms against a lease-aware stand-in on a host with no GPU: it states that the harness reads what it claims to and nothing about a closure
+                                                 # the same seven arms against a lease-aware stand-in on a host with no GPU: it states that the harness reads what it claims to and nothing about a closure. Both paths are read with `-f`, so a regular file is required and `/dev/null` skips the served stage; the stand-in allocates nothing on a device and the ownership authority still refuses a card another client holds. `QWEN_FAKE_LEASE_STALL=client` is what reaches arm G's post-departure branch, since a stand-in that exits on the signal never leaves a server for the client's departure to end
+scripts/test-probe-lease-shutdown-stall.sh       # the shutdown probe's own discrimination, against a fixture whose shutdown is client-bounded by construction; it spends about four minutes inside real observation windows, which is why it stays outside the unattended set
+scripts/probe-lease-shutdown-stall.sh OUT [ARM_ID...]
+                                                 # what ends a shutdown a request is still inside: the client's departure or the holder's release
 scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included

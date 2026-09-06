@@ -37,7 +37,7 @@ compositor are outside this contract.
 | Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`); `patches/llama-mtmd-device-embd.patch` feeds the projector output to the language model as a device view over a batch-owned device copy, admitted on `qwen35-2b` and `lfm25-vl-450m` with identical bytes and tokens, then completed in run 04 (`evidence/ada/embd-handoff/`): every slice joined to its source rows across split ubatches and split decodes, consumer lifetime synchronized ahead of a batch free, and the recorder-off Nsight capture showing one device-to-device copy per batch and no host staging; off by default | a device-resident media input designed against `evidence/media/decode-placement/` (PNG is a CPU decode plus one upload, JPEG decodes through the hybrid nvJPEG backend, a CV-CUDA resize is a separate preprocessing contract), then a served vision tuple under the device path |
 | CUDA image generation | `sd-cli` under `SD_CUDA=ON` admitted through the router (`evidence/image-appliance/cuda-runtime-admission/`); the reviewer calibrated on declared fixtures with a three-way constraint status and bound verdicts, where `qwen35-2b` passes eighteen arms and `lfm25-vl-450m` fails grounding (`evidence/image-appliance/vision-review-calibration/`); `image-sdxs-512-a` promoted to `validator-gated` with `review_model` `qwen35-2b` on the serialized generate-then-review record (`evidence/image-appliance/serialized-review-admission/run-05/`), whose serialization is sampled ordering under the image service's lease | the bound-one router shape, a second review in one session, and a load-path lease that makes the reviewer's load mutually exclusive with a generation rather than merely ordered |
 | OptiX geometry | service, protocol, runtime, and device admission retained (`evidence/geometry/optix-ray-runtime-proof/`); the served geometry turn admitted alone and the shared-lease contention arm run against the physics lane, where both complete, the driver lists at most one runtime per sample, and the second holder states its `waited_ms` (`evidence/geometry/session-integration/`); profile `refused` | promotion of `geometry-cube-orbit-a` is its own policy transition; a PhysX-to-OptiX scene transfer is a separate typed-data integration rather than part of the combined session |
-| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, so the new closure proves loading exclusion and evaluation exclusion rather than extending one; the candidate `patches/llama-server-vulkan-workload-lease.patch` opens and acquires at the top of `load_model` through `workload_lease_acquire_bounded` on a `QWEN_GPU_COMPUTE_LEASE_WAIT_S` deadline, leaves the decode pass its blocking acquire, refuses inactivity sleeping, synchronizes ahead of every release, and keeps the hold a refused unlock did not give back, reading `reach=accepted` under four mutation controls (`evidence/lease-coverage/`) | the build, the six served arms under a held lease, and the promotion that makes a served child read the lease, all before the combined session |
+| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, so the new closure proves loading exclusion and evaluation exclusion rather than extending one; the candidate `patches/llama-server-vulkan-workload-lease.patch` opens and acquires at the top of `load_model` through `workload_lease_acquire_bounded` on a `QWEN_GPU_COMPUTE_LEASE_WAIT_S` deadline, leaves the decode pass its blocking acquire, refuses inactivity sleeping, synchronizes ahead of every release, and keeps the hold a refused unlock did not give back, reading `reach=accepted` under four mutation controls (`evidence/lease-coverage/`); the served arms run on the device with nine of ten readings passing, and the tenth's criterion requalified after `evidence/lease-coverage/shutdown-stall/` measured the promoted closure holding the same client-bounded shutdown with no lease compiled into it | one re-run of the served stage under the corrected criterion, the provenance gap, the drain-before-destroy policy test, and the promotion that makes a served child read the lease, all before the combined session |
 | Coding page arm | the classifier, the phase timeline, and the fixtures are merged (`evidence/coding-agent/page-arm-classification/`), so a refusal names its own termination reason | the intermittent itself, which needs an instrumented occurrence or a controlled reproduction naming the failing mechanism |
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
@@ -173,6 +173,31 @@ line's `served_reason` separates `text_arms_only_projector_none` from
 `projector_arm_not_run` so a text-path admission is never read as a multimodal
 one.
 
+The seven served arms ran on the device against `15bc632adf7f` and nine of
+their ten readings pass (`evidence/lease-coverage/served-admission/`), so
+loading exclusion and evaluation exclusion are measured rather than claimed: a
+load waits 8810 ms behind a holder and then serves, and a decode pass behind a
+holder submits nothing until the release, with its own wait line as the
+evidence. The tenth refused the closure and the criterion is what was wrong.
+`evidence/lease-coverage/shutdown-stall/` names the bound that arm read: the
+shutdown sits in `ctx_http.thread.join()` while cpp-httplib's listener joins
+its workers and one worker waits inside `server_response::recv_with_timeout`
+for a result of the task the interrupted pass launched and never answered, and
+a completion's wait ends at `is_connection_closed`, so the client's own
+departure is what releases it. Five arms measured that on the device: the
+departure ends the shutdown in 1230 to 1340 ms, the holder's release moves
+nothing, an untouched server exits 2.6 s past its own client's 20 s timeout,
+and the promoted closure `88681bf4d161` -- which compiles in no lease at all --
+holds the same join for 30.9 s with a generation in flight and leaves it 1.34 s
+after its client departs. One thread sample names the chain frame for frame.
+Arm G now ends its client before it reads the bound, which holds that server
+property constant; what it establishes is that a lease wait does not prevent a
+bounded termination, since its fixture holder takes the lock and opens no CUDA
+context. `scripts/test-probe-lease-shutdown-stall.sh` drives the probe against
+a client-bounded fixture and a lease-bounded one and requires the readings to
+swap, so a probe reporting either cell alone fails. The served stage needs one re-run under the corrected criterion
+before it reads `served=accepted`, and that re-run is a device window.
+
 The candidate closure `15bc632adf7f` is built and
 `evidence/lease-coverage/candidate-build-source-identity.tsv` states what it is:
 it matches the recorded production architecture, payload counts, MMVQ
@@ -183,7 +208,8 @@ patch files. Promotion needs that gap resolved -- by recovering the historical
 snapshot or by building a named reconstructed lease-off companion from the
 candidate's own source and toolchain -- beside the served arms, the router
 admission, the serialized image review on the candidate, and the explicit
-teardown policy. The combined session follows all of them.
+teardown policy, and beside one re-run of the served stage under the requalified
+shutdown criterion. The combined session follows all of them.
 
 ## Depth validation
 
