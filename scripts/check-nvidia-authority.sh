@@ -129,34 +129,72 @@ while IFS='	' read -r image_id image_policy image_evidence image_reviewer; do
         *) image_binding_faults="$image_binding_faults $image_id:policy=$image_policy" ;;
     esac
     # The evidence has to be this lane's own admission rather than any
-    # retained directory holding a summary: the run's summary names the image
-    # profile it promoted and carries the arms a promotion rests on, so the
-    # row is bound to a directory whose summary states both.
+    # retained directory holding a summary. One accepted promotion row names
+    # this profile and this reviewer as whole space-separated tokens, so a
+    # suffixed name and a pairing assembled from two rows both fail; the run
+    # reached its own terminal accept with no refused row, so a promotion
+    # cannot rest on an admission that refused after recording the ledger
+    # change; and the parameters the service ran under carry the ledger row's
+    # own geometry, so a row edited after its run loses the binding.
     case $image_evidence in
         evidence/*/)
             image_summary=${image_evidence}summary.tsv
+            image_parameters=${image_evidence}image-parameters.json
             if [ ! -f "$image_summary" ]; then
                 image_binding_faults="$image_binding_faults $image_id:evidence=$image_evidence"
-            elif ! awk -F'\t' -v id="$image_id" '$1 == "image_ledger_promoted" && index($3, id) { found = 1 }
+            elif ! awk -F'	' -v id="$image_id" -v reviewer="review_model=$image_reviewer" '
+                $1 == "image_ledger_promoted" && $2 == "accepted" {
+                    names_profile = 0
+                    names_reviewer = 0
+                    split($3, token, " ")
+                    for (index_of_token in token) {
+                        if (token[index_of_token] == id) { names_profile = 1 }
+                        if (token[index_of_token] == reviewer) { names_reviewer = 1 }
+                    }
+                    if (names_profile && names_reviewer) { found = 1 }
+                }
                 END { exit found ? 0 : 1 }' "$image_summary"; then
-                image_binding_faults="$image_binding_faults $image_id:evidence_names_another_profile"
-            elif ! awk -F'\t' -v reviewer="$image_reviewer" '$1 == "image_ledger_promoted" && index($3, "review_model=" reviewer) { found = 1 }
-                END { exit found ? 0 : 1 }' "$image_summary"; then
-                image_binding_faults="$image_binding_faults $image_id:evidence_names_another_review_model"
-            elif ! awk -F'\t' '$1 == "generation_completed" && $2 == "accepted" { generated = 1 }
+                image_binding_faults="$image_binding_faults $image_id:evidence_names_another_profile_or_review_model"
+            elif ! awk -F'	' '$1 == "generation_completed" && $2 == "accepted" { generated = 1 }
                 $1 == "browser_review_rendered" && $2 == "accepted" { reviewed = 1 }
                 $1 == "review_serialized_after_lease_release" && $2 == "accepted" { serialized = 1 }
                 END { exit (generated && reviewed && serialized) ? 0 : 1 }' "$image_summary"; then
                 image_binding_faults="$image_binding_faults $image_id:evidence_lacks_a_serialized_generation_and_review"
+            elif ! awk -F'	' '$1 == "admit_image_router" && $2 == "accepted" { accepted = 1 }
+                $2 == "refused" { refused = 1 }
+                END { exit (accepted && !refused) ? 0 : 1 }' "$image_summary"; then
+                image_binding_faults="$image_binding_faults $image_id:evidence_admission_did_not_accept"
+            elif ! python3 - "$image_parameters" "$image_id" <<PARAMETERS
+import json, sys
+path, profile = sys.argv[1], sys.argv[2]
+expected = {}
+for line in open("scripts/image-profiles.tsv", encoding="utf-8"):
+    if line.startswith("#"):
+        continue
+    field = line.rstrip("\n").split("\t")
+    if len(field) > 13 and field[0] == profile:
+        expected = {"model_id": field[1], "placement": field[2], "width": int(field[3]),
+                    "height": int(field[4]), "steps": int(field[5]), "sampler": field[6],
+                    "cfg": float(field[7]), "max_steps": int(field[8]),
+                    "max_dimension": int(field[9]), "timeout_s": int(field[10])}
+        break
+try:
+    ran = json.load(open(path, encoding="utf-8")).get(profile, {})
+except (OSError, ValueError):
+    sys.exit(1)
+sys.exit(0 if expected and all(ran.get(key) == value for key, value in expected.items()) else 1)
+PARAMETERS
+            then
+                image_binding_faults="$image_binding_faults $image_id:evidence_ran_another_geometry"
             fi
             ;;
         *) image_binding_faults="$image_binding_faults $image_id:evidence=$image_evidence" ;;
     esac
-    if ! awk -F'\t' -v id="$image_reviewer" '!/^#/ && $1 == id { found = 1 } END { exit found ? 0 : 1 }' scripts/models.tsv; then
+    if ! awk -F'	' -v id="$image_reviewer" '!/^#/ && $1 == id { found = 1 } END { exit found ? 0 : 1 }' scripts/models.tsv; then
         image_binding_faults="$image_binding_faults $image_id:review_model=$image_reviewer"
     fi
 done <<EOF_IMAGE
-$(awk -F'\t' -v OFS='\t' '!/^#/ && NF > 13 && $12 != "refused" { print $1, $12, $13, $14 }' scripts/image-profiles.tsv 2>/dev/null)
+$(awk -F'	' -v OFS='	' '!/^#/ && NF > 13 && $12 != "refused" { print $1, $12, $13, $14 }' scripts/image-profiles.tsv 2>/dev/null)
 EOF_IMAGE
 # Exactly one row emits: the promotion record promotes one tuple, and a tree
 # where every row fell back to refused states a promotion this repository's

@@ -1183,13 +1183,14 @@ seed across two runs, every refusal the design rests on refused once, and
 the served page turn accepted with the 4B distill and refused with the 2B,
 which answers an image request in prose. `image-sdxs-512-a` is the one
 `scripts/image-profiles.tsv` row reading `validator-gated`, on the strength
-of `evidence/image-appliance/serialized-review-admission/run-04/`: one
-approved generation, the lease released, the `qwen35-2b` reviewer child
-loaded by the router 0.4 s after the release and never during the
-generation, its pid resolved from the port the router logged for it, one
-review rendered, and the device at 4873 MiB before, 7464 at the
-generation's peak, and 7454 with the reviewer's own 2566 MiB left
-resident. Every other image row reads `refused`.
+of `evidence/image-appliance/serialized-review-admission/run-05/`: one
+approved generation with the lease held in every sample the runtime appears
+in, the release, the `qwen35-2b` reviewer child first listed as a compute
+client 0.135 s later and never during the generation, its pid resolved from
+the port the router logged for it, one review rendered, and the device at
+4744 MiB before, 7725 at the generation's peak, and 7325 during the review
+with the reviewer's own 2566 MiB left resident. Every other image row reads
+`refused`.
 
 ## Three runtime classes, one primary target
 

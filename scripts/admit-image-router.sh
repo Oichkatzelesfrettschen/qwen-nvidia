@@ -806,12 +806,14 @@ browser_dialog_timeout=${QWEN_ADMISSION_BROWSER_DIALOG_TIMEOUT:-600}
 browser_turn_timeout=${QWEN_ADMISSION_BROWSER_TURN_TIMEOUT:-900}
 browser_accepted_attempt=0
 browser_attempt_excerpts=''
-# The page turn is sampled at ten hertz: the driver's compute-client list,
-# the lease's flock state, and device-global memory, one row each per
-# observation. read-serialized-review-timeline.py reads the generate, release,
-# load-reviewer, review order out of those rows after the turn, so the
-# sequence the review lane claims is measured on the device rather than
-# inferred from the router's lazy load.
+# The page turn is sampled in a loop that sleeps a tenth of a second and pays
+# two driver queries per pass, so its cadence is a property of the run rather
+# than of the sleep and the reader states the rate it measured. Each pass
+# records the driver's compute-client list, the lease's flock state, and
+# device-global memory, one row each. read-serialized-review-timeline.py reads
+# the generate, release, load-reviewer, review order out of those rows after
+# the turn, so the sequence the review lane claims is measured on the device
+# rather than inferred from the router's lazy load.
 sample_page_turn() {
     while :; do
         stamp=$(date +%s.%N)
@@ -905,7 +907,14 @@ if command -v chromium >/dev/null 2>&1; then
             sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
     fi
     record review_child_pid_resolved observed "port=${reviewer_port:-none} pid=${reviewer_pid:-none}"
-    if timeline=$(python3 "$script_directory/read-serialized-review-timeline.py" \
+    if [ -z "$reviewer_pid" ] && [ "$runtime_template" != fixture ]; then
+        # Without the child's own pid the reader falls back to every new server
+        # pid, and a language child restarted inside the turn would then supply
+        # the accepted instant. The arm refuses rather than accepting a
+        # measurement of an unidentified process.
+        record review_serialized_after_lease_release refused \
+            "the review child's pid did not resolve from port=${reviewer_port:-none}"
+    elif timeline=$(python3 "$script_directory/read-serialized-review-timeline.py" \
             --runtime "$(basename "$image_runtime")" \
             ${reviewer_pid:+--reviewer-pid "$reviewer_pid"} \
             "$output_directory/page-turn-clients.tsv" 2>&1); then
@@ -917,7 +926,7 @@ if command -v chromium >/dev/null 2>&1; then
         if [ "$timeline_serialized" = true ]; then
             record review_serialized_after_lease_release accepted \
                 "reviewer_after_release_s=$(printf '%s' "$timeline" | jq -r '.reviewer_after_release_s') runtime_samples=$(printf '%s' "$timeline" | jq -r '.runtime.samples') reviewer_samples=$(printf '%s' "$timeline" | jq -r '.reviewer.samples') reviewer_pids=$(printf '%s' "$timeline" | jq -c '.reviewer.pids')"
-            record review_residency observed "device_memory_mib=$timeline_memory floor_samples=$(printf '%s' "$timeline" | jq -r '.floor_samples') runtime_peak_client_mib=$(printf '%s' "$timeline" | jq -r '.runtime.peak_client_mib') reviewer_peak_client_mib=$(printf '%s' "$timeline" | jq -r '.reviewer.peak_client_mib')"
+            record review_residency observed "device_memory_mib=$timeline_memory sample_hz=$(printf '%s' "$timeline" | jq -r '.sample_hz') floor_samples=$(printf '%s' "$timeline" | jq -r '.floor_samples') runtime_peak_client_mib=$(printf '%s' "$timeline" | jq -r '.runtime.peak_client_mib') reviewer_peak_client_mib=$(printf '%s' "$timeline" | jq -r '.reviewer.peak_client_mib')"
         elif [ "$timeline_serialized" = false ]; then
             record review_serialized_after_lease_release refused "the reviewer was listed ahead of the release: $(printf '%s' "$timeline" | jq -c '{runtime, reviewer, lease_release_after_runtime}' | head -c 300)"
         elif [ "$runtime_template" = fixture ]; then
@@ -1109,10 +1118,15 @@ if [ "$review_model" != '-' ]; then
     # A reviewer holds no execution grant, so the route that serves a tool set
     # answers the way the binary answers a model carrying none.
     call review-tools GET "$router_origin/tools?model=$review_model&autoload=true"
-    if [ "$call_status" != 200 ]; then
-        record review_row_offers_no_tools accepted "status=$call_status"
+    # 403 with error.type feature_disabled is the binary's own answer for a
+    # model carrying no tool server. Another status, or a 403 an authenticator
+    # or a proxy wrote, is a transport or policy fault that proves nothing
+    # about the reviewer's grant, so the body decides beside the status.
+    review_tools_type=$(jq -r '.error.type // empty' "$call_out" 2>/dev/null)
+    if [ "$call_status" = 403 ] && [ "$review_tools_type" = feature_disabled ]; then
+        record review_row_offers_no_tools accepted "status=$call_status type=$review_tools_type"
     else
-        record review_row_offers_no_tools refused "status=$call_status $(head -c 200 "$call_out")"
+        record review_row_offers_no_tools refused "status=$call_status type=${review_tools_type:-none} $(head -c 200 "$call_out")"
     fi
 else
     record review_row_reports_vision skipped 'the promoted row pairs no review_model'
@@ -1182,9 +1196,14 @@ fi
 # 11. Restore the ordinary router.
 restore_ordinary
 printf 'admission_end utc=%s failures=%s\n' "$(utc)" "$failures" >>"$output_directory/run.log"
+# The terminal state belongs in the summary the ledger binds to rather than in
+# this process's exit status alone: an authority reading a retained directory
+# then sees whether the run that recorded the promotion also finished it.
 if [ "$failures" -eq 0 ]; then
+    printf 'admit_image_router\taccepted\tchecks=%s\n' "$failures" >>"$summary"
     printf 'admit_image_router=accepted\n'
     exit 0
 fi
+printf 'admit_image_router\trefused\tchecks=%s\n' "$failures" >>"$summary"
 printf 'admit_image_router=refused checks=%s\n' "$failures" >&2
 exit 1

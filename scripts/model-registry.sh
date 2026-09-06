@@ -488,11 +488,30 @@ validate_tuple_ledger() {
         # The summary's columns are resolved by header name, since the probe
         # gained a backend column ahead of depth and a placement column after
         # the log path while the retained summaries keep the earlier layout.
+        # A projector arm carries three claims the fill arm does not: the
+        # projector reached the state the row names, the control question the
+        # image declares its answer to was answered, and the kernel ring
+        # crossed the arm with no reset or fault. A row claiming a projector
+        # state other than none requires all three columns to be present and to
+        # read so, since a summary lacking them proves none of the three; a fill
+        # summary carrying them is held to them too.
         if ! awk -F'\t' -v m="$_model_id" -v d="$_context" -v b="$_batch" \
-            -v u="$_ubatch" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+            -v u="$_ubatch" -v p="$_projector_state" \
+            -v k="$_cache_k" -v v="$_cache_v" -v f="$_flash_attention" \
+            'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
             $col["model_id"] == m && $col["depth"] == d && $col["batch"] == b &&
             $col["ubatch"] == u && $col["status"] == "ok" &&
-            (!("placement" in col) || $col["placement"] == "on-device") { found = 1 }
+            (!("placement" in col) || $col["placement"] == "on-device") &&
+            (!("cache_k" in col) || $col["cache_k"] == k) &&
+            (!("cache_v" in col) || $col["cache_v"] == v) &&
+            (!("flash_attn" in col) || $col["flash_attn"] == f) &&
+            ((p == "none" &&
+                (!("projector_state" in col) || $col["projector_state"] == p)) ||
+             (p != "none" && ("projector_state" in col) &&
+                ("control_status" in col) && ("health" in col) &&
+                $col["projector_state"] == p)) &&
+            (!("control_status" in col) || $col["control_status"] == "ok") &&
+            (!("health" in col) || $col["health"] == "healthy") { found = 1 }
             END { exit found ? 0 : 1 }' "$tuple_summary_file"; then
             printf '%s: evidence summary carries no accepted %s arm at %s/%s/%s: %s\n' \
                 "$tuple_id" "$_model_id" "$_context" "$_batch" "$_ubatch" \

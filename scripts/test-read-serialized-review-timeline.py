@@ -92,6 +92,65 @@ class TimelineTest(unittest.TestCase):
         self.assertFalse(result["serialized"])
         self.assertEqual(result["held_ticks_during_review"], 1)
 
+    def test_a_free_sample_inside_the_generation_refutes_the_hold(self):
+        # The image service holds the lease from job start to artifact rename,
+        # so a free sample while the runtime is listed is a gap in the claim
+        # rather than a scheduling detail.
+        rows = []
+        rows += sample(100.0, "free", [LANGUAGE], 4700)
+        rows += sample(100.1, "held", [LANGUAGE, RUNTIME], 5900)
+        rows += sample(100.2, "free", [LANGUAGE, RUNTIME], 5900)
+        rows += sample(100.3, "held", [LANGUAGE, RUNTIME], 5900)
+        rows += sample(100.4, "free", [LANGUAGE], 4700)
+        rows += sample(100.5, "free", [LANGUAGE, REVIEWER], 6000)
+        result = self.read(rows)
+        self.assertEqual(result["generation_window_samples"], 3)
+        self.assertEqual(result["generation_window_free_samples"], 1)
+        self.assertFalse(result["lease_held_during_generation"])
+        self.assertFalse(result["serialized"])
+
+    def test_the_before_generation_floor_precedes_the_runtime(self):
+        # A memory row read in the sample the runtime already appears in is
+        # generation memory, so the pre-generation floor takes the rows before
+        # it and reads null where none exist.
+        rows = []
+        rows += sample(100.0, "held", [LANGUAGE, RUNTIME], 5900)
+        rows += sample(100.1, "free", [LANGUAGE], 4700)
+        rows += sample(100.2, "free", [LANGUAGE, REVIEWER], 6000)
+        result = self.read(rows)
+        self.assertIsNone(result["device_memory_mib"]["before_generation"])
+
+    def test_a_lease_never_held_leaves_the_order_unproven(self):
+        # A trace whose lease reads free throughout shows the runtime and then
+        # the reviewer in order, and carries no evidence that the runtime ever
+        # held the lease the order is supposed to demonstrate.
+        rows = []
+        rows += sample(100.0, "free", [LANGUAGE], 4700)
+        rows += sample(100.1, "free", [LANGUAGE, RUNTIME], 5900)
+        rows += sample(100.2, "free", [LANGUAGE], 4700)
+        rows += sample(100.3, "free", [LANGUAGE, REVIEWER], 6000)
+        result = self.read(rows)
+        self.assertFalse(result["lease_held_during_generation"])
+        self.assertFalse(result["serialized"])
+
+    def test_a_truncated_sample_still_carries_its_lease_state(self):
+        # The sampler writes its tick last, so a group its own termination cut
+        # short holds client rows alone; the held state those rows carry is
+        # what refutes an overlap.
+        rows = []
+        rows += sample(100.0, "free", [LANGUAGE], 4700)
+        rows += sample(100.1, "held", [LANGUAGE, RUNTIME], 5900)
+        rows += sample(100.2, "free", [LANGUAGE], 4700)
+        rows += sample(100.3, "free", [LANGUAGE, REVIEWER], 6000)
+        rows.append("100.4\theld\tclient\t%s" % REVIEWER)
+        result = self.read(rows)
+        self.assertEqual(result["held_ticks_during_review"], 1)
+        self.assertFalse(result["serialized"])
+
+    def test_the_cadence_is_measured_rather_than_assumed(self):
+        result = self.read(serialized_sequence())
+        self.assertEqual(result["sample_hz"], 10.0)
+
     def test_the_floor_reads_every_sample_from_the_reviewers_first(self):
         rows = serialized_sequence()
         result = self.read(rows)

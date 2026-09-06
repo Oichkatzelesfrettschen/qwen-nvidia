@@ -9,14 +9,19 @@ one row per observation:
     STAMP\tLEASE\tmemory\tUSED_MIB
     STAMP\tLEASE\ttick
 
-LEASE is `held` or `free`. This reader derives the phases the serialized
-sequence claims and states whether the order held: the language child is
-every llama-server pid the first sample already lists, the generation is the
-interval the image runtime's basename appears in, the release is the first
-`free` tick after the runtime's last sample, and the reviewer is the first
-server pid outside the initial set. The sequence is serialized where the
-reviewer's first sample lies after the release; a reviewer seen while the
-runtime is still listed or the lease still held refutes it. Device memory is
+LEASE is `held` or `free`, and it is read from every row of a sample rather
+than from its tick alone, so a group the sampler's own termination truncated
+still contributes its lease state. This reader derives the phases the
+serialized sequence claims and states whether the order held: the language
+child is every llama-server pid the first sample already lists, the generation
+is the interval the image runtime's basename appears in, the release is the
+first free sample after the runtime's last, and the reviewer is the first
+server pid outside the initial set. The sequence is serialized where every sample the
+runtime appears in reads the lease held and the reviewer's first sample lies
+after the release; a free sample inside that window states
+`lease_held_during_generation` false and leaves the order unproven, and a
+reviewer seen while the runtime is still listed or the lease still held
+refutes it. Device memory is
 reported per phase as the maximum of the memory rows inside the phase, except
 `floor_from_the_reviewers_first_sample`, the minimum from the reviewer's first
 sample onward; the sampler sees process residency rather than the review's end,
@@ -84,6 +89,16 @@ def basename(name):
 def analyze(rows, runtime_basename, server_basename="llama-server", reviewer_pid=None):
     stamps = sorted({row[0] for row in rows})
     first_stamp = stamps[0]
+    # One lease state per sample, taken from every row the sample carries: a
+    # tick is the last row the sampler writes, so a group cut short by the
+    # sampler's own termination would otherwise drop out of the held set and
+    # let an overlap pass unseen.
+    lease_by_stamp = {}
+    for stamp, lease, _kind, _payload in rows:
+        if lease == "held":
+            lease_by_stamp[stamp] = "held"
+        else:
+            lease_by_stamp.setdefault(stamp, "free")
     initial_servers = set()
     for stamp, _lease, kind, payload in rows:
         if stamp != first_stamp or kind != "client":
@@ -128,11 +143,23 @@ def analyze(rows, runtime_basename, server_basename="llama-server", reviewer_pid
             "peak_client_mib": runtime_peak,
         }
         release = None
-        for stamp, lease, kind, _payload in rows:
-            if kind == "tick" and lease == "free" and stamp > max(runtime_stamps):
+        for stamp in stamps:
+            if stamp > max(runtime_stamps) and lease_by_stamp.get(stamp) == "free":
                 release = stamp
                 break
         result["lease_release_after_runtime"] = release
+        # A release is only a release where an acquisition preceded it, and the
+        # image service holds the lease from job start to artifact rename, so
+        # every sample the runtime appears in reads held. One free sample inside
+        # that window is a gap the claim does not survive, and a trace whose
+        # lease reads free throughout carries no acquisition at all.
+        generation_window = [stamp for stamp in stamps
+                             if min(runtime_stamps) <= stamp <= max(runtime_stamps)]
+        result["generation_window_samples"] = len(generation_window)
+        result["generation_window_free_samples"] = sum(
+            1 for stamp in generation_window if lease_by_stamp.get(stamp) != "held")
+        result["lease_held_during_generation"] = bool(
+            generation_window and result["generation_window_free_samples"] == 0)
     if reviewer_stamps:
         result["reviewer"] = {
             "first_seen": min(reviewer_stamps),
@@ -151,8 +178,8 @@ def analyze(rows, runtime_basename, server_basename="llama-server", reviewer_pid
         # another workload. Bounding this by the runtime's last sample would
         # make the window empty exactly when the ordering check passes.
         held_while_reviewer = [
-            stamp for stamp, lease, kind, _payload in rows
-            if kind == "tick" and lease == "held" and reviewer_first <= stamp <= reviewer_last
+            stamp for stamp in stamps
+            if lease_by_stamp.get(stamp) == "held" and reviewer_first <= stamp <= reviewer_last
         ]
         runtime_while_reviewer = [
             stamp for stamp in runtime_stamps if stamp >= reviewer_first
@@ -161,6 +188,7 @@ def analyze(rows, runtime_basename, server_basename="llama-server", reviewer_pid
         result["runtime_samples_during_review"] = len(runtime_while_reviewer)
         result["serialized"] = bool(
             release is not None and reviewer_first > release and reviewer_first > max(runtime_stamps)
+            and result["lease_held_during_generation"]
             and not held_while_reviewer and not runtime_while_reviewer)
         result["reviewer_after_release_s"] = (
             round(reviewer_first - release, 3) if release is not None else None)
@@ -179,7 +207,10 @@ def analyze(rows, runtime_basename, server_basename="llama-server", reviewer_pid
     last_stamp = stamps[-1]
     phases = {}
     if runtime_stamps:
-        phases["before_generation"] = floor(first_stamp, min(runtime_stamps))
+        # Strictly before the runtime's first sample: a figure read from the
+        # sample the runtime already appears in is generation memory.
+        before = [used for stamp, used in memory if stamp < min(runtime_stamps)]
+        phases["before_generation"] = min(before) if before else None
         phases["during_generation"] = peak(min(runtime_stamps), max(runtime_stamps))
     if reviewer_stamps:
         phases["during_review"] = peak(min(reviewer_stamps), max(reviewer_stamps))
@@ -196,6 +227,11 @@ def analyze(rows, runtime_basename, server_basename="llama-server", reviewer_pid
     result["device_memory_mib"] = phases
     result["samples"] = len(stamps)
     result["span_s"] = round(last_stamp - first_stamp, 3)
+    # The sampler sleeps a tenth of a second and pays two driver queries per
+    # sample, so its cadence is a measured property of the run rather than the
+    # sleep. Every interval this file states is read against this rate.
+    result["sample_hz"] = (round((len(stamps) - 1) / (last_stamp - first_stamp), 2)
+                           if len(stamps) > 1 and last_stamp > first_stamp else None)
     return result
 
 
