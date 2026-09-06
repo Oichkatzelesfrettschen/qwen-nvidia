@@ -34,10 +34,17 @@ block comment naming them, a string literal carrying both names, and an acquire
 ahead of its own open each read `uncovered`. That is what separates reading
 executed order from reading hunk membership.
 
-The reading stays textual over the patched file. A call reached through a
-preprocessor branch this host compiles out would still count as present, and no
-part of the reach stage observes a running process, so it settles which change
-to make and settles nothing about what a request behind a held lease receives.
+The reading stays textual over the patched file, and the three added predicates
+inherit that scope exactly. None of them follows control flow: a synchronize
+inside a branch that does not run still arms the release after it, a statement
+of the right shape in the right window still reads as the sleeping refusal, and
+a return that a sibling condition guards still reads as leaving the unlock
+failure. What they exclude is the class of change this patch could plausibly
+receive -- a call moved, removed, renamed, or demoted to a comment -- and the
+four mutations above are that class. A call reached through a preprocessor
+branch this host compiles out would still count as present, and no part of the
+reach stage observes a running process, so the stage settles which change to
+make and settles nothing about what a request behind a held lease receives.
 The served stage is what measures that, and it reports `not_run` here.
 
 Two properties fail:
@@ -219,6 +226,12 @@ than treating absence of health as proof of admission.
 An arm that cannot run is a partial stage rather than an accepted one: without
 `QWEN_LEASE_TEST_MMPROJ` the projector arm reports `not_run` and the stage reads
 `partial`, so a six-arm run never states a seven-arm result.
+
+`shutdown_while_decode_waits` requires the bound and the residue rather than one
+of the two mechanisms, so it records which one ran: the blocking acquire writes
+its own line on `EINTR`, and the absence of that line names the default
+disposition instead. The arm reports `by=eintr` or `by=signal` beside its
+elapsed time.
 
 An unpatched `llama-server` handed a lease path loads and answers exactly as one
 that skipped the lease would, because the open returns true on an unset name and

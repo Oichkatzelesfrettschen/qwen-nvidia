@@ -944,7 +944,15 @@ else
                     served_state=refused
                     fail 'shutdown_while_decode_waits the fixture lock went free, so the wait was not the state that ended'
                 else
-                    pass "shutdown_while_decode_waits ended in ${arm_g_elapsed}s with the holder's lock intact"
+                    # Two mechanisms can end it and the arm requires the bound
+                    # rather than one of them, so which one ran is recorded: the
+                    # blocking acquire writes its own line on EINTR, and its
+                    # absence names the default disposition instead.
+                    arm_g_by=signal
+                    if grep -q 'workload lease wait ended without the lease' "$server_log"; then
+                        arm_g_by=eintr
+                    fi
+                    pass "shutdown_while_decode_waits ended in ${arm_g_elapsed}s by=$arm_g_by with the holder's lock intact"
                 fi
                 release_holder
             fi
@@ -963,6 +971,12 @@ else
     else
         start_server "$arm_c_wait"
         arm_c_result=$(poll_health "$((arm_c_wait + readiness_margin))")
+        if [ "$arm_c_result" = exited ]; then
+            # The refused child is reaped here rather than left for the arm
+            # that overwrites server_pid, which would abandon a zombie.
+            wait "$server_pid" 2>/dev/null || true
+            server_pid=''
+        fi
         if [ "$arm_c_result" != exited ]; then
             served_state=refused
             fail "refused_on_deadline the load did not end on its deadline: $arm_c_result"

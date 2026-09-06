@@ -98,7 +98,10 @@ rather than assumed away.
 The release reports what the kernel confirmed. flock(LOCK_UN) fails before it
 changes anything -- EBADF or EINVAL on the descriptor, never a partial release
 -- so a failure leaves the lock held and workload_lease_held stays true to say
-so. Clearing it would let the next acquire return true on an in-memory assertion
+so. Nothing closes the descriptor, so a lock a refused unlock kept is released
+by the process exit that closes it: the kernel drops a flock with the last
+descriptor referring to its open file description, which is why an unreleasable
+lease never outlives the server holding it. Clearing it would let the next acquire return true on an in-memory assertion
 the kernel refused, which is the one state the lease exists to exclude; keeping
 it costs fairness instead, since every other holder waits on a lock this process
 still owns until the descriptor closes with the process. The idle transition
