@@ -97,6 +97,8 @@ if [ "$gate_host_role" = appliance ]; then
     scripts/test-coding-principal-path.sh
 fi
 scripts/test-admit-coding-chain.sh
+scripts/test-coding-page-arm-classification.sh
+python3 scripts/test-drive-fallback-page-phases.py
 scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh
 scripts/test-probe-depth-projector.sh

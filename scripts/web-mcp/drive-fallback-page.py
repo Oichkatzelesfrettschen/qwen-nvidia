@@ -142,13 +142,70 @@ class DevToolsSocket:
         return result.get("result", {}).get("value")
 
 
+# Every wait the driver performs is a named phase with its own budget, and a
+# run that ends inside one leaves that name behind. A refusal reported as a
+# bare TimeoutError names the exception; a refusal reported with the phase
+# names which of twelve waits the page never reached, which is what separates
+# a page that never loaded from a page that loaded and never proposed.
+PHASE_TIMELINE = []
+
+
+def phase_timeline_reset():
+    del PHASE_TIMELINE[:]
+
+
+def phase_timeline_summary():
+    """The timeline plus the two fields a classifier reads first.
+
+    The pending phase is the last wait alone, because the driver catches some
+    timeouts and continues: the image path recovers from the artifact fetch and
+    goes on to complete both review waits, and reporting that recovered
+    timeout as pending would name a phase the run passed. The timeline keeps
+    every outcome, so a recovered timeout stays readable in `phases`.
+    """
+    last_completed = None
+    for record in PHASE_TIMELINE:
+        if record["outcome"] == "completed":
+            last_completed = record["phase"]
+
+    pending = None
+    pending_deadline = None
+    if PHASE_TIMELINE and PHASE_TIMELINE[-1]["outcome"] != "completed":
+        pending = PHASE_TIMELINE[-1]["phase"]
+        pending_deadline = PHASE_TIMELINE[-1]["deadline_s"]
+
+    return {
+        "phases": list(PHASE_TIMELINE),
+        "last_completed_phase": last_completed,
+        "pending_phase": pending,
+        "pending_phase_deadline_s": pending_deadline,
+    }
+
+
 def wait_for(socket_, expression, seconds, what):
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        value = socket_.evaluate(expression)
-        if value:
-            return value
-        time.sleep(0.5)
+    record = {
+        "phase": what,
+        "deadline_s": seconds,
+        "outcome": "started",
+        "elapsed_s": None,
+    }
+    PHASE_TIMELINE.append(record)
+    started = time.monotonic()
+    deadline = started + seconds
+    try:
+        while time.monotonic() < deadline:
+            value = socket_.evaluate(expression)
+            if value:
+                record["outcome"] = "completed"
+                record["elapsed_s"] = round(time.monotonic() - started, 3)
+                return value
+            time.sleep(0.5)
+    except Exception:
+        record["outcome"] = "raised"
+        record["elapsed_s"] = round(time.monotonic() - started, 3)
+        raise
+    record["outcome"] = "timed_out"
+    record["elapsed_s"] = round(time.monotonic() - started, 3)
     raise TimeoutError("waited {}s for {}".format(seconds, what))
 
 
@@ -532,6 +589,7 @@ def main():
         report["code_card"] = code_card
         report["review"] = review
         report["error"] = error
+        report.update(phase_timeline_summary())
         json.dump(report, sys.stdout, indent=1)
         sys.stdout.write("\n")
         return 1 if error else 0
