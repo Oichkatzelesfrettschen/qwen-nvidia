@@ -4,9 +4,10 @@
 held compute lease on the RTX 4070 Ti. Nine of ten readings pass and one fails,
 so the stage reads `served=refused` and the closure is not promoted. That tenth
 reading's criterion is since requalified: `../shutdown-stall/` measured the
-promoted closure holding the same shutdown for the same reason with no lease
-compiled into it, so the arm as run here read llama.cpp's shutdown with a
-client attached rather than lease exclusion. The stage's terminal result stands
+promoted closure, which compiles in no lease at all, holding the same interval
+between the same two log boundaries and leaving it at its client's departure,
+so the arm as run here read a bound a lease-free binary reaches rather than
+lease exclusion. The stage's terminal result stands
 as the run produced it and a re-run under the corrected criterion has not
 happened.
 `run-01/qwen35-2b/` carries the record: one sanitized server log per launch,

@@ -1454,7 +1454,12 @@ else
                 # The departure is timestamped before the release runs,
                 # because release_client polls and may escalate after curl's
                 # socket is already closed, and a deadline started afterwards
-                # would exclude that interval from the bound it measures.
+                # would exclude that interval from the bound it measures. The
+                # loop below compares against this timestamp rather than
+                # counting its own iterations, so the whole bound is measured
+                # from the disconnect: a release that consumed the bound leaves
+                # the loop with no body to run, and the arm fails closed rather
+                # than crediting the server with an exit it never observed.
                 arm_g_departed=$(served_monotonic)
                 release_client
                 arm_g_gone=no
@@ -1492,6 +1497,12 @@ else
                     if grep -q 'workload lease wait ended without the lease' "$server_log"; then
                         arm_g_by=eintr
                     fi
+                    # What this establishes is that a lease wait does not
+                    # prevent a bounded termination: the fixture holder takes
+                    # the lock and opens no CUDA context, so the arm reads
+                    # process disappearance under contention rather than device
+                    # exclusion, and `by=` names which mechanism ended the
+                    # acquire rather than requiring one.
                     pass "shutdown_while_decode_waits ended ${arm_g_elapsed}s after the client left by=$arm_g_by attached_exit=$arm_g_attached with the holder's lock intact"
                 fi
                 release_holder

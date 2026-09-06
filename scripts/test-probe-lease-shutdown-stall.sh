@@ -107,6 +107,31 @@ for bounded_arm in client_disconnect holder_release; do
     esac
 done
 
+# A reading of `alive` is a claim about elapsed time, so the timeline is read
+# for the time that elapsed: a probe that reported the bound without waiting for
+# it would leave under 30 s between its signal and the intervention that
+# follows, and the readings alone cannot tell the two apart.
+timeline=$output_directory/timeline.tsv
+elapsed_between() {
+    awk -F'\t' -v from="$1" -v to="$2" \
+        '$2 == from { start = $1 }
+         $2 == to && start != "" { print $1 - start; exit }' "$timeline"
+}
+for bounded_arm in client_disconnect holder_release; do
+    case $bounded_arm in
+        client_disconnect) after=client_disconnect.client_release ;;
+        holder_release)    after=holder_release.holder_release ;;
+    esac
+    waited=$(elapsed_between "$bounded_arm.signal" "$after")
+    if [ -z "$waited" ]; then
+        fail "$bounded_arm=timeline missing the signal or the intervention"
+    elif [ "$waited" -ge 30000 ]; then
+        pass "$bounded_arm=observed_the_bound ms=$waited"
+    else
+        fail "$bounded_arm=reported the bound after only ${waited} ms"
+    fi
+done
+
 # The discriminating pair: the departure ends it inside a polling interval and
 # the holder's release moves nothing.
 disconnect_ms=$(read_field client_disconnect exit_ms_after_disconnect=)

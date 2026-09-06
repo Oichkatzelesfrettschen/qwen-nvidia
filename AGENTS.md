@@ -1371,9 +1371,12 @@ observation at one signal timing, which establishes that both exhibit the delay
 rather than that no configuration escapes it. The candidate's teardown is reached
 rather than skipped: once the client leaves, the same log writes
 `teardown: held=no` and the destructor completes. Arm G now ends its client
-before it reads the bound, which holds that server property constant and puts
-the lease back in the arm, and the interval with the client attached is
-recorded rather than graded. `evidence/lease-coverage/shutdown-stall/` is the
+before it reads the bound, which holds that server property constant, and the
+interval with the client attached is recorded rather than graded. What the arm
+establishes is that a lease wait does not prevent a bounded termination: its
+fixture holder takes the lock and opens no CUDA context, so it reads process
+disappearance under contention rather than device exclusion, and the `by=` term
+names which mechanism ended the acquire rather than requiring one. `evidence/lease-coverage/shutdown-stall/` is the
 record and `scripts/test-probe-lease-shutdown-stall.sh` holds the probe's
 discrimination against a fixture whose shutdown is client-bounded by
 construction.

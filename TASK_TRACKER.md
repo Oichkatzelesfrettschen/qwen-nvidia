@@ -191,9 +191,11 @@ and the promoted closure `88681bf4d161` -- which compiles in no lease at all --
 holds the same join for 30.9 s with a generation in flight and leaves it 1.34 s
 after its client departs. One thread sample names the chain frame for frame.
 Arm G now ends its client before it reads the bound, which holds that server
-property constant, and `scripts/test-probe-lease-shutdown-stall.sh` holds the
-probe's discrimination against a fixture whose shutdown is client-bounded by
-construction. The served stage needs one re-run under the corrected criterion
+property constant; what it establishes is that a lease wait does not prevent a
+bounded termination, since its fixture holder takes the lock and opens no CUDA
+context. `scripts/test-probe-lease-shutdown-stall.sh` drives the probe against
+a client-bounded fixture and a lease-bounded one and requires the readings to
+swap, so a probe reporting either cell alone fails. The served stage needs one re-run under the corrected criterion
 before it reads `served=accepted`, and that re-run is a device window.
 
 The candidate closure `15bc632adf7f` is built and

@@ -55,6 +55,17 @@ done
 
 mkdir -p "$output_directory"
 output_directory=$(CDPATH='' cd -- "$output_directory" && pwd)
+# A run writes one table for the arms it was asked for and leaves every other
+# artifact where it lies, so a second invocation into the same directory would
+# put fresh readings beside a previous run's logs and stack under one apparently
+# whole record. The readings table is the marker, since the window's own
+# preconditions and open log are written into this directory before the probe
+# starts.
+if [ -e "$output_directory/readings.tsv" ]; then
+    printf 'probe refused: %s already carries a probe run
+' "$output_directory" >&2
+    exit 1
+fi
 temporary_directory=$(mktemp -d)
 
 # Every retained byte passes this, because a server log names the model path and

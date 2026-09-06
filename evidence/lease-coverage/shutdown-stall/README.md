@@ -100,8 +100,11 @@ policy tested, and neither is in this probe.
 stopped through its owning tmux session after its argv, model, endpoint, and
 working directory were recorded, and it was restarted from that same argv on the
 same closure afterwards at 6424 MiB; `run-01/window-preconditions.tsv`,
-`window-open.log`, and `window-close.log` carry both ends, and the desktop was
-resident throughout as a covariate of every duration below.
+`window-open.log`, and `window-close.log` carry both ends. The compositor and
+two browsers were enumerated as compute clients three times -- before the stop,
+at the probe's ownership acquisition, and after the restart -- and each duration
+below is read under a desktop those three samples bracket rather than under one
+sampled continuously.
 
 | Arm | Reading |
 | --- | --- |
@@ -119,8 +122,8 @@ after its own client's timeout rather than on the signal.
 
 ## The stack names the chain frame for frame
 
-`run-01/stack.txt` is one sample of every thread at ten seconds, and it leaves
-nothing to infer:
+`run-01/stack.txt` is one sample of every thread at ten seconds, taken during
+the candidate's contended arm:
 
 ```text
 TID .048  std::thread::join  <- llama_server(common_params&, int, char**)
@@ -134,15 +137,21 @@ TID .070  pthread_cond_clockwait
                              <- httplib::ThreadPool::worker
 ```
 
-The main thread is inside `ctx_http.thread.join()`, the listener is inside its
-own worker join, and the worker is inside the completion's result wait. No
-thread is in CUDA teardown, because `clean_up()` had already returned from
-`llama_backend_free()` before the join it is stopped in.
+The listener and the worker are named by their own symbols. The main thread's
+frame resolves to an unspecialized `std::thread::join()` under
+`llama_server(common_params&, int, char**)`, and reading it as
+`ctx_http.thread.join()` at `server.cpp:534` is an inference from that function
+holding two joins, the other being `monitor_thread`, which exists only under
+`child.is_child()` and no arm here ran a router child. No thread is in CUDA
+teardown, which is what separates the two hypotheses, and `clean_up()` had
+already returned from `llama_backend_free()` before the join.
 
 The logs date the same boundary. `run-01/promoted_in_flight.server.log` writes
 `cleaning up before exit...` at 0.04.655 and `cancel task, id_task = 0` at
-0.35.554, so the promoted closure sat 30.9 s in that join and left it when the
-client went away. `run-01/client_disconnect.server.log` writes the same pair at
+0.35.554, so the promoted closure sat 30.9 s between the same two log
+boundaries and left when the client went away. No stack was sampled from that
+process, so what it shares with the candidate is the timing signature and the
+`cancel task` boundary rather than an observed frame. `run-01/client_disconnect.server.log` writes the same pair at
 0.01.596 and 0.32.491, and then reaches the destructor and prints
 `teardown: held=no`. The candidate's lease teardown is therefore not skipped
 under contention; it is reached late, after the client departs, and the served
