@@ -114,15 +114,57 @@ else
     report validated_tuples rejected
 fi
 
-# Every image profile stays refused until an image runtime is admitted on this
-# device. The lane's runtime, its build, and its standalone harness were pinned
-# to the other driver and are absent here.
-emitting_image=$(awk -F'\t' '!/^#/ && NF > 1 && $0 !~ /\trefused\t|\trefused$/ { print $1 }' \
-    scripts/image-profiles.tsv 2>/dev/null | grep -v '^profile_id$' || :)
-if [ -z "$emitting_image" ]; then
-    report image_profiles_refused accepted
+# An image profile emits only where a served admission on this device retained
+# it: the row reads validator-gated rather than unguarded, its validated_evidence
+# names a retained directory holding the admission's summary, its review_model
+# names a registry row, and it is the one such row, since the promotion record
+# evidence/image-appliance/serialized-review-admission/ promotes one tuple.
+image_binding_faults=''
+emitting_image_count=0
+while IFS='	' read -r image_id image_policy image_evidence image_reviewer; do
+    [ -n "$image_id" ] || continue
+    emitting_image_count=$((emitting_image_count + 1))
+    case $image_policy in
+        validator-gated) ;;
+        *) image_binding_faults="$image_binding_faults $image_id:policy=$image_policy" ;;
+    esac
+    # The evidence has to be this lane's own admission rather than any
+    # retained directory holding a summary: the run's summary names the image
+    # profile it promoted and carries the arms a promotion rests on, so the
+    # row is bound to a directory whose summary states both.
+    case $image_evidence in
+        evidence/*/)
+            image_summary=${image_evidence}summary.tsv
+            if [ ! -f "$image_summary" ]; then
+                image_binding_faults="$image_binding_faults $image_id:evidence=$image_evidence"
+            elif ! awk -F'\t' -v id="$image_id" '$1 == "image_ledger_promoted" && index($3, id) { found = 1 }
+                END { exit found ? 0 : 1 }' "$image_summary"; then
+                image_binding_faults="$image_binding_faults $image_id:evidence_names_another_profile"
+            elif ! awk -F'\t' -v reviewer="$image_reviewer" '$1 == "image_ledger_promoted" && index($3, "review_model=" reviewer) { found = 1 }
+                END { exit found ? 0 : 1 }' "$image_summary"; then
+                image_binding_faults="$image_binding_faults $image_id:evidence_names_another_review_model"
+            elif ! awk -F'\t' '$1 == "generation_completed" && $2 == "accepted" { generated = 1 }
+                $1 == "browser_review_rendered" && $2 == "accepted" { reviewed = 1 }
+                $1 == "review_serialized_after_lease_release" && $2 == "accepted" { serialized = 1 }
+                END { exit (generated && reviewed && serialized) ? 0 : 1 }' "$image_summary"; then
+                image_binding_faults="$image_binding_faults $image_id:evidence_lacks_a_serialized_generation_and_review"
+            fi
+            ;;
+        *) image_binding_faults="$image_binding_faults $image_id:evidence=$image_evidence" ;;
+    esac
+    if ! awk -F'\t' -v id="$image_reviewer" '!/^#/ && $1 == id { found = 1 } END { exit found ? 0 : 1 }' scripts/models.tsv; then
+        image_binding_faults="$image_binding_faults $image_id:review_model=$image_reviewer"
+    fi
+done <<EOF_IMAGE
+$(awk -F'\t' -v OFS='\t' '!/^#/ && NF > 13 && $12 != "refused" { print $1, $12, $13, $14 }' scripts/image-profiles.tsv 2>/dev/null)
+EOF_IMAGE
+# Exactly one row emits: the promotion record promotes one tuple, and a tree
+# where every row fell back to refused states a promotion this repository's
+# own doctrine and evidence contradict.
+if [ -z "$image_binding_faults" ] && [ "$emitting_image_count" -eq 1 ]; then
+    report image_profiles_bound accepted "emitting=$emitting_image_count"
 else
-    report image_profiles_refused rejected "$emitting_image"
+    report image_profiles_bound rejected "emitting=$emitting_image_count faults=${image_binding_faults:-none}"
 fi
 
 # Every legacy record declares that it sets nothing.

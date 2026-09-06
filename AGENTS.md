@@ -653,9 +653,8 @@ their unqualified ids.
 `scripts/check-validated-tuples.sh` derives the tuple each `models.tsv` row with
 a numeric `validated_filled_depth` already claims and requires a `validated`
 ledger row matching model, depth, batch, ubatch, and cache triple; a gap
-between the two files fails the gate rather than serving silently. No row in
-this tree yet carries a numeric `validated_filled_depth`, so the gate has
-nothing to check until a depth arm runs here.
+between the two files fails the gate rather than serving silently, and the
+gate names how many rows it checked on its accepted line.
 
 `check-validated-tuples.sh` maps a `projector` field of `required` onto an
 expected projector state of `loaded`.
@@ -674,7 +673,19 @@ encoding into the language model's embedding space fails the control and halts
 the chain. A healthy arm emits an appendable ledger line carrying
 `projector_state=loaded` beside its evidence directory rather than into
 `scripts/validated-tuples.tsv`, because a `validated` row requires its evidence
-path to exist in the tree.
+path to exist in the tree. Healthy means the arm's kernel-ring delta read
+zero resets and zero faults, and the probe reads the ring through
+`QWEN_DMESG_COMMAND`, `dmesg` by default; `kernel.dmesg_restrict` is 1 on
+this host, so a run under the default reads every arm `unverified` and
+emits no line, and a run that names `sudo -n dmesg` under a valid ticket
+emits one per arm. `evidence/depth-validation-32k-projector/qwen35-2b/`
+carries the probe's first retained run here, 8192, 16384, and 32768 rows
+with the projector loaded, and `model-registry.sh` reads a directory's
+arm through `projector-summary.tsv` where it holds that file rather than
+`filled-depth-summary.tsv`. `qwen35-2b` serves an interactive depth of
+16384 under a 65536 ceiling, because a review-only section takes the
+registry's interactive depth and a 65536-deep reviewer beside the 4B, its
+projector, and the image runtime exceeds the carve-out.
 
 The `tier` field states what is claimed about a row and
 `scripts/build-router-presets.sh` turns it into what the picker offers.
@@ -1170,8 +1181,15 @@ carries the admission on the device: one generation through the router in
 5.4 s at nice 19 with every module on `cuda0`, identical PNG bytes at one
 seed across two runs, every refusal the design rests on refused once, and
 the served page turn accepted with the 4B distill and refused with the 2B,
-which answers an image request in prose. Every `scripts/image-profiles.tsv`
-row still reads `refused`.
+which answers an image request in prose. `image-sdxs-512-a` is the one
+`scripts/image-profiles.tsv` row reading `validator-gated`, on the strength
+of `evidence/image-appliance/serialized-review-admission/run-04/`: one
+approved generation, the lease released, the `qwen35-2b` reviewer child
+loaded by the router 0.4 s after the release and never during the
+generation, its pid resolved from the port the router logged for it, one
+review rendered, and the device at 4873 MiB before, 7464 at the
+generation's peak, and 7454 with the reviewer's own 2566 MiB left
+resident. Every other image row reads `refused`.
 
 ## Three runtime classes, one primary target
 
@@ -1498,9 +1516,11 @@ paired launch refuses on that probe's own `vulkan_budget_headroom=short` line;
 a one-section launch is the shape
 `evidence/image-appliance/served-turn-admission/` already ran and passed, and
 it reads the figure without being gated on it.
-`image-sdxs-512-a` names `lfm25-vl-16b` because the probe reported the pair
-ample twice on the appliance and one page session then generated and reviewed
-one artifact through it; every other row reads `-`, since the headroom probe
+`image-sdxs-512-a` names `qwen35-2b`, the reviewer
+`evidence/image-appliance/vision-review-calibration/` passed and
+`evidence/image-appliance/serialized-review-admission/` paired with it on
+this host; the prior host's pairing named `lfm25-vl-16b` on its own
+headroom probe. Every other row reads `-`, since the headroom probe
 runs on the appliance alone and no run has reported those pairs.
 `evidence/image-appliance/paired-review-admission/` carries the admitted run,
 where the review cost 19.44 s against the generation's 11.62 s: 14.77 s of
@@ -1665,7 +1685,13 @@ unclosed for the same `not_json` the fence produces.
 
 `webui/index.html` runs that schema in the browser and bounds what a verdict
 may cause. The Review button appears on an artifact card where
-`GET /props?model=<id>` reports a vision modality for some roster row, the
+`GET /props?model=<id>` reports a vision modality for some roster row, a
+read the page makes when an artifact card exists rather than at load,
+because the router autoloads the child a props read names and the reviewer
+is to reach the device after the generation's lease release rather than
+ahead of it; `admit-image-router.sh` reads the review row's `vision-review`
+tag off `/v1/models` ahead of its page turn for the same reason and reads
+props and tools after it. The
 review holds the same `busy` flag a chat turn holds, and the verdict, its
 observations, and any correction stay out of `history`, so image-derived text
 never enters the transcript every later request re-sends. Three facts admit a
@@ -2013,6 +2039,7 @@ python3 scripts/test-summarize-media-decode-placement.py
 python3 scripts/test-paged-kv-residency-planner.py
 scripts/test-paged-kv-residency-transactions.sh
 python3 scripts/test-read-server-decode-iterations.py
+python3 scripts/test-read-serialized-review-timeline.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-cuda-build-threshold-authority.sh

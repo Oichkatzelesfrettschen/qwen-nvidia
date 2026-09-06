@@ -464,7 +464,14 @@ validate_tuple_ledger() {
         # applies where the path names a directory.
         [ -d "$script_directory/../$tuple_evidence" ] || continue
         tuple_rows_file=$script_directory/../$tuple_evidence/validated-tuples-rows.tsv
+        # probe-filled-depth.sh writes filled-depth-summary.tsv and
+        # probe-depth-projector.sh writes projector-summary.tsv; both carry
+        # model_id, depth, batch, ubatch, and status under those header
+        # names, so a directory is read through whichever it holds.
         tuple_summary_file=$script_directory/../$tuple_evidence/filled-depth-summary.tsv
+        if [ ! -f "$tuple_summary_file" ]; then
+            tuple_summary_file=$script_directory/../$tuple_evidence/projector-summary.tsv
+        fi
         if [ ! -f "$tuple_rows_file" ] || [ ! -f "$tuple_summary_file" ]; then
             printf '%s: evidence lacks the emitted row or summary file: %s\n' \
                 "$tuple_id" "$tuple_evidence" >&2

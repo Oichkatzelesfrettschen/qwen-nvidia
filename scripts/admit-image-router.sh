@@ -222,9 +222,11 @@ restore_ordinary() {
     fi
 }
 
+page_sampler_pid=''
 finish_run() {
     exit_status=$?
     trap - EXIT HUP INT TERM
+    if [ -n "$page_sampler_pid" ]; then kill "$page_sampler_pid" 2>/dev/null || :; fi
     if [ "$restoration_required" = 1 ] && [ "$restoration_finished" != 1 ]; then
         restore_ordinary || exit_status=1
     fi
@@ -541,6 +543,7 @@ fi
 # way it resolves /props, and forwards to the child that read the section's own
 # MCP configuration.
 call models GET "$router_origin/v1/models"
+models_response=$call_out
 model_ids=$(jq -r '.data[].id' "$call_out" 2>/dev/null | tr '\n' ',')
 if [ "$review_model" = '-' ]; then
     expected_roster=$profile_id,
@@ -558,25 +561,23 @@ if [ "$expected_set" = "$measured_set" ]; then
 else
     record router_roster refused "expected=$expected_roster measured=${model_ids:-none}"
 fi
-# The Review button appears where some roster row reports a vision modality, so
-# the page's own discriminator is read here before the browser runs.
+# The Review button appears where some roster row carries the review tag, and
+# the roster is read here without loading anything: `GET /props?model=` and
+# `GET /tools?model=` autoload the child they name, so a read of either ahead
+# of the page turn would put the reviewer on the device before the generation
+# and refute the serialized sequence this run measures. The router lists each
+# section's LLAMA_ARG_TAGS under `tags` on /v1/models, and the generator tags
+# a review section `vision-review,review-only`; the props and tools reads
+# follow the page turn, where the page's own review has loaded the child.
 if [ "$review_model" != '-' ]; then
-    call review-props GET "$router_origin/props?model=$review_model"
-    if [ "$(jq -r '.modalities.vision // false' "$call_out" 2>/dev/null)" = true ]; then
-        record review_row_reports_vision accepted "$review_model"
-    else
-        record review_row_reports_vision refused "status=$call_status $(head -c 200 "$call_out")"
-    fi
-    # A reviewer holds no execution grant, so the route that serves a tool set
-    # answers the way the binary answers a model carrying none.
-    call review-tools GET "$router_origin/tools?model=$review_model&autoload=true"
-    if [ "$call_status" != 200 ]; then
-        record review_row_offers_no_tools accepted "status=$call_status"
-    else
-        record review_row_offers_no_tools refused "status=$call_status $(head -c 200 "$call_out")"
-    fi
+    review_tags=$(jq -r --arg id "$review_model" '.data[] | select(.id == $id) | .tags // [] | join(",")' \
+        "$models_response" 2>/dev/null)
+    case ",$review_tags," in
+        *,vision-review,*) record review_row_tagged_vision_review accepted "$review_model tags=$review_tags" ;;
+        *) record review_row_tagged_vision_review refused "$review_model tags=${review_tags:-none}" ;;
+    esac
 else
-    record review_row_reports_vision skipped 'the promoted row pairs no review_model'
+    record review_row_tagged_vision_review skipped 'the promoted row pairs no review_model'
 fi
 call tools GET "$router_origin/tools?model=$profile_id&autoload=true"
 cp "$call_out" "$output_directory/tools.json"
@@ -805,11 +806,33 @@ browser_dialog_timeout=${QWEN_ADMISSION_BROWSER_DIALOG_TIMEOUT:-600}
 browser_turn_timeout=${QWEN_ADMISSION_BROWSER_TURN_TIMEOUT:-900}
 browser_accepted_attempt=0
 browser_attempt_excerpts=''
+# The page turn is sampled at ten hertz: the driver's compute-client list,
+# the lease's flock state, and device-global memory, one row each per
+# observation. read-serialized-review-timeline.py reads the generate, release,
+# load-reviewer, review order out of those rows after the turn, so the
+# sequence the review lane claims is measured on the device rather than
+# inferred from the router's lazy load.
+sample_page_turn() {
+    while :; do
+        stamp=$(date +%s.%N)
+        if [ -e "$lease_file" ] && ! flock -n "$lease_file" true 2>/dev/null; then held=held; else held=free; fi
+        if command -v nvidia-smi >/dev/null 2>&1; then
+            nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null |
+                sed "s|^|$stamp\t$held\tclient\t|" || :
+            printf '%s\t%s\tmemory\t%s MiB\n' "$stamp" "$held" \
+                "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')"
+        fi
+        printf '%s\t%s\ttick\n' "$stamp" "$held"
+        sleep 0.1
+    done
+}
 if command -v chromium >/dev/null 2>&1; then
     browser_review_flag=
     if [ "$review_model" != '-' ]; then
         browser_review_flag=--review
     fi
+    sample_page_turn >"$output_directory/page-turn-clients.raw" 9>&- &
+    page_sampler_pid=$!
     browser_attempt=1
     while [ "$browser_attempt" -le "$browser_attempts" ]; do
         attempt_report=$output_directory/browser-turn-$browser_attempt.json
@@ -856,6 +879,56 @@ if command -v chromium >/dev/null 2>&1; then
         fi
         browser_attempt=$((browser_attempt + 1))
     done
+    kill "$page_sampler_pid" 2>/dev/null || :; wait "$page_sampler_pid" 2>/dev/null || :; page_sampler_pid=''
+    sed -e "s|$output_directory|OUT|g" -e "s|${HOME:?}|\$HOME|g" "$output_directory/page-turn-clients.raw" \
+        >"$output_directory/page-turn-clients.tsv"
+    rm -f "$output_directory/page-turn-clients.raw"
+    # The serialized sequence: the image runtime appears and leaves, the lease
+    # frees, and only then does a llama-server pid outside the initial set --
+    # the reviewer child the router loads on its first request -- appear.
+    # Under the fixture runtime no process opens a CUDA context, so the reader
+    # states not_observed and the arm records that rather than a verdict.
+    if [ "$review_model" = '-' ]; then
+        record review_serialized_after_lease_release skipped 'the promoted row pairs no review_model'
+    else
+    # The reviewer's own pid rather than whichever server pid appeared: the
+    # router logs the port it spawned the review child on, and the child is
+    # still listening here, so ss resolves that port to the pid the timeline
+    # is read against. A port the log never names or a child already gone
+    # leaves the pid empty and the reader falls back to every new server pid,
+    # which the record then states.
+    reviewer_port=$(sed -n "s/.*spawning server instance with name=$review_model on port \([0-9]*\).*/\1/p" \
+        "$state_directory/server.log" 2>/dev/null | tail -1)
+    reviewer_pid=''
+    if [ -n "$reviewer_port" ]; then
+        reviewer_pid=$(ss -ltnpH "sport = :$reviewer_port" 2>/dev/null |
+            sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
+    fi
+    record review_child_pid_resolved observed "port=${reviewer_port:-none} pid=${reviewer_pid:-none}"
+    if timeline=$(python3 "$script_directory/read-serialized-review-timeline.py" \
+            --runtime "$(basename "$image_runtime")" \
+            ${reviewer_pid:+--reviewer-pid "$reviewer_pid"} \
+            "$output_directory/page-turn-clients.tsv" 2>&1); then
+        printf '%s\n' "$timeline" >"$output_directory/page-turn-timeline.json"
+        timeline_serialized=$(printf '%s' "$timeline" | jq -r '.serialized')
+        timeline_runtime=$(printf '%s' "$timeline" | jq -r 'if .runtime == "not_observed" then "not_observed" else "seen" end')
+        timeline_reviewer=$(printf '%s' "$timeline" | jq -r 'if .reviewer == "not_observed" then "not_observed" else "seen" end')
+        timeline_memory=$(printf '%s' "$timeline" | jq -c '.device_memory_mib')
+        if [ "$timeline_serialized" = true ]; then
+            record review_serialized_after_lease_release accepted \
+                "reviewer_after_release_s=$(printf '%s' "$timeline" | jq -r '.reviewer_after_release_s') runtime_samples=$(printf '%s' "$timeline" | jq -r '.runtime.samples') reviewer_samples=$(printf '%s' "$timeline" | jq -r '.reviewer.samples') reviewer_pids=$(printf '%s' "$timeline" | jq -c '.reviewer.pids')"
+            record review_residency observed "device_memory_mib=$timeline_memory floor_samples=$(printf '%s' "$timeline" | jq -r '.floor_samples') runtime_peak_client_mib=$(printf '%s' "$timeline" | jq -r '.runtime.peak_client_mib') reviewer_peak_client_mib=$(printf '%s' "$timeline" | jq -r '.reviewer.peak_client_mib')"
+        elif [ "$timeline_serialized" = false ]; then
+            record review_serialized_after_lease_release refused "the reviewer was listed ahead of the release: $(printf '%s' "$timeline" | jq -c '{runtime, reviewer, lease_release_after_runtime}' | head -c 300)"
+        elif [ "$runtime_template" = fixture ]; then
+            record review_serialized_after_lease_release observed "runtime=$timeline_runtime reviewer=$timeline_reviewer under the fixture runtime, which opens no device context"
+        else
+            record review_serialized_after_lease_release refused "runtime=$timeline_runtime reviewer=$timeline_reviewer: the sampler saw no complete sequence"
+        fi
+    else
+        record review_serialized_after_lease_release refused "$(printf '%s' "$timeline" | head -c 200)"
+    fi
+    fi
     if [ "$browser_accepted_attempt" -gt 0 ]; then
         browser_origin_seen=$(jq -r '.origin // empty' "$browser_report")
         browser_model_seen=$(jq -r '.model // empty' "$browser_report")
@@ -1022,6 +1095,27 @@ if command -v chromium >/dev/null 2>&1; then
     fi
 else
     record browser_turn_completed refused 'chromium is absent, so the served page was not run'
+fi
+# The props and tools reads of the review row, after the page turn: the
+# child is resident now because the page's review loaded it, so these read
+# what the page saw rather than loading anything ahead of the sequence.
+if [ "$review_model" != '-' ]; then
+    call review-props GET "$router_origin/props?model=$review_model"
+    if [ "$(jq -r '.modalities.vision // false' "$call_out" 2>/dev/null)" = true ]; then
+        record review_row_reports_vision accepted "$review_model"
+    else
+        record review_row_reports_vision refused "status=$call_status $(head -c 200 "$call_out")"
+    fi
+    # A reviewer holds no execution grant, so the route that serves a tool set
+    # answers the way the binary answers a model carrying none.
+    call review-tools GET "$router_origin/tools?model=$review_model&autoload=true"
+    if [ "$call_status" != 200 ]; then
+        record review_row_offers_no_tools accepted "status=$call_status"
+    else
+        record review_row_offers_no_tools refused "status=$call_status $(head -c 200 "$call_out")"
+    fi
+else
+    record review_row_reports_vision skipped 'the promoted row pairs no review_model'
 fi
 
 # 9. Secret hygiene: the signing key, the API key, and the grant stay out of

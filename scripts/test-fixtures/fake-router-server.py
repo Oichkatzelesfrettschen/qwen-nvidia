@@ -393,10 +393,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error_object(401, "an API key is required", "authentication_error")
             return
         if parsed.path in ("/v1/models", "/models"):
+            # The real router lists each section's LLAMA_ARG_TAGS under
+            # `tags`, which is how a reader tells a review-only row apart
+            # without a `/props` read that would load its child.
             self.send_json(200, {"object": "list", "data": [{
                 "id": row_id,
                 "object": "model",
                 "status": {"value": "loaded"},
+                "tags": self.settings["rows"][row_id]["tags"],
             } for row_id in self.settings["roster"]]})
             return
         if parsed.path == "/props":
@@ -680,6 +684,7 @@ def main(argv):
             "model_path": keys.get("LLAMA_ARG_MODEL", ""),
             "context": int(keys.get("LLAMA_ARG_CTX_SIZE", "4096")),
             "projector": keys.get("LLAMA_ARG_MMPROJ", ""),
+            "tags": [tag for tag in keys.get("LLAMA_ARG_TAGS", "").split(",") if tag],
         }
         roster.append(served)
         # The review section is the one tagged review-only, which is also the

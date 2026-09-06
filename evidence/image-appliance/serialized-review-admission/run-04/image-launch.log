@@ -1,0 +1,29 @@
+image_launch review_section=qwen35-2b projector=$HOME/models/Qwen3.5-2B-GGUF/mmproj-Qwen3.5-2B-f16.gguf
+image_launch timeouts runtime=300 service=330 mcp=360 proxy=3600 browser=660 proxy_source=llama-server-default
+device_name=NVIDIA GeForce RTX 4070 Ti
+device_total_bytes=12878610432
+device_used_bytes=1957691392
+device_available_bytes=10920919040
+model_bytes=2783446304
+mem_available_bytes=17063395328
+required_host_bytes=4294967296
+required_device_bytes=5351931904
+device_margin_bytes=805306368
+required_device_with_margin_bytes=6157238272
+swap_used_bytes=11262394368
+host_memory_headroom=ample surplus_bytes=12768428032
+device_budget_headroom=ample surplus_bytes=4763680768
+model_memory_preflight=observe
+image_launch budget artifacts_mib=4624 runtime_mib=480 required_mib=5104 sections=2
+image_launch profile=image-sdxs-512-a ledger=OUT/image-profiles.tsv runtime=$HOME/src/stable-diffusion.cpp-qwen-nvidia/build-cuda-sm89/bin/sd-cli parameters=OUT/image-parameters.json
+web_launch presets=OUT/web-presets.ini unvalidated_depth_marker=absent authorizer_ready=1 bind=127.0.0.1
+web_launch broker_port=8571 broker_state_dir=OUT/web-mcp signing_key=configured profile=web-image-admission provider=fake review_section=qwen35-2b models_max=2
+web_launch static_path=$HOME/worktrees/qwen-nvidia/serialized-review-admission/scripts/../webui
+router_preflight_subject=Qwen3.8-4B-Q4_K_M.gguf bytes=2783446304
+started tmux_socket=qwen-runtime tmux_session=qwen-webui profile=default host=127.0.0.1 port=8080 context=24576 latency_mode=observe model=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf server=$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-server
+speculation spec_type=off draft_n_max=default draft_p_min=default draft_backend_sampling=0 backend_sampling=0
+cache cache_type_k=registry cache_type_v=registry flash_attention=registry override_context_ceiling=registry
+state=running server_pid=2523706 monitor_pid=2525272 latency_watchdog_pid=2525088 kernel_hazard_watchdog_pid=2525252 broker_pid=2523390 image_service_pid=2523618 profile=default host=127.0.0.1 port=8080 context=24576 latency_mode=observe utc=2026-09-06T00:26:15Z
+reachable at http://127.0.0.1:8080 (loopback only)
+approval broker at http://127.0.0.1:8571 (loopback only)
+stop it with $HOME/worktrees/qwen-nvidia/serialized-review-admission/scripts/qwen-teardown.sh
