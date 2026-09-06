@@ -1357,7 +1357,10 @@ logged 44 ms. The two shutdowns differ in request state and interruption path
 as well as in whether another process holds the lease, so the record states two
 outcomes rather than their cause, and what consumes the interval is unresolved
 because the log carries no lease line inside it and `SIGKILL` discards an
-unflushed buffer. `served=refused` and the closure stays unpromoted.
+unflushed buffer. `served=refused` and the closure stays unpromoted. The arm reaches the
+emergency-termination exception the drain-before-destroy policy reserves rather
+than the orderly session teardown that policy specifies, which drains the active
+holder first and is uncontended by construction.
 The two shutdown arms are separate because `server.cpp` installs its handlers at
 `:489`, after the `load_model` call at `:465`, so a load wait ends by default
 disposition where a decode wait ends on `EINTR`. Every termination the harness

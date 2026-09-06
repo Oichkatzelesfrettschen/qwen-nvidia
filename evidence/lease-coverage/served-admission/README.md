@@ -84,13 +84,17 @@ Three arms narrow it, and each is weaker than a proof:
 
 ## What this costs the program
 
-Promotion is refused. The teardown this arm exercises is the combined session's
-own shape -- a session teardown arriving while an image generation holds the
-lease -- so the combined-session campaign stays blocked behind this reading
-rather than behind promotion alone. The contended-teardown exception
-`evidence/lease-coverage/README.md` records is a claim about what `destroy()`
-frees; this is a separate reading about whether the process completes a shutdown
-under contention, and the two are recorded apart.
+Promotion is refused, and the combined-session campaign stays blocked because
+served admission failed rather than because this particular arm reproduces it.
+The policy `evidence/lease-coverage/README.md` records has an orderly session
+teardown drain the active holder before destroying an idle child, so an ordinary
+combined-session teardown is uncontended by construction and this arm does not
+reproduce its shape. What the arm does reach is the emergency-termination
+exception that policy reserves: a terminating signal arriving while another
+process holds the lease. It informs that exception and bounds nothing about the
+orderly path. The contended-teardown exception recorded there is separately a
+claim about what `destroy()` frees; this is a reading about whether the process
+completes a shutdown under contention, and the three stay apart.
 
 The candidate closure's other properties stand as
 `candidate-build-source-identity.tsv` states them, provenance gap included. No
