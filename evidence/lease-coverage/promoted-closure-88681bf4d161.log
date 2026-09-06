@@ -1,0 +1,12 @@
+load_path load_model=1078..1436 weights=1171 projector=1234
+ok predicate_self_test covered.cpp=covered
+ok predicate_self_test after-upload.cpp=uncovered
+ok predicate_self_test comment-only.cpp=uncovered
+ok predicate_self_test block-comment.cpp=uncovered
+ok predicate_self_test string-literal.cpp=uncovered
+ok predicate_self_test acquire-before-open.cpp=uncovered
+FAIL load_path_covered=no uncovered open=absent acquire=absent weights=1171 -- the model and projector upload outside the lease
+ok resume_skips_init guard=1427 init_call=1428
+FAIL lease_wait_bounded=no blocking_flock_calls=1 -- a load behind a generation stalls its request
+not_run served reason=no_patched_server
+load_lease_coverage=refused reach=refused served=not_run failures=2
