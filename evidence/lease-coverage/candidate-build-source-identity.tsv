@@ -15,12 +15,19 @@
 #
 # What the comparison establishes is narrow. The two closures agree on
 # architecture, cubin and ptx counts, both MMVQ thresholds, and the absence of
-# the paged-KV and device-embedding markers, and they differ in the lease
-# markers. It does not establish source equivalence: a marker absent from a
-# binary states that one patch's strings are absent rather than that no other
-# source difference exists, and the promoted closure's own source diff is not
-# reproducible from today's patch files, since three of them have been edited
-# since it was built.
+# the paged-KV and device-embedding markers, and each lease marker below is read
+# on both sides. It does not establish source equivalence: a marker absent from
+# a binary states that one patch's strings are absent rather than that no other
+# source difference exists.
+#
+# The promoted closure's own source_diff_sha256 is 0d6e3be391768d5b0aaa8854904b
+# 268fbe3867ff4e76c8cba25c201bc5038b0f, read from its build-configuration.tsv,
+# and four reconstructions from today's patch files reproduce none of it: the
+# production series alone, plus view-alias-deps, plus mmvq-crossover, and plus
+# paged-kv and mtmd-embd read ed47ca4c, ed957fe7, f0f1e551, 3e47e7a1, and
+# 9a75d608 respectively. Which patch file moved since that build is unread here,
+# so the promoted set is named by the markers and thresholds its binaries carry
+# rather than by a replayed diff.
 field	value
 repository_commit	e9178d3f8752a2dcd4f75cb4c46bf344bbd8711f
 llama_cpp_commit	f280b26983ad0fdb705a0d9ebf0503e76f2899b0
@@ -32,6 +39,7 @@ promoted_closure	88681bf4d161
 promoted_arch	89-real
 promoted_cuda_payload	cubin=187 ptx=0
 promoted_marker_QWEN_GPU_COMPUTE_LEASE	absent
+promoted_marker_QWEN_GPU_COMPUTE_LEASE_WAIT_S	absent
 promoted_marker_LLAMA_KV_PAGED_BUFFER	absent
 promoted_marker_LLAMA_MTMD_EMBD_DEVICE	absent
 promoted_cmake_GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE	10

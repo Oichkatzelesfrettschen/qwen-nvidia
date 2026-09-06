@@ -506,22 +506,40 @@ else
     # an enclosing repository otherwise, and an unrelated HEAD would be read as
     # the pinned source.
     pinned_commit=$(sed -n 's/^expected_commit=\([0-9a-f]\{40\}\)$/\1/p' \
-        "$script_directory/build-llama-cuda.sh" | head -1)
+        "$script_directory/build-llama-cuda.sh")
+    pinned_count=$(printf '%s\n' "$pinned_commit" | grep -c '[0-9a-f]')
     source_root=$(git -C "$source_directory" rev-parse --show-toplevel 2>/dev/null || true)
     source_real=$(CDPATH='' cd -- "$source_directory" 2>/dev/null && pwd -P)
-    if [ -n "$pinned_commit" ] && [ -n "$source_root" ] &&
-        [ "$source_root" = "$source_real" ] &&
-        git -C "$source_directory" cat-file -e "$pinned_commit^{commit}" 2>/dev/null &&
-        git -C "$source_directory" show \
+    # A checkout is read at the pin and nowhere else. Falling back to the
+    # working tree there would read a tree a build campaign left carrying this
+    # patch, which is the confusion this reading exists to remove, so the stage
+    # refuses instead; the copy is for a source path that is no checkout at all.
+    if [ -n "$source_root" ] && [ "$source_root" = "$source_real" ]; then
+        if [ "$pinned_count" -ne 1 ]; then
+            reach_state=refused
+            fail "reach build-llama-cuda.sh names $pinned_count expected_commit values, so the pinned source is unresolved"
+            reach_ready=no
+        elif ! git -C "$source_directory" cat-file -e "$pinned_commit^{commit}" 2>/dev/null; then
+            reach_state=refused
+            fail "reach the checkout holds no commit $pinned_commit"
+            reach_ready=no
+        elif ! git -C "$source_directory" show \
             "$pinned_commit:tools/server/server-context.cpp" \
-            >"$patched_tree/tools/server/server-context.cpp" 2>/dev/null &&
-        [ -s "$patched_tree/tools/server/server-context.cpp" ]; then
-        printf 'reach_source commit=%s\n' "$pinned_commit"
+            >"$patched_tree/tools/server/server-context.cpp" 2>/dev/null ||
+            [ ! -s "$patched_tree/tools/server/server-context.cpp" ]; then
+            reach_state=refused
+            fail "reach commit $pinned_commit carries no readable tools/server/server-context.cpp"
+            reach_ready=no
+        else
+            printf 'reach_source commit=%s\n' "$pinned_commit"
+        fi
     else
         cp "$context_source" "$patched_tree/tools/server/server-context.cpp"
         printf 'reach_source working_tree=%s\n' "$context_source"
     fi
-    if ! (cd "$patched_tree" && patch -p1 --forward --silent <"$patch_file"); then
+    if [ "${reach_ready:-yes}" = no ]; then
+        :
+    elif ! (cd "$patched_tree" && patch -p1 --forward --silent <"$patch_file"); then
         reach_state=refused
         fail 'reach the lease patch no longer applies to the pinned source'
     else
