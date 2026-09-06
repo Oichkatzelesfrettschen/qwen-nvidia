@@ -4,8 +4,8 @@
 0.00.016.243 W srv  llama_server: this can be a security risk (cross-origin attacks)
 0.00.016.243 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
 0.00.016.243 W srv  llama_server: -----------------
-0.00.017.398 I srv  workload_lea: vulkan workload lease armed: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock
-0.00.017.404 I srv  workload_lea: vulkan workload lease acquired: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock waited_ms=0 bound=deadline
+0.00.017.398 I srv  workload_lea: vulkan workload lease armed: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.00.017.404 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0 bound=deadline
 0.00.017.475 I srv    load_model: loading model '$HOME/models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf'
 0.00.624.329 W model has unused tensor blk.24.attn_norm.weight (size = 8192 bytes) -- ignoring
 0.00.624.335 W model has unused tensor blk.24.post_attention_norm.weight (size = 8192 bytes) -- ignoring
@@ -26,17 +26,17 @@
 0.01.094.207 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 262144, kv_unified = 'true'
 0.01.097.557 I srv  llama_server: model loaded
 0.01.097.562 I srv  llama_server: listening on http://127.0.0.1:18114
-0.01.097.627 I srv  workload_lea: vulkan workload lease released: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock
+0.01.097.627 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
 0.01.222.612 I slot get_availabl: id  3 | task -1 | selected slot by LRU, t_last = -1
 0.01.222.637 I slot launch_slot_: id  3 | task 0 | processing task, is_child = 0
-0.01.223.067 I srv  workload_lea: vulkan workload lease acquired: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock waited_ms=0
+0.01.223.067 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0
 0.01.312.084 I slot print_timing: id  3 | task 0 | prompt eval time =      58.83 ms /     6 tokens (    9.80 ms per token,   102.00 tokens per second)
 0.01.312.087 I slot print_timing: id  3 | task 0 |        eval time =      30.18 ms /     7 tokens (    5.03 ms per token,   198.82 tokens per second)
 0.01.312.087 I slot print_timing: id  3 | task 0 |       total time =      89.00 ms /    13 tokens
 0.01.312.090 I slot print_timing: id  3 | task 0 |    graphs reused =          6
 0.01.312.108 I slot      release: id  3 | task 0 | stop processing: n_tokens = 12, truncated = 0
-0.01.312.117 I srv  workload_lea: vulkan workload lease released: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock
+0.01.312.117 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
 0.01.316.164 I srv    operator(): operator(): cleaning up before exit...
-0.01.316.508 I srv  workload_lea: vulkan workload lease acquired: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock waited_ms=0 bound=deadline
+0.01.316.508 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0 bound=deadline
 0.01.316.510 I srv       destroy: vulkan workload lease teardown: held=yes
-0.01.360.240 I srv  workload_lea: vulkan workload lease released: path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock
+0.01.360.240 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock

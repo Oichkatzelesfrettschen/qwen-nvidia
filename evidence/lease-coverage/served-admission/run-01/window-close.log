@@ -12,3 +12,14 @@ pid, used_gpu_memory [MiB]
 gpu_state_latch=clear taint=$HOME/qwen-webui-state/gpu-state-tainted
 === owner lock free ===
 owner_lock=free
+
+=== second closing reading, after the restored model finished loading ===
+The reading above was taken while the restored server was still loading,
+so it records 5558 MiB rather than the resident total. This is the same
+process read again after /health returned ok.
+{"status":"ok"}
+pid, used_gpu_memory [MiB]
+1942, 298 MiB
+3551735, 229 MiB
+3782701, 284 MiB
+2169072, 6424 MiB

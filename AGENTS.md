@@ -1348,13 +1348,16 @@ attempt then loads, a signal inside a load wait ends the process in 1 s by
 default disposition, and a projector-bearing load waits and answers. Loading
 exclusion and evaluation exclusion are therefore measured rather than claimed.
 The tenth refuses the closure: a terminating signal delivered while a decode
-pass waits on a lease another process holds returns from the acquire in 101 ms
-with `reason=Interrupted system call`, and the shutdown that follows outlives a
-30 s bound and ends on `SIGKILL`, where the same binary shutting down with the
-lease free finishes in 44 ms through `teardown: held=yes`. What consumes that
-interval is unresolved, since the log carries no lease line inside it and
-`SIGKILL` discards an unflushed buffer, so `served=refused` and the closure
-stays unpromoted.
+pass waits on a lease another process holds ends that acquire with
+`reason=Interrupted system call` after a 101 ms acquisition wait, and the
+shutdown that follows writes `cleaning up before exit` and nothing more,
+outlives a 30 s bound, and ends on `SIGKILL`, where the same binary shutting
+down with the lease free writes `teardown: held=yes` and its release across a
+logged 44 ms. The two shutdowns differ in request state and interruption path
+as well as in whether another process holds the lease, so the record states two
+outcomes rather than their cause, and what consumes the interval is unresolved
+because the log carries no lease line inside it and `SIGKILL` discards an
+unflushed buffer. `served=refused` and the closure stays unpromoted.
 The two shutdown arms are separate because `server.cpp` installs its handlers at
 `:489`, after the `load_model` call at `:465`, so a load wait ends by default
 disposition where a decode wait ends on `EINTR`. Every termination the harness

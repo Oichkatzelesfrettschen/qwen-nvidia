@@ -1,5 +1,5 @@
 arm	outcome	detail
-lease_armed	pass	path=/tmp/tmp.MbmeeCD3lM/vulkan-workload.lock
+lease_armed	pass	path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
 load_after_wait	pass	waited, served, and answered elapsed_s=13 waited_ms=8810
 load_after_wait_releases	pass	idle_ms=0
 decode_waits	pass	no decode inside the hold observed_s=9 waits=1
@@ -15,4 +15,4 @@ server.3	teardown	yes
 server.4	teardown	unattributed
 server.5	teardown	yes
 harness	exit_status	1
-cleanup	clear	/tmp/tmp.MbmeeCD3lM
+cleanup	clear	$LEASE_TEST_TMPDIR
