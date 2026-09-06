@@ -2031,7 +2031,12 @@ fi
 # reads presence and the registry's own tuple rather than tensor bytes -- and
 # the projector's file name comes from the projector_fetch_script the registry
 # row names, which is the same authority that puts the file on the appliance.
-checked_in_review_row=$(grep '^lfm25-vl-16b	' "$script_directory/models.tsv")
+# The shipped image ledger names the reviewer, so the stand-in follows the
+# ledger rather than an id repeated here: a promotion that pairs another
+# checkpoint moves this arm with it.
+checked_in_review_model=$(awk -F'\t' '!/^#/ && NF > 13 && $12 != "refused" { print $14; exit }' \
+    "$script_directory/image-profiles.tsv")
+checked_in_review_row=$(grep "^$checked_in_review_model	" "$script_directory/models.tsv")
 # scripts/validated-tuples.tsv is validated whole against the registry it is read
 # with, so the registry this arm builds is the shipped file with the fixture
 # rows appended rather than the fixture file with one shipped row added.
@@ -2048,12 +2053,12 @@ mkdir -p "$checked_in_model_root/${checked_in_review_file%/*}"
 : >"$checked_in_model_root/${checked_in_review_file%/*}/$checked_in_review_projector"
 
 presets_image_checked_in=$work/presets-image-checked-in.ini
-# The shipped image ledger reads `refused` on every row, because every image
-# grant it carried rested on device evidence taken on the prior host's APU:
-# the generation arms ran sd-cli against that Vulkan device and the paired
-# review ran on that machine's own carve-out. A generator run against it
-# therefore emits a language section and no image server at all, and says so
-# rather than failing.
+# The shipped image ledger carries one validator-gated row,
+# `image-sdxs-512-a` with `review_model` `qwen35-2b`, promoted on
+# evidence/image-appliance/serialized-review-admission/; every other row reads
+# `refused`. A generator run under the armed authorizer therefore emits the
+# language section carrying that one image server, the review-only section its
+# review_model names, and a skip line per refused row.
 if build "$web_profiles_ui" "$presets_image_checked_in" \
     env QWEN_IMAGE_PROFILES="$script_directory/image-profiles.tsv" \
     QWEN_MODEL_REGISTRY="$checked_in_registry" \
@@ -2066,21 +2071,24 @@ if build "$web_profiles_ui" "$presets_image_checked_in" \
     QWEN_IMAGE_PROFILES_JSON="$image_profiles_json" \
     >"$work/image-checked-in.log" 2>"$work/image-checked-in.err"; then
     outcome=ok
-    grep -Fqx '# qwen_image_profile=-' "$presets_image_checked_in" ||
-        outcome=image_marker_names_a_profile
-    grep -Fqx '# qwen_image_review_model=-' "$presets_image_checked_in" ||
-        outcome=review_marker_names_a_model
-    grep -Fqx '# qwen_image_review_section=-' "$presets_image_checked_in" ||
-        outcome=review_section_marker_names_a_section
-    grep -q '^LLAMA_ARG_MCP_SERVERS_CONFIG' "$presets_image_checked_in" &&
-        outcome=configuration_present_for_refused_ledger
-    [ "$(grep -c '^\[' "$presets_image_checked_in")" -eq 1 ] ||
+    grep -Fqx '# qwen_image_profile=image-sdxs-512-a' "$presets_image_checked_in" ||
+        outcome=image_marker_names_another_profile
+    grep -Fqx "# qwen_image_review_model=$checked_in_review_model" "$presets_image_checked_in" ||
+        outcome=review_marker_names_another_model
+    grep -q '^# qwen_image_review_section=.' "$presets_image_checked_in" ||
+        outcome=review_section_marker_absent
+    grep -q '^LLAMA_ARG_MCP_SERVERS_CONFIG' "$presets_image_checked_in" ||
+        outcome=configuration_absent_for_the_gated_row
+    [ "$(grep -c '^\[' "$presets_image_checked_in")" -eq 2 ] ||
         outcome=section_count
-    cat "$work/image-checked-in.log" "$work/image-checked-in.err" |
-        grep -q 'image_preset_skipped' || outcome=skip_unreported
-    report checked_in_image_ledger_emits_no_server "$outcome"
+    for shipped_refused in image-sdxs-512-b image-sd15-lcm-a image-sd15-base-a image-sd-turbo-a; do
+        cat "$work/image-checked-in.log" "$work/image-checked-in.err" |
+            grep -q "image_preset_skipped profile=$shipped_refused execution_policy=refused" ||
+            outcome=refused_row_unreported
+    done
+    report checked_in_image_ledger_emits_its_one_gated_row "$outcome"
 else
-    report checked_in_image_ledger_emits_no_server failed
+    report checked_in_image_ledger_emits_its_one_gated_row failed
     cat "$work/image-checked-in.err" >&2
 fi
 

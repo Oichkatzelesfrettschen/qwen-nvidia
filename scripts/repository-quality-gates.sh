@@ -122,6 +122,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-summarize-media-decode-placement.
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-paged-kv-residency-planner.py
 scripts/test-paged-kv-residency-transactions.sh
 python3 scripts/test-read-server-decode-iterations.py
+python3 scripts/test-read-serialized-review-timeline.py
 python3 scripts/test-concurrent-burst-client.py
 scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-cuda-build-threshold-authority.sh

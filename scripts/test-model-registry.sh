@@ -746,6 +746,49 @@ else
     report tuple_evidence_binds_to_its_own_arm rejected
 fi
 
+# probe-depth-projector.sh retains projector-summary.tsv where
+# probe-filled-depth.sh retains filled-depth-summary.tsv, and the shipped
+# ledger's projector-loaded rows bind to such a directory; the binding reads
+# the arm through that file, and a directory holding neither summary refuses.
+set +e
+"$script_directory/model-registry.sh" tuples qwen35-2b \
+    >"$work_directory/projector-summary.out" 2>"$work_directory/projector-summary.err"
+projector_summary_status=$?
+set -e
+# evidence/depth-validation-cuda/ itself is a retained tree directory holding
+# a README and no probe output, so a row bound to it passes every path rule
+# and fails on the missing files alone.
+no_summary_tuples=$work_directory/no-summary-tuples.tsv
+awk -F'\t' -v OFS='\t' '$2 == "qwen35-2b" { $15 = "evidence/depth-validation-cuda/" } { print }' \
+    "$script_directory/validated-tuples.tsv" >"$no_summary_tuples"
+set +e
+QWEN_VALIDATED_TUPLES=$no_summary_tuples "$script_directory/model-registry.sh" tuples qwen35-2b \
+    >"$work_directory/no-summary.out" 2>"$work_directory/no-summary.err"
+no_summary_status=$?
+set -e
+# A row claiming a loaded projector requires the three columns only a
+# projector probe writes, so binding one to a fill summary refuses rather than
+# passing every predicate the missing columns make inapplicable.
+projector_claim_tuples=$work_directory/projector-claim-tuples.tsv
+awk -F'\t' -v OFS='\t' '$2 == "qwen38-2b-distill" { $12 = "loaded" } { print }' \
+    "$script_directory/validated-tuples.tsv" >"$projector_claim_tuples"
+set +e
+QWEN_VALIDATED_TUPLES=$projector_claim_tuples "$script_directory/model-registry.sh" \
+    tuples qwen38-2b-distill >"$work_directory/projector-claim.out" \
+    2>"$work_directory/projector-claim.err"
+projector_claim_status=$?
+set -e
+if [ "$projector_summary_status" -eq 0 ] &&
+   [ "$projector_claim_status" -ne 0 ] &&
+   grep -F 'evidence summary carries no accepted' "$work_directory/projector-claim.err" >/dev/null &&
+   grep -F 'qwen35-2b-d16384-b2048-ub512-proj' "$work_directory/projector-summary.out" >/dev/null &&
+   [ "$no_summary_status" -ne 0 ] &&
+   grep -F 'evidence lacks the emitted row or summary file' "$work_directory/no-summary.err" >/dev/null; then
+    report tuple_evidence_reads_the_projector_summary accepted
+else
+    report tuple_evidence_reads_the_projector_summary rejected
+fi
+
 if [ "$failures" -eq 0 ]; then
     printf 'model_registry=accepted\n'
     exit 0
