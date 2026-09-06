@@ -162,9 +162,10 @@ projector-bearing load -- need a built binary and a device window. Each is read
 only after the `vulkan workload lease armed` line proves the closure carries the
 patch, and the load arms read the `waiting` and `acquired` lines rather than
 absence of health, because a server that ignored the lease and uploaded slowly
-looks the same from outside. Every process the harness starts ends through one
-bounded path -- signal, poll inside a named deadline, escalate to `SIGKILL`,
-read absence back -- and a fixture holder that outlived it is a counted failure
+looks the same from outside. Every termination the harness performs runs one
+bounded escalation -- signal, poll inside a named deadline, escalate to
+`SIGKILL`, read absence back -- and a fixture holder that outlived it is a
+counted failure
 whose state is retained rather than removed. `QWEN_LEASE_EVIDENCE_DIR` names the
 fresh directory a served run retains its sanitized logs, completion bodies,
 outcomes, timeline, teardown states, and exit status into, and the terminal

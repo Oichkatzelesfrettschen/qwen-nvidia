@@ -1345,10 +1345,12 @@ that refusal, a terminating signal inside a load wait, and a projector-bearing
 load -- report `not_run` until a built binary and a device window drive them.
 The two shutdown arms are separate because `server.cpp` installs its handlers at
 `:489`, after the `load_model` call at `:465`, so a load wait ends by default
-disposition where a decode wait ends on `EINTR`. The harness terminates every
-process it starts through one bounded path -- signal, poll for absence inside a
-named deadline, escalate to `SIGKILL`, read absence back -- and a fixture holder
-that outlived that escalation is a counted failure whose temporary state is
+disposition where a decode wait ends on `EINTR`. Every termination the harness
+performs runs one bounded escalation -- signal, poll for absence inside a named
+deadline, escalate to `SIGKILL`, read absence back -- with the two shutdown arms
+polling on their own, since the elapsed time is what they measure, and handing
+the escalation to that path; a fixture holder that outlived it is a counted
+failure whose temporary state is
 retained rather than removed, since removing a lock pathname under a live holder
 reports a device free that no reading proved free. `QWEN_LEASE_EVIDENCE_DIR`
 names a fresh directory the served stage retains its sanitized server logs,
@@ -2186,6 +2188,10 @@ python3 scripts/test-image-review.py             # image lane, held outside the 
 python3 scripts/web-mcp/test-fallback-page-image.py  # drives the appliance's headless Chromium
 scripts/test-vulkan-workload-lease.sh            # path check and patch replay run in a clone; the served half reports not_run without a patched llama-server and a model
 scripts/test-load-lease-coverage.sh              # applies the lease patch to the pinned server-context.cpp and reads the load path, the sleeping refusal, the synchronize ahead of each release, and which acquire the load calls; needs that source tree, and its seven served arms need a built binary and a device window
+QWEN_LEASE_TEST_SERVER=scripts/test-fixtures/fake-lease-llama-server.py \
+    QWEN_LEASE_TEST_MODEL=/dev/null QWEN_LEASE_TEST_MMPROJ=/dev/null \
+    QWEN_LEASE_EVIDENCE_DIR=DIR scripts/test-load-lease-coverage.sh
+                                                 # the same seven arms against a lease-aware stand-in on a host with no GPU: it states that the harness reads what it claims to and nothing about a closure
 scripts/verify-llama-patch-series.sh             # needs the pinned llama.cpp source tree
 QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included

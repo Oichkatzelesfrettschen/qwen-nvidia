@@ -302,9 +302,11 @@ failure is diagnosed from recorded budgets rather than by raising a timeout. The
 allowance never falls under the arm's own deadline, which is what keeps a
 correctly waiting child from being killed by the guard above it.
 
-Every process the harness starts ends through one bounded path: signal, poll for
-absence inside the deadline the caller names, escalate to `SIGKILL`, and read
-absence back from the kernel. Each signal names itself with `-s`, because a bare `kill -1234` is read as a
+Every termination the harness performs runs the same bounded escalation: signal,
+poll for absence inside the deadline the caller names, escalate to `SIGKILL`,
+and read absence back from the kernel. The two shutdown arms poll on their own,
+because the elapsed time between the signal and the absence is what they
+measure, and they hand the escalation to that same path. Each signal names itself with `-s`, because a bare `kill -1234` is read as a
 signal specification rather than as the process group `-1234` and never reaches
 the kernel, and the holder writes its own pid once its lock is taken, since
 `setsid` execs into the child where the caller has no job control and forks
@@ -318,8 +320,21 @@ own fixture took; the temporary state is retained and named rather than removed,
 because removing a lock pathname under a live holder reports a device free that
 no reading proved free. The bounded path answers a child that traps `SIGTERM`
 and sleeps before any arm trusts it, and the counted path is answered through
-the residue policy itself, since no child survives `SIGKILL` and a residue
-reading is what that policy exists for.
+the residue policy itself, since a child in uninterruptible sleep is the case
+that reading exists for and no ordinary process reproduces it on demand.
+
+`scripts/test-fixtures/fake-lease-llama-server.py` is what makes those arms
+testable off the device. It performs the transitions the patch performs -- open
+at load, bounded acquire ahead of the upload, blocking acquire per decode pass,
+release at the idle transition, and the teardown line on the reacquire path --
+and serves `/health` and `/completion`, so all ten served readings execute their
+real control flow on a host with no GPU: the arms that need a wait to have
+happened read one, the shutdown arms read `by=eintr` and the default
+disposition, and the teardown classifier reads `yes` and `no` from a server that
+takes both paths. It allocates nothing on a device and prints no loader line,
+which is what arm C reads to separate a refusal that preceded an upload from one
+that followed it. A passing run against it states that the harness reads what it
+claims to read and states nothing about the closure under test.
 
 `QWEN_LEASE_EVIDENCE_DIR` names a fresh directory -- the harness refuses a
 non-empty one with a usage error ahead of the device -- that the served stage

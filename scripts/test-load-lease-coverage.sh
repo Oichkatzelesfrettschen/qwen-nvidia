@@ -1077,30 +1077,50 @@ else
         fi
         hold_serial=$((hold_serial + 1))
         holder_state=$temporary_directory/holder-state.$hold_serial
+        holder_ready=$temporary_directory/holder-ready.$hold_serial
         : >"$holder_state"
+        : >"$holder_ready"
         # The holder opens the compute lease on descriptor 9 in a child of its
-        # own, so the owner descriptor is closed ahead of that reuse rather
-        # than inherited under a second meaning. It writes its own pid once the
-        # lock reached the kernel, and setsid made it a session leader, so that
-        # pid is the process group the release signals: setsid execs where the
-        # caller has no job control and forks where it does, and reading the
-        # group out of the holder is correct under both.
-        setsid sh -c 'exec 9>"$1"; flock -x 9; printf "%s" "$$" >"$2"; sleep "$3"' \
-            holder "$lease_path" "$holder_state" "$1" 9>&- &
+        # own, so the owner descriptor is closed ahead of that reuse rather than
+        # inherited under a second meaning. It writes its own pid before it
+        # blocks and its readiness after the lock reaches the kernel, so the
+        # group is known from the first moment rather than from the moment the
+        # lock is taken: a signal arriving inside the wait, and a wait that ends
+        # on its own deadline, both have the group to end. setsid made it a
+        # session leader, so its pid is that group whether setsid exec'd into it
+        # or forked it.
+        setsid sh -c 'printf "%s" "$$" >"$2"
+            exec 9>"$1"
+            flock -x 9
+            printf "held" >"$4"
+            sleep "$3"' \
+            holder "$lease_path" "$holder_state" "$1" "$holder_ready" 9>&- &
         holder_reaper=$!
-        hold_waited=0
-        while [ ! -s "$holder_state" ] && [ "$hold_waited" -lt 600 ]; do
-            hold_waited=$((hold_waited + 1))
+        hold_named=0
+        while [ ! -s "$holder_state" ] && [ "$hold_named" -lt 100 ]; do
+            hold_named=$((hold_named + 1))
             sleep 0.1
         done
         if [ ! -s "$holder_state" ]; then
-            hold_timeout=$(terminate_bounded "$holder_reaper" 5 || true)
-            record_timeline "holder.$hold_serial.readiness_timeout" "$hold_timeout"
-            release_outcome_policy "$hold_timeout" "$holder_reaper"
+            hold_unnamed=$(terminate_bounded "$holder_reaper" 5 || true)
+            record_timeline "holder.$hold_serial.never_named" "$hold_unnamed"
+            release_outcome_policy "$hold_unnamed" "$holder_reaper"
             holder_reaper=''
             return 1
         fi
         holder_group=$(cat "$holder_state")
+        hold_waited=0
+        while [ ! -s "$holder_ready" ] && [ "$hold_waited" -lt 600 ]; do
+            hold_waited=$((hold_waited + 1))
+            sleep 0.1
+        done
+        if [ ! -s "$holder_ready" ]; then
+            # The group is known here, so the timeout ends the holder's whole
+            # group rather than the launcher alone: a shell waiting on its own
+            # flock child would otherwise leave that child behind.
+            release_holder
+            return 1
+        fi
         return 0
     }
 
@@ -1305,6 +1325,7 @@ else
     if [ "$served_state" = accepted ] && [ -n "$server_pid" ]; then
         arm_b_hold=${QWEN_LEASE_B_HOLD_S:-12}
         printf 'served_arm=decode_waits hold_s=%s\n' "$arm_b_hold"
+        arm_b_waits_before=$(grep -c 'workload lease waiting' "$server_log" || true)
         if ! hold_lease "$arm_b_hold"; then
             served_state=refused
             fail 'decode_waits the fixture owner never took the lease'
@@ -1330,11 +1351,25 @@ else
                 sleep 0.2
             done
 
+            # An unfinished request states that nothing came back, which a
+            # delayed client, a stalled HTTP path, or a server slow for its own
+            # reasons produces as readily as a decode behind the lease. The arm
+            # therefore requires the decode pass's own wait line, counted rather
+            # than matched because the load already wrote one, and requires the
+            # fixture to still hold the lock at the end of the observation, so
+            # the absence is attributable to the lease.
+            arm_b_waits_after=$(grep -c 'workload lease waiting' "$server_log" || true)
             if [ "$arm_b_early" = yes ]; then
                 served_state=refused
                 fail 'decode_waits the request decoded while the fixture held the lease'
+            elif [ "$arm_b_waits_after" -le "$arm_b_waits_before" ]; then
+                served_state=refused
+                fail 'decode_waits nothing came back and the decode pass reported no wait -- the request stalled somewhere else'
+            elif flock -n "$lease_path" true 2>/dev/null; then
+                served_state=refused
+                fail 'decode_waits the fixture lease went free inside the observation window'
             else
-                pass "decode_waits no decode inside the hold observed_s=$((arm_b_hold - 3))"
+                pass "decode_waits no decode inside the hold observed_s=$((arm_b_hold - 3)) waits=$((arm_b_waits_after - arm_b_waits_before))"
             fi
 
             release_holder
@@ -1386,6 +1421,7 @@ else
             if [ "$(grep -c 'workload lease waiting' "$server_log" || true)" -le "$arm_g_waits_before" ]; then
                 served_state=refused
                 fail 'shutdown_while_decode_waits the decode pass never reported the wait it was to be interrupted in'
+                release_client
                 release_holder
                 stop_server
             else
