@@ -40,20 +40,29 @@ take it, and llama-server is outside that set: the promoted closure
 `88681bf4d161` reads neither `QWEN_GPU_COMPUTE_LEASE` nor the legacy
 `QWEN_VULKAN_WORKLOAD_LOCK`, because
 `patches/llama-server-vulkan-workload-lease.patch` is a candidate armed under
-`QWEN_LLAMA_CANDIDATE_PATCHES=1` alone. Even applied, that patch acquires in
-the busy-slot branch of `update_slots` and arms its descriptor in `init()`,
-which `load_model` reaches after `common_init_from_params` and
-`mtmd_init_from_file` have already uploaded to CUDA0.
+`QWEN_LLAMA_CANDIDATE_PATCHES=1` alone. The new closure therefore proves two
+exclusions rather than extending one: the load, which uploads weights, a draft
+context, and a projector to CUDA0, and the ordinary evaluation that follows it.
 `evidence/lease-coverage/` is the reading, and
 `scripts/test-load-lease-coverage.sh` is the gate.
 
-The one-child transition below crosses an uncovered load twice, so the campaign
-starts after the acquire moves to `load_model` on a bounded deadline, the
-closure is rebuilt and promoted, and the coverage test reads
-`load_lease_coverage=accepted`. A combined run on a closure that fails that
-test would measure request ordering rather than mutual exclusion, which is the
-distinction `evidence/image-appliance/serialized-review-admission/run-05/`
-already stands on.
+The one-child transition below crosses a load twice, so the campaign starts
+after the extended patch is built, its served arms run, the closure is
+promoted, and the coverage test reads `load_lease_coverage=accepted` with the
+served stage accepted rather than `not_run`. A combined run on a closure that
+fails that test would measure request ordering rather than mutual exclusion,
+which is the distinction
+`evidence/image-appliance/serialized-review-admission/run-05/` already stands
+on.
+
+Lease coverage is admitted with inactivity sleeping disabled. The extended
+`load_model` refuses a configuration that names a lease and a non-negative
+`sleep_idle_seconds` together, ahead of the acquire and of every upload,
+because `server_queue::on_sleeping_state` takes a `void` callback whose caller
+clears the queue's sleeping flag whatever the wake returned. Router eviction and
+a fresh child load are a different mechanism and the campaign exercises them;
+recoverable in-process sleep and wake under the lease is a separate queue-state
+transition and stays outside this claim.
 
 ## The frozen configuration
 
@@ -127,7 +136,7 @@ finding rather than a retry.
 | Warm reuse | review the same artifact a second time | the existing reviewer answers, with no stale verdict and no assumption that a reviewer is a newly appearing process |
 | Warm second subject | generate a second artifact and review it | an already-resident reviewer distinguished from an actively computing one, with its resident allocation inside the memory record |
 | Controlled contention | competing approved operations beside a language or reviewer request | a documented wait or refusal, bounded waits, no unauthorized execution |
-| Failure recovery | cancel while waiting and while running; inject a bounded runtime failure | correct terminal status, child reaped, lease released, the next ordinary request served |
+| Failure recovery | cancel while waiting and while running; inject a bounded runtime failure | correct terminal status, child reaped, lease released, the next ordinary request served; a cancellation issued while a decode pass waits on the lease is recorded with its observed effect and its bound rather than assumed to take effect |
 | Teardown and restoration | stop the session, restore telemetry | no owned residue; telemetry restored to its recorded configuration |
 
 The two warm stages are separate because they ask different questions. Reuse
@@ -217,9 +226,43 @@ it is the required behavior rather than the failure.
 A grant reaching past its claim -- one lane's grant accepted at another, a spent
 grant replayed, or an approval authorizing a retry.
 
-An unbounded wait -- a request stalled on a lease with no deadline and no
-terminal state, which is the failure `flock(LOCK_EX)` without a deadline
-produces.
+A wait with no bound and no progress. The bound belongs to the caller rather
+than to the lease, so the requirement is stated per admission point rather than
+as one deadline:
+
+| Property | Required |
+| --- | --- |
+| Load admission | a deadline enforced inside the acquiring process, and a named refusal at it |
+| Sidecar admission and execution | the lane's existing bounded wait and its runtime deadline |
+| Decode progress behind an ordinary holder | resumes on the release without a second HTTP request |
+| Service shutdown while a decode waits | bounded termination, with no surviving child and no held lock of its own |
+| Per-request cancellation while a decode waits | measured on its own, and open until it is |
+
+A decode pass keeps `flock(LOCK_EX)` on purpose: `server_queue::start_loop`
+re-enters `callback_update_slots` only when a task arrives or the process
+terminates, so a pass that gave up on the lease would strand its request until
+unrelated traffic woke the loop. That blocking acquire is not a bounded request
+deadline, and the campaign does not read one into it. What the combined run
+requires of that call site is progress -- the waiting request completes on the
+release, with no second request sent -- and bounded termination under a
+terminating signal, which
+`scripts/test-load-lease-coverage.sh`'s `decode_waits` and
+`shutdown_while_decode_waits` arms measure ahead of the campaign. Its
+`shutdown_while_load_waits` arm measures a different mechanism and is not read
+for this one: `server.cpp` installs its handlers at `:489`, after the
+`load_model` call at `:465`, so a signal inside the load wait ends the process
+by default disposition while a signal inside a decode wait returns `EINTR` from
+`flock(LOCK_EX)`.
+
+Per-request cancellation while a decode waits stays open rather than claimed. A
+client disconnect or a browser timeout is not evidence that the server discarded
+the request: the pass is inside `flock(LOCK_EX)` on the main loop, and nothing
+reachable from there reads the cancellation. What closes it is an arm that
+cancels a request whose pass is blocked on the lease and reads the slot's own
+terminal state after the release -- whether the cancelled request decodes
+anyway, and how long the cancellation takes to take effect. If it cannot
+complete while the lock is held, the campaign records that bound rather than
+treating the requirement as met.
 
 Residue after teardown -- a service, runtime, socket, held lease, or partial
 artifact surviving, or telemetry restored to a configuration other than its

@@ -1,49 +1,145 @@
-The LLM side of the Vulkan workload lease, on
+The LLM side of the compute lease, on
 f280b26983ad0fdb705a0d9ebf0503e76f2899b0 after the six-patch production series
 and llama-vulkan-view-alias-deps.patch.
 
-The appliance admits one active qwen-owned Vulkan compute workload.
-scripts/image-service.py holds ~/qwen-webui-state/vulkan-workload.lock with
-flock(LOCK_EX) from job start to artifact rename, and at f280b269 it is the only
-writer, so a chat turn and an image generation share the device. This patch
-makes llama-server the second writer under the same lock.
+This host admits one active qwen-owned device workload. scripts/image-service.py,
+scripts/physics-service.py, and scripts/geometry-service.py each hold
+~/qwen-webui-state/vulkan-workload.lock with flock(LOCK_EX) across one job, and
+at f280b269 llama-server holds nothing, so a chat turn, a model load, and an
+image generation share the device. This patch makes llama-server a writer under
+the same lock.
+
+The claim covers the load as well as the pass. load_model uploads the weights
+through common_init_from_params, the projector through mtmd_init_from_file, and
+the draft context through common_speculative_init_from_params, so the open and
+the acquire sit at the top of load_model, in that order, because the acquire
+returns true while the descriptor is closed and an acquire ahead of its own open
+would admit every load while reporting success. A warmup decode inside
+common_init_from_params sits inside the same hold by construction. One device
+step stays outside it: common/arg.cpp calls ggml_backend_load_all() while
+parsing argv, ahead of load_model, which under GGML_BACKEND_DL=OFF registers the
+statically linked backends and enumerates the device. That step allocates no
+device memory and submits no graph, and the first allocation of either kind is
+inside the hold.
+
+The wait bound belongs to the caller rather than to the lease, so the two call
+sites take two acquires. A model load has a caller that carries a refusal --
+load_model returns false and the launch ends -- and the owner lock above this
+one refuses at once with status 75, so an unbounded acquire beneath it would
+turn that refusal into a stall: workload_lease_acquire_bounded polls
+LOCK_EX | LOCK_NB every 50 ms under a deadline.
+QWEN_GPU_COMPUTE_LEASE_WAIT_S names it in seconds the way image-service.py
+names its own with QWEN_IMAGE_LEASE_WAIT_S, 300 by default and 0 for one
+non-blocking attempt, and a value outside 0 to 86400 is refused by name with
+the default used in its place. Polling bounds the wait and buys no
+cancellation: server_queue keeps its running flag private with no accessor and
+server.cpp's is_terminating is file static, so nothing reachable here reads the
+termination such a loop would check.
+
+A decode pass keeps the blocking acquire. server_queue::start_loop re-enters
+callback_update_slots only when a task arrives or the process terminates, so a
+pass that gave up on the lease would strand its request until unrelated traffic
+woke the loop, and a chat turn waiting behind an image generation is what the
+lease is for. server.cpp installs its SIGINT and SIGTERM handlers at :489-494
+with sa_flags = 0, so no SA_RESTART covers that block and a terminating signal
+returns EINTR, which is the cancellation the bounded acquire cannot reach. That
+installation follows the load_model call at :465, so a terminating signal during
+the load path's own wait carries the default disposition and ends the process
+outright: bounded either way, and by two different mechanisms.
+
+Lease coverage is admitted with inactivity sleeping disabled, and load_model
+refuses the configuration that asks for both ahead of the acquire and of every
+upload. server_context::start_loop passes params_base.sleep_idle_seconds * 1000
+to server_queue::start_loop, whose should_sleep() returns false for a negative
+interval alone, so sleeping is on at zero as well as above it and the field's
+own "if >0" comment in common/common.h understates the range. What the refusal
+avoids is a wake load_model cannot decline: handle_sleeping_state calls it and
+turns a false return into GGML_ABORT("failed to reload model after sleeping")
+at server-context.cpp:919, so under sleeping a lease an image generation holds
+past the deadline ends the server rather than waiting for it. Declining the
+wake and staying asleep instead needs server_queue::on_sleeping_state to carry
+a result rather than void, since its caller clears the queue's sleeping flag
+whatever the callback did; that is a queue-state transition of its own. Router
+eviction and a fresh child load are a different mechanism and stay supported.
+The value read is the resolved one: load_model assigns params to params_base,
+start_loop reads that field, and server_res_generator reads it again for
+bypass_sleep.
 
 The lease is two-sided in time rather than tied to residency. An idle loaded
 server reserves memory while the device executes nothing, so residency alone
-holds nothing; server_context_impl::update_slots owns the transitions, taking
-the lease where its all_idle check finds a busy slot and releasing it where the
-check finds none. Every graph a pass submits therefore runs inside the lease,
-and the release trails the final decode by exactly one update_slots pass,
-because a non-idle pass posts SERVER_TASK_TYPE_NEXT_RESPONSE and the pass that
-observes the idle slots is the next one.
+holds nothing; server_context_impl::update_slots owns the transitions after the
+load, taking the lease where its all_idle check finds a busy slot and releasing
+it where the check finds none. Both acquires return true while the lease is
+held, so the per-pass acquire is a no-op under a load-path hold and the release
+trails the final decode by exactly one update_slots pass, because a non-idle
+pass posts SERVER_TASK_TYPE_NEXT_RESPONSE and the pass that observes the idle
+slots is the next one.
 
-QWEN_VULKAN_WORKLOAD_LOCK names the file. An unset or empty variable leaves the
-descriptor closed and every lease call inert, which is the state of every
-llama-bench, probe, and standalone harness in this tree. A named path that
-cannot be opened fails init(), because a server that skipped the lease silently
-would run graphs beside a generation while its log said the invariant held. The
-descriptor is opened once with O_CLOEXEC, so nothing the process spawns
-inherits the open file description flock binds to, and init() reuses it when
-handle_sleeping_state wakes the server after destroy().
+A host function returning is not device completion. llama_decode queues its
+graph on the backend stream and returns, so workload_lease_sync_device calls
+llama_synchronize on the target context and on the draft context where one
+exists, and every release site runs it first: the idle transition in
+update_slots, and destroy(), which synchronizes while ctx_tgt and ctx_dft still
+name the contexts, frees, and releases last, because tearing a context down is
+device work of this server's own. The synchronize sits at the ownership
+transition rather than in the token loop, so an idle transition pays it once and
+a decoded token pays nothing.
 
-A stall is logged while it lasts rather than after it. The acquire tries
+An idle server released the lease at its last all_idle pass, so a teardown from
+~server_context_impl arrives holding nothing and takes it back for the frees.
+The attempt is one non-blocking try -- workload_lease_acquire_bounded takes its
+deadline as an argument and 0 names exactly that -- rather than the load's
+deadline, because a shutdown blocked behind a 300 second generation would
+outlive the absence qwen-teardown.sh proves, while a free that overlaps a holder
+costs that holder a device synchronize rather than correctness. The teardown
+line names which of the two happened, so a free outside the lease is recorded
+rather than assumed away.
+
+The release reports what the kernel confirmed. flock(LOCK_UN) fails before it
+changes anything -- EBADF or EINVAL on the descriptor, never a partial release
+-- so a failure leaves the lock held and workload_lease_held stays true to say
+so. Nothing closes the descriptor, so a lock a refused unlock kept is released
+by the process exit that closes it: the kernel drops a flock with the last
+descriptor referring to its open file description, which is why an unreleasable
+lease never outlives the server holding it. Clearing it would let the next acquire return true on an in-memory assertion
+the kernel refused, which is the one state the lease exists to exclude; keeping
+it costs fairness instead, since every other holder waits on a lock this process
+still owns until the descriptor closes with the process. The idle transition
+repeats on every pass, so workload_lease_release_failed latches the error line to
+one.
+
+tmux starts a session from its server's environment, so an operator's
+QWEN_GPU_COMPUTE_LEASE_WAIT_S reaches the server only through
+scripts/qwen-webui-control.sh's forwarded set, which names it beside the other
+serving variables; the 300 second default applies without it.
+
+QWEN_GPU_COMPUTE_LEASE names the file and QWEN_VULKAN_WORKLOAD_LOCK is read
+beside it for one transition release, in that order, with
+scripts/qwen-capacity-policy.sh exporting both over one path. An unset or empty
+name leaves the descriptor closed and every lease call inert, which is the
+state of every llama-bench, probe, and standalone harness in this tree. A named
+path that cannot be opened fails the load, because a server that skipped the
+lease silently would run graphs beside a generation while its log said the
+invariant held. The descriptor is opened once with O_CLOEXEC, so nothing the
+process spawns inherits the open file description flock binds to, and it is
+reused across a destroy() that releases the lease without closing it.
+
+A stall is logged while it lasts rather than after it. Each acquire tries
 LOCK_EX | LOCK_NB first; on EWOULDBLOCK it writes the waiting line naming the
-path, then blocks, and the acquire line carries waited_ms measured across the
-blocking call alone. server.cpp registers SIGINT and SIGTERM with sa_flags = 0,
-so no SA_RESTART covers that block and a terminating signal returns EINTR: the
-acquire logs the interruption and returns without the lease, which lets the task
-queue observe the termination it was told about while a live queue retries on
-its next pass. Looping on EINTR instead would leave qwen-teardown.sh reporting
-residue for a server that can never unblock its main thread.
+path, and the bounded one names its deadline beside it, before the wait rather
+than after it. The acquire line carries waited_ms measured across the wait
+alone. The armed line the open writes is what a harness reads to prove the
+binary carries this patch at all, since an unpatched server handed a lease path
+loads and answers exactly as one that skipped the lease would.
 
 The process doing the work holds the lease. In router mode server.cpp leaves
-ctx_server uninitialised -- load_model and therefore init() run only in the
-non-router branch -- so the router parent opens nothing. server-models.cpp
-snapshots environ into base_env at server_models_routes construction and spawns
-each child with that copy plus LLAMA_SERVER_ROUTER_PORT, so the variable reaches
-the child that owns the context and the graphs verbatim.
-scripts/vulkan-runtime-env.sh scrubs the GGML_VK_*, display, vendor, and VK
-layer names, so QWEN_VULKAN_WORKLOAD_LOCK crosses the exec boundary untouched.
+ctx_server uninitialised -- load_model runs only in the non-router branch -- so
+the router parent opens nothing. server-models.cpp snapshots environ into
+base_env at server_models_routes construction and spawns each child with that
+copy plus LLAMA_SERVER_ROUTER_PORT, so the names reach the child that owns the
+context and the graphs verbatim. scripts/cuda-runtime-env.sh scrubs the
+GGML_CUDA_*, display, and vendor names, so the lease names cross the exec
+boundary untouched.
 
 The whole block compiles on POSIX alone, guarded the way server.cpp guards its
 own sigaction block, since sys/file.h and flock have no Windows equivalent.
@@ -53,26 +149,36 @@ llama-vulkan-low-priority, llama-no-cpu-fallback, llama-vulkan-duty-cycle,
 llama-vulkan-runtime-submit-limit, llama-vulkan-submit-trace,
 llama-router-tools-proxy, and llama-vulkan-view-alias-deps, in that order.
 
+scripts/test-load-lease-coverage.sh reads this patch against the pinned source
+and refuses a reach that leaves the load uncovered, the load path's own acquire
+unbounded, the sleeping refusal absent, a release ahead of its synchronize, or a
+release that clears the hold the kernel declined to give back;
+evidence/lease-coverage/ carries the reading taken before the extension and
+after it.
+
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index a9edbd7be..5c7da3b7e 100644
+index a9edbd7..4d08fd3 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
-@@ -26,6 +26,14 @@
+@@ -26,6 +26,17 @@
  #include <utility>
  #include <fstream>
  
 +#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 +#include <cerrno>
++#include <chrono>
++#include <cstdlib>
 +#include <cstring>
 +#include <fcntl.h>
 +#include <sys/file.h>
++#include <thread>
 +#include <unistd.h>
 +#endif
 +
  // fix problem with std::min and std::max
  #if defined(_WIN32)
  #define WIN32_LEAN_AND_MEAN
-@@ -804,6 +812,17 @@ public:
+@@ -804,6 +815,18 @@ public:
  
      server_state_callback_t callback_state = [](server_state, json) -> void {};
  
@@ -83,14 +189,15 @@ index a9edbd7be..5c7da3b7e 100644
 +    // so holding it from the first busy slot to the last idle one makes chat
 +    // decode and image generation exclude each other through the kernel. An
 +    // unset variable leaves the descriptor closed and every call below inert.
-+    int         workload_lease_descriptor = -1;
-+    bool        workload_lease_held       = false;
++    int         workload_lease_descriptor     = -1;
++    bool        workload_lease_held           = false;
++    bool        workload_lease_release_failed = false;
 +    std::string workload_lease_path;
 +
      server_context_impl() {
          mtmd_helper_log_set(common_log_default_callback, nullptr);
      }
-@@ -887,7 +906,108 @@ private:
+@@ -887,7 +910,258 @@ private:
  
      int64_t t_last_load_progress_ms = 0;
  
@@ -106,7 +213,13 @@ index a9edbd7be..5c7da3b7e 100644
 +            return true;
 +        }
 +
-+        const char * path = getenv("QWEN_VULKAN_WORKLOAD_LOCK");
++        // QWEN_GPU_COMPUTE_LEASE is the name; QWEN_VULKAN_WORKLOAD_LOCK is read
++        // beside it for one transition release, and
++        // scripts/qwen-capacity-policy.sh exports both over one file.
++        const char * path = getenv("QWEN_GPU_COMPUTE_LEASE");
++        if (path == nullptr || path[0] == '\0') {
++            path = getenv("QWEN_VULKAN_WORKLOAD_LOCK");
++        }
 +        if (path == nullptr || path[0] == '\0') {
 +            return true;
 +        }
@@ -125,6 +238,88 @@ index a9edbd7be..5c7da3b7e 100644
 +        return true;
 +    }
 +
++    // QWEN_GPU_COMPUTE_LEASE_WAIT_S names the load path's deadline in seconds
++    // the way image-service.py names its own with QWEN_IMAGE_LEASE_WAIT_S, 300
++    // by default and 0 for one non-blocking attempt. A value outside 0 to 86400
++    // is refused by name with the default used in its place.
++    int workload_lease_wait_seconds() const {
++        const char * configured = getenv("QWEN_GPU_COMPUTE_LEASE_WAIT_S");
++        if (configured != nullptr && configured[0] != '\0') {
++            char *     end   = nullptr;
++            const long value = strtol(configured, &end, 10);
++            if (end != nullptr && *end == '\0' && value >= 0 && value <= 86400) {
++                return (int) value;
++            }
++            SRV_WRN("vulkan workload lease wait is not a second count: value=%s using=300\n",
++                    configured);
++        }
++        return 300;
++    }
++
++    // The bound belongs to the caller rather than to the lease, so the caller
++    // names it in seconds. A model load carries a refusal -- load_model returns
++    // false and the launch ends -- so it waits under
++    // workload_lease_wait_seconds(), because the owner lock above this one
++    // refuses at once with status 75 and an unbounded acquire beneath it would
++    // turn that refusal into a stall. A teardown passes 0 and gets the single
++    // non-blocking attempt that value names.
++    //
++    // Polling bounds the wait; it buys no cancellation. server_queue keeps its
++    // running flag private with no accessor, and server.cpp's is_terminating is
++    // file static, so nothing here reads the termination this loop would have to
++    // check. The step is bounded at 50 ms and the deadline ends it.
++    bool workload_lease_acquire_bounded(int wait_s) {
++#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
++        if (workload_lease_descriptor < 0 || workload_lease_held) {
++            return true;
++        }
++
++        int64_t waited_ms = 0;
++
++        if (flock(workload_lease_descriptor, LOCK_EX | LOCK_NB) != 0) {
++            if (errno != EWOULDBLOCK && errno != EAGAIN) {
++                SRV_ERR("vulkan workload lease failed: path=%s reason=%s\n",
++                        workload_lease_path.c_str(), strerror(errno));
++                return false;
++            }
++
++            SRV_INF("vulkan workload lease waiting: path=%s deadline_s=%d\n",
++                    workload_lease_path.c_str(), wait_s);
++
++            const int64_t t_start    = ggml_time_us();
++            const int64_t deadline   = t_start + (int64_t) wait_s * 1000000;
++            bool          took_lease = false;
++
++            while (ggml_time_us() < deadline) {
++                if (flock(workload_lease_descriptor, LOCK_EX | LOCK_NB) == 0) {
++                    took_lease = true;
++                    break;
++                }
++                if (errno != EWOULDBLOCK && errno != EAGAIN) {
++                    SRV_ERR("vulkan workload lease failed: path=%s reason=%s\n",
++                            workload_lease_path.c_str(), strerror(errno));
++                    return false;
++                }
++                std::this_thread::sleep_for(std::chrono::milliseconds(50));
++            }
++
++            waited_ms = (ggml_time_us() - t_start) / 1000;
++
++            if (!took_lease) {
++                SRV_WRN("vulkan workload lease deadline reached without the lease: path=%s waited_ms=%" PRId64 " deadline_s=%d\n",
++                        workload_lease_path.c_str(), waited_ms, wait_s);
++                return false;
++            }
++        }
++
++        workload_lease_held = true;
++
++        SRV_INF("vulkan workload lease acquired: path=%s waited_ms=%" PRId64 " bound=deadline\n",
++                workload_lease_path.c_str(), waited_ms);
++#endif
++        return true;
++    }
++
 +    // A non-blocking attempt runs first so the waiting line reaches the log
 +    // before the block rather than after it, which is what makes a stall
 +    // visible while it lasts.
@@ -132,6 +327,16 @@ index a9edbd7be..5c7da3b7e 100644
 +    // lease is configured. Every failure returns false so the caller leaves
 +    // the pass without posting NEXT_RESPONSE, because a pass that submits
 +    // without the lease is the one state the lease exists to exclude.
++    //
++    // This one blocks rather than taking a deadline, because update_slots owns
++    // no way to reschedule a pass it abandons: server_queue::start_loop
++    // re-enters callback_update_slots only when a task arrives or the process
++    // terminates, so a pass that gave up on the lease would strand its request
++    // until unrelated traffic woke the loop. A chat turn waiting behind an
++    // image generation is what the lease is for. server.cpp registers SIGINT
++    // and SIGTERM with sa_flags = 0, so no SA_RESTART covers the block and a
++    // terminating signal returns EINTR, which is the cancellation the bounded
++    // acquire above cannot reach.
 +    bool workload_lease_acquire() {
 +#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 +        if (workload_lease_descriptor < 0 || workload_lease_held) {
@@ -174,54 +379,154 @@ index a9edbd7be..5c7da3b7e 100644
 +        return true;
 +    }
 +
-+    void workload_lease_release() {
-+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
++    // A host function returning is not device completion: llama_decode queues
++    // its graph on the backend stream and returns, so a release taken at that
++    // boundary hands the lease to the next holder while this server's kernels
++    // still run. llama_synchronize waits for the context's pending work, and
++    // the call sits at the ownership transition rather than in the token loop,
++    // so an idle transition pays it once and a decoded token pays nothing.
++    void workload_lease_sync_device() {
 +        if (workload_lease_descriptor < 0 || !workload_lease_held) {
 +            return;
 +        }
 +
++        if (ctx_tgt != nullptr) {
++            llama_synchronize(ctx_tgt);
++        }
++        if (ctx_dft != nullptr) {
++            llama_synchronize(ctx_dft);
++        }
++    }
++
++    // The unlock alone, and it reports what the kernel confirmed. flock(LOCK_UN)
++    // fails before it changes anything -- EBADF or EINVAL on the descriptor,
++    // never a partial release -- so a failure leaves the lock held and
++    // workload_lease_held stays true to say so. Clearing it would let the next
++    // acquire return true on an in-memory assertion the kernel refused, which is
++    // the one state the lease exists to exclude; keeping it costs fairness
++    // instead, since every other holder waits on a lock this process still owns
++    // until the descriptor closes with the process. The failure latches so the
++    // idle transition that repeats every pass logs it once.
++    bool workload_lease_release() {
++#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
++        if (workload_lease_descriptor < 0 || !workload_lease_held) {
++            return true;
++        }
++
 +        if (flock(workload_lease_descriptor, LOCK_UN) != 0) {
-+            SRV_ERR("vulkan workload lease release failed: path=%s reason=%s\n",
-+                    workload_lease_path.c_str(), strerror(errno));
++            if (!workload_lease_release_failed) {
++                workload_lease_release_failed = true;
++                SRV_ERR("vulkan workload lease release failed: path=%s reason=%s held=yes\n",
++                        workload_lease_path.c_str(), strerror(errno));
++            }
++            return false;
 +        }
 +
 +        workload_lease_held = false;
 +
 +        SRV_INF("vulkan workload lease released: path=%s\n", workload_lease_path.c_str());
 +#endif
++        return true;
 +    }
 +
      void destroy() {
-+        // A sleeping server frees the context and executes nothing, so the
-+        // lease goes back before the model does.
-+        workload_lease_release();
++        // Freeing a context and its buffers is device work, and the pending
++        // graphs it tears down are this server's own, so the lease covers the
++        // teardown and goes back after it. The synchronize runs first, while
++        // ctx_tgt and ctx_dft still name the contexts to wait on; releasing
++        // ahead of the resets would hand the next holder a device this one is
++        // still freeing on.
++        //
++        // An idle server released the lease at its last all_idle pass, so a
++        // teardown from ~server_context_impl arrives holding nothing and takes
++        // it back for the frees. The attempt is the single non-blocking one
++        // rather than the load's deadline: a shutdown blocked behind a 300
++        // second generation would outlive the absence qwen-teardown.sh proves,
++        // and a free that overlaps a holder costs that holder a device
++        // synchronize rather than correctness. The line names which of the two
++        // this teardown did.
++        if (!workload_lease_held) {
++            workload_lease_acquire_bounded(0);
++            SRV_INF("vulkan workload lease teardown: held=%s\n",
++                    workload_lease_held ? "yes" : "no");
++        }
++
++        workload_lease_sync_device();
 +
          spec.reset();
          spec_init.reset();
  
-@@ -1317,6 +1437,10 @@ private:
+@@ -901,6 +1175,8 @@ private:
  
-     // unlike load_model(), this is only called once during initialization
-     bool init() {
+         mtmd_free(mctx);
+         mctx = nullptr;
++
++        workload_lease_release();
+     }
+ 
+     void handle_sleeping_state(bool new_state) {
+@@ -956,6 +1232,45 @@ private:
+     // load the model and initialize llama_context
+     // this may also be called to resume from sleeping state
+     bool load_model(common_params & params) {
++        // This function uploads the weights through common_init_from_params and
++        // the projector through mtmd_init_from_file, so the claim is taken here
++        // rather than at the first decode pass: a load outside the lease puts a
++        // router child's allocation beside the image generation the lease
++        // separates it from. The descriptor is opened first because
++        // workload_lease_acquire_bounded returns true while it is closed, which
++        // would admit every load while reporting success.
 +        if (!workload_lease_open()) {
 +            return false;
 +        }
 +
-         GGML_ASSERT(ctx_tgt   != nullptr);
-         GGML_ASSERT(model_tgt != nullptr);
- 
-@@ -2700,6 +2824,10 @@ private:
++        // A lease-holding server serves with inactivity sleeping disabled, and
++        // the configuration that asks for both is refused here, ahead of the
++        // acquire and of every upload. server_context::start_loop passes
++        // params_base.sleep_idle_seconds * 1000 to server_queue::start_loop,
++        // whose should_sleep() returns false for a negative interval alone, so
++        // sleeping is on at zero as well as above it and the field's own
++        // "if >0" comment in common/common.h understates the range. What the
++        // refusal avoids is a wake this function cannot decline:
++        // handle_sleeping_state calls load_model and turns a false return into
++        // GGML_ABORT("failed to reload model after sleeping"), so under
++        // sleeping a lease held by an image generation past the deadline ends
++        // the server rather than waiting for it. Declining the wake and staying
++        // asleep instead needs server_queue::on_sleeping_state to carry a
++        // result rather than void, since its caller clears the queue's sleeping
++        // flag whatever the callback did. params is the resolved value both
++        // readers see: load_model assigns it to params_base below, start_loop
++        // reads that field, and server_res_generator reads it again for
++        // bypass_sleep.
++        if (workload_lease_descriptor >= 0 && params.sleep_idle_seconds >= 0) {
++            SRV_ERR("vulkan workload lease refuses inactivity sleeping: path=%s sleep_idle_seconds=%d\n",
++                    workload_lease_path.c_str(), params.sleep_idle_seconds);
++            return false;
++        }
++
++        if (!workload_lease_acquire_bounded(workload_lease_wait_seconds())) {
++            return false;
++        }
++
+         load_progress_data load_progress_text  (this, "text_model");
+         load_progress_data load_progress_mmproj(this, "mmproj_model");
+         load_progress_data load_progress_spec  (this, "spec_model");
+@@ -2700,6 +3015,14 @@ private:
              }
  
              if (all_idle) {
 +                // The last slot released during the previous pass, so the
 +                // lease covers one update_slots pass beyond the final decode.
++                // The synchronize ahead of the release is the completion
++                // boundary that pass's queued graphs are still inside, and it
++                // runs on this transition rather than on every token.
++                workload_lease_sync_device();
 +                workload_lease_release();
 +
                  SRV_TRC("%s", "all slots are idle\n");
  
                  metrics_flush_idle();
-@@ -2707,6 +2835,14 @@ private:
+@@ -2707,6 +3030,14 @@ private:
                  return; // skip further processing
  
              } else {

@@ -37,7 +37,8 @@ compositor are outside this contract.
 | Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`); `patches/llama-mtmd-device-embd.patch` feeds the projector output to the language model as a device view over a batch-owned device copy, admitted on `qwen35-2b` and `lfm25-vl-450m` with identical bytes and tokens, then completed in run 04 (`evidence/ada/embd-handoff/`): every slice joined to its source rows across split ubatches and split decodes, consumer lifetime synchronized ahead of a batch free, and the recorder-off Nsight capture showing one device-to-device copy per batch and no host staging; off by default | a device-resident media input designed against `evidence/media/decode-placement/` (PNG is a CPU decode plus one upload, JPEG decodes through the hybrid nvJPEG backend, a CV-CUDA resize is a separate preprocessing contract), then a served vision tuple under the device path |
 | CUDA image generation | `sd-cli` under `SD_CUDA=ON` admitted through the router (`evidence/image-appliance/cuda-runtime-admission/`); the reviewer calibrated on declared fixtures with a three-way constraint status and bound verdicts, where `qwen35-2b` passes eighteen arms and `lfm25-vl-450m` fails grounding (`evidence/image-appliance/vision-review-calibration/`); `image-sdxs-512-a` promoted to `validator-gated` with `review_model` `qwen35-2b` on the serialized generate-then-review record (`evidence/image-appliance/serialized-review-admission/run-05/`), whose serialization is sampled ordering under the image service's lease | the bound-one router shape, a second review in one session, and a load-path lease that makes the reviewer's load mutually exclusive with a generation rather than merely ordered |
 | OptiX geometry | service, protocol, runtime, and device admission retained (`evidence/geometry/optix-ray-runtime-proof/`); the served geometry turn admitted alone and the shared-lease contention arm run against the physics lane, where both complete, the driver lists at most one runtime per sample, and the second holder states its `waited_ms` (`evidence/geometry/session-integration/`); profile `refused` | promotion of `geometry-cube-orbit-a` is its own policy transition; a PhysX-to-OptiX scene transfer is a separate typed-data integration rather than part of the combined session |
-| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, and the candidate `patches/llama-server-vulkan-workload-lease.patch` acquires per decode pass with the model and projector load outside it | `scripts/test-load-lease-coverage.sh` run against the promoted closure as the falsifier, then the patch extended to acquire around `load_model` on a bounded deadline, rebuilt, and re-promoted before the combined session |
+| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, so the new closure proves loading exclusion and evaluation exclusion rather than extending one; the candidate `patches/llama-server-vulkan-workload-lease.patch` opens and acquires at the top of `load_model` through `workload_lease_acquire_bounded` on a `QWEN_GPU_COMPUTE_LEASE_WAIT_S` deadline, leaves the decode pass its blocking acquire, refuses inactivity sleeping, synchronizes ahead of every release, and keeps the hold a refused unlock did not give back, reading `reach=accepted` under four mutation controls (`evidence/lease-coverage/`) | the build, the six served arms under a held lease, and the promotion that makes a served child read the lease, all before the combined session |
+| Coding page arm | the classifier, the phase timeline, and the fixtures are merged (`evidence/coding-agent/page-arm-classification/`), so a refusal names its own termination reason | the intermittent itself, which needs an instrumented occurrence or a controlled reproduction naming the failing mechanism |
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
 
@@ -87,9 +88,61 @@ and reaches `init()` at `:1308` afterward, which is where the descriptor opens;
 the acquire itself lives in the busy-slot branch of `update_slots`. A wake from
 sleep runs `load_model` with `is_resume` true (`:963`), where the guard at
 `:1307` skips the `init()` call at `:1308` and the function returns at `:1315`,
-so a resumed model uploads its weights with no acquire at any point. Closing that gap is `scripts/test-load-lease-coverage.sh`'s subject and
-a precondition of the combined session, whose one-child transition crosses an
-uncovered load twice.
+so a resumed model uploads its weights with no acquire at any point.
+
+The patch now takes the claim in `load_model` instead, so the new closure proves
+two exclusions rather than extending one: the load, and the ordinary evaluation
+that follows it. The open runs first, since an acquire returns true while the
+descriptor is closed and one moved on its own would admit every load while
+reporting success. The two call sites take two acquires because the wait bound
+belongs to the caller: a load has a caller that carries a refusal, so
+`workload_lease_acquire_bounded` polls `LOCK_EX | LOCK_NB` every 50 ms under
+`QWEN_GPU_COMPUTE_LEASE_WAIT_S`, 300 seconds by default and forwarded across
+the tmux boundary by `qwen-webui-control.sh`, while a decode pass keeps the
+blocking acquire because `server_queue::start_loop` re-enters
+`callback_update_slots` only when a task arrives and a pass that gave up would
+strand its request. One device step sits outside the hold and is named rather
+than left to be found: `common/arg.cpp` calls `ggml_backend_load_all()` while
+parsing argv, which under `GGML_BACKEND_DL=OFF` registers the statically linked
+backends and enumerates the device without allocating or submitting.
+
+Three properties of the lease's lifetime carry with it. Coverage is admitted
+with inactivity sleeping disabled, and `load_model` refuses the configuration
+naming a lease beside a non-negative `sleep_idle_seconds` ahead of the acquire
+and of every upload; `server_queue::start_loop`'s `should_sleep()` returns false
+for a negative interval alone, so sleeping is on at zero as well as above it,
+and `handle_sleeping_state` turns a false return from the wake into
+`GGML_ABORT("failed to reload model after sleeping")` at
+`server-context.cpp:919`, so under sleeping a lease held past the deadline ends
+the server rather than waiting for it; declining the wake instead needs
+`on_sleeping_state` to carry a result rather than `void`. Release follows device
+completion rather than a host return:
+`workload_lease_sync_device` calls `llama_synchronize` on the target and draft
+contexts ahead of the `all_idle` release and inside `destroy()`, which
+synchronizes, frees, and releases last, once per ownership transition rather
+than per token; a teardown from `~server_context_impl` arrives holding nothing
+and takes the lease back for the frees with one non-blocking attempt, logging
+which of the two it did. And the release reports what the kernel confirmed,
+since `flock(LOCK_UN)` fails before it changes anything: a failure keeps
+`workload_lease_held` true and latches one error line rather than reporting a
+lease the kernel still holds as given back.
+
+`scripts/test-load-lease-coverage.sh` reads `reach=accepted served=not_run`
+against it. Fifteen synthetic bodies split each predicate, each written against
+a demonstrated false positive rather than against its intent -- a `(void)` read
+of the sleeping field, a synchronize in one function covering a release in
+another, and a return nested inside the error latch all read as failures now --
+and four mutations of the real patched file are each caught by their own
+predicate and by no other. The seven served arms -- a load that waits, a decode
+that waits behind a holder and resumes with no second request, a terminating
+signal inside that decode wait, a load refused on its deadline, a fresh attempt
+after that refusal, a terminating signal inside a load wait, and a
+projector-bearing load -- need a built binary and a device window. Each is read
+only after the `vulkan workload lease armed` line proves the closure carries the
+patch, and the load arms read the `waiting` and `acquired` lines rather than
+absence of health, because a server that ignored the lease and uploaded slowly
+looks the same from outside. That build and the
+promotion that follows are the combined session's remaining precondition.
 
 ## Depth validation
 
