@@ -58,12 +58,18 @@ output_directory=$(CDPATH='' cd -- "$output_directory" && pwd)
 temporary_directory=$(mktemp -d)
 
 # Every retained byte passes this, because a server log names the model path and
-# the run directory and the ledger gate refuses a local absolute path.
+# the run directory and the ledger gate refuses a local absolute path. A
+# compute client's full argv is elided down to its executable: the desktop
+# browsers carry a crash-reporter GUID, a field-trial handle, and a
+# pseudonymization salt in theirs, and what this record needs of a client is
+# which program it is, what it holds, and how the authority classified it.
 sanitize_text() {
     sed -e "s#$temporary_directory#\$STALL_TMPDIR#g" \
         -e "s#$HOME#\$HOME#g" \
         -e "s#$(hostname 2>/dev/null || printf 'qwen-laptop')#qwen-laptop#g" \
-        -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g'
+        -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g' \
+        -e 's#\(cuda_client pid=[0-9]* name=[^ ]*\) .* \(used=\)#\1 argv=<elided> \2#' \
+        -e 's#cgroup=[^ ]*#cgroup=<elided>#g'
 }
 
 # /proc/uptime carries centiseconds, so this reads to 10 ms. The exit latency

@@ -239,7 +239,7 @@ does not honor.
 | --- | --- | --- |
 | `load_after_wait` | outlives the observation, released explicitly | no health under the hold, the hold proved still held when the window closed, the log naming the wait and the acquire, then the same process loads, answers, and frees the lease at its first idle pass |
 | `decode_waits` | taken after the load, released later | no completion inside the hold, then the same request completes with no second request sent |
-| `shutdown_while_decode_waits` | outlives the request | `SIGTERM` ends a server blocked in the decode acquire inside 30 s, with the holder's lock intact |
+| `shutdown_while_decode_waits` | outlives the request | `SIGTERM` reaches a server blocked in the decode acquire and the server ends inside 30 s of its client's departure, with the holder's lock intact. The client leaves first because a llama-server at this pin completes no shutdown while a client is attached to a request no pass will answer, on the promoted closure as well as this one; `shutdown-stall/` measures that and the arm records the attached interval rather than grading it |
 | `refused_on_deadline` | outlives the deadline | the server ends naming the deadline, with no loader line ahead of it |
 | `recovery_after_refusal` | released | an explicit fresh attempt loads and answers |
 | `shutdown_while_load_waits` | outlives the wait | `SIGTERM` ends the waiting server inside 30 s with the holder's lock intact |
@@ -367,3 +367,15 @@ separate behavioral reference. A companion built that way is not the original
 production source and carries no such label. The contended-teardown policy is
 the other gate, and a passing functional arm is behavioral evidence rather than
 a substitute for either.
+
+The served stage's own refusal is a third item and it has moved.
+`served-admission/` refused the closure on `shutdown_while_decode_waits`, and
+`shutdown-stall/` names that bound as llama.cpp's own: the shutdown sits in
+`ctx_http.thread.join()` while a worker waits inside
+`server_response::recv_with_timeout` for a task the interrupted pass never
+answered, and it ends at the client's departure one polling interval later, on
+the promoted closure at 30.9 s held and 1.34 s to leave with no lease compiled
+into it. The criterion was wrong rather than the closure, the arm now ends its
+client before reading the bound, and the served stage needs one re-run under
+that criterion before it reads `served=accepted`. That re-run is a device
+window and no result stands in for it.

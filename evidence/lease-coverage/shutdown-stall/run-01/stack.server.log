@@ -1,0 +1,35 @@
+0.00.016.463 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.016.717 W srv  llama_server: -----------------
+0.00.016.718 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.016.719 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.016.719 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.016.719 W srv  llama_server: -----------------
+0.00.017.916 I srv  workload_lea: vulkan workload lease armed: path=$STALL_TMPDIR/compute.lock
+0.00.017.923 I srv  workload_lea: vulkan workload lease acquired: path=$STALL_TMPDIR/compute.lock waited_ms=0 bound=deadline
+0.00.017.954 I srv    load_model: loading model '$HOME/models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf'
+0.00.624.283 W model has unused tensor blk.24.attn_norm.weight (size = 8192 bytes) -- ignoring
+0.00.624.289 W model has unused tensor blk.24.post_attention_norm.weight (size = 8192 bytes) -- ignoring
+0.00.624.294 W model has unused tensor blk.24.attn_q.weight (size = 8912896 bytes) -- ignoring
+0.00.624.296 W model has unused tensor blk.24.attn_k.weight (size = 1114112 bytes) -- ignoring
+0.00.624.298 W model has unused tensor blk.24.attn_v.weight (size = 1114112 bytes) -- ignoring
+0.00.624.305 W model has unused tensor blk.24.attn_output.weight (size = 4456448 bytes) -- ignoring
+0.00.624.307 W model has unused tensor blk.24.attn_q_norm.weight (size = 1024 bytes) -- ignoring
+0.00.624.309 W model has unused tensor blk.24.attn_k_norm.weight (size = 1024 bytes) -- ignoring
+0.00.624.311 W model has unused tensor blk.24.ffn_gate.weight (size = 13369344 bytes) -- ignoring
+0.00.624.313 W model has unused tensor blk.24.ffn_down.weight (size = 13369344 bytes) -- ignoring
+0.00.624.315 W model has unused tensor blk.24.ffn_up.weight (size = 13369344 bytes) -- ignoring
+0.00.624.318 W model has unused tensor blk.24.nextn.eh_proj.weight (size = 8912896 bytes) -- ignoring
+0.00.624.322 W model has unused tensor blk.24.nextn.enorm.weight (size = 8192 bytes) -- ignoring
+0.00.624.324 W model has unused tensor blk.24.nextn.hnorm.weight (size = 8192 bytes) -- ignoring
+0.00.624.331 W model has unused tensor blk.24.nextn.shared_head_norm.weight (size = 8192 bytes) -- ignoring
+0.00.876.636 I cmn          init: llama threadpool init, n_threads = 6
+0.00.959.365 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 262144, kv_unified = 'true'
+0.00.962.885 I srv  llama_server: model loaded
+0.00.962.890 I srv  llama_server: listening on http://127.0.0.1:18099
+0.00.962.974 I srv  workload_lea: vulkan workload lease released: path=$STALL_TMPDIR/compute.lock
+0.01.114.911 I slot get_availabl: id  3 | task -1 | selected slot by LRU, t_last = -1
+0.01.114.939 I slot launch_slot_: id  3 | task 0 | processing task, is_child = 0
+0.01.115.407 I srv  workload_lea: vulkan workload lease waiting: path=$STALL_TMPDIR/compute.lock
+0.01.216.625 W srv  workload_lea: vulkan workload lease wait ended without the lease: path=$STALL_TMPDIR/compute.lock waited_ms=101 reason=Interrupted system call
+0.01.216.672 I srv    operator(): operator(): cleaning up before exit...
+Received second interrupt, terminating immediately.

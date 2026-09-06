@@ -92,3 +92,83 @@ the same way with the server still running, which is reachable and unobserved.
 Promotion of the lease closure still requires the provenance gap of
 `candidate-build-source-identity.tsv` closed and the drain-before-destroy
 policy tested, and neither is in this probe.
+
+## What ran
+
+`run-01/` carries the run on the RTX 4070 Ti against the 2B at closure
+`15bc632adf7f`, with `88681bf4d161` as the control. The 9B telemetry server was
+stopped through its owning tmux session after its argv, model, endpoint, and
+working directory were recorded, and it was restarted from that same argv on the
+same closure afterwards at 6424 MiB; `run-01/window-preconditions.tsv`,
+`window-open.log`, and `window-close.log` carry both ends, and the desktop was
+resident throughout as a covariate of every duration below.
+
+| Arm | Reading |
+| --- | --- |
+| `no_intervention` | exits 22560 ms after the signal, against a client whose own timeout is 20 s |
+| `client_disconnect` | alive at 30 s, exits 1230 ms after the client departs, the holder still holding the lease |
+| `holder_release` | alive at 30 s, alive through the holder's release, exits 1230 ms after the client departs |
+| `promoted_in_flight` | `88681bf4d161`, no lease named: alive at 30 s, exits 1340 ms after the client departs |
+| `candidate_in_flight` | `15bc632adf7f` with the lease free: alive at 30 s, exits 1230 ms after the client departs |
+| `stack` | 65 frames at ten seconds |
+
+H1 holds in every cell and H2 fills none. The client's departure ends the
+shutdown within about one `HTTP_POLLING_SECONDS`, 1230 to 1340 ms across four
+arms; the holder's release moves nothing; and the untouched arm exits 2.6 s
+after its own client's timeout rather than on the signal.
+
+## The stack names the chain frame for frame
+
+`run-01/stack.txt` is one sample of every thread at ten seconds, and it leaves
+nothing to infer:
+
+```text
+TID .048  std::thread::join  <- llama_server(common_params&, int, char**)
+TID .064  std::thread::join  <- httplib::ThreadPool::shutdown
+                             <- httplib::Server::listen_internal
+TID .070  pthread_cond_clockwait
+                             <- server_response::recv_with_timeout
+                             <- server_response_reader::next
+                             <- server_response_reader::wait_for_all
+                             <- server_routes::handle_completions_impl
+                             <- httplib::ThreadPool::worker
+```
+
+The main thread is inside `ctx_http.thread.join()`, the listener is inside its
+own worker join, and the worker is inside the completion's result wait. No
+thread is in CUDA teardown, because `clean_up()` had already returned from
+`llama_backend_free()` before the join it is stopped in.
+
+The logs date the same boundary. `run-01/promoted_in_flight.server.log` writes
+`cleaning up before exit...` at 0.04.655 and `cancel task, id_task = 0` at
+0.35.554, so the promoted closure sat 30.9 s in that join and left it when the
+client went away. `run-01/client_disconnect.server.log` writes the same pair at
+0.01.596 and 0.32.491, and then reaches the destructor and prints
+`teardown: held=no`. The candidate's lease teardown is therefore not skipped
+under contention; it is reached late, after the client departs, and the served
+arm's `SIGKILL` at the 30 s bound arrived while its own client still had 60 s of
+its timeout left.
+
+## What this settles
+
+A llama-server at pin `f280b2698` completes no shutdown while a client is still
+attached to a request no pass will answer, and the promoted closure carries that
+property with no lease compiled into it. The refused arm
+`shutdown_while_decode_waits` therefore measured llama.cpp's shutdown with a
+client attached rather than lease exclusion, and its pass criterion is what was
+wrong. That lifts one refusal ground and moves no gate: the provenance gap in
+`../candidate-build-source-identity.tsv` stands, and the drain-before-destroy
+policy is still untested.
+
+The lease patch's own contribution is to create the unanswerable request under a
+signal, where an ordinary generation reaches the same state whenever a signal
+arrives mid-decode. `promoted_in_flight` and `candidate_in_flight` read within
+110 ms of each other, so the binary is not the variable and the request state is.
+
+Two facts stay apart from this one. `server_response::terminate()` has no caller
+anywhere in `tools/server/`, which would bite the blocking `recv(int)` path
+rather than this client-bounded poll, and reading them together would report an
+unbounded hang where the measurement shows a bounded one. The patch's
+non-`EINTR` `flock` failure path returns false the same way with the server
+still running and `start_loop` not re-entering until unrelated traffic arrives;
+that is reachable and unobserved here.

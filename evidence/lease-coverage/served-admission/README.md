@@ -2,7 +2,13 @@
 
 `scripts/test-load-lease-coverage.sh` drove closure `15bc632adf7f` against a
 held compute lease on the RTX 4070 Ti. Nine of ten readings pass and one fails,
-so the stage reads `served=refused` and the closure is not promoted.
+so the stage reads `served=refused` and the closure is not promoted. That tenth
+reading's criterion is since requalified: `../shutdown-stall/` measured the
+promoted closure holding the same shutdown for the same reason with no lease
+compiled into it, so the arm as run here read llama.cpp's shutdown with a
+client attached rather than lease exclusion. The stage's terminal result stands
+as the run produced it and a re-run under the corrected criterion has not
+happened.
 `run-01/qwen35-2b/` carries the record: one sanitized server log per launch,
 every completion body the arms graded, one outcome row per decision, the
 termination timeline, the teardown state read out of each log, and the
@@ -26,7 +32,7 @@ result.
 | `load_after_wait_releases` | the idle server returned the lease at `idle_ms=0` |
 | `decode_waits` | no decode inside the hold, with the decode pass's own wait line counted |
 | `decode_resumes_on_release` | the waiting request completed 300 ms after the release, with no second request |
-| `shutdown_while_decode_waits` | fail: the server outlived a 30 s bound and ended on `SIGKILL` |
+| `shutdown_while_decode_waits` | fail under the criterion this run applied: the server outlived a 30 s bound with its client still attached and ended on `SIGKILL`. `../shutdown-stall/` names that bound as llama.cpp's own and the criterion is requalified |
 | `refused_on_deadline` | the load named its deadline and reached no loader line |
 | `recovery_after_refusal` | a fresh attempt loaded and answered |
 | `shutdown_while_load_waits` | ended in 1 s by default disposition, the holder's lock intact |
@@ -63,38 +69,36 @@ path, and execution history differ alongside whether another process held the
 lease. The record establishes two shutdown outcomes and does not establish which
 difference causes them.
 
-What consumes the interval after `cleaning up before exit` is likewise
-unresolved. The log carries no lease line inside it, and `SIGKILL` discards
-whatever the logger had not flushed, so an absent line is not evidence that the
-code failed to reach it.
+What consumes the interval after `cleaning up before exit` is resolved, and
+`../shutdown-stall/` carries the resolution. The process sits in
+`ctx_http.thread.join()` while cpp-httplib's listener joins its workers and one
+worker waits inside `server_response::recv_with_timeout` for a result of the
+task the interrupted pass launched and never answered; a completion's wait ends
+at `is_connection_closed`, so the shutdown ends at the client's own departure.
+The promoted closure `88681bf4d161`, which compiles in no lease at all, holds
+the same join for 30.9 s with a generation in flight and leaves it 1.34 s after
+its client departs. Releasing the holder moves nothing. The candidate's
+teardown is reached rather than skipped: once the client leaves, the same
+sequence writes `teardown: held=no` and the destructor completes.
 
-Three arms narrow it, and each is weaker than a proof:
-
-- Repeat the arm with the holder releasing after the signal, requiring the log
-  to show the interrupted return before the release. A shutdown that then
-  completes implicates the contended lease; without that ordering check the
-  acquire may simply have succeeded, and the arm measures nothing.
-- Repeat it by hand against the promoted closure `88681bf4d161`. It reads no
-  lease name and cannot reproduce a lease wait, so a slow shutdown there shows
-  that this server can stall under a signal without the patch. It does not
-  identify the candidate's stall.
-- Read every thread's stack at ten seconds. That names where the process sat in
-  one sample, which locates the wait without establishing that it is permanent
-  or that it is the cause.
+This arm's client ran a 90 s timeout against a 30 s bound, so the `SIGKILL`
+arrived with 60 s of that timeout left. The criterion is therefore what was
+wrong rather than the closure: it read llama.cpp's shutdown with a client
+attached and called it lease exclusion. The arm now ends its client before it
+reads the bound, which holds that server property constant, and records the
+interval with the client attached as an observation.
 
 ## What this costs the program
 
-Promotion is refused, and the combined-session campaign stays blocked because
-served admission failed rather than because this particular arm reproduces it.
-The policy `evidence/lease-coverage/README.md` records has an orderly session
-teardown drain the active holder before destroying an idle child, so an ordinary
-combined-session teardown is uncontended by construction and this arm does not
-reproduce its shape. What the arm does reach is the emergency-termination
-exception that policy reserves: a terminating signal arriving while another
-process holds the lease. It informs that exception and bounds nothing about the
-orderly path. The contended-teardown exception recorded there is separately a
-claim about what `destroy()` frees; this is a reading about whether the process
-completes a shutdown under contention, and the three stay apart.
+The refusal ground this arm supplied is lifted, and no gate moves with it. The
+policy `evidence/lease-coverage/README.md` records has an orderly session
+teardown drain the active holder before destroying an idle child, so an
+ordinary combined-session teardown is uncontended by construction and this arm
+never reproduced its shape. What the arm reaches is the emergency-termination
+exception that policy reserves. Promotion still requires the provenance gap of
+`../candidate-build-source-identity.tsv` closed, the drain-before-destroy
+policy tested, and the served stage re-run under the corrected criterion, which
+this record does not carry.
 
 The candidate closure's other properties stand as
 `candidate-build-source-identity.tsv` states them, provenance gap included. No
