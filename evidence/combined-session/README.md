@@ -55,6 +55,28 @@ which is the distinction
 `evidence/image-appliance/serialized-review-admission/run-05/` already stands
 on.
 
+Promotion of the candidate closure is itself gated on five readings, and the
+served arms are one of them:
+
+```text
+served lease admission complete            the seven arms, both model sizes
+candidate text, multimodal, router pass    strict CUDA0 placement and the picker
+serialized image review passes             on the candidate closure, before the pointer moves
+source-difference scope resolved           the provenance gap in candidate-build-source-identity.tsv
+ordinary teardown policy explicit          drain before destroy, tested apart from the signal arms
+```
+
+The last two are open by construction rather than by omission. The candidate
+matches the recorded production architecture, payload counts, MMVQ thresholds,
+and feature-marker state, and exact source equivalence to the historical
+production build remains unresolved; and `destroy()` frees whether or not its
+one non-blocking attempt won the lease, so a teardown contended with another
+holder is an explicit unprotected-cleanup exception rather than a fourth
+exclusion. `evidence/lease-coverage/README.md` carries both. The promoted
+closure `88681bf4d161` is the rollback, and its limitation is part of the
+record: it supplies the earlier serving behavior rather than the LLM-side lease
+guarantee, so rolling back disables the combined behavior that depends on it.
+
 Lease coverage is admitted with inactivity sleeping disabled. The extended
 `load_model` refuses a configuration that names a lease and a non-negative
 `sleep_idle_seconds` together, ahead of the acquire and of every upload,

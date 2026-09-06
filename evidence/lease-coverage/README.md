@@ -186,11 +186,37 @@ An idle server released the lease at its last `all_idle` pass, so a teardown
 from `~server_context_impl` arrives holding nothing and takes it back for the
 frees. The attempt is one non-blocking try -- `workload_lease_acquire_bounded`
 takes its deadline as an argument and 0 names exactly that -- rather than the
-load's deadline, because a shutdown blocked behind a 300 second generation
-would outlive the absence `qwen-teardown.sh` proves, while a free that overlaps
-a holder costs that holder a device synchronize rather than correctness. The
-teardown line names which of the two happened, so a free outside the lease is
-recorded rather than assumed away.
+load's deadline, because a shutdown blocked behind a 300 second generation would
+outlive the absence `qwen-teardown.sh` proves. The attempt's result gates
+nothing: `destroy()` synchronizes and frees whether it won the lease or lost it,
+and the teardown line names which of the two happened.
+
+That is an exception in the contract rather than a fourth claim, and it is
+stated as one because the measurements here do not establish what the overlap
+costs. The CUDA driver documentation permits a deallocation to synchronize
+implicitly; a permission is not an application-level guarantee that this
+teardown participates in the shared lease, so the overlap is neither
+demonstrated harmless nor demonstrated harmful. Two processes freeing their own
+allocations is also not by itself memory corruption. What the lease claims is
+therefore four things:
+
+```text
+load, upload, and warmup exclusion   candidate claim, awaiting device admission
+evaluation exclusion                 candidate claim, awaiting device admission
+orderly teardown exclusion           holds where the teardown owns the lease
+contended teardown                   explicit unprotected-cleanup exception
+```
+
+The seven arms measure the current behavior against a fixture holder that opens
+no CUDA context, so a shutdown arm reading `teardown_held=no` is a successful
+termination rather than successful teardown exclusion, and `no_destroy` names a
+process that ended before `destroy()` ran at all. Closing the exception is a
+policy rather than a longer wait, since an emergency exit that blocked
+indefinitely would trade a bounded shutdown for a diagram: ordinary router
+eviction and orderly session teardown drain the active holder before destroying
+an idle child, and unleased cleanup stays reserved for an emergency termination
+the record names. That policy is a combined-session promotion gate and its test
+is separate from the signal arms, which measure a bound rather than a policy.
 
 ## What the served stage measures
 
@@ -231,13 +257,28 @@ rather than to a timer.
 
 An arm that cannot run is a partial stage rather than an accepted one: without
 `QWEN_LEASE_TEST_MMPROJ` the projector arm reports `not_run` and the stage reads
-`partial`, so a six-arm run never states a seven-arm result.
+`partial`, so a six-arm run never states a seven-arm result. Two runs reach
+`partial` for two different reasons and `served_reason` is what separates them.
+`QWEN_LEASE_PROJECTOR_POLICY` carries the registry's own `projector` field:
+under `none` the projector arm reports `projector_none_declared` and the stage
+reads `text_arms_only_projector_none`, which is the whole admission that
+checkpoint's tuple allows, and under any other value an absent projector reads
+`projector_arm_not_run`, which is an incomplete admission of a row that requires
+one. A text-path result is therefore never read later as a multimodal one, and
+neither reading is promoted to `accepted`.
 
 `shutdown_while_decode_waits` requires the bound and the residue rather than one
 of the two mechanisms, so it records which one ran: the blocking acquire writes
 its own line on `EINTR`, and the absence of that line names the default
 disposition instead. The arm reports `by=eintr` or `by=signal` beside its
 elapsed time.
+
+The seven arms start the server without speculation, so `ctx_dft` is null in
+every one of them and `workload_lease_sync_device`'s draft-context branch goes
+unexecuted. A measured MTP-capable production row under router admission is what
+reaches it, read the established way through the absence of the `model has
+unused tensor` lines an ordinary load prints, so the generic arms state nothing
+about that path.
 
 An unpatched `llama-server` handed a lease path loads and answers exactly as one
 that skipped the lease would, because the open returns true on an unset name and
@@ -252,9 +293,53 @@ failure is diagnosed from recorded budgets rather than by raising a timeout. The
 allowance never falls under the arm's own deadline, which is what keeps a
 correctly waiting child from being killed by the guard above it.
 
+Every process the harness starts ends through one bounded path: signal, poll for
+absence inside the deadline the caller names, escalate to `SIGKILL`, and read
+absence back from the kernel. Each signal names itself with `-s`, because a bare `kill -1234` is read as a
+signal specification rather than as the process group `-1234` and never reaches
+the kernel, and the holder writes its own pid once its lock is taken, since
+`setsid` execs into the child where the caller has no job control and forks
+where it does. A blocking `wait` is precisely what an ignored
+`SIGTERM` turns into an unbounded stall, which is unusable in a harness whose
+own purpose includes testing a blocked shutdown, so the wait is a poll against
+`/proc/uptime` and the reap follows the confirmed absence. A fixture holder that
+outlived the escalation is a counted failure that refuses the stage, since every
+arm after it would measure a lock this harness left behind rather than one its
+own fixture took; the temporary state is retained and named rather than removed,
+because removing a lock pathname under a live holder reports a device free that
+no reading proved free. The bounded path answers a child that traps `SIGTERM`
+and sleeps before any arm trusts it, and the counted path is answered through
+the residue policy itself, since no child survives `SIGKILL` and a residue
+reading is what that policy exists for.
+
+`QWEN_LEASE_EVIDENCE_DIR` names a fresh directory -- the harness refuses a
+non-empty one with a usage error ahead of the device -- that the served stage
+retains its record into: one sanitized server log per launch with the home
+prefix, the private hostname, and MAC addresses replaced, every completion body
+the arms graded, one `outcomes.tsv` row per decision, one `timeline.tsv` row per
+termination with its monotonic instant, the teardown state read out of each log,
+and a `summary.tsv` carrying the terminal fields and the harness's own exit
+status. Retention runs on the way out rather than at the terminal line, so a run
+that ended inside an arm keeps the same record a run that reached the end does.
+
 ## What closes it
 
-The source is written, its reach is read, and the mutation controls
-discriminate. The build and the served arms remain, and `served=accepted`
-requires the positive control in place, so `partial` is the honest terminal
-state until a device window runs them.
+The source is written, its reach is read, the mutation controls discriminate,
+and `candidate-build-source-identity.tsv` records the closure the arms run
+against. The served arms remain, and `served=accepted` requires the positive
+control in place, so `partial` is the honest terminal state until a device
+window runs them.
+
+Promotion needs more than those arms. The candidate matches the recorded
+production architecture, payload counts, MMVQ thresholds, and specified
+feature-marker state, and exact source equivalence to the historical production
+build remains unresolved: matching counts of 187 cubins state that two builds
+emitted the same number of objects rather than the same kernels. Resolving that
+gap takes one of two routes -- recover the historical production source snapshot
+and name the complete difference against the candidate, or build a clearly named
+reconstructed lease-off companion from the candidate's own source and toolchain
+and isolate the lease change against it, keeping the promoted binary as a
+separate behavioral reference. A companion built that way is not the original
+production source and carries no such label. The contended-teardown policy is
+the other gate, and a passing functional arm is behavioral evidence rather than
+a substitute for either.

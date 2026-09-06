@@ -20,60 +20,215 @@ if [ "$#" -ne 0 ]; then
     printf '  QWEN_LEASE_TEST_MODEL names a GGUF it can decode with\n' >&2
     printf '  QWEN_LEASE_TEST_MMPROJ names a projector for the second arm\n' >&2
     printf '  QWEN_LEASE_TEST_PORT sets the port the arm serves on\n' >&2
+    printf '  QWEN_LEASE_EVIDENCE_DIR retains the served run under a fresh directory\n' >&2
+    printf '  QWEN_LEASE_PROJECTOR_POLICY names the registry projector field\n' >&2
     exit 2
 fi
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${QWEN_LEASE_EVIDENCE_DIR:-}" ] &&
+    [ -n "$(ls -A "$QWEN_LEASE_EVIDENCE_DIR" 2>/dev/null)" ]; then
+    printf 'usage: %s\n' "$0" >&2
+    printf '  QWEN_LEASE_EVIDENCE_DIR names a fresh directory; %s holds a run\n' \
+        "$QWEN_LEASE_EVIDENCE_DIR" >&2
+    exit 2
+fi
 repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 source_directory=${QWEN_LLAMA_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 context_source=$source_directory/tools/server/server-context.cpp
 patch_file=$repository_directory/patches/llama-server-vulkan-workload-lease.patch
 serving_port=${QWEN_LEASE_TEST_PORT:-18114}
 temporary_directory=$(mktemp -d)
+evidence_directory=${QWEN_LEASE_EVIDENCE_DIR:-}
+# The registry states whether a checkpoint pairs with a projector, and the
+# projector arm is skipped for two different reasons: a row that declares none
+# has nothing to attach, and a row that requires one and was handed none ran an
+# incomplete admission. The terminal line carries the declared policy so the two
+# partial results read apart.
+projector_policy=${QWEN_LEASE_PROJECTOR_POLICY:-unstated}
 holder_group=''
+holder_reaper=''
 server_pid=''
 client_group=''
 reach_state=not_run
 reach_reason=''
 served_state=not_run
 served_reason=''
+residue_found=no
 failures=0
 
+# Elapsed time comes from /proc/uptime rather than the wall clock, since a clock
+# step under NTP moves a deadline the kernel does not honor. The reader sits at
+# file scope because every bounded termination below runs on the exit path too,
+# including the reach-only run on a clone that never enters the served stage.
+served_monotonic() {
+    awk '{ printf "%d\n", $1 }' /proc/uptime
+}
+
+# One termination for every process this harness starts: signal, poll for
+# absence inside the deadline the caller names, escalate to SIGKILL, and read
+# absence back from the kernel again. A blocking `wait` is exactly what an
+# ignored SIGTERM turns into an unbounded stall, so the wait is a poll against a
+# monotonic deadline and the reap follows the confirmed absence. The first
+# argument is what gets signalled, which is a process group where the lock lives
+# in a descendant, and the pid the shell can wait on is that string without its
+# sign. It prints terminated, killed, or residue, and returns nonzero on residue.
+terminate_bounded() {
+    terminate_target=$1
+    terminate_deadline=$2
+    terminate_pid=${terminate_target#-}
+    # Every signal is named with -s, because a bare `kill -1234` is read as a
+    # signal specification rather than as the process group -1234 and fails to
+    # parse: the target only reaches the kernel where an explicit signal option
+    # precedes it.
+    kill -s TERM "$terminate_target" 2>/dev/null || true
+    terminate_end=$(( $(served_monotonic) + terminate_deadline ))
+    while kill -s 0 "$terminate_target" 2>/dev/null &&
+        [ "$(served_monotonic)" -lt "$terminate_end" ]; do
+        sleep 0.2
+    done
+    if ! kill -s 0 "$terminate_target" 2>/dev/null; then
+        wait "$terminate_pid" 2>/dev/null || true
+        printf 'terminated\n'
+        return 0
+    fi
+    kill -s KILL "$terminate_target" 2>/dev/null || true
+    terminate_end=$(( $(served_monotonic) + 5 ))
+    while kill -s 0 "$terminate_target" 2>/dev/null &&
+        [ "$(served_monotonic)" -lt "$terminate_end" ]; do
+        sleep 0.2
+    done
+    if kill -s 0 "$terminate_target" 2>/dev/null; then
+        printf 'residue\n'
+        return 1
+    fi
+    wait "$terminate_pid" 2>/dev/null || true
+    printf 'killed\n'
+    return 0
+}
+
+# Retention writes into the directory the caller names and the served stage is
+# its only writer, so a reach-only run on a clone leaves it absent rather than
+# empty. Sanitizing follows the tree's own convention -- the home prefix, the
+# private hostname, and MAC addresses -- because llama-server's log carries the
+# argv that named the model file and the host that served it.
+retain_sanitized() {
+    [ -d "$evidence_directory" ] || return 0
+    [ -f "$1" ] || return 0
+    sed -e "s#$HOME#\$HOME#g" \
+        -e "s#$(hostname 2>/dev/null || printf 'qwen-laptop')#qwen-laptop#g" \
+        -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g' \
+        "$1" >"$evidence_directory/$2"
+}
+
+record_timeline() {
+    [ -d "$evidence_directory" ] || return 0
+    printf '%s\t%s\t%s\n' "$(served_monotonic)" "$1" "$2" \
+        >>"$evidence_directory/timeline.tsv"
+}
+
+record_outcome() {
+    [ -d "$evidence_directory" ] || return 0
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$evidence_directory/outcomes.tsv"
+}
+
+# destroy() logs which ownership state it tore down in, and a server ended by
+# default disposition never reaches it. The three readings are therefore
+# distinct: held=yes is teardown inside the lease, held=no is teardown beside a
+# lease another process holds, and no_destroy is a process that ended before
+# that path ran at all. A missing line is the third reading rather than the
+# second, so the absence is named instead of being read as an unheld teardown.
+teardown_state() {
+    teardown_line=$(grep -m1 'workload lease teardown: held=' "$1" || true)
+    if [ -z "$teardown_line" ]; then
+        printf 'no_destroy\n'
+    else
+        printf '%s\n' "$teardown_line" |
+            sed -n 's/.*teardown: held=\([a-z]*\).*/\1/p'
+    fi
+}
+
+# Every server log and reply the served stage wrote is retained on the way out,
+# so a run that ended inside an arm keeps the same record a run that reached its
+# terminal line does.
+retain_served_state() {
+    [ -d "$evidence_directory" ] || return 0
+    for retain_log in "$temporary_directory"/server.*.log; do
+        [ -f "$retain_log" ] || continue
+        retain_name=$(basename "$retain_log")
+        retain_sanitized "$retain_log" "$retain_name"
+        record_outcome "${retain_name%.log}" teardown \
+            "$(teardown_state "$retain_log")"
+    done
+    for retain_reply in "$temporary_directory"/*.json; do
+        [ -f "$retain_reply" ] || continue
+        retain_sanitized "$retain_reply" "$(basename "$retain_reply")"
+    done
+}
+
 cleanup() {
+    harness_status=$?
     # A request that outlived its arm holds a curl of its own, and the arm that
     # started it is the one that waits on it in the ordinary path; an abnormal
     # exit leaves that wait unreached, so the client is signalled here.
     if [ -n "$client_group" ] && kill -0 "$client_group" 2>/dev/null; then
-        kill "$client_group" 2>/dev/null || true
-        wait "$client_group" 2>/dev/null || true
+        cleanup_client=$(terminate_bounded "$client_group" 10 || true)
+        record_timeline cleanup.client "$cleanup_client"
+        if [ "$cleanup_client" = residue ]; then
+            residue_found=yes
+        fi
     fi
     if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
-        kill "$server_pid" 2>/dev/null || true
-        wait "$server_pid" 2>/dev/null || true
+        cleanup_server=$(terminate_bounded "$server_pid" 30 || true)
+        record_timeline cleanup.server "$cleanup_server"
+        if [ "$cleanup_server" = residue ]; then
+            residue_found=yes
+        fi
     fi
     # flock in command mode forks its command, so the descriptor the lock
     # attaches to lives in a descendant. The holder runs under setsid and the
     # whole group is signalled, which is what releases the lock before the
     # directory holding its file is removed.
     release_holder
+    retain_served_state
+    record_outcome harness exit_status "$harness_status"
+    if [ "$residue_found" = yes ]; then
+        # A surviving process still holds whatever it opened, so the lease file
+        # stays where it is and the directory is named rather than removed:
+        # removing the pathname under a live holder reports a device free that
+        # this harness has not proven free.
+        printf 'FAIL cleanup residue survived, state retained at %s\n' \
+            "$temporary_directory" >&2
+        record_outcome cleanup residue "$temporary_directory"
+        exit 1
+    fi
+    record_outcome cleanup clear "$temporary_directory"
     rm -rf "$temporary_directory"
 }
 
 # The holder's lock lives in a descendant of the flock command, so the group is
-# signalled and the wait runs until the group is gone. The pid is kept until
-# then, since clearing it early loses the handle the wait needs.
+# what gets signalled and absence is what ends the release. A holder that
+# outlived its signal still owns the lease, so every arm after it would measure
+# a lock this harness left behind rather than one its own fixture took: that is
+# a counted failure and a recorded residue rather than a printed line.
+release_outcome_policy() {
+    [ "$1" = residue ] || return 0
+    residue_found=yes
+    served_state=refused
+    fail "served the fixture holder survived its signal group=$2"
+}
+
 release_holder() {
     [ -n "$holder_group" ] || return 0
-    kill "-$holder_group" 2>/dev/null || true
-    wait "$holder_group" 2>/dev/null || true
-    holder_wait=0
-    while kill -0 "-$holder_group" 2>/dev/null && [ "$holder_wait" -lt 100 ]; do
-        holder_wait=$((holder_wait + 1))
-        sleep 0.1
-    done
-    if kill -0 "-$holder_group" 2>/dev/null; then
-        printf 'FAIL served the fixture holder survived its signal group=%s\n' \
-            "$holder_group" >&2
+    release_outcome=$(terminate_bounded "-$holder_group" 10 || true)
+    record_timeline "holder.${hold_serial:-0}.release" "$release_outcome"
+    release_outcome_policy "$release_outcome" "$holder_group"
+    # The group is what carries the lock, and the shell's own child is what the
+    # shell can reap: where setsid forked they are two processes, so the reap
+    # follows the group's end rather than standing in for it.
+    if [ -n "$holder_reaper" ]; then
+        wait "$holder_reaper" 2>/dev/null || true
+        holder_reaper=''
     fi
     holder_group=''
 }
@@ -483,6 +638,79 @@ self_test_predicate() {
     self_test_expect_with classify_release_preserves_hold latched-return.cpp cleared
 }
 
+# terminate_bounded is what every exit path runs, so a child that ignores
+# SIGTERM answers it before any arm trusts it: the escalation has to end in an
+# absence read back from the kernel rather than in a wait that never returns.
+# The counted half is tested through the policy rather than through a process,
+# since no child survives SIGKILL and a residue reading is what the policy is
+# for.
+self_test_cleanup() {
+    self_test_stubborn=$temporary_directory/stubborn.sh
+    self_test_state=$temporary_directory/stubborn-state
+    : >"$self_test_state"
+    {
+        printf '#!/bin/sh\n'
+        printf 'trap "" TERM INT\n'
+        printf 'printf "%%s" "$$" >"$1"\n'
+        printf 'sleep 120\n'
+    } >"$self_test_stubborn"
+    chmod +x "$self_test_stubborn"
+
+    if ! command -v setsid >/dev/null 2>&1; then
+        skip cleanup_bounded no_setsid
+        return 0
+    fi
+
+    setsid "$self_test_stubborn" "$self_test_state" >/dev/null 2>&1 &
+    self_test_reaper=$!
+    self_test_waited=0
+    while [ ! -s "$self_test_state" ] && [ "$self_test_waited" -lt 100 ]; do
+        self_test_waited=$((self_test_waited + 1))
+        sleep 0.1
+    done
+    if [ ! -s "$self_test_state" ]; then
+        terminate_bounded "$self_test_reaper" 5 >/dev/null 2>&1 || true
+        fail 'cleanup_bounded the stubborn child never reported its group'
+        return 1
+    fi
+    self_test_group=$(cat "$self_test_state")
+    self_test_start=$(served_monotonic)
+    # The shell reports a background job killed by a signal, and here that
+    # notice is the expected result rather than a fault, so it is dropped and
+    # the reading below is what states the outcome.
+    self_test_result=$(terminate_bounded "-$self_test_group" 2 2>/dev/null || true)
+    self_test_elapsed=$(( $(served_monotonic) - self_test_start ))
+    wait "$self_test_reaper" 2>/dev/null || true
+    if [ "$self_test_result" = killed ] && [ "$self_test_elapsed" -le 12 ]; then
+        pass "cleanup_bounded a TERM-ignoring child ended by escalation in ${self_test_elapsed}s"
+    else
+        fail "cleanup_bounded a TERM-ignoring child read $self_test_result in ${self_test_elapsed}s"
+    fi
+
+    self_test_failures=$failures
+    self_test_served_state=$served_state
+    # The injected refusal writes a real FAIL line, which a reader would take
+    # for this run's own failure, so it is captured and read as the fixture it
+    # is: the message has to reach stderr and the counter has to move.
+    self_test_message=$temporary_directory/residue-policy.err
+    release_outcome_policy residue 4242 2>"$self_test_message"
+    if [ "$failures" -eq $((self_test_failures + 1)) ] &&
+        [ "$served_state" = refused ] && [ "$residue_found" = yes ] &&
+        grep -q 'fixture holder survived its signal group=4242' "$self_test_message"; then
+        pass 'cleanup_residue_counted a surviving holder fails the run rather than printing'
+    else
+        fail 'cleanup_residue_counted a surviving holder left the terminal state unchanged'
+        self_test_failures=$failures
+    fi
+    # The injected reading is the fixture rather than a result, so the three
+    # values it moved go back before the stages that own them run.
+    failures=$self_test_failures
+    served_state=$self_test_served_state
+    residue_found=no
+}
+
+self_test_cleanup
+
 # The reach stage. The patch touches one file, so a copy of that file under the
 # path the diff names is the whole tree it needs.
 if [ ! -f "$context_source" ]; then
@@ -690,9 +918,9 @@ fi
 
 # The served stage. Six arms, each naming its own hold, its own deadline, and
 # its own required outcome, because a refusal and a successful wait are two
-# behaviors and one arm that accepts either measures neither. Elapsed time is
-# read from /proc/uptime rather than the wall clock, since a clock step under
-# NTP moves a deadline the kernel does not honor.
+# behaviors and one arm that accepts either measures neither. Every deadline
+# here reads served_monotonic, and every termination goes through
+# terminate_bounded, so no arm ends on a blocking wait.
 served_server=${QWEN_LEASE_TEST_SERVER:-}
 served_model=${QWEN_LEASE_TEST_MODEL:-}
 served_mmproj=${QWEN_LEASE_TEST_MMPROJ:-}
@@ -719,6 +947,30 @@ else
     gpu_ownership_inspect || exit 1
 
     served_state=accepted
+    if [ -n "$evidence_directory" ]; then
+        mkdir -p "$evidence_directory"
+        printf 'monotonic_s\tevent\toutcome\n' >"$evidence_directory/timeline.tsv"
+        printf 'arm\toutcome\tdetail\n' >"$evidence_directory/outcomes.tsv"
+    fi
+
+    # Every served decision reaches the record as well as the terminal, with the
+    # arm read off the message's first word so one call site states both. The
+    # reach stage keeps the file-scope pair, since it names predicates rather
+    # than arms.
+    pass() {
+        record_outcome "${1%% *}" pass "${1#* }"
+        printf 'ok %s\n' "$1"
+    }
+    fail() {
+        record_outcome "${1%% *}" fail "${1#* }"
+        printf 'FAIL %s\n' "$1" >&2
+        failures=$((failures + 1))
+    }
+    skip() {
+        record_outcome "$1" not_run "$2"
+        printf 'not_run %s reason=%s\n' "$1" "$2"
+    }
+
     lease_path=$temporary_directory/vulkan-workload.lock
     hold_serial=0
     server_serial=0
@@ -732,29 +984,43 @@ else
     load_seconds=${QWEN_LEASE_LOAD_S:-90}
     readiness_margin=${QWEN_LEASE_MARGIN_S:-20}
 
-    served_monotonic() {
-        awk '{ printf "%d\n", $1 }' /proc/uptime
-    }
-
     # The fixture holder's lock lives in a descendant of the shell that takes
     # it, so the group is what gets signalled and the state file is what proves
     # the lock reached the kernel.
     hold_lease() {
+        if [ -n "$holder_group" ]; then
+            # A previous arm's holder still owns the lease, so a second fixture
+            # would block on it for the whole admission window and the arm would
+            # report an owner that never took the lease. Naming the carried
+            # holder attributes the refusal to the arm that kept it.
+            printf 'hold_lease refused: holder %s carried from a previous arm\n' \
+                "$holder_group" >&2
+            return 1
+        fi
         hold_serial=$((hold_serial + 1))
         holder_state=$temporary_directory/holder-state.$hold_serial
         : >"$holder_state"
         # The holder opens the compute lease on descriptor 9 in a child of its
         # own, so the owner descriptor is closed ahead of that reuse rather
-        # than inherited under a second meaning.
-        setsid sh -c 'exec 9>"$1"; flock -x 9; printf 'held' >"$2"; sleep "$3"' \
+        # than inherited under a second meaning. It writes its own pid once the
+        # lock reached the kernel, and setsid made it a session leader, so that
+        # pid is the process group the release signals: setsid execs where the
+        # caller has no job control and forks where it does, and reading the
+        # group out of the holder is correct under both.
+        setsid sh -c 'exec 9>"$1"; flock -x 9; printf "%s" "$$" >"$2"; sleep "$3"' \
             holder "$lease_path" "$holder_state" "$1" 9>&- &
-        holder_group=$!
+        holder_reaper=$!
         hold_waited=0
         while [ ! -s "$holder_state" ] && [ "$hold_waited" -lt 600 ]; do
             hold_waited=$((hold_waited + 1))
             sleep 0.1
         done
-        [ -s "$holder_state" ]
+        if [ ! -s "$holder_state" ]; then
+            terminate_bounded "$holder_reaper" 5 >/dev/null 2>&1 || true
+            return 1
+        fi
+        holder_group=$(cat "$holder_state")
+        return 0
     }
 
     start_server() {
@@ -775,8 +1041,13 @@ else
 
     stop_server() {
         [ -n "$server_pid" ] || return 0
-        kill "$server_pid" 2>/dev/null || true
-        wait "$server_pid" 2>/dev/null || true
+        stop_outcome=$(terminate_bounded "$server_pid" 30 || true)
+        record_timeline "server.$server_serial.stop" "$stop_outcome"
+        if [ "$stop_outcome" = residue ]; then
+            residue_found=yes
+            served_state=refused
+            fail "served the server survived its signal pid=$server_pid"
+        fi
         server_pid=''
     }
 
@@ -798,12 +1069,17 @@ else
         printf 'absent\n'
     }
 
+    # The reply lands in a file before it is graded, so the record carries the
+    # body the grade was read from rather than the fact that a grep matched.
+    completion_request='{"prompt":"Reply with the word ok.","n_predict":8,"temperature":0}'
     answers() {
+        answers_body=$temporary_directory/completion.$server_serial.json
         curl -fsS --max-time 120 \
             -H 'Content-Type: application/json' \
-            -d '{"prompt":"Reply with the word ok.","n_predict":8,"temperature":0}' \
-            "http://127.0.0.1:$serving_port/completion" 2>/dev/null |
-            grep -q '"content"'
+            -d "$completion_request" \
+            "http://127.0.0.1:$serving_port/completion" \
+            >"$answers_body" 2>/dev/null || true
+        grep -q '"content"' "$answers_body" 2>/dev/null
     }
 
     # An unpatched server handed a lease path loads and answers exactly as one
@@ -886,6 +1162,10 @@ else
                 fi
             fi
         fi
+        # Three of the four readings above end the arm without releasing, and a
+        # holder carried into the next arm makes that arm measure this harness's
+        # own lock. The release is a no-op on the path that already took it.
+        release_holder
     fi
 
     # Arm B. The loaded server's decode is what the blocking acquire protects:
@@ -936,7 +1216,9 @@ else
                 arm_b_waited=$((arm_b_waited + 1))
                 sleep 0.1
             done
-            wait "$arm_b_client" 2>/dev/null || true
+            arm_b_client_end=$(terminate_bounded "$arm_b_client" 10 || true)
+            record_timeline decode_waits.client "$arm_b_client_end"
+            client_group=''
 
             if grep -q '"content"' "$arm_b_reply" 2>/dev/null; then
                 pass "decode_resumes_on_release resumed_ms=$((arm_b_waited * 100)) requests=1"
@@ -998,16 +1280,25 @@ else
                     sleep 0.2
                 done
                 arm_g_elapsed=$(( $(served_monotonic) - arm_g_start ))
+                arm_g_escalation=none
                 if [ "$arm_g_gone" != yes ]; then
-                    kill -KILL "$server_pid" 2>/dev/null || true
+                    arm_g_escalation=$(terminate_bounded "$server_pid" 0 || true)
+                    if [ "$arm_g_escalation" = residue ]; then
+                        residue_found=yes
+                    fi
+                else
+                    wait "$server_pid" 2>/dev/null || true
                 fi
-                wait "$server_pid" 2>/dev/null || true
                 server_pid=''
-                wait "$arm_g_client" 2>/dev/null || true
+                # The client's own curl carries a request deadline, so the wait
+                # on it is bounded by that deadline rather than by the reply.
+                arm_g_client_end=$(terminate_bounded "$arm_g_client" 10 || true)
+                record_timeline shutdown_while_decode_waits.client "$arm_g_client_end"
+                client_group=''
 
                 if [ "$arm_g_gone" != yes ]; then
                     served_state=refused
-                    fail 'shutdown_while_decode_waits the server outlived its signal inside the decode wait'
+                    fail "shutdown_while_decode_waits the server outlived its signal inside the decode wait escalation=$arm_g_escalation"
                 elif flock -n "$lease_path" true 2>/dev/null; then
                     served_state=refused
                     fail 'shutdown_while_decode_waits the fixture lock went free, so the wait was not the state that ended'
@@ -1108,13 +1399,16 @@ else
             done
             arm_e_elapsed=$(( $(served_monotonic) - arm_e_start ))
             if [ "$arm_e_gone" != yes ]; then
-                # The process outlived its bound, so it is killed before the
-                # harness waits on it: a blocking wait here would hand the
+                # The process outlived its bound, so the escalation runs and
+                # absence is read back: a blocking wait here would hand the
                 # failure an unbounded stall of its own.
-                kill -KILL "$server_pid" 2>/dev/null || true
-                wait "$server_pid" 2>/dev/null || true
+                arm_e_escalation=$(terminate_bounded "$server_pid" 0 || true)
+                if [ "$arm_e_escalation" = residue ]; then
+                    residue_found=yes
+                fi
+                server_pid=''
                 served_state=refused
-                fail 'shutdown_while_waiting the waiting server outlived its signal'
+                fail "shutdown_while_waiting the waiting server outlived its signal escalation=$arm_e_escalation"
             elif flock -n "$lease_path" true 2>/dev/null; then
                 wait "$server_pid" 2>/dev/null || true
                 server_pid=''
@@ -1137,12 +1431,25 @@ else
     # Arm F. A projector is a second device upload inside the same load, so the
     # admitted reviewer repeats arm A with it attached.
     if [ -z "$served_mmproj" ] || [ ! -f "$served_mmproj" ]; then
-        # A five-arm run states five results, so the stage reports partial
-        # rather than accepting a projector claim no arm measured.
-        skip served_arm_projector no_mmproj
-        if [ "$served_state" = accepted ]; then
-            served_state=partial
-            served_reason=projector_arm_not_run
+        # A six-arm run states six results, so the stage reports partial rather
+        # than accepting a projector claim no arm measured. The reason separates
+        # the two ways an arm goes unrun: a registry row declaring no projector
+        # has none to attach and its six text arms are the whole admission its
+        # tuple allows, while a row that requires one and was handed none ran an
+        # incomplete admission. Both read partial, and only the reason says
+        # which, so a text-path result is never read later as a multimodal one.
+        if [ "$projector_policy" = none ]; then
+            skip served_arm_projector projector_none_declared
+            if [ "$served_state" = accepted ]; then
+                served_state=partial
+                served_reason=text_arms_only_projector_none
+            fi
+        else
+            skip served_arm_projector no_mmproj
+            if [ "$served_state" = accepted ]; then
+                served_state=partial
+                served_reason=projector_arm_not_run
+            fi
         fi
     else
         arm_f_observe=${QWEN_LEASE_F_OBSERVE_S:-10}
@@ -1177,19 +1484,43 @@ else
     fi
 fi
 
+# The terminal line is also the record's first row, so the summary carries the
+# same fields a reader would otherwise re-derive from the outcomes.
+record_summary() {
+    [ -d "$evidence_directory" ] || return 0
+    {
+        printf 'field\tvalue\n'
+        printf 'load_lease_coverage\t%s\n' "$1"
+        printf 'reach\t%s\n' "$reach_state"
+        printf 'served\t%s\n' "$served_state"
+        printf 'reach_reason\t%s\n' "${reach_reason:-none}"
+        printf 'served_reason\t%s\n' "${served_reason:-none}"
+        printf 'projector_policy\t%s\n' "$projector_policy"
+        printf 'failures\t%s\n' "$failures"
+        printf 'server\t%s\n' "${served_server:-none}"
+        printf 'model\t%s\n' "${served_model:-none}"
+        printf 'mmproj\t%s\n' "${served_mmproj:-none}"
+    } >"$evidence_directory/summary.tsv"
+}
+
 if [ "$failures" -gt 0 ]; then
-    printf 'load_lease_coverage=refused reach=%s served=%s failures=%s\n' \
-        "$reach_state" "$served_state" "$failures"
+    record_summary refused
+    printf 'load_lease_coverage=refused reach=%s served=%s projector=%s failures=%s\n' \
+        "$reach_state" "$served_state" "$projector_policy" "$failures"
     exit 1
 fi
 
 if [ "$reach_state" = accepted ] && [ "$served_state" = accepted ]; then
-    printf 'load_lease_coverage=accepted reach=accepted served=accepted\n'
+    record_summary accepted
+    printf 'load_lease_coverage=accepted reach=accepted served=accepted projector=%s\n' \
+        "$projector_policy"
     exit 0
 fi
 
 # One stage passing states what it read and nothing about the other, so the
 # terminal line carries both rather than promoting a partial run.
-printf 'load_lease_coverage=partial reach=%s served=%s reach_reason=%s served_reason=%s\n' \
-    "$reach_state" "$served_state" "${reach_reason:-none}" "${served_reason:-none}"
+record_summary partial
+printf 'load_lease_coverage=partial reach=%s served=%s projector=%s reach_reason=%s served_reason=%s\n' \
+    "$reach_state" "$served_state" "$projector_policy" \
+    "${reach_reason:-none}" "${served_reason:-none}"
 exit 0

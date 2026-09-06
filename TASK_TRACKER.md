@@ -127,6 +127,27 @@ since `flock(LOCK_UN)` fails before it changes anything: a failure keeps
 `workload_lease_held` true and latches one error line rather than reporting a
 lease the kernel still holds as given back.
 
+Teardown carries an exception rather than a fourth claim. `destroy()` takes the
+lease back with one non-blocking attempt and then synchronizes and frees whether
+that attempt won or lost, so an orderly teardown frees inside the lease and a
+teardown arriving under another holder frees beside it. The CUDA driver
+documentation permits a deallocation to synchronize implicitly, which is not an
+application-level guarantee that this teardown joins the shared lease, and two
+processes freeing their own allocations is not by itself a correctness failure,
+so the contract reads:
+
+```text
+load, upload, and warmup exclusion   candidate claim, awaiting device admission
+evaluation exclusion                 candidate claim, awaiting device admission
+orderly teardown exclusion           holds where the teardown owns the lease
+contended teardown                   explicit unprotected-cleanup exception
+```
+
+Closing it is a policy: ordinary router eviction and orderly session teardown
+drain the active holder before destroying an idle child, and unleased cleanup
+stays reserved for an emergency termination the record names. That policy is a
+combined-session promotion gate, tested apart from the signal arms.
+
 `scripts/test-load-lease-coverage.sh` reads `reach=accepted served=not_run`
 against it. Fifteen synthetic bodies split each predicate, each written against
 a demonstrated false positive rather than against its intent -- a `(void)` read
@@ -141,8 +162,27 @@ projector-bearing load -- need a built binary and a device window. Each is read
 only after the `vulkan workload lease armed` line proves the closure carries the
 patch, and the load arms read the `waiting` and `acquired` lines rather than
 absence of health, because a server that ignored the lease and uploaded slowly
-looks the same from outside. That build and the
-promotion that follows are the combined session's remaining precondition.
+looks the same from outside. Every process the harness starts ends through one
+bounded path -- signal, poll inside a named deadline, escalate to `SIGKILL`,
+read absence back -- and a fixture holder that outlived it is a counted failure
+whose state is retained rather than removed. `QWEN_LEASE_EVIDENCE_DIR` names the
+fresh directory a served run retains its sanitized logs, completion bodies,
+outcomes, timeline, teardown states, and exit status into, and the terminal
+line's `served_reason` separates `text_arms_only_projector_none` from
+`projector_arm_not_run` so a text-path admission is never read as a multimodal
+one.
+
+The candidate closure `15bc632adf7f` is built and
+`evidence/lease-coverage/candidate-build-source-identity.tsv` states what it is:
+it matches the recorded production architecture, payload counts, MMVQ
+thresholds, and specified feature-marker state, and exact source equivalence to
+the historical production build remains unresolved, since the promoted closure's
+`source_diff_sha256` is reproduced by none of five reconstructions from today's
+patch files. Promotion needs that gap resolved -- by recovering the historical
+snapshot or by building a named reconstructed lease-off companion from the
+candidate's own source and toolchain -- beside the served arms, the router
+admission, the serialized image review on the candidate, and the explicit
+teardown policy. The combined session follows all of them.
 
 ## Depth validation
 

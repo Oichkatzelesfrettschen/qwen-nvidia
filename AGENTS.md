@@ -1306,6 +1306,33 @@ names and logs which of the two it did. The release reports what the kernel
 confirmed: `flock(LOCK_UN)` fails before it changes anything, so a failure keeps
 `workload_lease_held` true and latches one error line rather than reporting a
 lease the kernel still holds as given back.
+
+That single attempt is where the contract carries an exception rather than a
+claim. `destroy()` proceeds to synchronize and free whether the attempt won the
+lease or lost it, so an orderly teardown that wins frees inside the lease and a
+teardown arriving while another process holds it frees beside that holder. What
+the overlap costs is unmeasured here: the CUDA driver documentation states that
+a deallocation may synchronize implicitly, which is a permission rather than an
+application-level guarantee that this teardown participates in the shared lease,
+and two processes freeing their own allocations is not by itself a correctness
+failure. The lease therefore carries four claims rather than one:
+
+```text
+load, upload, and warmup exclusion   candidate claim, awaiting device admission
+evaluation exclusion                 candidate claim, awaiting device admission
+orderly teardown exclusion           holds where the teardown owns the lease
+contended teardown                   explicit unprotected-cleanup exception
+```
+
+A served arm reads `teardown_held=no` as a successful termination rather than as
+teardown exclusion, and `no_destroy` where the process ended before `destroy()`
+ran at all. Closing the exception is a policy rather than a longer wait, since
+an emergency exit that waited indefinitely would trade a bounded shutdown for a
+diagram: ordinary router eviction and orderly session teardown drain the active
+holder before destroying an idle child, and unleased cleanup stays reserved for
+an emergency termination the record names. That policy is a combined-session
+promotion gate and is tested apart from the signal arms.
+
 `scripts/test-load-lease-coverage.sh` holds those boundaries and
 `evidence/lease-coverage/` carries the reading before the extension and after
 it; its seven served arms -- a load that waits, a decode that waits behind a
@@ -1315,7 +1342,34 @@ that refusal, a terminating signal inside a load wait, and a projector-bearing
 load -- report `not_run` until a built binary and a device window drive them.
 The two shutdown arms are separate because `server.cpp` installs its handlers at
 `:489`, after the `load_model` call at `:465`, so a load wait ends by default
-disposition where a decode wait ends on `EINTR`.
+disposition where a decode wait ends on `EINTR`. The harness terminates every
+process it starts through one bounded path -- signal, poll for absence inside a
+named deadline, escalate to `SIGKILL`, read absence back -- and a fixture holder
+that outlived that escalation is a counted failure whose temporary state is
+retained rather than removed, since removing a lock pathname under a live holder
+reports a device free that no reading proved free. `QWEN_LEASE_EVIDENCE_DIR`
+names a fresh directory the served stage retains its sanitized server logs,
+completion bodies, per-arm outcomes, holder timeline, teardown states, and its
+own exit status into. Two runs read `served=partial` for two reasons and the
+reason separates them: `text_arms_only_projector_none` is the whole admission a
+registry row declaring no projector allows, and `projector_arm_not_run` is a
+projector-required row handed none, so a text-path result is never read later as
+a multimodal one.
+
+`evidence/lease-coverage/candidate-build-source-identity.tsv` is the candidate
+closure's identity. It states that `15bc632adf7f` matches the recorded
+production architecture, payload counts, MMVQ thresholds, and specified
+feature-marker state, and that exact source equivalence to the historical
+production build remains unresolved: the promoted closure's own
+`source_diff_sha256` is reproduced by none of five reconstructions from today's
+patch files, and matching counts of 187 cubins state that two builds emitted the
+same number of objects rather than the same kernels. Resolving that gap is a
+promotion gate with two routes -- recover the historical source snapshot and
+name the complete difference, or build a clearly named reconstructed lease-off
+companion from the candidate's own source and toolchain and isolate the lease
+change against it, keeping the old production binary as a separate behavioral
+reference. A companion built that way is not the original production source and
+is not labeled as one.
 
 The order follows from how each
 acquire behaves rather than from granularity: a lease acquire whose caller can
