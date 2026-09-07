@@ -94,8 +94,13 @@ independent_digest() {
             "$patch_directory/$independent_patch.patch" || return 1
     done
     git -c core.fsmonitor=false -C "$independent_tree" add -A >/dev/null 2>&1
-    git -c core.fsmonitor=false -C "$independent_tree" diff --binary HEAD -- |
-        sha256sum | cut -d ' ' -f 1
+    # The oracle lands its diff in a file for the same reason the reconstructor
+    # does: a pipeline reports sha256sum's status, so a failed diff would give
+    # the oracle the digest of no bytes and every comparison below would agree
+    # with a reconstructor that had failed the same way.
+    git -c core.fsmonitor=false -C "$independent_tree" diff --binary HEAD -- \
+        > "$temporary_directory/independent.diff" || return 1
+    sha256sum < "$temporary_directory/independent.diff" | cut -d ' ' -f 1
 }
 
 alpha_digest=$(independent_digest touch-alpha)
@@ -151,6 +156,38 @@ check mixed_subject_misses 1 \
     "$(grep -c 'role=subject.*match=no' "$temporary_directory/run.out")"
 check mixed_terminal accepted \
     "$(awk '/^reconstruction=/ { sub(/^reconstruction=/, ""); print $1 }' "$temporary_directory/run.out")"
+
+# The two-pass tally is state carried across rows, so the counters are read as
+# counters rather than inferred from the row lines they summarize: a tally
+# corrupted by the control pass would leave every row line correct.
+check mixed_control_tally 'controls	1	failed=0' \
+    "$(grep '^controls	' "$temporary_directory/run.out")"
+check mixed_subject_tally 'subjects	2	matched=1' \
+    "$(grep '^subjects	' "$temporary_directory/run.out")"
+check mixed_terminal_counts 'controls=1 subjects_matched=1_of_2' \
+    "$(sed -n 's/^reconstruction=accepted //p' "$temporary_directory/run.out")"
+
+# --- a diff that fails must read as a failure rather than as a clean tree.
+# `diff.external` names a program git runs to produce the diff, so a name that
+# does not resolve makes `git diff` exit nonzero with a file to diff present.
+# Reverting the file-backed diff to `git diff | sha256sum` gives the subject
+# the digest of no bytes here and the run continues.
+empty_input_digest=$(printf '' | sha256sum | cut -d ' ' -f 1)
+cat > "$temporary_directory/difffail.tsv" <<MANIFEST
+control	known-good	$patch_directory	$alpha_digest	touch-alpha
+MANIFEST
+# A variable-assignment prefix on a function call has no portable lifetime, so
+# the setting is exported around the call and removed after it.
+QWEN_RECONSTRUCT_GIT_OPTIONS="-c diff.external=$temporary_directory/absent-diff-helper"
+export QWEN_RECONSTRUCT_GIT_OPTIONS
+run_manifest "$temporary_directory/difffail.tsv" > /dev/null 2>&1 || true
+unset QWEN_RECONSTRUCT_GIT_OPTIONS
+check diff_failure_is_named 1 \
+    "$(grep -c 'digest=diff_failed' "$temporary_directory/run.out")"
+check diff_failure_is_not_an_empty_digest 0 \
+    "$(grep -c "digest=$empty_input_digest" "$temporary_directory/run.out")"
+check diff_failure_refuses_the_run 'reconstruction=refused reason=control_did_not_reproduce' \
+    "$(cat "$temporary_directory/run.err")"
 
 # A control that fails to reproduce refuses the run whatever the subjects read.
 cat > "$temporary_directory/broken.tsv" <<MANIFEST
@@ -239,13 +276,34 @@ git -C "$fixture_repository" checkout --quiet -- . 2>/dev/null || true
 printf 'staged content\n' > "$fixture_repository/alpha.txt"
 git -C "$fixture_repository" add alpha.txt
 staged_index_before=$(git -C "$fixture_repository" ls-files -s | sha256sum | cut -d ' ' -f 1)
-routed_work=$(mktemp -d "$temporary_directory/routed.XXXXXX"); rmdir "$routed_work"
-GIT_INDEX_FILE="$fixture_repository/.git/index" \
-    "$reconstructor" "$fixture_repository" "$fixture_pin" "$routed_work" \
-    "$temporary_directory/mixed.tsv" >/dev/null 2>&1 || true
-check source_index_preserved "$staged_index_before" \
-    "$(git -C "$fixture_repository" ls-files -s | sha256sum | cut -d ' ' -f 1)"
-check source_worktree_preserved 'staged content' "$(cat "$fixture_repository/alpha.txt")"
+# Each routing variable is asserted twice: the source survives, and the run
+# still reconstructs. A reconstructor that exited the moment it saw the
+# variable would preserve the source and prove nothing, so the readings below
+# require the accepted terminal line and the mixed manifest's own counts.
+routing_arm=0
+for routing_variable in GIT_INDEX_FILE GIT_DIR; do
+    routing_arm=$((routing_arm + 1))
+    case $routing_variable in
+        GIT_INDEX_FILE) routing_value="$fixture_repository/.git/index" ;;
+        GIT_DIR) routing_value="$fixture_repository/.git" ;;
+    esac
+    routed_work=$(mktemp -d "$temporary_directory/routed.XXXXXX"); rmdir "$routed_work"
+    routed_status=0
+    env "$routing_variable=$routing_value" \
+        "$reconstructor" "$fixture_repository" "$fixture_pin" "$routed_work" \
+        "$temporary_directory/mixed.tsv" \
+        > "$temporary_directory/routed.out" 2>"$temporary_directory/routed.err" \
+        || routed_status=$?
+    check "routed_${routing_variable}_status" 0 "$routed_status"
+    check "routed_${routing_variable}_terminal" 'controls=1 subjects_matched=1_of_2' \
+        "$(sed -n 's/^reconstruction=accepted //p' "$temporary_directory/routed.out")"
+    check "routed_${routing_variable}_subject_matches" 1 \
+        "$(grep -c 'role=subject.*match=yes' "$temporary_directory/routed.out")"
+    check "routed_${routing_variable}_index_preserved" "$staged_index_before" \
+        "$(git -C "$fixture_repository" ls-files -s | sha256sum | cut -d ' ' -f 1)"
+    check "routed_${routing_variable}_worktree_preserved" 'staged content' \
+        "$(cat "$fixture_repository/alpha.txt")"
+done
 git -C "$fixture_repository" reset --quiet --hard "$fixture_pin"
 
 # The source repository is never written to: reconstruction happens in a clone.

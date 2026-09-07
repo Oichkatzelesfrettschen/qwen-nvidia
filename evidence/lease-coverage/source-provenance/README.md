@@ -163,7 +163,13 @@ field is read as bytes rather than expanded by a shell.
 `scripts/prepare-provenance-manifest.sh` is what turns it back into an input --
 it writes each historical patch set out of this repository's committed objects,
 by the commits `patch-trees.tsv` names, and emits a manifest naming those
-directories:
+directories. Every blob is written on every run and the resulting directory is
+then compared against the tree's own name list, so a directory an earlier run
+left behind is overwritten rather than trusted and a file the tree does not
+carry refuses the run by name. A manifest row pointing at a directory whose
+contents are not the recorded tree would reconstruct something other than the
+closure the row claims, which is the whole property this materialization
+carries:
 
 ```sh
 scripts/prepare-provenance-manifest.sh WORK_DIR
@@ -172,12 +178,31 @@ scripts/reconstruct-closure-source.sh ~/src/llama.cpp-qwen-nvidia \
     WORK_DIR/provenance-manifest.tsv
 ```
 
+The refusal is checkable in one command: writing an unexpected file into a
+materialized directory and re-running the preparer exits 1 and names the entry.
+
+```sh
+mkdir -p WORK_DIR/patches-e4026f7462b21db0c8cb5dc087d6b907cc77ccfc
+printf poison > WORK_DIR/patches-e4026f7462b21db0c8cb5dc087d6b907cc77ccfc/poison.patch
+scripts/prepare-provenance-manifest.sh WORK_DIR   # exits 1, names poison.patch
+```
+
 `QWEN_RECONSTRUCT_GIT_OPTIONS` carries additional `-c` settings into every git
 invocation, which is how the serialization arms are asked; a setting that moves
 the digest moves the control with it, so each arm carries its own control value.
 
 `scripts/test-reconstruct-closure-source.sh` holds the reconstructor against a
-two-file fixture repository across thirty-one checks, including the refusal a
+two-file fixture repository across forty-five checks, including the refusal a
 missed control produces, the withholding of subject readings under a failed
 control, and the proof that an inherited `GIT_INDEX_FILE` leaves the source
 repository's index, working tree, configuration, and refs unchanged.
+
+Three of those checks are written against a specific defect rather than a
+behavior, so each was confirmed to fail under the defect it names. Restoring
+`git diff | sha256sum` in place of the file-backed diff gives a failed diff the
+digest of no bytes, which `diff_failure_is_not_an_empty_digest` reads directly.
+A reconstructor exiting the moment it sees a routing variable would leave the
+source intact and reconstruct nothing, which the `routed_*_terminal` and
+`routed_*_subject_matches` pairs refuse; the arm therefore asserts the accepted
+terminal line and the manifest's own counts beside the four preservation
+readings, under `GIT_INDEX_FILE` and `GIT_DIR` alike.

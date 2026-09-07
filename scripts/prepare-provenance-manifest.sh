@@ -56,13 +56,30 @@ while IFS='	' read -r patches_tree tree_commit tree_date; do
     case $patches_tree in '' | '#'*) continue ;; esac
     [ "$patches_tree" != patches_tree ] || continue
     patch_directory="$work_directory/patches-$patches_tree"
-    if [ ! -d "$patch_directory" ]; then
-        mkdir -p "$patch_directory"
-        for patch_path in $(git -C "$repository_root" ls-tree --name-only \
-            "$tree_commit" patches/ | grep '\.patch$'); do
-            git -C "$repository_root" cat-file blob "$tree_commit:$patch_path" \
-                > "$patch_directory/$(basename "$patch_path")"
-        done
+    # Every blob is written on every run, so a directory left by an earlier run
+    # holding stale bytes is overwritten rather than trusted. A name the tree
+    # does not carry survives that write, so the directory is compared against
+    # the tree's own name list afterwards and an extra file refuses the run:
+    # a manifest row naming a directory whose contents are not the recorded
+    # tree reconstructs something other than the closure it claims.
+    mkdir -p "$patch_directory"
+    tree_names="$work_directory/.names-$patches_tree"
+    git -C "$repository_root" ls-tree --name-only "$tree_commit" patches/ |
+        grep '\.patch$' | sed 's|.*/||' | LC_ALL=C sort > "$tree_names"
+    while IFS= read -r patch_name; do
+        [ -n "$patch_name" ] || continue
+        git -C "$repository_root" cat-file blob "$tree_commit:patches/$patch_name" \
+            > "$patch_directory/$patch_name"
+    done < "$tree_names"
+    present_names="$work_directory/.present-$patches_tree"
+    find "$patch_directory" -maxdepth 1 -mindepth 1 -printf '%f\n' |
+        LC_ALL=C sort > "$present_names"
+    if ! cmp -s "$tree_names" "$present_names"; then
+        printf 'the materialized patch set differs from tree %s: %s\n' \
+            "$patches_tree" "$patch_directory" >&2
+        printf 'unexpected entries:\n' >&2
+        LC_ALL=C comm -13 "$tree_names" "$present_names" >&2
+        exit 1
     fi
     materialized=$((materialized + 1))
     # Every subset of the three candidate patches, applied in the fixed order.

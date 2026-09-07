@@ -364,8 +364,12 @@ historical patch trees crossed with every candidate subset, over every git
 serialization setting shown to move a digest, reproduce neither the promoted
 closure's `0d6e3be3` nor the `689d3f35` that seven closures fourteen minutes
 earlier share, while the same sweep reproduces the candidate's own digest and
-the empty-tree `e3b0c442`. The gap is the Aug-31 build practice rather than the
-promoted binary alone. Route B holds: the candidate reconstructs exactly from
+the empty-tree `e3b0c442`. What that establishes is bounded: the retained patch
+material reproduces neither historical digest, and the same construction
+reproduces two digests it is asked for, so the negative is the material rather
+than the procedure. Which historical practice produced bytes no retained tree
+carries is a hypothesis `source-provenance/README.md` states as one. Route B
+holds: the candidate reconstructs exactly from
 the checked-in patch files, and the lease-off companion is that sequence minus
 the lease patch, differing by one file at 331 insertions and no deletion.
 
