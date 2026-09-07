@@ -181,9 +181,10 @@ check failed_destroy_drained 'orderly_drain=completed' \
 check failed_destroy_not_exclusion 'teardown_exclusion=not_established' \
     "$(printf '%s' "$failed_destroy" | grep '^teardown_exclusion=')"
 
-# --- 7  the barrier is released whatever the outcome, so a failure leaves the
-#        session admitting rather than wedged shut
-check barrier_reopened running "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
+# --- 7  a failed retirement preserves quiescence until explicit recovery
+check failed_retirement_stays_closed quiescing "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
+"$controller" resume >/dev/null
+check explicit_recovery_reopens running "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
 
 # --- 9  a destroy step that terminated without the lease is not an exclusion
 # This is the case exit status cannot see: the step succeeded, the process left,

@@ -122,12 +122,13 @@ the majority of this transition rather than a step after it.
 
 `scripts/qwen-drain-controller.sh` and `scripts/qwen-admission-barrier.sh`
 supply the state word, the in-flight share, and the destroy boundary the table
-above names as missing. Three suites read them and they read different
+above names as missing. Four suites read them and they read different
 subjects: `scripts/test-qwen-drain-controller.sh` drives the lifecycle,
 `scripts/test-admission-barrier.py` holds the Python participants to the shell
-library's semantics, and `scripts/test-drain-client-attachment.py` reads the
+library's semantics, `scripts/test-drain-client-attachment.py` reads the
 server stand-in, because one discrimination is about what an attached socket
-means rather than about what the barrier holds. Every row is joined to the
+means rather than about what the barrier holds, and
+`scripts/test-drain-failure-boundaries.py` reads the paths a failure takes. Every row is joined to the
 readings that decide it, since a label is not a claim:
 
 | Discrimination | Reached | The readings that decide it |
@@ -138,7 +139,7 @@ readings that decide it, since a label is not a claim:
 | a client attached to completed work is told from an unanswered request | yes | `test_a_client_on_completed_work_does_not_hold_the_process` against `test_a_client_on_an_unanswered_task_holds_the_process`, and `idle_participant_releases` at the barrier |
 | a request that cannot reach a terminal state takes the drain deadline's named failure path | yes | `deadline_refuses`, `deadline_mode`, `deadline_drain`, `deadline_exclusion`, `deadline_names_emergency_mode` |
 | a child that cannot obtain its teardown lease is not reported as an orderly teardown | yes | `held_no_not_exclusion`, `held_no_exit_refuses_strict`, `silent_teardown_unattributed`, `failed_destroy_not_exclusion` |
-| a holder or child surviving escalation retains its identity and reports residue | partial | `residue_holder_retained` and `residue_cleared_before_next_arm` establish that a surviving holder is retained and named; the arm reaches it through a deadline rather than through a signal escalation, so the escalation itself is unexercised here and stays `test-load-lease-coverage.sh`'s |
+| a holder or child surviving escalation retains its identity and reports residue | partial | `residue_holder_retained` and `residue_cleared_before_next_arm` establish that a surviving holder is retained and named, and `test_expired_drain_keeps_admission_closed` establishes that the expired path leaves admission closed rather than reopening it behind the survivor; the arms reach the survivor through a deadline rather than through a signal escalation, so the escalation itself is unexercised here and stays `test-load-lease-coverage.sh`'s |
 | a lease pathname change is refused rather than serialized against another inode | yes | `swapped_admit_refuses`, `swapped_admit_names_identity`, `swapped_retire_not_exclusion`, `identity_mismatch_refuses`, `test_identity_reads_device_and_inode` |
 
 Six of eight are reached and two are partial. An earlier reading of this table
@@ -152,6 +153,16 @@ consulted it. Row 4's control arm held a socket object against a stand-in
 answering HTTP/1.0, so its attached client had already been closed by the
 peer. Row 2's refusal was tested and its reopening half was not. Rows 3 and 7
 remain partial and say so here.
+
+`scripts/test-drain-failure-boundaries.py` reads a dimension the eight rows do
+not name, which is what the lifecycle does after a transition fails rather than
+what it does when one succeeds. A failed destroy and an expired drain each
+called `qwen_barrier_set_state running`, reopening admission into a session
+whose teardown had just failed; both preserve quiescence, and `resume` is the
+explicit recovery, refused while an exclusive in-flight reference cannot be
+taken. Those paths are the emergency-termination exception the
+drain-before-destroy policy reserves, so a reading of them is a reading of what
+the exception leaves behind rather than of the orderly path.
 
 The fourth took two mechanisms rather than one, because the barrier's notion of
 in flight is a held share and a server's is an unanswered task inside an HTTP
@@ -180,7 +191,12 @@ runs under twelve spinning threads agree with the idle runs.
 A suite that passes under a mutation of the thing it names decides nothing, and
 this harness has shipped that defect before. Each row reverts one mechanism and
 names the arms that refuse the result; every mutation was restored and the file
-compared byte for byte afterwards.
+compared byte for byte afterwards. The seven failure-boundary rows are calibrated
+against the merged implementation rather than against the tree they were first
+measured on, and each refuses exactly the one arm that names it;
+`evidence/lease-coverage/drain-review-hardening/merged-mutation-summary.tsv`
+retains that run and its own README scopes the per-file counts it reports to
+commit `35a27e1`.
 
 | Mutation | Caught by |
 | --- | --- |
@@ -193,6 +209,13 @@ compared byte for byte afterwards.
 | the stand-in answers HTTP/1.0 | `test_a_client_on_completed_work_does_not_hold_the_process`, on the control condition rather than the outcome |
 | a service maps every barrier refusal onto the `quiescing_` prefix, as the first implementation did | `test_a_barrier_fault_reason_does_not_claim_quiescence`, on `draining` |
 | a service keeps the state-word test and prefixes a fault `quiescing_` | `test_a_barrier_fault_reason_does_not_claim_quiescence`, on `barrier_identity_mismatch` |
+| the state word is published by renaming a temporary file over the state path | `test_state_transition_preserves_locked_inode` |
+| a failed destroy calls `qwen_barrier_set_state running` | `test_failed_destroy_keeps_admission_closed` |
+| an expired drain calls `qwen_barrier_set_state running` | `test_expired_drain_keeps_admission_closed` |
+| `resume` reopens admission without taking the exclusive in-flight reference | `test_resume_refuses_while_work_remains` |
+| the destroy child inherits descriptor 9 | `test_destroy_child_does_not_inherit_drain_lock` |
+| `InFlightShare.__enter__` closes its share on the two named refusals rather than on any raise | `test_second_read_failure_closes_acquired_share` |
+| `InFlightShare.__exit__` closes after the unlock rather than in a `finally` | `test_unlock_failure_still_closes_descriptor` |
 | the share descriptor loses its explicit `O_CLOEXEC` | nothing, and the arm says so: PEP 446 makes every `os.open` descriptor non-inheritable, measured as `FD_CLOEXEC` set under `O_RDONLY` alone on CPython 3.14.7, so the edit changes no behavior. The arm reads the property, which holds from two sources. |
 
 Every reading above is a file, a lock, and a loopback socket on a host with no
@@ -229,6 +252,14 @@ the in-flight file was replaced under a live session, and the first
 implementation reported it as `quiescing_identity_mismatch` -- a quiescence
 that never began. The arm reads the class out of each of the three services'
 own source rather than importing them, so a copy that drifts fails there.
+
+`scripts/test-drain-failure-boundaries.py` holds the lifecycle's failure paths
+to eight readings: a failed destroy and an expired drain each leave admission
+closed, `resume` refuses while an exclusive in-flight reference cannot be taken
+and reopens once it can, a state flip lands on the locked inode rather than a
+replacement, the share is closed when the second state read raises and when the
+unlock raises, the destroy child holds none of the controller's descriptors,
+and a spawned runtime cannot inherit the share even with `close_fds` disabled.
 
 `scripts/qwen-drain-controller.sh` drives the lifecycle, and
 `scripts/test-qwen-drain-controller.sh` holds it to thirty-six readings, each

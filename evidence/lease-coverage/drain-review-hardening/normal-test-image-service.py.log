@@ -1,0 +1,68 @@
+test_admitted_origin_answers_the_preflight (__main__.ImageServiceTest.test_admitted_origin_answers_the_preflight) ... ok
+test_artifact_path_outside_the_digest_form_is_refused (__main__.ImageServiceTest.test_artifact_path_outside_the_digest_form_is_refused) ... ok
+test_authenticated_read_serves_the_artifact_immutably (__main__.ImageServiceTest.test_authenticated_read_serves_the_artifact_immutably) ... ok
+test_caller_supplied_path_is_refused (__main__.ImageServiceTest.test_caller_supplied_path_is_refused) ... ok
+test_cancel_ends_the_owned_child_and_removes_the_part (__main__.ImageServiceTest.test_cancel_ends_the_owned_child_and_removes_the_part)
+Cancellation kills the runtime and the partial file goes with it. ... ok
+test_cancel_naming_another_job_is_refused (__main__.ImageServiceTest.test_cancel_naming_another_job_is_refused)
+A cancel reaches the generation it names and no other. ... ok
+test_cancel_without_a_job_is_refused (__main__.ImageServiceTest.test_cancel_without_a_job_is_refused) ... ok
+test_dimension_mismatch_is_refused (__main__.ImageServiceTest.test_dimension_mismatch_is_refused)
+A runtime that ignores the requested geometry produces no artifact. ... ok
+test_fixture_appends_png_for_an_unrecognized_output_extension (__main__.ImageServiceTest.test_fixture_appends_png_for_an_unrecognized_output_extension)
+The fixture mirrors sd-cli's own encoder-selection rule. ... ok
+test_generation_completes_because_the_partial_name_carries_a_recognized_extension (__main__.ImageServiceTest.test_generation_completes_because_the_partial_name_carries_a_recognized_extension)
+The naming fix keeps the runtime's write and the service's wait aligned. ... ok
+test_hang_reaches_the_timeout_and_the_kill (__main__.ImageServiceTest.test_hang_reaches_the_timeout_and_the_kill)
+A runtime ignoring SIGTERM is ended by SIGKILL after the grace. ... ok
+test_health_reports_the_service_state (__main__.ImageServiceTest.test_health_reports_the_service_state) ... ok
+test_lease_held_past_the_deadline_refuses_the_job (__main__.ImageServiceTest.test_lease_held_past_the_deadline_refuses_the_job)
+A holder that outlasts the wait keeps the same refusal reason. ... ok
+test_lease_is_held_during_the_job_and_released_after (__main__.ImageServiceTest.test_lease_is_held_during_the_job_and_released_after) ... ok
+test_lease_released_inside_the_deadline_admits_the_job (__main__.ImageServiceTest.test_lease_released_inside_the_deadline_admits_the_job)
+A chat turn still releasing the lease delays a job rather than failing it. ... ok
+test_missing_seed_is_refused (__main__.ImageServiceTest.test_missing_seed_is_refused)
+Randomness is chosen before approval rather than by the service. ... ok
+test_oversized_control_line_is_refused (__main__.ImageServiceTest.test_oversized_control_line_is_refused) ... ok
+test_priority_readback_separates_a_wrapped_child_from_a_bare_one (__main__.ImageServiceTest.test_priority_readback_separates_a_wrapped_child_from_a_bare_one)
+The read-back reports the wrapper's value and the caller's without it. ... ok
+test_provenance_records_what_the_service_observed (__main__.ImageServiceTest.test_provenance_records_what_the_service_observed)
+Provenance carries the observed fields and `-` for the rest. ... ok
+test_refused_profile_leaves_the_lease_untouched (__main__.ImageServiceTest.test_refused_profile_leaves_the_lease_untouched)
+A policy refusal happens above the lease, so the lock stays free. ... ok
+test_runtime_environment_carries_the_vulkan_icd_pin (__main__.ImageServiceTest.test_runtime_environment_carries_the_vulkan_icd_pin)
+The spawned runtime inherits VK_DRIVER_FILES and VK_ICD_FILENAMES. ... ok
+test_runtime_failure_is_reported_and_leaves_the_lease_free (__main__.ImageServiceTest.test_runtime_failure_is_reported_and_leaves_the_lease_free)
+A non-zero runtime exit fails the job and releases the lease. ... ok
+test_runtime_records_nice_19_at_its_first_instruction (__main__.ImageServiceTest.test_runtime_records_nice_19_at_its_first_instruction)
+The runtime holds the priority before it parses an argument. ... ok
+test_same_seed_reproduces_one_artifact_name (__main__.ImageServiceTest.test_same_seed_reproduces_one_artifact_name)
+Two runs at one seed agree on the digest, on this host. ... ok
+test_second_generate_is_refused_while_one_runs (__main__.ImageServiceTest.test_second_generate_is_refused_while_one_runs)
+One Vulkan workload at a time, with no queue behind it. ... ok
+test_shutdown_proves_no_child_no_part_and_a_free_lease (__main__.ImageServiceTest.test_shutdown_proves_no_child_no_part_and_a_free_lease)
+SIGTERM during a job leaves no runtime, no .part.png, and no lease. ... ok
+test_shutdown_sweep_removes_a_stray_part_png (__main__.ImageServiceTest.test_shutdown_sweep_removes_a_stray_part_png)
+`shutdown_residue`'s own sweep matches the `.part.png` suffix. ... ok
+test_steps_above_the_profile_ceiling_are_refused (__main__.ImageServiceTest.test_steps_above_the_profile_ceiling_are_refused) ... ok
+test_success_names_the_artifact_by_its_own_digest (__main__.ImageServiceTest.test_success_names_the_artifact_by_its_own_digest)
+A completed job renames the .part.png to the SHA-256 of its own bytes. ... ok
+test_teardown_check_flags_a_part_png_residue (__main__.ImageServiceTest.test_teardown_check_flags_a_part_png_residue)
+A stray `.part.png` is what image-teardown-check.sh must catch. ... ok
+test_truncated_png_is_refused (__main__.ImageServiceTest.test_truncated_png_is_refused)
+A half-written file fails the chunk walk rather than being named. ... ok
+test_unauthenticated_artifact_read_is_refused (__main__.ImageServiceTest.test_unauthenticated_artifact_read_is_refused)
+A present hash and an absent one answer 401 to an anonymous reader. ... ok
+test_unreadable_vulkan_icd_refuses_before_the_server_starts (__main__.ImageServiceTest.test_unreadable_vulkan_icd_refuses_before_the_server_starts)
+A missing Vulkan ICD file stops the service before it spawns anything. ... ok
+test_wrong_protocol_version_is_refused (__main__.ImageServiceTest.test_wrong_protocol_version_is_refused) ... ok
+test_corrupt_chunk_fails_its_crc (__main__.PngValidatorTest.test_corrupt_chunk_fails_its_crc) ... ok
+test_dimension_disagreement_is_named (__main__.PngValidatorTest.test_dimension_disagreement_is_named) ... ok
+test_signature_is_required (__main__.PngValidatorTest.test_signature_is_required) ... ok
+test_truncation_is_named (__main__.PngValidatorTest.test_truncation_is_named) ... ok
+test_valid_png_reports_its_geometry (__main__.PngValidatorTest.test_valid_png_reports_its_geometry) ... ok
+
+----------------------------------------------------------------------
+Ran 39 tests in 43.689s
+
+OK

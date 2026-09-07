@@ -84,6 +84,7 @@ scripts/test-model-tiers.sh
 scripts/check-nvidia-authority.sh
 scripts/test-exec-idle-priority.sh
 python3 scripts/test-admission-barrier.py
+python3 scripts/test-drain-failure-boundaries.py
 scripts/test-qwen-drain-controller.sh
 python3 scripts/test-drain-client-attachment.py
 scripts/check-validated-tuples.sh

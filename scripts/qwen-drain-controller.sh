@@ -109,7 +109,17 @@ case $subcommand in
         exit 0
         ;;
     resume)
+        # Recovery is explicit and takes the drain reference before reopening.
+        # A holder or retiring controller keeps this transition refused.
+        qwen_barrier_initialize
+        exec 9< "$(qwen_barrier_inflight_path)"
+        if ! flock -x -n 9; then
+            printf 'resume_refused reason=work_or_retirement_inflight\n' >&2
+            exit 1
+        fi
         qwen_barrier_set_state running
+        flock -u 9
+        exec 9<&-
         printf 'barrier_state\trunning\n'
         exit 0
         ;;
@@ -202,12 +212,12 @@ if [ "$drain_status" -ne 0 ]; then
     record draining "drain_failed $drain_result"
     record destroying 'emergency_escalation'
     escalation_status=0
-    QWEN_DRAIN_MODE=emergency "$@" || escalation_status=$?
+    QWEN_DRAIN_MODE=emergency "$@" 9<&- || escalation_status=$?
     record stopped "shutdown_mode=emergency orderly_drain=failed teardown_exclusion=not_established escalation_status=$escalation_status"
     printf 'shutdown_mode=emergency\norderly_drain=failed\nteardown_exclusion=not_established\n'
     flock -u 9 2>/dev/null || true
     exec 9<&-
-    qwen_barrier_set_state running
+    # Failure preserves the closed admission state for explicit recovery.
     exit 1
 fi
 
@@ -225,9 +235,13 @@ destroy_status=0
 # The step's output is retained so its teardown line can be read. A successful
 # exit says the process left, and the exclusion asks whether it held the lease
 # while it freed, which is a different claim carried on a different line.
+#
+# Descriptor 9 is this controller's exclusive in-flight reference and it is
+# closed in the child, because a destroy child that outlived the controller
+# would hold the barrier closed against every later admission.
 destroy_log=$(mktemp "${TMPDIR:-/tmp}/qwen-drain-destroy.XXXXXX")
 trap 'rm -f "$destroy_log"' EXIT
-QWEN_DRAIN_MODE=orderly "$@" >"$destroy_log" 2>&1 || destroy_status=$?
+QWEN_DRAIN_MODE=orderly "$@" 9<&- >"$destroy_log" 2>&1 || destroy_status=$?
 cat "$destroy_log"
 
 # The three readings the tree already gives a served arm: held, a reported
@@ -247,7 +261,7 @@ if [ "$destroy_status" -ne 0 ]; then
     printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=not_established\n'
     flock -u 9
     exec 9<&-
-    qwen_barrier_set_state running
+    # Failure preserves the closed admission state for explicit recovery.
     exit 1
 fi
 

@@ -1,0 +1,959 @@
+diff --git a/ggml/src/ggml-cuda/CMakeLists.txt b/ggml/src/ggml-cuda/CMakeLists.txt
+index d3953eee9..740fa36cb 100644
+--- a/ggml/src/ggml-cuda/CMakeLists.txt
++++ b/ggml/src/ggml-cuda/CMakeLists.txt
+@@ -112,7 +112,15 @@ if (CUDAToolkit_FOUND)
+     file(GLOB   SRCS "template-instances/mmf*.cu")
+     list(APPEND GGML_SOURCES_CUDA ${SRCS})
+ 
+-    if (GGML_CUDA_FA_ALL_QUANTS)
++    set(GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE "8" CACHE STRING
++    "Maximum MMVQ column count for Q6_K on Ada Lovelace")
++set(GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE "8" CACHE STRING
++    "Maximum MMVQ column count for Q8_0 on Ada Lovelace")
++add_compile_definitions(
++    GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE=${GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE}
++    GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE=${GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE})
++
++if (GGML_CUDA_FA_ALL_QUANTS)
+         file(GLOB   SRCS "template-instances/fattn-vec*.cu")
+         list(APPEND GGML_SOURCES_CUDA ${SRCS})
+         add_compile_definitions(GGML_CUDA_FA_ALL_QUANTS)
+diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
+index 970534809..c374e75b1 100644
+--- a/ggml/src/ggml-cuda/mmvq.cu
++++ b/ggml/src/ggml-cuda/mmvq.cu
+@@ -301,6 +301,10 @@ bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11) {
+             case GGML_TYPE_Q4_K:
+             case GGML_TYPE_Q5_K:
+                 return ne11 <= 7;
++            case GGML_TYPE_Q6_K:
++                return ne11 <= GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE;
++            case GGML_TYPE_Q8_0:
++                return ne11 <= GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE;
+             default:
+                 return ne11 <= MMVQ_MAX_BATCH_SIZE;
+         }
+@@ -406,6 +410,14 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
+             case 6:
+             case 7:
+             case 8:
++            case 9:
++            case 10:
++            case 11:
++            case 12:
++            case 13:
++            case 14:
++            case 15:
++            case 16:
+                 return 2;
+             default:
+                 return 1;
+@@ -533,6 +545,14 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int
+             case 6:
+             case 7:
+             case 8:
++            case 9:
++            case 10:
++            case 11:
++            case 12:
++            case 13:
++            case 14:
++            case 15:
++            case 16:
+                 return 2;
+             default:
+                 return 1;
+@@ -911,7 +931,7 @@ static void mul_mat_vec_q_switch_ncols_dst(
+         const int ids_stride, cudaStream_t stream) {
+ 
+     GGML_ASSERT(ncols_x % ggml_blck_size(type) == 0);
+-    GGML_ASSERT(ncols_dst <= MMVQ_MAX_BATCH_SIZE);
++    GGML_ASSERT(ncols_dst <= MMVQ_KERNEL_MAX_NCOLS);
+ 
+     const uint3 nchannels_y_fd   = ids ? init_fastdiv_values(nchannels_y) : make_uint3(0, 0, 0);
+     const uint3 channel_ratio_fd = ids ? make_uint3(0, 0, 0)              : init_fastdiv_values(nchannels_dst / nchannels_x);
+@@ -1088,6 +1108,70 @@ static void mul_mat_vec_q_switch_ncols_dst(
+                  sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
+                  dims.first, dims.second, 0, ids_stride, stream);
+         } break;
++        case 9: {
++            constexpr int c_ncols_dst = 9;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 10: {
++            constexpr int c_ncols_dst = 10;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 11: {
++            constexpr int c_ncols_dst = 11;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 12: {
++            constexpr int c_ncols_dst = 12;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 13: {
++            constexpr int c_ncols_dst = 13;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 14: {
++            constexpr int c_ncols_dst = 14;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 15: {
++            constexpr int c_ncols_dst = 15;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
++        case 16: {
++            constexpr int c_ncols_dst = 16;
++            std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst, warp_size, table_id);
++            mul_mat_vec_q_switch_fusion<type, c_ncols_dst>(vx, vy, ids, fusion, dst, ncols_x, nchannels_y_fd, stride_row_x, stride_col_y, stride_col_dst,
++                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst,
++                 sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst,
++                 dims.first, dims.second, 0, ids_stride, stream);
++        } break;
+         default:
+             GGML_ABORT("fatal error");
+             break;
+diff --git a/ggml/src/ggml-cuda/mmvq.cuh b/ggml/src/ggml-cuda/mmvq.cuh
+index 5605bf7a4..052ea6f4a 100644
+--- a/ggml/src/ggml-cuda/mmvq.cuh
++++ b/ggml/src/ggml-cuda/mmvq.cuh
+@@ -1,6 +1,23 @@
+ #include "common.cuh"
+ 
+ #define MMVQ_MAX_BATCH_SIZE 8 // Max. batch size for which to use MMVQ kernels.
++// The per-type Ada thresholds are build-configurable so a control and a
++// subject differ by one named value; the defaults reproduce the upstream
++// dispatch. The kernel ceiling covers the largest admissible threshold and
++// bounds the instantiated column counts.
++#ifndef GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE
++#define GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE 8
++#endif
++#ifndef GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE
++#define GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE 8
++#endif
++#define MMVQ_KERNEL_MAX_NCOLS 16
++static_assert(GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE >= 1 &&
++    GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE <= MMVQ_KERNEL_MAX_NCOLS,
++    "the Q6_K threshold names an instantiated MMVQ column count");
++static_assert(GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE >= 1 &&
++    GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE <= MMVQ_KERNEL_MAX_NCOLS,
++    "the Q8_0 threshold names an instantiated MMVQ column count");
+ 
+ bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11);
+ 
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan-pacing.h b/ggml/src/ggml-vulkan/ggml-vulkan-pacing.h
+new file mode 100644
+index 000000000..abfcb3a2b
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/ggml-vulkan-pacing.h
+@@ -0,0 +1,49 @@
++#pragma once
++
++#include <cstdint>
++#include <limits>
++#include <stdexcept>
++
++static inline uint32_t ggml_vk_parse_duty_cycle_percent(const char * value) {
++    if (value == nullptr) {
++        return 100;
++    }
++    if (*value == '\0') {
++        throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++    }
++
++    uint32_t result = 0;
++    for (const char * cursor = value; *cursor != '\0'; ++cursor) {
++        if (*cursor < '0' || *cursor > '9') {
++            throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++        }
++        result = result * 10 + static_cast<uint32_t>(*cursor - '0');
++        if (result > 100) {
++            throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++        }
++    }
++
++    if (result == 0) {
++        throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT must be an integer from 1 through 100");
++    }
++    return result;
++}
++
++static inline uint64_t ggml_vk_pacing_idle_us(uint64_t active_us, uint32_t duty_cycle_percent) {
++    if (duty_cycle_percent == 0 || duty_cycle_percent > 100) {
++        throw std::invalid_argument("Vulkan duty cycle must be from 1 through 100");
++    }
++    if (active_us == 0 || duty_cycle_percent == 100) {
++        return 0;
++    }
++
++    const uint64_t idle_percent = 100 - duty_cycle_percent;
++    const uint64_t whole = active_us / duty_cycle_percent;
++    const uint64_t remainder = active_us % duty_cycle_percent;
++    if (whole > std::numeric_limits<uint64_t>::max() / idle_percent) {
++        return std::numeric_limits<uint64_t>::max();
++    }
++
++    return whole * idle_percent +
++        (remainder * idle_percent + duty_cycle_percent - 1) / duty_cycle_percent;
++}
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h b/ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h
+new file mode 100644
+index 000000000..b88511614
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h
+@@ -0,0 +1,31 @@
++#pragma once
++
++#include <cstdint>
++#include <limits>
++#include <stdexcept>
++
++static inline uint32_t ggml_vk_parse_max_nodes_per_submit(
++        const char * value, uint32_t default_value) {
++    if (value == nullptr) {
++        return default_value;
++    }
++    if (*value == '\0') {
++        throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT must be a positive decimal integer");
++    }
++
++    uint32_t result = 0;
++    for (const char * cursor = value; *cursor != '\0'; ++cursor) {
++        if (*cursor < '0' || *cursor > '9') {
++            throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT must be a positive decimal integer");
++        }
++        const uint32_t digit = static_cast<uint32_t>(*cursor - '0');
++        if (result > (std::numeric_limits<uint32_t>::max() - digit) / 10) {
++            throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT exceeds uint32_t");
++        }
++        result = result * 10 + digit;
++    }
++    if (result == 0) {
++        throw std::runtime_error("GGML_VK_MAX_NODES_PER_SUBMIT must be a positive decimal integer");
++    }
++    return result;
++}
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h b/ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h
+new file mode 100644
+index 000000000..8d62ac3ce
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h
+@@ -0,0 +1,158 @@
++#pragma once
++
++#include <cstdint>
++#include <cstring>
++#include <stdexcept>
++
++// A device that loses its queue reports only that the queue is gone, so the
++// dispatch that failed to retire has to be named from the host side. Each
++// dispatch appends one fixed-size record to this ring, and the device-lost
++// path prints every unretired record beside the last submitted serial and the
++// last serial a fence retired. GGML_VK_SUBMIT_TRACE=1 enables it; every
++// recording site is one load and one branch while it is disabled.
++
++#define GGML_VK_SUBMIT_TRACE_RING_SIZE   256
++#define GGML_VK_SUBMIT_TRACE_NAME_SIZE   64
++#define GGML_VK_SUBMIT_TRACE_BUFFERS     12
++
++static inline bool ggml_vk_parse_submit_trace(const char * value) {
++    if (value == nullptr) {
++        return false;
++    }
++    if (strcmp(value, "1") != 0) {
++        throw std::runtime_error("GGML_VK_SUBMIT_TRACE accepts only the exact value 1");
++    }
++    return true;
++}
++
++struct ggml_vk_submit_record {
++    uint64_t serial;
++    int      node_idx;
++    char     op_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     src0_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     src1_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     dst_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    char     pipeline_name[GGML_VK_SUBMIT_TRACE_NAME_SIZE];
++    uint32_t grid[3];
++    uint32_t workgroup[3];
++    uint32_t buffer_count;
++    uint64_t buffer_handle[GGML_VK_SUBMIT_TRACE_BUFFERS];
++    uint64_t buffer_offset[GGML_VK_SUBMIT_TRACE_BUFFERS];
++    uint64_t buffer_size[GGML_VK_SUBMIT_TRACE_BUFFERS];
++};
++
++// The name a record carries is a snapshot: a ggml tensor name outlives the
++// dispatch that read it, and the pipeline name outlives the device, but the
++// dump runs after a device loss and copying removes the question.
++static inline void ggml_vk_submit_trace_copy_name(char * destination, const char * source) {
++    if (source == nullptr) {
++        destination[0] = '\0';
++        return;
++    }
++    strncpy(destination, source, GGML_VK_SUBMIT_TRACE_NAME_SIZE - 1);
++    destination[GGML_VK_SUBMIT_TRACE_NAME_SIZE - 1] = '\0';
++}
++
++struct ggml_vk_submit_trace {
++    bool enabled {};
++
++    // The node the graph builder is recording. A dispatch inherits it, since
++    // the dispatch site holds the pipeline and the buffers while the graph
++    // builder holds the operation and the tensors.
++    int         node_idx {-1};
++    const char * op_name {};
++    const char * src0_name {};
++    const char * src1_name {};
++    const char * dst_name {};
++
++    // The serial a dispatch is recorded under. It advances when the batch
++    // reaches the queue, so a record's serial states which submission carries
++    // it and comparing it against the two marks below gives the fence state.
++    uint64_t current_serial {1};
++    uint64_t last_submitted_serial {};
++    uint64_t last_completed_serial {};
++
++    ggml_vk_submit_record ring[GGML_VK_SUBMIT_TRACE_RING_SIZE] {};
++    uint64_t              written {};
++
++    void set_node(int idx, const char * op, const char * src0, const char * src1, const char * dst) {
++        node_idx   = idx;
++        op_name    = op;
++        src0_name  = src0;
++        src1_name  = src1;
++        dst_name   = dst;
++    }
++
++    void record_dispatch(const char * pipeline,
++                         uint32_t grid0, uint32_t grid1, uint32_t grid2,
++                         uint32_t wg0, uint32_t wg1, uint32_t wg2) {
++        ggml_vk_submit_record & record = ring[written % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++        record.serial   = current_serial;
++        record.node_idx = node_idx;
++        ggml_vk_submit_trace_copy_name(record.op_name, op_name);
++        ggml_vk_submit_trace_copy_name(record.src0_name, src0_name);
++        ggml_vk_submit_trace_copy_name(record.src1_name, src1_name);
++        ggml_vk_submit_trace_copy_name(record.dst_name, dst_name);
++        ggml_vk_submit_trace_copy_name(record.pipeline_name, pipeline);
++        record.grid[0] = grid0;
++        record.grid[1] = grid1;
++        record.grid[2] = grid2;
++        record.workgroup[0] = wg0;
++        record.workgroup[1] = wg1;
++        record.workgroup[2] = wg2;
++        record.buffer_count = 0;
++        written++;
++    }
++
++    // A descriptor offset is relative to its VkBuffer, so the handle travels
++    // beside the span and attribution reaches buffer granularity. Correlating a
++    // kernel virtual address needs the allocation base, which lives in the
++    // memory binding rather than here.
++    void record_buffer(uint64_t handle, uint64_t offset, uint64_t size) {
++        if (written == 0) {
++            return;
++        }
++        ggml_vk_submit_record & record = ring[(written - 1) % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++        if (record.buffer_count >= GGML_VK_SUBMIT_TRACE_BUFFERS) {
++            return;
++        }
++        record.buffer_handle[record.buffer_count] = handle;
++        record.buffer_offset[record.buffer_count] = offset;
++        record.buffer_size[record.buffer_count]   = size;
++        record.buffer_count++;
++    }
++
++    void mark_submitted() {
++        last_submitted_serial = current_serial;
++        current_serial++;
++    }
++
++    void mark_completed() {
++        last_completed_serial = last_submitted_serial;
++    }
++
++    // The dump answers what the device was holding, so it prints every record
++    // whose serial no fence has retired, bounded by what the ring still holds.
++    uint64_t unretired_count() const {
++        uint64_t count = 0;
++        while (count < written && count < GGML_VK_SUBMIT_TRACE_RING_SIZE) {
++            const ggml_vk_submit_record & record =
++                ring[(written - count - 1) % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++            if (record.serial <= last_completed_serial) {
++                break;
++            }
++            count++;
++        }
++        return count;
++    }
++
++    const char * fence_state(uint64_t serial) const {
++        if (serial <= last_completed_serial) {
++            return "retired";
++        }
++        if (serial <= last_submitted_serial) {
++            return "submitted";
++        }
++        return "recorded";
++    }
++};
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index c1d86aaac..15075c0fa 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1,7 +1,10 @@
+ #include "ggml-vulkan.h"
++#include "ggml-vulkan-pacing.h"
++#include "ggml-vulkan-submit-limit.h"
++#include "ggml-vulkan-submit-trace.h"
+ #include <vulkan/vulkan_core.h>
+-#if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+ #include <chrono>
++#if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+ #include "ggml-cpu.h"
+ #endif
+ 
+@@ -867,6 +870,8 @@ struct vk_device_struct {
+ 
+     bool serialize_submissions {};
+ 
++    ggml_vk_submit_trace submit_trace;
++
+     const ggml_cgraph * diag_cgraph {};
+     int diag_prev_start = -1;
+     int diag_prev_end = -1;
+@@ -2170,8 +2175,55 @@ static void ggml_vk_print_node_list(const ggml_cgraph * cgraph, int start, int e
+     GGML_LOG_CONT("  total: %d ops, %.2f GFLOP\n", n_ops, total_flops / 1e9);
+ }
+ 
++// The tail of the submission ring names the dispatches the device was holding
++// when it went away. A record at or below the last completed serial retired, so
++// the first record above it bounds the operation that failed to retire.
++static void ggml_vk_print_submit_trace(const vk_device& device) {
++    const ggml_vk_submit_trace & trace = device->submit_trace;
++    if (!trace.enabled || trace.written == 0) {
++        return;
++    }
++
++    const uint64_t count = trace.unretired_count();
++    if (count == 0) {
++        GGML_LOG_ERROR("ggml_vulkan: submission trace holds no unretired dispatch of %llu "
++                "(last submitted serial %llu, last retired serial %llu)\n",
++                (unsigned long long)trace.written,
++                (unsigned long long)trace.last_submitted_serial,
++                (unsigned long long)trace.last_completed_serial);
++        return;
++    }
++
++    GGML_LOG_ERROR("ggml_vulkan: submission trace, %llu unretired of %llu dispatches "
++            "(last submitted serial %llu, last retired serial %llu):\n",
++            (unsigned long long)count, (unsigned long long)trace.written,
++            (unsigned long long)trace.last_submitted_serial,
++            (unsigned long long)trace.last_completed_serial);
++
++    for (uint64_t back = count; back > 0; back--) {
++        const ggml_vk_submit_record & record =
++            trace.ring[(trace.written - back) % GGML_VK_SUBMIT_TRACE_RING_SIZE];
++        GGML_LOG_CONT("  serial %llu node %d: %s (%s) src0=%s src1=%s "
++                "pipeline=%s grid=(%u,%u,%u) workgroup=(%u,%u,%u) fence=%s\n",
++                (unsigned long long)record.serial, record.node_idx,
++                record.dst_name, record.op_name,
++                record.src0_name, record.src1_name,
++                record.pipeline_name,
++                record.grid[0], record.grid[1], record.grid[2],
++                record.workgroup[0], record.workgroup[1], record.workgroup[2],
++                trace.fence_state(record.serial));
++        for (uint32_t i = 0; i < record.buffer_count; i++) {
++            GGML_LOG_CONT("      buffer %u: handle=0x%llx offset=0x%llx size=0x%llx\n", i,
++                    (unsigned long long)record.buffer_handle[i],
++                    (unsigned long long)record.buffer_offset[i],
++                    (unsigned long long)record.buffer_size[i]);
++        }
++    }
++}
++
+ static void ggml_vk_print_device_lost_info(const vk_device& device) {
+     ggml_vk_print_device_fault_info(device);
++    ggml_vk_print_submit_trace(device);
+     if (device->serialize_submissions && device->diag_cgraph != nullptr && device->diag_prev_start >= 0) {
+         GGML_LOG_ERROR("ggml_vulkan: device lost on %s, likely caused by previous submission (nodes %d to %d):\n",
+                 device->name.c_str(), device->diag_prev_start, device->diag_prev_end);
+@@ -2337,6 +2389,7 @@ struct ggml_backend_vk_context {
+     std::string name;
+ 
+     vk_device device;
++    uint32_t duty_cycle_percent {100};
+ 
+     size_t semaphore_idx, event_idx;
+     ggml_vk_garbage_collector gc;
+@@ -3283,6 +3336,37 @@ static uint32_t ggml_vk_find_queue_family_index(std::vector<vk::QueueFamilyPrope
+     abort();
+ }
+ 
++#if defined(VK_KHR_global_priority)
++static bool ggml_vk_queue_family_supports_global_priority(
++        const vk::PhysicalDevice & physical_device,
++        uint32_t                   queue_family_index,
++        VkQueueGlobalPriorityKHR   requested_priority) {
++    uint32_t queue_family_count = 0;
++    vkGetPhysicalDeviceQueueFamilyProperties2(physical_device, &queue_family_count, nullptr);
++    if (queue_family_index >= queue_family_count) {
++        return false;
++    }
++
++    std::vector<VkQueueFamilyProperties2> queue_family_properties(queue_family_count);
++    std::vector<VkQueueFamilyGlobalPriorityPropertiesKHR> global_priority_properties(queue_family_count);
++    for (uint32_t family_index = 0; family_index < queue_family_count; ++family_index) {
++        queue_family_properties[family_index].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
++        queue_family_properties[family_index].pNext = &global_priority_properties[family_index];
++        global_priority_properties[family_index].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_GLOBAL_PRIORITY_PROPERTIES_KHR;
++    }
++    vkGetPhysicalDeviceQueueFamilyProperties2(physical_device, &queue_family_count, queue_family_properties.data());
++
++    const auto & priorities = global_priority_properties[queue_family_index];
++    for (uint32_t priority_index = 0; priority_index < priorities.priorityCount; ++priority_index) {
++        if (priorities.priorities[priority_index] == requested_priority) {
++            return true;
++        }
++    }
++
++    return false;
++}
++#endif
++
+ static std::unique_ptr<vk_queue> ggml_vk_create_queue(vk_device& device, uint32_t queue_family_index, uint32_t queue_index, vk::PipelineStageFlags&& stage_flags, bool transfer_only) {
+     VK_LOG_DEBUG("ggml_vk_create_queue()");
+     std::lock_guard<std::recursive_mutex> guard(device->mutex);
+@@ -6204,6 +6288,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         bool coopmat2_decode_vector_support = false;
+         bool pipeline_executable_properties_support = false;
+         bool internally_sync_support = false;
++#if defined(VK_KHR_global_priority)
++        bool global_priority_support = false;
++#endif
+         device->coopmat_support = false;
+         device->integer_dot_product = false;
+         device->shader_64b_indexing = false;
+@@ -6277,6 +6364,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ #endif
+             } else if (strcmp(VK_KHR_INTERNALLY_SYNCHRONIZED_QUEUES_EXTENSION_NAME, properties.extensionName) == 0) {
+                 internally_sync_support = true;
++#if defined(VK_KHR_global_priority)
++            } else if (strcmp(VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME, properties.extensionName) == 0) {
++                global_priority_support = true;
++#endif
+             } else if (strcmp("VK_EXT_device_fault", properties.extensionName) == 0) {
+                 device->device_fault = true;
+             }
+@@ -6432,10 +6523,18 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ 
+         // Submit at least every 100 nodes, in case there are workloads without as much matmul.
+         device->max_nodes_per_submit = 100;
+-        const char* GGML_VK_MAX_NODES_PER_SUBMIT = getenv("GGML_VK_MAX_NODES_PER_SUBMIT");
+-        if (GGML_VK_MAX_NODES_PER_SUBMIT != nullptr) {
+-            uint32_t max_nodes_per_submit = std::stoul(GGML_VK_MAX_NODES_PER_SUBMIT);
+-            device->max_nodes_per_submit = std::max(max_nodes_per_submit, 1u);
++        const char * runtime_max_nodes_per_submit = getenv("GGML_VK_MAX_NODES_PER_SUBMIT");
++        device->max_nodes_per_submit = ggml_vk_parse_max_nodes_per_submit(
++            runtime_max_nodes_per_submit, device->max_nodes_per_submit);
++        if (runtime_max_nodes_per_submit != nullptr) {
++            GGML_LOG_INFO("ggml_vulkan: %s: maximum nodes per submission = %u\n",
++                          device->properties.deviceName.data(), device->max_nodes_per_submit);
++        }
++
++        device->submit_trace.enabled = ggml_vk_parse_submit_trace(getenv("GGML_VK_SUBMIT_TRACE"));
++        if (device->submit_trace.enabled) {
++            GGML_LOG_INFO("ggml_vulkan: %s: submission trace = on\n",
++                          device->properties.deviceName.data());
+         }
+ 
+         const bool force_disable_f16 = getenv("GGML_VK_DISABLE_F16") != nullptr;
+@@ -6460,6 +6559,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         const vk::QueueFlagBits graphics_flag = allow_graphics_queue ? (vk::QueueFlagBits)0 : vk::QueueFlagBits::eGraphics;
+         const uint32_t compute_queue_family_index = ggml_vk_find_queue_family_index(queue_family_props, vk::QueueFlagBits::eCompute, graphics_flag, -1, 1);
+         const uint32_t transfer_queue_family_index = ggml_vk_find_queue_family_index(queue_family_props, vk::QueueFlagBits::eTransfer, vk::QueueFlagBits::eCompute | graphics_flag, compute_queue_family_index, 1);
++        const char * low_priority_environment = getenv("GGML_VK_LOW_PRIORITY");
++        if (low_priority_environment != nullptr && strcmp(low_priority_environment, "1") != 0) {
++            throw std::runtime_error("GGML_VK_LOW_PRIORITY accepts only the exact value 1");
++        }
++        const bool low_priority_requested = low_priority_environment != nullptr;
+ 
+         const float priorities[] = { 1.0f, 1.0f };
+         device->single_queue = compute_queue_family_index == transfer_queue_family_index && queue_family_props[compute_queue_family_index].queueCount == 1;
+@@ -6491,6 +6595,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         internally_synchronized_queues_features.pNext = nullptr;
+         internally_synchronized_queues_features.internallySynchronizedQueues = VK_FALSE;
+ 
++#if defined(VK_KHR_global_priority)
++        VkPhysicalDeviceGlobalPriorityQueryFeaturesKHR global_priority_query_features{};
++        global_priority_query_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GLOBAL_PRIORITY_QUERY_FEATURES_KHR;
++        if (low_priority_requested) {
++            if (!global_priority_support) {
++                throw std::runtime_error("GGML_VK_LOW_PRIORITY requires VK_KHR_global_priority");
++            }
++            last_struct->pNext = (VkBaseOutStructure *) &global_priority_query_features;
++            last_struct = (VkBaseOutStructure *) &global_priority_query_features;
++        }
++#else
++        if (low_priority_requested) {
++            throw std::runtime_error("GGML_VK_LOW_PRIORITY requires Vulkan headers with VK_KHR_global_priority");
++        }
++#endif
++
+         if (internally_sync_support) {
+             last_struct->pNext = (VkBaseOutStructure *)&internally_synchronized_queues_features;
+             last_struct = (VkBaseOutStructure *)&internally_synchronized_queues_features;
+@@ -6643,6 +6763,28 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ 
+         vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
+ 
++#if defined(VK_KHR_global_priority)
++        VkDeviceQueueGlobalPriorityCreateInfoKHR global_priority_create_info{};
++        if (low_priority_requested) {
++            if (!global_priority_query_features.globalPriorityQuery) {
++                throw std::runtime_error("GGML_VK_LOW_PRIORITY requires globalPriorityQuery support");
++            }
++            if (!ggml_vk_queue_family_supports_global_priority(
++                    device->physical_device, compute_queue_family_index, VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR)) {
++                throw std::runtime_error("compute queue family does not support LOW global priority");
++            }
++            if (transfer_queue_family_index != compute_queue_family_index &&
++                !ggml_vk_queue_family_supports_global_priority(
++                    device->physical_device, transfer_queue_family_index, VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR)) {
++                throw std::runtime_error("transfer queue family does not support LOW global priority");
++            }
++
++            global_priority_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_KHR;
++            global_priority_create_info.globalPriority = VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR;
++            device_extensions.push_back(VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME);
++        }
++#endif
++
+         device->device_fault = device->device_fault && fault_features.deviceFault;
+ 
+         device->has_internally_synchronized_queues = internally_synchronized_queues_features.internallySynchronizedQueues;
+@@ -6662,6 +6804,14 @@ static vk_device ggml_vk_get_device(size_t idx) {
+             device_queue_create_infos.push_back({queue_flags, compute_queue_family_index, 1, priorities});
+         }
+ 
++#if defined(VK_KHR_global_priority)
++        if (low_priority_requested) {
++            for (auto & queue_create_info : device_queue_create_infos) {
++                queue_create_info.pNext = &global_priority_create_info;
++            }
++        }
++#endif
++
+         device->pipeline_executable_properties_support = pipeline_executable_properties_support;
+ 
+         device->fp16 = device->fp16 && vk12_features.shaderFloat16;
+@@ -6941,7 +7091,21 @@ static vk_device ggml_vk_get_device(size_t idx) {
+             .setQueueCreateInfos(device_queue_create_infos)
+             .setPEnabledExtensionNames(device_extensions);
+         device_create_info.setPNext(&device_features2);
+-        device->device = device->physical_device.createDevice(device_create_info);
++        try {
++            device->device = device->physical_device.createDevice(device_create_info);
++        } catch (const vk::SystemError & error) {
++#if defined(VK_KHR_global_priority)
++            if (low_priority_requested &&
++                error.code() == vk::make_error_code(vk::Result::eErrorNotPermittedKHR)) {
++                GGML_LOG_ERROR("ggml_vulkan: LOW global queue priority was not permitted\n");
++            }
++#endif
++            throw;
++        }
++
++        if (low_priority_requested) {
++            GGML_LOG_INFO("ggml_vulkan: %s: global queue priority = LOW\n", device->properties.deviceName.data());
++        }
+ 
+         if (device->device_fault) {
+             device->pfn_vkGetDeviceFaultInfoEXT = (PFN_vkGetDeviceFaultInfoEXT)
+@@ -7071,6 +7235,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         device->idx = idx;
+ 
+         device->serialize_submissions = getenv("GGML_VK_SERIALIZE_SUBMISSIONS") != nullptr;
++        if (device->submit_trace.enabled && !device->serialize_submissions) {
++            throw std::runtime_error("GGML_VK_SUBMIT_TRACE requires GGML_VK_SERIALIZE_SUBMISSIONS");
++        }
+ 
+         device->disable_fusion = getenv("GGML_VK_DISABLE_FUSION") != nullptr;
+ 
+@@ -7607,6 +7774,13 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
+     ctx->name = GGML_VK_NAME + std::to_string(idx);
+ 
+     ctx->device = ggml_vk_get_device(idx);
++    ctx->duty_cycle_percent = ggml_vk_parse_duty_cycle_percent(getenv("GGML_VK_DUTY_CYCLE_PERCENT"));
++    if (ctx->duty_cycle_percent < 100) {
++        if (!ctx->device->serialize_submissions) {
++            throw std::runtime_error("GGML_VK_DUTY_CYCLE_PERCENT requires GGML_VK_SERIALIZE_SUBMISSIONS");
++        }
++        GGML_LOG_INFO("ggml_vulkan: %s: duty cycle = %u%%\n", ctx->device->properties.deviceName.data(), ctx->duty_cycle_percent);
++    }
+ 
+     ctx->semaphore_idx = 0;
+     ctx->event_idx = 0;
+@@ -8182,6 +8356,15 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context&
+                                 0,
+                                 { descriptor_set },
+                                 {});
++    if (ctx->device->submit_trace.enabled) {
++        ggml_vk_submit_trace & trace = ctx->device->submit_trace;
++        trace.record_dispatch(pipeline->name.c_str(), wg0, wg1, wg2,
++                pipeline->wg_denoms[0], pipeline->wg_denoms[1], pipeline->wg_denoms[2]);
++        for (auto& buffer : descriptor_buffer_infos) {
++            trace.record_buffer((uint64_t)(VkBuffer)buffer.buffer, buffer.offset, buffer.range);
++        }
++    }
++
+     subctx->s->buffer->buf.dispatch(wg0, wg1, wg2);
+ }
+ 
+@@ -15303,6 +15486,13 @@ static bool ggml_vk_build_graph(ggml_backend_vk_context * ctx, ggml_cgraph * cgr
+     VK_LOG_DEBUG("ggml_vk_build_graph(" << node << ", " << ggml_op_name(node->op) << ")");
+     ctx->semaphore_idx = 0;
+ 
++    if (ctx->device->submit_trace.enabled) {
++        ctx->device->submit_trace.set_node(node_idx, ggml_op_name(node->op),
++                node->src[0] ? node->src[0]->name : nullptr,
++                node->src[1] ? node->src[1]->name : nullptr,
++                node->name);
++    }
++
+     ggml_tensor * src0 = node->src[0];
+     ggml_tensor * src1 = node->src[1];
+     ggml_tensor * src2 = node->src[2];
+@@ -15855,6 +16045,9 @@ static void ggml_vk_compute_forward(ggml_backend_vk_context * ctx, ggml_cgraph *
+         } else {
+             ggml_vk_submit(subctx, {});
+         }
++        if (ctx->device->submit_trace.enabled) {
++            ctx->device->submit_trace.mark_submitted();
++        }
+         ctx->submit_pending = true;
+ 
+ #ifdef GGML_VULKAN_CHECK_RESULTS
+@@ -16462,10 +16655,19 @@ static void ggml_vk_synchronize(ggml_backend_vk_context * ctx) {
+ 
+         if (ctx->device->serialize_submissions) {
+             ggml_vk_submit(compute_ctx, ctx->fence);
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_submitted();
++            }
+             VK_CHECK(ctx->device->device.waitForFences({ ctx->fence }, true, UINT64_MAX), "synchronize waitForFences", ctx->device);
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_completed();
++            }
+             ctx->device->device.resetFences({ ctx->fence });
+         } else {
+             ggml_vk_submit(compute_ctx, {});
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_submitted();
++            }
+         }
+         ctx->submit_pending = true;
+     }
+@@ -17148,6 +17350,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     uint64_t batch_flops = 0;
+     uint64_t total_flops = 0;
+     uint64_t flops_cap = 200'000'000'000ULL;
++    auto pacing_interval_start = std::chrono::steady_clock::now();
+ 
+     // On weaker AMD GPUs larger submissions can hit a driver timeout, submit more often to avoid this
+     if (ctx->device->vendor_id == VK_VENDOR_ID_AMD && ctx->device->shader_core_count > 0) {
+@@ -17174,6 +17377,16 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+                 ggml_vk_print_node_list(cgraph, start, end);
+                 throw;
+             }
++            if (ctx->device->submit_trace.enabled) {
++                ctx->device->submit_trace.mark_completed();
++            }
++            if (ctx->duty_cycle_percent < 100) {
++                const auto active_us = std::chrono::duration_cast<std::chrono::microseconds>(
++                    std::chrono::steady_clock::now() - pacing_interval_start).count();
++                const auto idle_us = ggml_vk_pacing_idle_us(static_cast<uint64_t>(active_us), ctx->duty_cycle_percent);
++                std::this_thread::sleep_for(std::chrono::microseconds(idle_us));
++                pacing_interval_start = std::chrono::steady_clock::now();
++            }
+             ctx->device->device.resetFences({ ctx->fence });
+             ctx->submit_pending = false;
+             ctx->device->diag_cgraph = cgraph;
+@@ -17534,20 +17747,32 @@ static void ggml_vk_graph_optimize(ggml_backend_t backend, struct ggml_cgraph *
+         return;
+     }
+ 
+-    auto const &is_empty = [](ggml_tensor * node) -> bool {
++    auto const &is_empty = [](const ggml_tensor * node) -> bool {
+         return node->op == GGML_OP_NONE || node->op == GGML_OP_RESHAPE || node->op == GGML_OP_TRANSPOSE || node->op == GGML_OP_VIEW || node->op == GGML_OP_PERMUTE;
+     };
+ 
+-    auto const &is_src_of = [](const ggml_tensor *dst, const ggml_tensor *src) -> bool {
++    auto const &is_src_of = [&is_empty](const ggml_tensor *dst, const ggml_tensor *src) -> bool {
++        auto const &base = [](const ggml_tensor * tensor) {
++            return tensor->view_src ? tensor->view_src : tensor;
++        };
+         for (uint32_t s = 0; s < GGML_MAX_SRC; ++s) {
+             if (dst->src[s] == src) {
+                 return true;
+             }
++            if (is_empty(dst) || is_empty(src)) {
++                continue;
++            }
++            // A source view of dst may read storage written through a different view by src.
++            if (dst->src[s] && base(dst->src[s]) == base(src)) {
++                return true;
++            }
++            // Moving dst forward may overwrite storage still read through a view by src.
++            if (src->src[s] && base(dst) == base(src->src[s])) {
++                return true;
++            }
+         }
+         // implicit dependency if they view the same tensor
+-        const ggml_tensor *dst2 = dst->view_src ? dst->view_src : dst;
+-        const ggml_tensor *src2 = src->view_src ? src->view_src : src;
+-        if (dst2 == src2) {
++        if (base(dst) == base(src)) {
+             return true;
+         }
+         return false;
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 0402044da..1c75bc54d 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -32,6 +32,40 @@ static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
+     throw std::runtime_error("Unsupported ctx type");
+ }
+ 
++static bool graph_node_has_backend_work(const ggml_tensor * node) {
++    switch (node->op) {
++        case GGML_OP_NONE:
++        case GGML_OP_RESHAPE:
++        case GGML_OP_VIEW:
++        case GGML_OP_PERMUTE:
++        case GGML_OP_TRANSPOSE:
++            return false;
++        default:
++            return true;
++    }
++}
++
++static bool graph_uses_cpu_backend(ggml_backend_sched_t sched, ggml_cgraph * graph) {
++    if (!getenv("LLAMA_NO_CPU_FALLBACK")) {
++        return false;
++    }
++
++    for (int node_index = 0; node_index < ggml_graph_n_nodes(graph); ++node_index) {
++        ggml_tensor * node = ggml_graph_node(graph, node_index);
++        if (!graph_node_has_backend_work(node)) {
++            continue;
++        }
++        ggml_backend_t backend = ggml_backend_sched_get_tensor_backend(sched, node);
++        ggml_backend_dev_t device = backend ? ggml_backend_get_device(backend) : nullptr;
++        if (device && ggml_backend_dev_type(device) == GGML_BACKEND_DEVICE_TYPE_CPU) {
++            LLAMA_LOG_ERROR("CPU fallback rejected for graph node %s (%s)\n", node->name, ggml_op_name(node->op));
++            return true;
++        }
++    }
++
++    return false;
++}
++
+ struct llm_fused_op_probe {
+     llm_fused_op op;
+     const char * name;
+@@ -1370,6 +1404,10 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+             ret = GGML_STATUS_ALLOC_FAILED;
+             return nullptr;
+         }
++        if (graph_uses_cpu_backend(sched.get(), gf)) {
++            ret = GGML_STATUS_FAILED;
++            return nullptr;
++        }
+     }
+ 
+     // set the input data for the input tensors
+@@ -2445,6 +2483,10 @@ ggml_cgraph * llama_context::graph_reserve(
+         return nullptr;
+     }
+ 
++    if (graph_uses_cpu_backend(sched.get(), gf)) {
++        return nullptr;
++    }
++
+     return gf;
+ }
+ 
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+index 9b22cb05f..3df8833d6 100644
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1219,6 +1219,15 @@ struct ggml_tensor * llama_model_loader::create_tensor(
+             buft = ggml_backend_dev_buffer_type(cpu_dev);
+         }
+ 
++        if (getenv("LLAMA_NO_CPU_FALLBACK")) {
++            auto * selected_device = ggml_backend_buft_get_device(buft);
++            if (!selected_device || ggml_backend_dev_type(selected_device) == GGML_BACKEND_DEVICE_TYPE_CPU) {
++                throw std::runtime_error(format(
++                    "tensor %s selected CPU buffer %s while LLAMA_NO_CPU_FALLBACK is enabled",
++                    tn.str().c_str(), ggml_backend_buft_name(buft)));
++            }
++        }
++
+         if (buft != buft_list->front().second) {
+             if (n_tensors_moved == 0) {
+                 first_tensor_moved_name = t_meta->name;
+diff --git a/tools/server/server.cpp b/tools/server/server.cpp
+index 5fe2729ba..0d5ba74d3 100644
+--- a/tools/server/server.cpp
++++ b/tools/server/server.cpp
+@@ -337,7 +337,16 @@ int llama_server(common_params & params, int argc, char ** argv) {
+         return 1;
+     }
+ 
+-    if (!params.server_tools.empty() || !mcp_mgr.empty()) {
++    if (is_router_server && params.server_tools.empty() && mcp_mgr.empty()) {
++        // a router holding no tools of its own forwards /tools to the child the
++        // request selects, the same way it forwards the model-scoped inference
++        // routes: GET resolves the model from the query string and POST from the
++        // top-level "model" key of the body. the child that owns the MCP manager
++        // serves the route, so its tool set, credentials, and limits stay with
++        // the model section that configured them
++        ctx_http.get ("/tools",           ex_wrapper(models_routes->proxy_get));
++        ctx_http.post("/tools",           ex_wrapper(models_routes->proxy_post));
++    } else if (!params.server_tools.empty() || !mcp_mgr.empty()) {
+         try {
+             tools.setup(params.server_tools, mcp_mgr, params.server_tools_runtime);
+         } catch (const std::exception & e) {
