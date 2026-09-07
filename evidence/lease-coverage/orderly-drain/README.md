@@ -122,9 +122,13 @@ the majority of this transition rather than a step after it.
 
 `scripts/qwen-drain-controller.sh` and `scripts/qwen-admission-barrier.sh`
 supply the state word, the in-flight share, and the destroy boundary the table
-above names as missing, and `scripts/test-qwen-drain-controller.sh` and
-`scripts/test-admission-barrier.py` are the arms that read them. Every row is
-joined to the readings that decide it, since a label is not a claim:
+above names as missing. Three suites read them and they read different
+subjects: `scripts/test-qwen-drain-controller.sh` drives the lifecycle,
+`scripts/test-admission-barrier.py` holds the Python participants to the shell
+library's semantics, and `scripts/test-drain-client-attachment.py` reads the
+server stand-in, because one discrimination is about what an attached socket
+means rather than about what the barrier holds. Every row is joined to the
+readings that decide it, since a label is not a claim:
 
 | Discrimination | Reached | The readings that decide it |
 | --- | --- | --- |
