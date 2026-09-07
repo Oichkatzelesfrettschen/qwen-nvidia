@@ -18,6 +18,14 @@ import admission_barrier as barrier  # noqa: E402
 CONTROLLER = SCRIPT_DIRECTORY / "qwen-drain-controller.sh"
 LIBRARY = SCRIPT_DIRECTORY / "qwen-admission-barrier.sh"
 
+# Every step these arms drive is a lock operation or a short fork, which answers
+# in milliseconds however loaded the host is, so this bound separates a hung
+# step from a slow one rather than pacing anything. It matches
+# `test-admission-barrier.py`'s own deadline, because the two suites run beside
+# each other in the unattended gate and an interval that reads a running process
+# as departed is the failure this record already names once.
+SUBPROCESS_DEADLINE_S = 20.0
+
 
 class DrainFailureBoundaries(unittest.TestCase):
     def setUp(self):
@@ -30,7 +38,7 @@ class DrainFailureBoundaries(unittest.TestCase):
 
     def run_controller(self, *arguments):
         return subprocess.run([str(CONTROLLER), *arguments], env=self.env,
-                              text=True, capture_output=True, timeout=8, check=False)
+                              text=True, capture_output=True, timeout=SUBPROCESS_DEADLINE_S, check=False)
 
     def hold_share(self):
         descriptor = os.open(self.inflight, os.O_RDONLY)
@@ -69,7 +77,7 @@ class DrainFailureBoundaries(unittest.TestCase):
         identity = os.fstat(descriptor).st_ino
         result = subprocess.run(["sh", "-c", '. "$1"; qwen_barrier_set_state quiescing',
                                  "barrier", str(LIBRARY)], env=self.env,
-                                text=True, capture_output=True, timeout=8, check=False)
+                                text=True, capture_output=True, timeout=SUBPROCESS_DEADLINE_S, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.state.stat().st_ino, identity)
         os.lseek(descriptor, 0, os.SEEK_SET)
@@ -145,7 +153,7 @@ class DrainFailureBoundaries(unittest.TestCase):
             code = "import os,sys; print(sum(os.path.exists('/proc/self/fd/'+f) and os.path.realpath('/proc/self/fd/'+f)==sys.argv[1] for f in os.listdir('/proc/self/fd')))"
             result = subprocess.run([sys.executable, "-c", code, str(self.inflight)],
                                     env=self.env, close_fds=False, text=True,
-                                    capture_output=True, timeout=8, check=False)
+                                    capture_output=True, timeout=SUBPROCESS_DEADLINE_S, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "0")
 
