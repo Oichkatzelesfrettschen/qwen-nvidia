@@ -2251,6 +2251,7 @@ scripts/test-model-tiers.sh
 scripts/test-exec-idle-priority.sh
 python3 scripts/test-admission-barrier.py
 scripts/test-qwen-drain-controller.sh
+python3 scripts/test-drain-client-attachment.py
 python3 scripts/test-authority-consistency.py
 scripts/test-qwen-code-pin.sh
 scripts/test-coding-principal.sh            # appliance host role alone

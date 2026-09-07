@@ -131,21 +131,38 @@ joined to the readings that decide it, since a label is not a claim:
 | an active holder finishes normally, and destruction starts only afterwards | yes | `drain_completed`, `destroy_follows_drain`, `destroy_saw_orderly_mode`, `teardown_orderly` |
 | a request arriving during quiescence is refused or deferred and cannot reopen execution | yes | `quiescing_refuses_admission`, `quiescing_names_state`, `quiescing_ran_no_job`, `test_quiescing_refuses_admission` |
 | an idle child is evicted while another lane is active | yes | `eviction_waits_for_active_lane`, `idle_participant_releases` |
-| a client attached to completed work is told from an unanswered request | at the barrier | `idle_participant_releases` reads a released share with the process still resident as idle, so the share rather than the process is what holds retirement open. The HTTP-level case -- a cpp-httplib worker waiting inside `recv_with_timeout` for a task no pass answered -- belongs to llama-server and stays with `test-load-lease-coverage.sh` arm G |
+| a client attached to completed work is told from an unanswered request | yes | `idle_participant_releases` at the barrier, and `test_a_client_on_completed_work_does_not_hold_the_process` against `test_a_client_on_an_unanswered_task_holds_the_process` at the server |
 | a request that cannot reach a terminal state takes the drain deadline's named failure path | yes | `deadline_refuses`, `deadline_mode`, `deadline_drain`, `deadline_exclusion`, `deadline_names_emergency_mode` |
 | a child that cannot obtain its teardown lease is not reported as an orderly teardown | yes | `failed_destroy_refuses`, `failed_destroy_drained`, `failed_destroy_not_exclusion` |
 | a holder or child surviving escalation retains its identity and reports residue | yes | `residue_holder_retained`, `residue_cleared_before_next_arm` |
 | a lease pathname change is refused rather than serialized against another inode | yes | `identity_match_reads_match`, `identity_mismatch_refuses`, `identity_mismatch_named`, `test_identity_reads_device_and_inode` |
 
-Seven of the eight are reached whole and the eighth is reached at the barrier
-alone. What that leaves for the device window is the llama-server side of the
-fourth row, since the barrier's notion of in flight is a held share and the
-server's is an unanswered task inside an HTTP worker; a session driving both
-has to show that a drain waiting on the first also waits on the second.
+All eight are reached. The fourth took two mechanisms rather than one,
+because the barrier's notion of in flight is a held share and a server's is an
+unanswered task inside an HTTP worker, and an orchestrator reading an open
+socket as work in flight would refuse to retire a server with nothing left to
+do. `scripts/test-drain-client-attachment.py` supplies the server half against
+`scripts/test-fixtures/fake-lease-llama-server.py`: two arms differing in
+whether the compute lease is held when the request arrives, so the uncontended
+one is answered and its process leaves with the client still attached, and the
+contended one is abandoned by the interrupted acquire and its process is held
+until the client departs.
 
-Every reading above is a file and a lock on a host with no GPU. None of them
-states that the policy holds on the device, and the arms that would are the
-combined-session ones this record preregisters.
+Its arms assert on the server's own event lines -- the acquire's wait and that
+wait's interrupted end -- and then on an outcome, since a first draft that
+asserted on a settle interval read a held process as departed while a quality
+gate loaded the machine beside it. The hold is checked as a negative claim over
+a bound, which load can delay an event past and cannot make one appear: three
+runs under twelve spinning threads agree with the idle runs. Reverting the
+fixture's stall to a 503 fails
+`test_a_client_on_an_unanswered_task_holds_the_process` on the half that names
+the refutation, and leaves the other two arms passing, so that arm alone
+carries the discrimination and the other two carry the uncontended control and
+the one-changed-dimension claim.
+
+Every reading above is a file, a lock, and a loopback socket on a host with no
+GPU. None of them states that the policy holds on the device, and the arms that
+would are the combined-session ones this record preregisters.
 
 Assertions are on event ordering and operation identity rather than on sleeps.
 Each participant records monotonic instants, a per-process event sequence
