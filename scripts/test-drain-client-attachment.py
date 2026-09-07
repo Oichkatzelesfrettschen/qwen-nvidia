@@ -36,6 +36,7 @@ and evidence/lease-coverage/shutdown-stall/ carries the one this stands beside.
 
 import fcntl
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -58,6 +59,10 @@ POLL_S = 0.02
 # assertion rather than a pace: load can delay an event, and it cannot produce
 # one the code path does not reach.
 HELD_BOUND_S = 5.0
+
+# The bound a closed peer's FIN arrives inside on loopback, where the server has
+# already written the response and returned before the close.
+CLOSE_BOUND_S = 2.0
 
 LEASE_WAITING = "vulkan workload lease waiting:"
 LEASE_WAIT_INTERRUPTED = "vulkan workload lease wait ended without the lease:"
@@ -180,6 +185,26 @@ class ClientAttachmentTest(unittest.TestCase):
             b"Content-Length: %d\r\nConnection: keep-alive\r\n\r\n%s"
             % (self.port, len(body), body))
 
+    def connection_is_open(self, bound_s=CLOSE_BOUND_S):
+        """Whether the peer still holds its end, waited for rather than sampled.
+
+        A peer that closed sends its FIN just after the response, so a peek
+        taken at the instant the body was read races it and reports open either
+        way. The wait is on readability instead: an open idle connection has
+        nothing to read and stays unreadable for the whole bound, while a closed
+        one becomes readable and peeks empty. Load can delay the FIN past the
+        bound and cannot invent one, so the error direction is a control
+        condition read as met when it was not, which leaves the arm testing what
+        it tested before rather than reporting something new.
+        """
+        readable, _, _ = select.select([self.client], [], [], bound_s)
+        if not readable:
+            return True
+        try:
+            return self.client.recv(1, socket.MSG_PEEK) != b""
+        except OSError:
+            return False
+
     def read_answer(self):
         self.client.settimeout(DEADLINE_S)
         seen = b""
@@ -195,6 +220,12 @@ class ClientAttachmentTest(unittest.TestCase):
         self.start_server()
         self.post_completion()
         self.assertTrue(self.read_answer(), "the uncontended request went unanswered")
+        # The control condition is an attached client, so it is established
+        # before the signal rather than inferred from holding a socket object.
+        self.assertTrue(
+            self.connection_is_open(),
+            "the answered connection had already closed, so this arm carries "
+            "no attached client and its control condition is unreached")
         self.server.send_signal(signal.SIGTERM)
         self.assertTrue(
             self.await_exit(),
