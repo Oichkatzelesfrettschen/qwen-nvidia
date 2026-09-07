@@ -52,6 +52,10 @@ cat > "$temporary_directory/destroy.sh" <<'DESTROY'
 #!/bin/sh
 awk '{ printf "destroy_ran_monotonic_ms=%d\n", $1 * 1000 }' /proc/uptime > "$1"
 printf 'mode=%s\n' "${QWEN_DRAIN_MODE:-unset}" >> "$1"
+# The teardown line the exclusion reading is taken from. A step that held the
+# lease says so, one that terminated without it says `no`, and `absent` writes
+# no line at all, which is the unattributed case.
+[ "${3:-yes}" = absent ] || printf 'teardown: held=%s\n' "${3:-yes}"
 exit "${2:-0}"
 DESTROY
 chmod +x "$temporary_directory/destroy.sh"
@@ -67,9 +71,11 @@ printf '%s\n' "$holder_pid" > "$temporary_directory/holder1.pid"
 # The retire begins while the holder still runs, which is what makes the drain
 # a wait rather than a sample of an already-idle barrier.
 until [ -s "$holder_record" ]; do sleep 0.05; done
+retire_status=0
 retire_output=$("$controller" retire --deadline 20000 --record "$retire_record" -- \
-    "$temporary_directory/destroy.sh" "$destroy_marker" 0)
+    "$temporary_directory/destroy.sh" "$destroy_marker" 0 yes) || retire_status=$?
 wait "$holder_pid" 2>/dev/null || true
+check retire_exit_orderly 0 "$retire_status"
 check drain_completed 'orderly_drain=completed' \
     "$(printf '%s' "$retire_output" | grep '^orderly_drain=')"
 check teardown_orderly 'teardown_exclusion=orderly' \
@@ -179,6 +185,53 @@ check failed_destroy_not_exclusion 'teardown_exclusion=not_established' \
 #        session admitting rather than wedged shut
 check barrier_reopened running "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
 
+# --- 9  a destroy step that terminated without the lease is not an exclusion
+# This is the case exit status cannot see: the step succeeded, the process left,
+# and it freed beside another holder rather than inside the lease. Reading a
+# successful exit as exclusion is what the lease record forbids.
+destroy_marker_9="$temporary_directory/destroy-9.marker"
+held_no_status=0
+held_no=$("$controller" retire --deadline 5000 --record "$temporary_directory/retire-9.record" -- \
+    "$temporary_directory/destroy.sh" "$destroy_marker_9" 0 no) || held_no_status=$?
+check held_no_destroy_succeeded 1 "$(grep -c 'destroy_status=0' "$temporary_directory/retire-9.record")"
+check held_no_drained 'orderly_drain=completed' \
+    "$(printf '%s' "$held_no" | grep '^orderly_drain=')"
+check held_no_not_exclusion 'teardown_exclusion=not_established' \
+    "$(printf '%s' "$held_no" | grep '^teardown_exclusion=')"
+check held_no_exit_refuses_strict 4 "$held_no_status"
+
+# --- 10  a destroy step that reported nothing is unattributed rather than orderly
+destroy_marker_10="$temporary_directory/destroy-10.marker"
+silent_status=0
+silent=$("$controller" retire --deadline 5000 --record "$temporary_directory/retire-10.record" -- \
+    "$temporary_directory/destroy.sh" "$destroy_marker_10" 0 absent) || silent_status=$?
+check silent_teardown_unattributed 'teardown_exclusion=unattributed' \
+    "$(printf '%s' "$silent" | grep '^teardown_exclusion=')"
+check silent_exit_refuses_strict 4 "$silent_status"
+
+# --- 11  an admitter signalled while its child still runs keeps the share
+# The kernel releases a flock when the last descriptor referring to it closes,
+# so an admitter that exited on the signal would hand the drain a free lock with
+# live work behind it. The child ignores the forwarded signal, which is what
+# makes the admitter's own wait the thing under test rather than the child's
+# response to it.
+orphan_release="$temporary_directory/orphan.release"
+orphan_record="$temporary_directory/orphan.record"
+"$controller" admit --record "$orphan_record" -- \
+    sh -c 'trap "" TERM; while [ ! -e "$1" ]; do sleep 0.05; done' orphan-job "$orphan_release" &
+orphan_admitter=$!
+until grep -q 'job_started' "$orphan_record" 2>/dev/null; do sleep 0.05; done
+kill -TERM "$orphan_admitter" 2>/dev/null || true
+until grep -q 'signal_forwarded' "$orphan_record" 2>/dev/null; do sleep 0.05; done
+check orphan_share_held_after_signal held \
+    "$("$controller" status | awk -F'\t' '$1=="inflight" { print $2 }')"
+# The child leaves through its own exit, so the release is the admitter's
+# rather than a signal racing the reading.
+: > "$orphan_release"
+wait "$orphan_admitter" 2>/dev/null || true
+check orphan_share_released_after_child none \
+    "$("$controller" status | awk -F'\t' '$1=="inflight" { print $2 }')"
+
 # --- 8  a barrier pathname that changed identity is refused rather than
 #        serialized against another inode
 recorded_identity=$("$controller" status | awk -F'\t' '$1=="barrier_identity" { print $2 }')
@@ -196,6 +249,23 @@ identity_mismatch=$( . "$script_directory/qwen-admission-barrier.sh"
 check identity_mismatch_refuses 1 "$identity_status"
 check identity_mismatch_named 1 \
     "$(printf '%s' "$identity_mismatch" | grep -c '^barrier_identity=mismatch')"
+
+# The function refusing is not the path refusing. A participant admitted onto a
+# replacement inode would be counted by no drain, and a retirement that drained
+# it would report an empty barrier while a share on the original was still held,
+# so both entry points read the identity the barrier was armed with.
+swapped_admit_status=0
+"$controller" admit -- true >"$temporary_directory/swapped.out" 2>&1 || swapped_admit_status=$?
+check swapped_admit_refuses 1 "$swapped_admit_status"
+check swapped_admit_names_identity 1 \
+    "$(grep -c 'admission=refused state=identity_mismatch' "$temporary_directory/swapped.out")"
+destroy_marker_8="$temporary_directory/destroy-8.marker"
+swapped_retire_status=0
+swapped_retire=$("$controller" retire --deadline 5000 --record "$temporary_directory/retire-8.record" -- \
+    "$temporary_directory/destroy.sh" "$destroy_marker_8" 0 yes) || swapped_retire_status=$?
+check swapped_retire_not_exclusion 'teardown_exclusion=not_established' \
+    "$(printf '%s' "$swapped_retire" | grep '^teardown_exclusion=')"
+check swapped_retire_exit_refuses_strict 4 "$swapped_retire_status"
 
 if [ "$failures" -eq 0 ]; then
     printf 'test_qwen_drain_controller=accepted\n'

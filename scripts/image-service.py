@@ -230,16 +230,25 @@ class ServiceBusy(ServiceError):
 
 
 class ServiceQuiescing(ServiceError):
-    """The session is retiring, so the barrier refuses new work at this entry point."""
+    """The admission barrier refused this entry point, and the reason names what refused."""
 
     reason = "quiescing"
 
+    # A barrier refusal is either a session state or a barrier fault, and the
+    # reason field states which. These three words name the session's own
+    # position on the RUNNING -> QUIESCING -> DRAINING path and reach the reply
+    # unchanged; every other detail names a fault the barrier detected rather
+    # than a state the session reached, so it reads barrier_<detail> and asserts
+    # no quiescence. identity_mismatch is the case that separates them: the
+    # in-flight file was replaced under a live session, which refuses admission
+    # while the session is still RUNNING.
+    STATE_REASONS = ("quiescing", "quiescing_after_share", "draining")
+
     def __init__(self, detail):
         super().__init__("the admission barrier is closed: %s" % detail)
-        # The protocol's reason field takes [A-Za-z0-9_-], and the barrier's
-        # own reasons are already in that alphabet. A detail that names the
-        # state keeps its own word rather than being prefixed twice.
-        self.reason = detail if detail.startswith("quiescing") else "quiescing_%s" % detail
+        # The protocol's reason field takes [A-Za-z0-9_-] and both branches stay
+        # inside that alphabet.
+        self.reason = detail if detail in self.STATE_REASONS else "barrier_%s" % detail
 
 
 class LeaseUnavailable(ServiceError):

@@ -27,12 +27,14 @@ work exactly as before this mechanism existed.
 
 import errno
 import fcntl
+import io
 import os
 
 STATE_RUNNING = "running"
 STATE_QUIESCING = "quiescing"
 STATE_FILE = "admission.barrier"
 INFLIGHT_FILE = "admission.inflight"
+SESSION_FILE = "admission.identity"
 
 
 class AdmissionRefused(Exception):
@@ -58,6 +60,44 @@ def state_path(environment=None):
 
 def inflight_path(environment=None):
     return os.path.join(barrier_directory(environment), INFLIGHT_FILE)
+
+
+def session_path(environment=None):
+    return os.path.join(barrier_directory(environment), SESSION_FILE)
+
+
+def session_identity(environment=None):
+    """The identity the barrier was armed with, or `unrecorded` where none was.
+
+    An unrecorded barrier admits, which keeps the mechanism optional for a
+    session that armed none.
+    """
+    try:
+        with io.open(session_path(environment), encoding="utf-8") as handle:
+            return handle.readline().strip() or "unrecorded"
+    except OSError as error:
+        if error.errno in (errno.ENOENT, errno.ENOTDIR):
+            return "unrecorded"
+        raise
+
+
+def verify_session_identity(environment=None):
+    """Whether the in-flight file is still the inode the session armed.
+
+    `flock(2)` belongs to an open file description rather than to a pathname, so
+    a replacement inode at the same path is a different lock: an exclusive
+    acquisition on it is granted while a share on the original is still held.
+    A participant that took a share on the replacement would be counted by no
+    drain, so the mismatch is refused rather than serialized against.
+    """
+    expected = session_identity(environment)
+    if expected == "unrecorded":
+        return "unrecorded"
+    try:
+        actual = identity(inflight_path(environment))
+    except OSError:
+        actual = "absent"
+    return "match" if actual == expected else "mismatch"
 
 
 def read_state(environment=None):
@@ -109,6 +149,8 @@ class InFlightShare:
         path = inflight_path(self._environment)
         if read_state(self._environment) != STATE_RUNNING:
             raise AdmissionRefused("quiescing")
+        if verify_session_identity(self._environment) == "mismatch":
+            raise AdmissionRefused("identity_mismatch")
         try:
             descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
         except OSError as error:

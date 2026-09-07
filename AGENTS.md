@@ -2093,6 +2093,10 @@ scripts/qwen-exec-idle-priority.sh COMMAND [ARGUMENT...]
 scripts/qwen-drain-controller.sh retire [--deadline MS] [--record FILE] -- COMMAND...
                                                 # quiesce, drain, then destroy; an expired deadline
                                                 # classifies shutdown_mode=emergency rather than waiting
+                                                # teardown_exclusion=orderly needs three positive readings:
+                                                # the job waited for by its share holder, the armed inode,
+                                                # and a destroy step reporting held=yes. Exit 0 orderly,
+                                                # 4 transition complete with the exclusion unproven, 1 failed
 scripts/qwen-drain-controller.sh admit [--record FILE] -- COMMAND...
                                                 # run one job holding an in-flight share, refused while quiescing
 scripts/qwen-drain-controller.sh status|resume  # the barrier state and whether a share is held

@@ -26,6 +26,27 @@
 # recorded as unsuccessful, the bounded escalation runs, and the outcome is
 # classified rather than absorbed, because `teardown: held=no` is a successful
 # termination and never an orderly-exclusion pass.
+#
+# `teardown_exclusion=orderly` is emitted from positive readings alone, never
+# from the absence of a complaint. Three sources have to agree, because each
+# names a way the transition can succeed while excluding nothing:
+#
+#   supervision  the admitted job is waited for by the process holding its
+#                share, so a signalled admitter does not hand the drain a free
+#                lock with live work behind it
+#   identity     the inode drained is the one this retirement began against,
+#                so a replaced pathname is refused rather than trivially
+#                drained while a share on the old inode is still held
+#   teardown     the destroy step reported that it held the compute lease
+#
+# The teardown reading takes the three values the tree already reads a served
+# arm by: held, `not_established` where the step reports `held=no`, which is a
+# successful termination rather than exclusion, and `unattributed` where the
+# step's output carries no such line at all.
+#
+# Exit status: 0 where the exclusion reads orderly, 4 where the transition
+# completed with the exclusion unproven, and 1 where the drain or the destroy
+# step failed. A caller testing for 0 therefore gets the strict reading.
 set -eu
 
 usage() {
@@ -34,6 +55,7 @@ usage() {
     printf '       %s status|resume\n' "$0" >&2
     printf '  retire  quiesce, drain, then run COMMAND as the destroy step\n' >&2
     printf '  admit   run COMMAND holding one in-flight share, refused while quiescing\n' >&2
+    printf '  exit    0 orderly, 4 transition complete with exclusion unproven, 1 failed\n' >&2
     exit 2
 }
 
@@ -129,7 +151,30 @@ if [ "$subcommand" = admit ]; then
     # descriptor would keep the barrier held by a child that outlived its
     # admitter, which is the residue qwen-webui-session.sh closes with `9>&-`
     # for the owner claim: a drain would then wait on a claim no live job backs.
-    "$@" 8<&- || admit_status=$?
+    #
+    # The job is a supervised background child rather than a foreground command,
+    # because the share has to outlive a signal to this admitter. The kernel
+    # releases a flock when the last descriptor referring to it closes, so an
+    # admitter that exited on SIGTERM while its child kept running would leave
+    # the drain a free lock with live GPU work behind it -- the opposite residue
+    # to the inherited descriptor, and the same wrong answer.
+    "$@" 8<&- &
+    job_pid=$!
+    record running "job_started pid=$job_pid"
+    # A terminating signal is forwarded to the child, and the share is held
+    # until the child actually leaves. SIGKILL to this admitter drops the share
+    # with the child alive; that is the emergency exception the policy already
+    # reserves rather than a case this supervision closes.
+    trap 'record running "signal_forwarded pid=$job_pid"; kill -TERM "$job_pid" 2>/dev/null || true' TERM INT HUP
+    # `wait` returns above 128 when a trapped signal interrupts it, with the
+    # child still alive, so the loop waits again rather than reading that as the
+    # job's own status. The status kept is the one `wait` reported when it
+    # actually reaped, and the child's absence is what ends the loop.
+    while :; do
+        admit_status=0
+        wait "$job_pid" || admit_status=$?
+        kill -0 "$job_pid" 2>/dev/null || break
+    done
     record running "job_complete status=$admit_status"
     flock -u 8
     exec 8<&-
@@ -137,7 +182,11 @@ if [ "$subcommand" = admit ]; then
 fi
 
 # retire: the whole lifecycle, one transition at a time.
-record running 'retire_begin'
+# The identity compared against is the one the barrier was armed with rather
+# than the one this retirement happens to find, because a replacement that
+# landed before the retirement began would otherwise re-record itself as the
+# subject and drain an inode no participant holds a share on.
+record running "retire_begin inflight_identity=$(qwen_barrier_session_identity)"
 
 qwen_barrier_set_state quiescing
 record quiescing "admission_closed state=$(qwen_barrier_state)"
@@ -163,13 +212,35 @@ if [ "$drain_status" -ne 0 ]; then
 fi
 
 record draining "$drain_result"
-record ready_to_destroy "state=$(qwen_barrier_state) inflight=none"
+
+# The drain was granted on descriptor 9. Whether that is still the inode this
+# retirement began against is a separate question, and an exclusive lock on a
+# replacement inode says nothing about a share held on the original.
+identity_reading=$(qwen_barrier_verify_session_identity) || identity_reading=mismatch
+record ready_to_destroy "state=$(qwen_barrier_state) inflight=none inflight_identity=$identity_reading"
 
 # The retiring process takes the compute lease in its own destructor. This
 # controller holds the barrier and never that lease, so the child can.
 destroy_status=0
-QWEN_DRAIN_MODE=orderly "$@" || destroy_status=$?
-record destroying "destroy_status=$destroy_status"
+# The step's output is retained so its teardown line can be read. A successful
+# exit says the process left, and the exclusion asks whether it held the lease
+# while it freed, which is a different claim carried on a different line.
+destroy_log=$(mktemp "${TMPDIR:-/tmp}/qwen-drain-destroy.XXXXXX")
+trap 'rm -f "$destroy_log"' EXIT
+QWEN_DRAIN_MODE=orderly "$@" >"$destroy_log" 2>&1 || destroy_status=$?
+cat "$destroy_log"
+
+# The three readings the tree already gives a served arm: held, a reported
+# `held=no` which is a successful termination rather than exclusion, and
+# `unattributed` where no such line was written at all.
+if grep -qE 'teardown[:_ ]+held=yes' "$destroy_log"; then
+    teardown_reading=held
+elif grep -qE 'teardown[:_ ]+held=no' "$destroy_log"; then
+    teardown_reading=not_held
+else
+    teardown_reading=unattributed
+fi
+record destroying "destroy_status=$destroy_status teardown_reading=$teardown_reading"
 
 if [ "$destroy_status" -ne 0 ]; then
     record stopped "shutdown_mode=orderly orderly_drain=completed destroy=failed status=$destroy_status"
@@ -180,8 +251,25 @@ if [ "$destroy_status" -ne 0 ]; then
     exit 1
 fi
 
-record stopped 'shutdown_mode=orderly orderly_drain=completed teardown_exclusion=orderly'
-printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=orderly\n'
+# The exclusion is emitted from the readings rather than from the absence of a
+# failure. Every source has to be positive; anything else names which one was
+# not, and a caller testing for exit 0 gets the strict reading.
+if [ "$identity_reading" != match ] && [ "$identity_reading" != unrecorded ]; then
+    exclusion=not_established
+    exclusion_status=4
+elif [ "$teardown_reading" = held ]; then
+    exclusion=orderly
+    exclusion_status=0
+elif [ "$teardown_reading" = unattributed ]; then
+    exclusion=unattributed
+    exclusion_status=4
+else
+    exclusion=not_established
+    exclusion_status=4
+fi
+record stopped "shutdown_mode=orderly orderly_drain=completed teardown_exclusion=$exclusion inflight_identity=$identity_reading teardown_reading=$teardown_reading"
+printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=%s\n' "$exclusion"
 flock -u 9
 exec 9<&-
 qwen_barrier_set_state running
+exit "$exclusion_status"

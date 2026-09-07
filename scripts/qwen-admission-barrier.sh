@@ -51,14 +51,53 @@ qwen_barrier_directory() {
 
 qwen_barrier_state_path() { printf '%s/admission.barrier' "$(qwen_barrier_directory)"; }
 qwen_barrier_inflight_path() { printf '%s/admission.inflight' "$(qwen_barrier_directory)"; }
+qwen_barrier_session_path() { printf '%s/admission.identity' "$(qwen_barrier_directory)"; }
 
 # A barrier whose files are absent reads `running`, so a session that never
 # armed one admits work exactly as it did before this mechanism existed.
+#
+# Arming records the in-flight file's identity once. A flock belongs to an open
+# file description rather than to a pathname, so a replacement inode at the same
+# path is a different lock: an exclusive acquisition on it is granted while a
+# share on the original is still held, and a drain reading only the path would
+# report an empty barrier with live work behind it. The recorded identity is
+# what every participant and every retirement compares against, and it is
+# written at creation rather than at each call so a replacement cannot re-record
+# itself as the session's.
 qwen_barrier_initialize() {
     qwen_barrier_init_directory=$(qwen_barrier_directory)
     [ -d "$qwen_barrier_init_directory" ] || mkdir -p "$qwen_barrier_init_directory"
     [ -e "$(qwen_barrier_state_path)" ] || printf 'running\n' > "$(qwen_barrier_state_path)"
     [ -e "$(qwen_barrier_inflight_path)" ] || : > "$(qwen_barrier_inflight_path)"
+    [ -e "$(qwen_barrier_session_path)" ] ||
+        qwen_barrier_identity "$(qwen_barrier_inflight_path)" > "$(qwen_barrier_session_path)"
+}
+
+# The identity this barrier was armed with, or `unrecorded` where no session
+# established one. An unrecorded barrier admits, keeping the mechanism optional.
+qwen_barrier_session_identity() {
+    qwen_barrier_session_file=$(qwen_barrier_session_path)
+    [ -f "$qwen_barrier_session_file" ] || { printf 'unrecorded'; return 0; }
+    head -n 1 "$qwen_barrier_session_file" | tr -d '\n'
+}
+
+# Whether the in-flight file still is the inode the session armed. A mismatch is
+# refused rather than serialized against, the rule
+# sidecar_runtime.require_lease_identity applies to the lease.
+qwen_barrier_verify_session_identity() {
+    qwen_barrier_verify_expected=$(qwen_barrier_session_identity)
+    if [ "$qwen_barrier_verify_expected" = unrecorded ]; then
+        printf 'unrecorded'
+        return 0
+    fi
+    qwen_barrier_verify_actual=$(qwen_barrier_identity "$(qwen_barrier_inflight_path)") ||
+        qwen_barrier_verify_actual=absent
+    if [ "$qwen_barrier_verify_actual" = "$qwen_barrier_verify_expected" ]; then
+        printf 'match'
+        return 0
+    fi
+    printf 'mismatch'
+    return 1
 }
 
 # Read the state word under a shared lock, so a read never observes a partial
@@ -104,6 +143,8 @@ qwen_barrier_set_state() {
 qwen_barrier_admit() {
     qwen_barrier_admit_fd=$1
     [ "$(qwen_barrier_state)" = running ] || { printf 'refused state=quiescing\n'; return 1; }
+    qwen_barrier_verify_session_identity >/dev/null || {
+        printf 'refused state=identity_mismatch\n'; return 1; }
     flock -s -n "$qwen_barrier_admit_fd" || { printf 'refused state=draining\n'; return 1; }
     if [ "$(qwen_barrier_state)" != running ]; then
         flock -u "$qwen_barrier_admit_fd"
