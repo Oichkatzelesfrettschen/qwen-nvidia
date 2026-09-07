@@ -116,7 +116,13 @@ case $subcommand in
         # both. A retirement whose drain reached its deadline holds no in-flight
         # reference while its emergency destruction runs, so the in-flight test
         # alone would reopen admission into a live destruction.
-        if [ "$(qwen_barrier_retirement)" != none ]; then
+        #
+        # The retirement reference is held across this whole operation rather
+        # than sampled and released: a sample that reported none and then let go
+        # left a retirement free to acquire it and close admission before this
+        # recovery wrote `running` over that quiescence.
+        exec 7< "$(qwen_barrier_retiring_path)"
+        if ! flock -x -n 7; then
             printf 'resume_refused reason=retirement_running\n' >&2
             exit 1
         fi
@@ -128,6 +134,8 @@ case $subcommand in
         qwen_barrier_set_state running
         flock -u 9
         exec 9<&-
+        flock -u 7
+        exec 7<&-
         printf 'barrier_state\trunning\n'
         exit 0
         ;;
@@ -240,7 +248,21 @@ if [ "$drain_status" -ne 0 ]; then
     record draining "drain_failed $drain_result"
     record destroying 'emergency_escalation'
     escalation_status=0
-    QWEN_DRAIN_MODE=emergency "$@" 9<&- 7<&- || escalation_status=$?
+    # The emergency child is supervised the way the orderly one is. Leaving it
+    # in the foreground let a signal end this controller while the destruction
+    # it escalated to kept running, and descriptor 7 closed with that child
+    # alive -- a recovery then reopened admission behind a live teardown, which
+    # is the residue the retirement reference exists to prevent.
+    escalation_pid=
+    trap 'record destroying "signal_forwarded pid=${escalation_pid:-unrecorded}"; [ -n "$escalation_pid" ] && kill -TERM "$escalation_pid" 2>/dev/null; :' TERM INT HUP
+    QWEN_DRAIN_MODE=emergency "$@" 9<&- 7<&- &
+    escalation_pid=$!
+    while :; do
+        escalation_status=0
+        wait "$escalation_pid" || escalation_status=$?
+        kill -0 "$escalation_pid" 2>/dev/null || break
+    done
+    trap - TERM INT HUP
     record stopped "shutdown_mode=emergency orderly_drain=failed teardown_exclusion=not_established escalation_status=$escalation_status"
     printf 'shutdown_mode=emergency\norderly_drain=failed\nteardown_exclusion=not_established\n'
     flock -u 9 2>/dev/null || true
@@ -256,7 +278,19 @@ record draining "$drain_result"
 # The drain was granted on descriptor 9. Whether that is still the inode this
 # retirement began against is a separate question, and an exclusive lock on a
 # replacement inode says nothing about a share held on the original.
-identity_reading=$(qwen_barrier_verify_session_identity) || identity_reading=mismatch
+# The reading is taken from descriptor 9, which is the description this drain
+# was granted on. A pathname reading answers about whatever inode the path names
+# at this instant: a replacement that is put back before the reading restores a
+# match while the share this retirement never counted is still held on the armed
+# inode, and the destruction then runs beside live work.
+identity_expected=$(qwen_barrier_session_identity)
+if [ "$identity_expected" = unrecorded ]; then
+    identity_reading=unrecorded
+elif [ "$(qwen_barrier_descriptor_identity 9)" = "$identity_expected" ]; then
+    identity_reading=match
+else
+    identity_reading=mismatch
+fi
 record ready_to_destroy "state=$(qwen_barrier_state) inflight=none inflight_identity=$identity_reading"
 
 # A mismatch means the reference this retirement drained is not the one the

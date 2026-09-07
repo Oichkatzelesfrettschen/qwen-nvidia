@@ -209,6 +209,9 @@ commit `35a27e1`.
 | the stand-in answers HTTP/1.0 | `test_a_client_on_completed_work_does_not_hold_the_process`, on the control condition rather than the outcome |
 | a service maps every barrier refusal onto the `quiescing_` prefix, as the first implementation did | `test_a_barrier_fault_reason_does_not_claim_quiescence`, on `draining` |
 | a service keeps the state-word test and prefixes a fault `quiescing_` | `test_a_barrier_fault_reason_does_not_claim_quiescence`, on `barrier_identity_mismatch` |
+| the retirement reads identity from the pathname rather than descriptor 9 | `test_a_pathname_restored_before_the_reading_is_still_refused` |
+| the emergency child runs unsupervised | `test_terminating_an_emergency_escalation_holds_its_references` |
+| recovery samples the retirement reference and releases it | `test_recovery_holds_its_retirement_reference_across_the_write` |
 | the admission handler is installed after the spawn | `test_a_signal_inside_the_spawn_window_still_holds_the_share` |
 | recovery reads the in-flight reference alone | `test_recovery_is_refused_while_an_emergency_destruction_runs` |
 | the destroy child runs unsupervised | `test_terminating_a_retirement_holds_its_references_until_the_child_leaves` |
@@ -261,8 +264,13 @@ that never began. The arm reads the class out of each of the three services'
 own source rather than importing them, so a copy that drifts fails there.
 
 `scripts/test-drain-failure-boundaries.py` holds the lifecycle's failure paths
-and its concurrent ones to fifteen readings. Six came from the stage-one review
-and `stage-one-review.md` carries their disposition: a signal inside the spawn
+and its concurrent ones to eighteen readings. Nine came from the two external
+reviews and `stage-one-review.md` and `stage-two-review.md` carry their
+disposition. Stage two found that two stage-one repairs had reached one path and
+not its twin -- descriptor identity reached admission and not retirement, child
+supervision reached orderly destruction and not the escalation -- and that the
+retirement reference the repairs introduced could be sampled instead of held.
+From stage one: a signal inside the spawn
 window leaves the share held, a second retirement is refused while one runs,
 recovery is refused while an emergency destruction runs, terminating a
 retirement holds its references until the destroy child leaves, an identity

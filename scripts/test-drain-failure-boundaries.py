@@ -40,6 +40,10 @@ SUBPROCESS_DEADLINE_S = 20.0
 SPAWN_WINDOW_HOLD_S = 3
 REAL_AWK = shutil.which("awk")
 
+# Recovery's own window, held open the same way and for the same reason.
+RECOVERY_WINDOW_HOLD_S = 3
+REAL_FLOCK = shutil.which("flock")
+
 
 class DrainFailureBoundaries(unittest.TestCase):
     def setUp(self):
@@ -391,6 +395,124 @@ class DrainFailureBoundaries(unittest.TestCase):
         admit.wait(timeout=SUBPROCESS_DEADLINE_S)
         self.wait_for(lambda: not self.marker_is_held(self.inflight),
                       "the share released after the job left")
+
+    def test_a_pathname_restored_before_the_reading_is_still_refused(self):
+        """The retirement reads descriptor 9 rather than the path.
+
+        A replacement that is put back before the reading restores a pathname
+        match while the share this retirement never counted is still held on the
+        armed inode. The reading is taken from the description the drain was
+        granted on, so restoring the name changes nothing.
+        """
+        share = self.hold_share()
+        self.addCleanup(fcntl.flock, share, fcntl.LOCK_UN)
+        armed = pathlib.Path(self.temporary.name) / "armed-copy"
+        os.link(self.inflight, armed)
+        replacement = self.inflight.with_suffix(".replacement")
+        replacement.write_text("")
+        os.replace(replacement, self.inflight)
+        # The retirement opens and locks the replacement; the armed name is then
+        # put back before it takes its reading.
+        ran = pathlib.Path(self.temporary.name) / "destroy-ran"
+        restore = pathlib.Path(self.temporary.name) / "restore"
+        restore.write_text("#!/bin/sh\nexec ln -f '%s' '%s'\n" % (armed, self.inflight))
+        restore.chmod(0o755)
+        stub_directory = pathlib.Path(self.temporary.name) / "restore-stub"
+        stub_directory.mkdir()
+        counter = stub_directory / "calls"
+        stub = stub_directory / "awk"
+        stub.write_text(
+            "#!/bin/sh\n"
+            "calls=$(cat '%s' 2>/dev/null || echo 0)\n"
+            "echo $((calls + 1)) > '%s'\n"
+            "[ \"$calls\" -eq 2 ] && '%s'\n"
+            "exec %s \"$@\"\n" % (counter, counter, restore, REAL_AWK))
+        stub.chmod(0o755)
+        environment = dict(self.env, PATH="%s:%s" % (stub_directory, self.env["PATH"]))
+        result = subprocess.run(
+            [str(CONTROLLER), "retire", "--deadline", "0", "--", sys.executable, "-c",
+             "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('x');"
+             " print('teardown: held=yes')", str(ran)],
+            env=environment, text=True, capture_output=True,
+            timeout=SUBPROCESS_DEADLINE_S, check=False)
+        self.assertEqual(os.stat(self.inflight).st_ino, os.stat(armed).st_ino,
+                         "this arm requires the armed name to have been restored")
+        self.assertNotIn("teardown_exclusion=orderly", result.stdout,
+                         "a restored pathname bought an orderly verdict over a"
+                         " drain that never counted the live share: %s" % result.stdout)
+
+    def test_terminating_an_emergency_escalation_holds_its_references(self):
+        """The emergency child is supervised the way the orderly one is.
+
+        Leaving it in the foreground let a signal end the controller while the
+        destruction it escalated to kept running, and the retirement reference
+        closed with that child alive.
+        """
+        share = self.hold_share()
+        marker = pathlib.Path(self.temporary.name) / "emergency-entered"
+        child = ("import pathlib,signal,sys,time;"
+                 " signal.signal(signal.SIGTERM, lambda *a: None);"
+                 " pathlib.Path(sys.argv[1]).write_text('x'); time.sleep(3)")
+        retire = self.controller_in_background(
+            "retire", "--deadline", "0", "--", sys.executable, "-c", child, str(marker))
+        self.wait_for(marker.exists, "the emergency destruction starting")
+        fcntl.flock(share, fcntl.LOCK_UN)
+        retire.send_signal(signal.SIGTERM)
+        self.assertTrue(self.marker_is_held(self.retiring_marker()),
+                        "the retirement reference was released with the emergency child alive")
+        resume = self.run_controller("resume")
+        self.assertNotEqual(resume.returncode, 0,
+                            "recovery succeeded with the emergency child alive: %s" % resume.stdout)
+        retire.wait(timeout=SUBPROCESS_DEADLINE_S)
+
+    def test_recovery_holds_its_retirement_reference_across_the_write(self):
+        """Recovery holds the reference rather than sampling and releasing it.
+
+        A sample that reported none and then let go left a retirement free to
+        acquire the reference and close admission before this recovery wrote
+        `running` over that quiescence. The interval between the sample and the
+        write is what the arm needs, so it is widened rather than raced: both
+        operations take their references through `flock`, and a stub that is slow
+        on its second call holds recovery open while a retirement runs against
+        it.
+
+        The invariant is that the two cannot both succeed. Recovery holding its
+        reference refuses the retirement outright; recovery releasing it lets the
+        retirement quiesce and then writes `running` over that quiescence, and
+        both report success.
+        """
+        stub_directory = pathlib.Path(self.temporary.name) / "slow-flock"
+        stub_directory.mkdir()
+        counter = stub_directory / "calls"
+        stub = stub_directory / "flock"
+        stub.write_text(
+            "#!/bin/sh\n"
+            "calls=$(cat '%s' 2>/dev/null || echo 0)\n"
+            "echo $((calls + 1)) > '%s'\n"
+            "[ \"$calls\" -eq 1 ] && sleep %d\n"
+            "exec %s \"$@\"\n" % (counter, counter, RECOVERY_WINDOW_HOLD_S, REAL_FLOCK))
+        stub.chmod(0o755)
+        environment = dict(self.env, PATH="%s:%s" % (stub_directory, self.env["PATH"]))
+
+        self.shell_state("quiescing")
+        resume = subprocess.Popen([str(CONTROLLER), "resume"], env=environment,
+                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(self.reap, resume)
+        self.wait_for(lambda: counter.exists() and counter.read_text().strip() == "2",
+                      "recovery entering the interval after its retirement reading")
+        retire = self.run_controller("retire", "--deadline", "100", "--", "true")
+        resume.wait(timeout=SUBPROCESS_DEADLINE_S)
+        retirement_ran = retire.returncode != 75
+        self.assertFalse(
+            retirement_ran and resume.returncode == 0,
+            "a retirement ran to completion (%d) while recovery reported success:"
+            " recovery wrote `running` over a quiescence it did not see"
+            % retire.returncode)
+
+    def shell_state(self, word):
+        subprocess.run(["sh", "-c", '. "$1"; qwen_barrier_set_state "$2"', "barrier",
+                        str(LIBRARY), word], env=self.env, check=True,
+                       capture_output=True, timeout=SUBPROCESS_DEADLINE_S)
 
 
 if __name__ == "__main__":
