@@ -1475,25 +1475,67 @@ is a hypothesis the timeline fits rather than a finding, since an unreproduced
 diff is equally consistent with an export that lost bytes the compiler read.
 
 ```text
-historical_source_reconstruction   unavailable
-replacement_source_provenance      verified
-historical_binary_regression       required
+historical_source_reconstruction        unavailable
+replacement_source_provenance           verified
+companion_source_and_binary_isolation   closed
+companion_behavioral_comparison         required
+historical_binary_regression            required
 ```
 
 The reconstructed lease-off companion is the replacement baseline: the
 candidate's sequence with `llama-server-vulkan-workload-lease.patch` removed,
 differing from it by `tools/server/server-context.cpp` at 331 insertions and no
 deletion in one file, with that patch reapplied reproducing the candidate's
-recorded digest. It is a source-level result. Its predicted `ca47669a` awaits
-its own build, whose builder emits the authoritative value, and matching counts
-of 187 cubins state that two builds emitted the same number of objects rather
-than the same kernels, so its kernel contents and binary bytes are unmeasured
-and it inherits none of the candidate's served admission. A companion built this
-way is not the original production source and is not labeled as one, and
-`88681bf4d161` stays the behavioral regression reference rather than being
-retired by it. Building the companion and isolating the lease change against it
-is the remainder of the replacement route and stays a promotion gate beside the
-drain-before-destroy policy.
+recorded digest. It is built, at configuration `fd27a84d9199` over source
+`ca47669a`, carrying 187 cubins and no PTX under `89-real`, and its
+`build-configuration.tsv` differs from the candidate's in `source_diff_sha256`
+and in nothing else, so every lever is held equal by the configuration digest
+rather than by assertion.
+
+`scripts/compare-closure-isolation.py` is what turns that into an attribution,
+over the readings `evidence/lease-coverage/companion-build/` carries, each of
+which lowers the verdict where it cannot be completed rather than being
+skipped. A build directory names a source path and the tree there now is not
+necessarily the tree the build recorded, so each side's `git diff --binary
+HEAD` is required to equal the `source_diff_sha256` its own
+`build-configuration.tsv` carries, which is also what refuses two builds naming
+one tree. Ninja
+records every edge, so the transitive consumer closure of
+`server-context.cpp.o` is the exact set of targets the lease change reaches:
+41 of them, `bin/llama-server`, `bin/llama-cli`, and the two implementation
+libraries among them because `tools/server/libserver-context.a` links into
+`bin/libllama-cli-impl.so` at this pin, and no ggml or CUDA target inside it.
+The device payload agrees at 15052727 lines of `cuobjdump -sass` per side,
+identical once six `_INTERNAL_<hex>_<len>_<unit>` module identifiers are
+normalized; nvcc derives that hash from the translation unit, so `binbcast.cu`,
+`unary.cu`, `convert.cu`, `set_rows.cu`, `cpy.cu`, and `getrows.cu` pair
+one-to-one across the closures with distinct hashes and identical unit names.
+
+A byte comparison of linked artifacts answers nothing here and the reader says
+so rather than reporting a difference it cannot attribute. Every artifact in
+`bin/` differs, `libggml-base.so` included at an identical 938656 bytes, because
+each embeds nine absolute source paths naming its own tree, and the same
+`__FILE__` contamination reaches `.nv.global.init`, which is initialized device
+global data rather than a strippable debug section. That contamination is also
+the positive proof of independent compilation: every companion cubin carries the
+companion tree's path where a restored compiler-cache entry would have carried
+the candidate's.
+
+The closure name carries the same dependency and it is a trap rather than a
+curiosity. `build-llama-cuda.sh:243` digests `sha256sum patches/*.patch`, which
+prints each pathname beside its digest, so `patch_series_sha256` reads
+`3d5f301750bd` from the primary checkout and `a9f5ff334d83` from a worktree of
+the same commit over patch bytes equal at `ce15de854cba`. The field enters the
+configuration digest, so a build launched the way the branching rule asks for
+branch work carries a twelve-hex name no ledger row matches. Every retained
+closure name was computed from the primary checkout and a comparison run
+belongs there until that digest is made path-independent.
+
+A companion built this way is not the original production source and is not
+labeled as one, and `88681bf4d161` stays the behavioral regression reference
+rather than being retired by it. What the companion still owes the replacement
+route is the behavioral comparison against the candidate, which needs a device
+window; the source and binary isolation it rests on is closed.
 
 The order follows from how each
 acquire behaves rather than from granularity: a lease acquire whose caller can
@@ -2061,6 +2103,12 @@ scripts/reconstruct-closure-source.sh SOURCE_REPO PIN WORK MANIFEST_TSV
                                                 # does a patch set reproduce a closure's recorded source_diff_sha256
                                                 # controls reconstruct first and gate whether subjects run at all
                                                 # QWEN_RECONSTRUCT_GIT_OPTIONS asks the same question under other -c settings
+scripts/compare-closure-isolation.py CONTROL_BUILD SUBJECT_BUILD --out DIR
+                                                # what one source change reaches inside two closures: one configuration
+                                                # axis, the ninja consumer closure of every differing translation unit,
+                                                # and the module-id-normalized SASS of both CUDA payloads
+                                                # a linked-artifact byte comparison reads unavailable where the two
+                                                # build paths differ, since nvcc and the host compiler embed __FILE__
 scripts/measure-served-decode.sh LABEL MODEL    # served decode at a fixed length
 scripts/run-quality-suite.py ENDPOINT OUT_JSON --long-context-characters 24000
                                                 # the 75-row graded suite at explicit depth
@@ -2299,6 +2347,7 @@ scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-reconstruct-closure-source.sh
+python3 scripts/test-compare-closure-isolation.py
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
