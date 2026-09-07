@@ -43,6 +43,7 @@ import time
 SERVICE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SERVICE_DIRECTORY)
 import physics_protocol as protocol  # noqa: E402
+import admission_barrier  # noqa: E402
 import sidecar_runtime  # noqa: E402
 
 PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
@@ -72,6 +73,16 @@ class ProfileRefused(ServiceError):
 
 class ServiceBusy(ServiceError):
     reason = "busy"
+
+
+class ServiceQuiescing(ServiceError):
+    """The session is retiring, so the barrier refuses new work at this entry point."""
+
+    reason = "quiescing"
+
+    def __init__(self, detail):
+        super().__init__("the admission barrier is closed: %s" % detail)
+        self.reason = "quiescing_%s" % detail if detail != "quiescing" else "quiescing"
 
 
 class GrantDenied(ServiceError):
@@ -282,7 +293,15 @@ class PhysicsService:
             if not self.busy.acquire(blocking=False):
                 raise ServiceBusy("a simulation is running")
             try:
-                result = self.run(request_id, profile, steps)
+            # The barrier is consulted at the request entry point rather than in
+            # a page control, so a request that reached this socket by any route
+            # meets the same refusal while the session retires. The share is held
+            # across the job, which is what a drain's exclusive acquisition waits
+            # on, and it is released whatever the job did.
+                with admission_barrier.require_admission():
+                    result = self.run(request_id, profile, steps)
+            except admission_barrier.AdmissionRefused as error:
+                raise ServiceQuiescing(error.reason) from None
             finally:
                 self.busy.release()
         except ServiceError as error:

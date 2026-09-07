@@ -2090,6 +2090,12 @@ scripts/image-teardown-check.sh [STATE_DIRECTORY]
 scripts/test-vulkan-workload-lease.sh           # one workload, both writers of the lease
 scripts/qwen-exec-idle-priority.sh COMMAND [ARGUMENT...]
                                                 # nice 19 and idle I/O, verified, then exec
+scripts/qwen-drain-controller.sh retire [--deadline MS] [--record FILE] -- COMMAND...
+                                                # quiesce, drain, then destroy; an expired deadline
+                                                # classifies shutdown_mode=emergency rather than waiting
+scripts/qwen-drain-controller.sh admit [--record FILE] -- COMMAND...
+                                                # run one job holding an in-flight share, refused while quiescing
+scripts/qwen-drain-controller.sh status|resume  # the barrier state and whether a share is held
 scripts/image-review.py --router-origin URL --artifact-origin URL --model ID \
     --sha256 HEX --prompt-hash HEX --constraint NAME=DESCRIPTION \
     [--image-mode real|withheld|swapped [--swap-sha256 HEX]]
@@ -2243,6 +2249,8 @@ scripts/test-fetch-candidate-artifact.sh
 scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
 scripts/test-exec-idle-priority.sh
+python3 scripts/test-admission-barrier.py
+scripts/test-qwen-drain-controller.sh
 python3 scripts/test-authority-consistency.py
 scripts/test-qwen-code-pin.sh
 scripts/test-coding-principal.sh            # appliance host role alone

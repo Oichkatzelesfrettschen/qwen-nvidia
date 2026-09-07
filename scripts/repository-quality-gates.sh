@@ -83,6 +83,8 @@ scripts/test-model-registry.sh
 scripts/test-model-tiers.sh
 scripts/check-nvidia-authority.sh
 scripts/test-exec-idle-priority.sh
+python3 scripts/test-admission-barrier.py
+scripts/test-qwen-drain-controller.sh
 scripts/check-validated-tuples.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-authority-consistency.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-authority-consistency.py

@@ -108,6 +108,7 @@ if SERVICE_DIRECTORY not in sys.path:
     sys.path.insert(0, SERVICE_DIRECTORY)
 
 import image_protocol as protocol  # noqa: E402
+import admission_barrier  # noqa: E402
 
 PROTOCOL_VERSION = protocol.PROTOCOL_VERSION
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
@@ -226,6 +227,16 @@ class ProfileRefused(ServiceError):
 
 class ServiceBusy(ServiceError):
     reason = "busy"
+
+
+class ServiceQuiescing(ServiceError):
+    """The session is retiring, so the barrier refuses new work at this entry point."""
+
+    reason = "quiescing"
+
+    def __init__(self, detail):
+        super().__init__("the admission barrier is closed: %s" % detail)
+        self.reason = "quiescing_%s" % detail if detail != "quiescing" else "quiescing"
 
 
 class LeaseUnavailable(ServiceError):
@@ -903,7 +914,17 @@ class ImageService:
                 "workload at a time and offers no queue"
             )
         try:
-            return self.run_job(request, profile, request_id)
+            # The barrier is consulted at the request entry point rather than in
+            # a page control, so a request that reached this socket by any route
+            # meets the same refusal while the session retires. The share is held
+            # across the job, which is what a drain's exclusive acquisition waits
+            # on, and it is released whatever the job did. It is taken outside
+            # the compute lease and released after it, so the drain never waits
+            # on a lease this service still holds.
+            with admission_barrier.require_admission():
+                return self.run_job(request, profile, request_id)
+        except admission_barrier.AdmissionRefused as error:
+            raise ServiceQuiescing(error.reason) from None
         finally:
             self.job_lock.release()
 
