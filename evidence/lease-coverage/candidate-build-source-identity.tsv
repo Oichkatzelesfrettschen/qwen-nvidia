@@ -21,13 +21,15 @@
 # source difference exists.
 #
 # The promoted closure's own source_diff_sha256 is 0d6e3be391768d5b0aaa8854904b
-# 268fbe3867ff4e76c8cba25c201bc5038b0f, read from its build-configuration.tsv,
-# and four reconstructions from today's patch files reproduce none of it: the
-# production series alone, plus view-alias-deps, plus mmvq-crossover, and plus
-# paged-kv and mtmd-embd read ed47ca4c, ed957fe7, f0f1e551, 3e47e7a1, and
-# 9a75d608 respectively. Which patch file moved since that build is unread here,
-# so the promoted set is named by the markers and thresholds its binaries carry
-# rather than by a replayed diff.
+# 268fbe3867ff4e76c8cba25c201bc5038b0f, read from its build-configuration.tsv.
+# source-provenance/ carries the search that closes it: every distinct patches/
+# tree in this repository's history crossed with every candidate subset, over
+# every git serialization setting shown to move a digest, reproduces neither it
+# nor the 689d3f35 the seven closures fourteen minutes earlier share. The same
+# sweep reproduces this candidate's own digest and the empty-tree e3b0c442, so
+# the negative is the material rather than the procedure. The promoted set is
+# therefore named by the markers and thresholds its binaries carry rather than
+# by a replayed diff, and the dispositions below are what the routes reached.
 field	value
 repository_commit	e9178d3f8752a2dcd4f75cb4c46bf344bbd8711f
 llama_cpp_commit	f280b26983ad0fdb705a0d9ebf0503e76f2899b0
@@ -56,4 +58,10 @@ candidate_cmake_GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE	10
 candidate_cmake_GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE	16
 candidate_libggml_vulkan	absent
 candidate_runtime_execution	not_run reason=build_only
+historical_source_reconstruction	unavailable
+replacement_source_provenance	verified
+historical_binary_regression	required
+companion_predicted_source_diff_sha256	ca47669a0f45f82348832ac35991f9127143f38f63f2217cd0a916e6c10eea7d
+companion_source_difference	tools/server/server-context.cpp +331 -0, one file
+companion_build_state	not_built reason=predicted_digest_awaits_its_own_build
 superseded_closure	c41a15ef4480 arch=89 ptx=187, rebuilt at 89-real because production emits SASS alone
