@@ -1,0 +1,33 @@
+drain	seq=1	monotonic_ms=588652090	state=running	admission=admitted
+drain	seq=2	monotonic_ms=588653600	state=running	job_complete status=0
+ok drain_completed orderly_drain=completed
+ok teardown_orderly teardown_exclusion=orderly
+ok destroy_saw_orderly_mode mode=orderly
+ok destroy_follows_drain holder=588653600 destroy=588653650
+ok quiescing_refuses_admission 1
+ok quiescing_names_state 1
+ok quiescing_ran_no_job 0
+drain	seq=1	monotonic_ms=588653680	state=running	admission=admitted
+drain	seq=1	monotonic_ms=588653680	state=running	admission=admitted
+drain	seq=2	monotonic_ms=588653980	state=running	job_complete status=0
+drain	seq=2	monotonic_ms=588655480	state=running	job_complete status=0
+ok eviction_waits_for_active_lane later_lane=588655480 destroy=588655520
+ok idle_participant_releases none
+drain	seq=1	monotonic_ms=588655550	state=running	admission=admitted
+ok deadline_refuses 1
+ok deadline_mode shutdown_mode=emergency
+ok deadline_drain orderly_drain=failed
+ok deadline_exclusion teardown_exclusion=not_established
+ok deadline_names_emergency_mode mode=emergency
+ok residue_holder_retained pid=4015974
+drain	seq=2	monotonic_ms=588656160	state=running	job_complete status=0
+ok residue_cleared_before_next_arm none
+ok failed_destroy_refuses 1
+ok failed_destroy_drained orderly_drain=completed
+ok failed_destroy_not_exclusion teardown_exclusion=not_established
+ok failed_retirement_stays_closed quiescing
+ok explicit_recovery_reopens running
+ok identity_match_reads_match 1
+ok identity_mismatch_refuses 1
+ok identity_mismatch_named 1
+test_qwen_drain_controller=accepted

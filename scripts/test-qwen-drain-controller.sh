@@ -175,9 +175,10 @@ check failed_destroy_drained 'orderly_drain=completed' \
 check failed_destroy_not_exclusion 'teardown_exclusion=not_established' \
     "$(printf '%s' "$failed_destroy" | grep '^teardown_exclusion=')"
 
-# --- 7  the barrier is released whatever the outcome, so a failure leaves the
-#        session admitting rather than wedged shut
-check barrier_reopened running "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
+# --- 7  a failed retirement preserves quiescence until explicit recovery
+check failed_retirement_stays_closed quiescing "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
+"$controller" resume >/dev/null
+check explicit_recovery_reopens running "$("$controller" status | awk -F'\t' '$1=="barrier_state" { print $2 }')"
 
 # --- 8  a barrier pathname that changed identity is refused rather than
 #        serialized against another inode

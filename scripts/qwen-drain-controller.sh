@@ -87,7 +87,17 @@ case $subcommand in
         exit 0
         ;;
     resume)
+        # Recovery is explicit and takes the drain reference before reopening.
+        # A holder or retiring controller keeps this transition refused.
+        qwen_barrier_initialize
+        exec 9< "$(qwen_barrier_inflight_path)"
+        if ! flock -x -n 9; then
+            printf 'resume_refused reason=work_or_retirement_inflight\n' >&2
+            exit 1
+        fi
         qwen_barrier_set_state running
+        flock -u 9
+        exec 9<&-
         printf 'barrier_state\trunning\n'
         exit 0
         ;;
@@ -153,12 +163,12 @@ if [ "$drain_status" -ne 0 ]; then
     record draining "drain_failed $drain_result"
     record destroying 'emergency_escalation'
     escalation_status=0
-    QWEN_DRAIN_MODE=emergency "$@" || escalation_status=$?
+    QWEN_DRAIN_MODE=emergency "$@" 9<&- || escalation_status=$?
     record stopped "shutdown_mode=emergency orderly_drain=failed teardown_exclusion=not_established escalation_status=$escalation_status"
     printf 'shutdown_mode=emergency\norderly_drain=failed\nteardown_exclusion=not_established\n'
     flock -u 9 2>/dev/null || true
     exec 9<&-
-    qwen_barrier_set_state running
+    # Failure preserves the closed admission state for explicit recovery.
     exit 1
 fi
 
@@ -168,7 +178,7 @@ record ready_to_destroy "state=$(qwen_barrier_state) inflight=none"
 # The retiring process takes the compute lease in its own destructor. This
 # controller holds the barrier and never that lease, so the child can.
 destroy_status=0
-QWEN_DRAIN_MODE=orderly "$@" || destroy_status=$?
+QWEN_DRAIN_MODE=orderly "$@" 9<&- || destroy_status=$?
 record destroying "destroy_status=$destroy_status"
 
 if [ "$destroy_status" -ne 0 ]; then
@@ -176,7 +186,7 @@ if [ "$destroy_status" -ne 0 ]; then
     printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=not_established\n'
     flock -u 9
     exec 9<&-
-    qwen_barrier_set_state running
+    # Failure preserves the closed admission state for explicit recovery.
     exit 1
 fi
 

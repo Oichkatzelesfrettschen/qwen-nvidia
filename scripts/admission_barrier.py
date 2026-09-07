@@ -118,24 +118,28 @@ class InFlightShare:
                 return self
             raise
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except OSError:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except OSError:
+                raise AdmissionRefused("draining") from None
+            # The second read decides admission while the share accounts for
+            # this operation. Every failed entry closes its unreturned share.
+            if read_state(self._environment) != STATE_RUNNING:
+                raise AdmissionRefused("quiescing_after_share")
+        except BaseException:
             os.close(descriptor)
-            raise AdmissionRefused("draining") from None
-        # The second read is what makes the admission atomic against a flip
-        # that landed between the first read and this share.
-        if read_state(self._environment) != STATE_RUNNING:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
-            raise AdmissionRefused("quiescing_after_share")
+            raise
         self._descriptor = descriptor
         return self
 
     def __exit__(self, *exception):
-        if self._descriptor is not None:
-            fcntl.flock(self._descriptor, fcntl.LOCK_UN)
-            os.close(self._descriptor)
-            self._descriptor = None
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is not None:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
         return False
 
 

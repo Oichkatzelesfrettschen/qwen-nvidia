@@ -1,0 +1,23 @@
+FAIL a valid request completes
+FAIL the completed reply carries the GPU proof
+FAIL the result names the runtime digest the service announced
+FAIL the result reports the requested steps
+ok the reply parses under the protocol
+FAIL the runtime ran at nice 19 through the priority wrapper
+ok the lease is released after the job
+ok a refused row is refused by name
+ok an unknown row is refused
+ok a step count over the ceiling is refused
+ok an unknown key is refused
+ok status reads idle
+Traceback (most recent call last):
+  File "$HOME/worktrees/qwen-nvidia/drain-review-hardening/scripts/test-physics-service.py", line 252, in <module>
+    main()
+    ~~~~^^
+  File "$HOME/worktrees/qwen-nvidia/drain-review-hardening/scripts/test-physics-service.py", line 149, in main
+    marker.unlink()
+    ~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 1042, in unlink
+    os.unlink(self)
+    ~~~~~~~~~^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmp045wtb4o/runtime/runtime-marker.txt'

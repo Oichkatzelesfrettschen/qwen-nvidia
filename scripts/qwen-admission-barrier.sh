@@ -66,10 +66,9 @@ qwen_barrier_state() {
     } 8< "$qwen_barrier_state_file"
 }
 
-# Flip the state word under an exclusive lock. The write is a replacement
-# rather than a truncation of the open file, because a reader holding the
-# shared lock reads bytes rather than a snapshot and a truncating write would
-# let it see an empty file between the two operations.
+# The state word is updated on the locked inode. Shared readers wait through
+# truncation and publication under the exclusive lock; replacing the pathname
+# would leave an earlier reader attached to an obsolete running state.
 qwen_barrier_set_state() {
     qwen_barrier_new_state=$1
     case $qwen_barrier_new_state in
@@ -79,12 +78,10 @@ qwen_barrier_set_state() {
     esac
     qwen_barrier_initialize
     qwen_barrier_state_file=$(qwen_barrier_state_path)
-    qwen_barrier_temporary="$qwen_barrier_state_file.$$"
     {
         flock -x 9 || return 1
-        printf '%s\n' "$qwen_barrier_new_state" > "$qwen_barrier_temporary"
-        mv -f "$qwen_barrier_temporary" "$qwen_barrier_state_file"
-    } 9< "$qwen_barrier_state_file"
+        printf '%s\n' "$qwen_barrier_new_state" > "$qwen_barrier_state_file"
+    } 9<> "$qwen_barrier_state_file"
 }
 
 # Admit one job: refuse where the state is quiescing, take the in-flight share,
