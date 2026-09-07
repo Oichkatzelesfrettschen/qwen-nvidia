@@ -52,6 +52,7 @@ qwen_barrier_directory() {
 qwen_barrier_state_path() { printf '%s/admission.barrier' "$(qwen_barrier_directory)"; }
 qwen_barrier_inflight_path() { printf '%s/admission.inflight' "$(qwen_barrier_directory)"; }
 qwen_barrier_session_path() { printf '%s/admission.identity' "$(qwen_barrier_directory)"; }
+qwen_barrier_retiring_path() { printf '%s/admission.retiring' "$(qwen_barrier_directory)"; }
 
 # A barrier whose files are absent reads `running`, so a session that never
 # armed one admits work exactly as it did before this mechanism existed.
@@ -69,8 +70,26 @@ qwen_barrier_initialize() {
     [ -d "$qwen_barrier_init_directory" ] || mkdir -p "$qwen_barrier_init_directory"
     [ -e "$(qwen_barrier_state_path)" ] || printf 'running\n' > "$(qwen_barrier_state_path)"
     [ -e "$(qwen_barrier_inflight_path)" ] || : > "$(qwen_barrier_inflight_path)"
+    [ -e "$(qwen_barrier_retiring_path)" ] || : > "$(qwen_barrier_retiring_path)"
     [ -e "$(qwen_barrier_session_path)" ] ||
         qwen_barrier_identity "$(qwen_barrier_inflight_path)" > "$(qwen_barrier_session_path)"
+}
+
+# Whether a retirement is running, read on this reader's own open so it reports
+# rather than changes what the retirement holds.
+#
+# The in-flight reference cannot answer this. A drain that reaches its deadline
+# never acquired that reference, so the emergency destruction that follows runs
+# with the in-flight file free, and a recovery reading only that file sees an
+# idle barrier while a destruction is still executing. The retirement holds this
+# second reference for its whole lifetime instead, from the first transition to
+# the last, whichever way it ends.
+qwen_barrier_retirement() {
+    if flock -x -n "$(qwen_barrier_retiring_path)" true 2>/dev/null; then
+        printf 'none'
+    else
+        printf 'running'
+    fi
 }
 
 # The identity this barrier was armed with, or `unrecorded` where no session
@@ -140,9 +159,19 @@ qwen_barrier_set_state() {
 qwen_barrier_admit() {
     qwen_barrier_admit_fd=$1
     [ "$(qwen_barrier_state)" = running ] || { printf 'refused state=quiescing\n'; return 1; }
-    qwen_barrier_verify_session_identity >/dev/null || {
-        printf 'refused state=identity_mismatch\n'; return 1; }
     flock -s -n "$qwen_barrier_admit_fd" || { printf 'refused state=draining\n'; return 1; }
+    # The identity is read from the descriptor this share is held on, after the
+    # lock. The caller opened it before calling, so a pathname reading here
+    # would describe whatever inode the path names at this instant rather than
+    # the one the lock lives on, and a share taken on a replacement would pass
+    # that reading while no drain counted it.
+    qwen_barrier_admit_expected=$(qwen_barrier_session_identity)
+    if [ "$qwen_barrier_admit_expected" != unrecorded ] &&
+            [ "$(qwen_barrier_descriptor_identity "$qwen_barrier_admit_fd")" != "$qwen_barrier_admit_expected" ]; then
+        flock -u "$qwen_barrier_admit_fd"
+        printf 'refused state=identity_mismatch\n'
+        return 1
+    fi
     if [ "$(qwen_barrier_state)" != running ]; then
         flock -u "$qwen_barrier_admit_fd"
         printf 'refused state=quiescing_after_share\n'
@@ -183,6 +212,15 @@ qwen_barrier_identity() {
     qwen_barrier_identity_file=$1
     [ -e "$qwen_barrier_identity_file" ] || { printf 'absent'; return 1; }
     stat -c '%d:%i' "$qwen_barrier_identity_file"
+}
+
+# The identity of an open file description, read through this process's own
+# descriptor rather than through the pathname it was opened from. A pathname
+# check settles nothing about the descriptor that follows or precedes it, since
+# the inode at the path can be replaced in between and the lock lives on the
+# description.
+qwen_barrier_descriptor_identity() {
+    stat -Lc '%d:%i' "/proc/self/fd/$1" 2>/dev/null || { printf 'absent'; return 1; }
 }
 
 qwen_barrier_require_identity() {

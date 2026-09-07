@@ -209,6 +209,13 @@ commit `35a27e1`.
 | the stand-in answers HTTP/1.0 | `test_a_client_on_completed_work_does_not_hold_the_process`, on the control condition rather than the outcome |
 | a service maps every barrier refusal onto the `quiescing_` prefix, as the first implementation did | `test_a_barrier_fault_reason_does_not_claim_quiescence`, on `draining` |
 | a service keeps the state-word test and prefixes a fault `quiescing_` | `test_a_barrier_fault_reason_does_not_claim_quiescence`, on `barrier_identity_mismatch` |
+| the admission handler is installed after the spawn | `test_a_signal_inside_the_spawn_window_still_holds_the_share` |
+| recovery reads the in-flight reference alone | `test_recovery_is_refused_while_an_emergency_destruction_runs` |
+| the destroy child runs unsupervised | `test_terminating_a_retirement_holds_its_references_until_the_child_leaves` |
+| the identity is read from the pathname rather than the acquired descriptor | `test_a_replacement_between_the_check_and_the_open_is_refused` |
+| an identity mismatch destroys first and classifies afterwards | `test_an_identity_mismatch_refuses_destruction_rather_than_reporting_it` |
+| the first teardown marker decides, contradiction included | `test_a_contradictory_teardown_report_establishes_nothing` |
+| a retirement writes the state word after releasing its references | nothing, and `stage-one-review.md` says why: the retirement reference refuses a second retirement first, so the interleaving is unreachable and the ordering is a second barrier rather than the one that holds |
 | the state word is published by renaming a temporary file over the state path | `test_state_transition_preserves_locked_inode` |
 | a failed destroy calls `qwen_barrier_set_state running` | `test_failed_destroy_keeps_admission_closed` |
 | an expired drain calls `qwen_barrier_set_state running` | `test_expired_drain_keeps_admission_closed` |
@@ -254,7 +261,18 @@ that never began. The arm reads the class out of each of the three services'
 own source rather than importing them, so a copy that drifts fails there.
 
 `scripts/test-drain-failure-boundaries.py` holds the lifecycle's failure paths
-to eight readings: a failed destroy and an expired drain each leave admission
+and its concurrent ones to fifteen readings. Six came from the stage-one review
+and `stage-one-review.md` carries their disposition: a signal inside the spawn
+window leaves the share held, a second retirement is refused while one runs,
+recovery is refused while an emergency destruction runs, terminating a
+retirement holds its references until the destroy child leaves, an identity
+mismatch refuses destruction rather than reporting it afterwards, and a destroy
+reporting both teardown markers establishes nothing. The spawn window is
+microseconds wide, so the arm that reads it widens the window instead of racing
+it: the record's timestamp forks `awk`, and a stub that is slow on its second
+call holds the interval open while the signal lands inside it.
+
+The other nine readings are the failure paths: a failed destroy and an expired drain each leave admission
 closed, `resume` refuses while an exclusive in-flight reference cannot be taken
 and reopens once it can, a state flip lands on the locked inode rather than a
 replacement, the share is closed when the second state read raises and when the

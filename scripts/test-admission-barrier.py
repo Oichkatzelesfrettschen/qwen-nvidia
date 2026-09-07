@@ -269,5 +269,37 @@ class BarrierTest(unittest.TestCase):
                              % service)
 
 
+    def test_a_replacement_between_the_check_and_the_open_is_refused(self):
+        """The descriptor rather than the path carries the identity.
+
+        Verifying the pathname settles nothing about the descriptor opened
+        afterwards: the inode there can be replaced in between, and the share is
+        then held on a file the session never armed while the check reported a
+        match. A drain over the armed inode would not count that share.
+        """
+        self.arm()
+        armed = self.shell("qwen_barrier_session_identity").stdout.strip()
+        inflight = os.path.join(self.directory.name, "admission.inflight")
+        real_verify = admission_barrier.verify_session_identity
+
+        def replace_after_verifying(environment=None):
+            reading = real_verify(environment)
+            replacement = inflight + ".replacement"
+            with open(replacement, "w"):
+                pass
+            os.replace(replacement, inflight)
+            return reading
+
+        admission_barrier.verify_session_identity = replace_after_verifying
+        self.addCleanup(setattr, admission_barrier, "verify_session_identity", real_verify)
+        with self.assertRaises(admission_barrier.AdmissionRefused) as refusal:
+            with admission_barrier.require_admission(self.environment):
+                self.fail("a share was taken on an inode the session never armed")
+        self.assertEqual(refusal.exception.reason, "identity_mismatch")
+        self.assertNotEqual(
+            admission_barrier.identity(inflight), armed,
+            "this arm requires the replacement to have landed")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

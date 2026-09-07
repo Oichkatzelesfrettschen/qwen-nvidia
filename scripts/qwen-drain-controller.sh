@@ -112,9 +112,17 @@ case $subcommand in
         # Recovery is explicit and takes the drain reference before reopening.
         # A holder or retiring controller keeps this transition refused.
         qwen_barrier_initialize
+        # Two references answer two different questions and a recovery needs
+        # both. A retirement whose drain reached its deadline holds no in-flight
+        # reference while its emergency destruction runs, so the in-flight test
+        # alone would reopen admission into a live destruction.
+        if [ "$(qwen_barrier_retirement)" != none ]; then
+            printf 'resume_refused reason=retirement_running\n' >&2
+            exit 1
+        fi
         exec 9< "$(qwen_barrier_inflight_path)"
         if ! flock -x -n 9; then
-            printf 'resume_refused reason=work_or_retirement_inflight\n' >&2
+            printf 'resume_refused reason=work_inflight\n' >&2
             exit 1
         fi
         qwen_barrier_set_state running
@@ -168,14 +176,24 @@ if [ "$subcommand" = admit ]; then
     # admitter that exited on SIGTERM while its child kept running would leave
     # the drain a free lock with live GPU work behind it -- the opposite residue
     # to the inherited descriptor, and the same wrong answer.
+    # The trap is installed before the child exists, because a signal arriving
+    # between the spawn and the handler would have ended this admitter with the
+    # child running and the share released -- the residue the supervision exists
+    # to prevent, reachable in the window the supervision was written in. The
+    # handler is therefore written to be correct with `job_pid` still unset: it
+    # forwards nothing, and returning from it leaves the admitter alive and the
+    # share held rather than exiting.
+    #
+    # `cmd &` and `$!` remain two steps, so a signal can still land with the
+    # child spawned and its pid unrecorded. That interval holds the share and
+    # forwards no signal, so the job runs to completion unsignalled; it is the
+    # same class as SIGKILL to this admitter, which the policy already reserves
+    # as the emergency exception rather than closing here.
+    job_pid=
+    trap 'record running "signal_forwarded pid=${job_pid:-unrecorded}"; [ -n "$job_pid" ] && kill -TERM "$job_pid" 2>/dev/null; :' TERM INT HUP
     "$@" 8<&- &
     job_pid=$!
     record running "job_started pid=$job_pid"
-    # A terminating signal is forwarded to the child, and the share is held
-    # until the child actually leaves. SIGKILL to this admitter drops the share
-    # with the child alive; that is the emergency exception the policy already
-    # reserves rather than a case this supervision closes.
-    trap 'record running "signal_forwarded pid=$job_pid"; kill -TERM "$job_pid" 2>/dev/null || true' TERM INT HUP
     # `wait` returns above 128 when a trapped signal interrupts it, with the
     # child still alive, so the loop waits again rather than reading that as the
     # job's own status. The status kept is the one `wait` reported when it
@@ -196,6 +214,16 @@ fi
 # than the one this retirement happens to find, because a replacement that
 # landed before the retirement began would otherwise re-record itself as the
 # subject and drain an inode no participant holds a share on.
+# The retirement reference is taken before the first transition and held to the
+# last, whichever way the retirement ends, so a recovery can tell a retirement
+# in progress from a retirement that finished. It is a second reference rather
+# than a use of the in-flight one, because a drain that reaches its deadline
+# never acquires the in-flight reference at all.
+exec 7< "$(qwen_barrier_retiring_path)"
+if ! flock -x -n 7; then
+    printf 'retire_refused reason=retirement_already_running\n' >&2
+    exit 75
+fi
 record running "retire_begin inflight_identity=$(qwen_barrier_session_identity)"
 
 qwen_barrier_set_state quiescing
@@ -212,11 +240,13 @@ if [ "$drain_status" -ne 0 ]; then
     record draining "drain_failed $drain_result"
     record destroying 'emergency_escalation'
     escalation_status=0
-    QWEN_DRAIN_MODE=emergency "$@" 9<&- || escalation_status=$?
+    QWEN_DRAIN_MODE=emergency "$@" 9<&- 7<&- || escalation_status=$?
     record stopped "shutdown_mode=emergency orderly_drain=failed teardown_exclusion=not_established escalation_status=$escalation_status"
     printf 'shutdown_mode=emergency\norderly_drain=failed\nteardown_exclusion=not_established\n'
     flock -u 9 2>/dev/null || true
     exec 9<&-
+    flock -u 7
+    exec 7<&-
     # Failure preserves the closed admission state for explicit recovery.
     exit 1
 fi
@@ -228,6 +258,21 @@ record draining "$drain_result"
 # replacement inode says nothing about a share held on the original.
 identity_reading=$(qwen_barrier_verify_session_identity) || identity_reading=mismatch
 record ready_to_destroy "state=$(qwen_barrier_state) inflight=none inflight_identity=$identity_reading"
+
+# A mismatch means the reference this retirement drained is not the one the
+# session armed, so nothing has been established about the participants holding
+# shares on the armed inode. Destroying anyway and reporting the mismatch after
+# would run the teardown on the strength of a drain that proved nothing, so the
+# destroy command is refused before invocation rather than classified after it.
+if [ "$identity_reading" != match ] && [ "$identity_reading" != unrecorded ]; then
+    record stopped "shutdown_mode=refused orderly_drain=not_established teardown_exclusion=not_established inflight_identity=$identity_reading"
+    printf 'shutdown_mode=refused\norderly_drain=not_established\nteardown_exclusion=not_established\n'
+    flock -u 9
+    exec 9<&-
+    flock -u 7
+    exec 7<&-
+    exit 4
+fi
 
 # The retiring process takes the compute lease in its own destructor. This
 # controller holds the barrier and never that lease, so the child can.
@@ -241,13 +286,36 @@ destroy_status=0
 # would hold the barrier closed against every later admission.
 destroy_log=$(mktemp "${TMPDIR:-/tmp}/qwen-drain-destroy.XXXXXX")
 trap 'rm -f "$destroy_log"' EXIT
-QWEN_DRAIN_MODE=orderly "$@" 9<&- >"$destroy_log" 2>&1 || destroy_status=$?
+# The destroy child is supervised the way the admitted job is, and for the same
+# reason: a terminating signal to this controller would otherwise release the
+# exclusive reference while the destruction it is protecting keeps running, and
+# a recovery would then reopen admission behind a live teardown. The retirement
+# reference on descriptor 7 covers the same interval from the other side, so a
+# controller killed outright leaves neither reference held and neither claim
+# standing.
+destroy_pid=
+trap 'record destroying "signal_forwarded pid=${destroy_pid:-unrecorded}"; [ -n "$destroy_pid" ] && kill -TERM "$destroy_pid" 2>/dev/null; :' TERM INT HUP
+QWEN_DRAIN_MODE=orderly "$@" 9<&- 7<&- >"$destroy_log" 2>&1 &
+destroy_pid=$!
+while :; do
+    destroy_status=0
+    wait "$destroy_pid" || destroy_status=$?
+    kill -0 "$destroy_pid" 2>/dev/null || break
+done
+trap 'rm -f "$destroy_log"' EXIT TERM INT HUP
 cat "$destroy_log"
 
 # The three readings the tree already gives a served arm: held, a reported
 # `held=no` which is a successful termination rather than exclusion, and
 # `unattributed` where no such line was written at all.
-if grep -qE 'teardown[:_ ]+held=yes' "$destroy_log"; then
+# A destroy that reports both is contradicting itself, which is neither of the
+# two positive readings: an aggregate teardown over several participants can
+# print one of each, and taking the first match would let the held line decide
+# for a set that was not wholly held.
+if grep -qE 'teardown[:_ ]+held=yes' "$destroy_log" &&
+        grep -qE 'teardown[:_ ]+held=no' "$destroy_log"; then
+    teardown_reading=contradictory
+elif grep -qE 'teardown[:_ ]+held=yes' "$destroy_log"; then
     teardown_reading=held
 elif grep -qE 'teardown[:_ ]+held=no' "$destroy_log"; then
     teardown_reading=not_held
@@ -261,6 +329,8 @@ if [ "$destroy_status" -ne 0 ]; then
     printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=not_established\n'
     flock -u 9
     exec 9<&-
+    flock -u 7
+    exec 7<&-
     # Failure preserves the closed admission state for explicit recovery.
     exit 1
 fi
@@ -283,7 +353,14 @@ else
 fi
 record stopped "shutdown_mode=orderly orderly_drain=completed teardown_exclusion=$exclusion inflight_identity=$identity_reading teardown_reading=$teardown_reading"
 printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=%s\n' "$exclusion"
+# The state word is written while this retirement still holds both references.
+# Releasing first left an interval in which a second retirement could take the
+# in-flight reference and close admission, and this one would then write
+# `running` over that quiescence -- reopening admission behind a retirement that
+# had already begun.
+qwen_barrier_set_state running
 flock -u 9
 exec 9<&-
-qwen_barrier_set_state running
+flock -u 7
+exec 7<&-
 exit "$exclusion_status"

@@ -81,6 +81,27 @@ def session_identity(environment=None):
         raise
 
 
+def descriptor_identity(descriptor):
+    """The device and inode of an open file description, in the recorded form."""
+    status = os.fstat(descriptor)
+    return "%d:%d" % (status.st_dev, status.st_ino)
+
+
+def verify_descriptor_identity(descriptor, environment=None):
+    """Whether an acquired descriptor is the inode the session armed.
+
+    A pathname check settles nothing about the descriptor that follows it: the
+    inode at the path can be replaced between the `stat` and the `open`, and the
+    share is then held on a file the session never armed while the check
+    reported a match. The descriptor is what the lock lives on, so it is what
+    the identity is read from.
+    """
+    expected = session_identity(environment)
+    if expected == "unrecorded":
+        return "unrecorded"
+    return "match" if descriptor_identity(descriptor) == expected else "mismatch"
+
+
 def verify_session_identity(environment=None):
     """Whether the in-flight file is still the inode the session armed.
 
@@ -164,6 +185,14 @@ class InFlightShare:
                 fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
             except OSError:
                 raise AdmissionRefused("draining") from None
+            # The descriptor rather than the path carries the identity. The
+            # check above reads the path and the inode there can be replaced
+            # before this open returns, so a share taken on the replacement
+            # would pass a pathname check and be counted by no drain. This
+            # reading is taken after the lock, so a descriptor that reaches the
+            # return is one the session armed and one this share holds.
+            if verify_descriptor_identity(descriptor, self._environment) == "mismatch":
+                raise AdmissionRefused("identity_mismatch")
             # The second read decides admission while the share accounts for
             # this operation. Every failed entry closes its unreturned share.
             if read_state(self._environment) != STATE_RUNNING:
