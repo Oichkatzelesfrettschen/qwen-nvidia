@@ -19,8 +19,11 @@ leaving it at its client's departure, so that arm read a bound a lease-free
 binary reaches rather than lease exclusion. Its terminal result stands as the
 run produced it, and `run-02/qwen35-2b/server.1.log` carries the same arm on the
 same binary reaching `teardown: held=no` 426 microseconds after the cancel its
-client's departure triggers, with the process gone inside the harness's own
-whole-second reading.
+client's departure triggers. That interval spans those two log boundaries alone:
+it marks the destructor's entry into its lease handling while the device
+synchronize and the frees follow, the departure itself carries no microsecond
+timestamp, and the `0s` and `1s` the arms report are the harness's own
+whole-second readings of process absence.
 `run-01/qwen35-2b/` carries the record: one sanitized server log per launch,
 every completion body the arms graded, one outcome row per decision, the
 termination timeline, the teardown state read out of each log, and the
@@ -96,9 +99,25 @@ sequence writes `teardown: held=no` and the destructor completes.
 This arm's client ran a 90 s timeout against a 30 s bound, so the `SIGKILL`
 arrived with 60 s of that timeout left. The criterion is therefore what was
 wrong rather than the closure: it read llama.cpp's shutdown with a client
-attached and called it lease exclusion. The arm now ends its client before it
-reads the bound, which holds that server property constant, and records the
-interval with the client attached as an observation.
+attached and called it lease exclusion. The unconditional expectation it
+encoded -- that a signal ends the process inside a bound whatever requests are
+attached -- was never a validated property of the pinned server. The arm now
+ends its client before it reads the bound, which holds that server property
+constant, and records the interval with the client attached as an observation.
+
+What run-02 accepts is bounded by the client rather than by the signal:
+
+> After the attached client departs, the candidate completes the tested
+> interrupted-decode shutdown within the declared bound.
+
+The lease patch keeps its contribution under that reading. Its interrupted
+acquire returns before `update_slots` posts `NEXT_RESPONSE`, which is how a task
+reaches the join unanswered; the production control establishes that the
+resulting shutdown behavior exists without the patch, and establishes neither
+that every interruption path is equivalent nor that an unanswered task is
+harmless. The control contributed matching timing and a matching log signature,
+and the one thread sample came from the candidate, so no stack was taken from
+the production arm.
 
 ## What the two runs cost the program
 

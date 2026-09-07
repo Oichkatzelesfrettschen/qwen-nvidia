@@ -37,7 +37,8 @@ compositor are outside this contract.
 | Multimodal handoff | SDK decode-to-resize proof retained (`evidence/nvidia-sdk/decode-resize-smoke/`); `patches/llama-mtmd-device-embd.patch` feeds the projector output to the language model as a device view over a batch-owned device copy, admitted on `qwen35-2b` and `lfm25-vl-450m` with identical bytes and tokens, then completed in run 04 (`evidence/ada/embd-handoff/`): every slice joined to its source rows across split ubatches and split decodes, consumer lifetime synchronized ahead of a batch free, and the recorder-off Nsight capture showing one device-to-device copy per batch and no host staging; off by default | a device-resident media input designed against `evidence/media/decode-placement/` (PNG is a CPU decode plus one upload, JPEG decodes through the hybrid nvJPEG backend, a CV-CUDA resize is a separate preprocessing contract), then a served vision tuple under the device path |
 | CUDA image generation | `sd-cli` under `SD_CUDA=ON` admitted through the router (`evidence/image-appliance/cuda-runtime-admission/`); the reviewer calibrated on declared fixtures with a three-way constraint status and bound verdicts, where `qwen35-2b` passes eighteen arms and `lfm25-vl-450m` fails grounding (`evidence/image-appliance/vision-review-calibration/`); `image-sdxs-512-a` promoted to `validator-gated` with `review_model` `qwen35-2b` on the serialized generate-then-review record (`evidence/image-appliance/serialized-review-admission/run-05/`), whose serialization is sampled ordering under the image service's lease | the bound-one router shape, a second review in one session, and a load-path lease that makes the reviewer's load mutually exclusive with a generation rather than merely ordered |
 | OptiX geometry | service, protocol, runtime, and device admission retained (`evidence/geometry/optix-ray-runtime-proof/`); the served geometry turn admitted alone and the shared-lease contention arm run against the physics lane, where both complete, the driver lists at most one runtime per sample, and the second holder states its `waited_ms` (`evidence/geometry/session-integration/`); profile `refused` | promotion of `geometry-cube-orbit-a` is its own policy transition; a PhysX-to-OptiX scene transfer is a separate typed-data integration rather than part of the combined session |
-| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, so the new closure proves loading exclusion and evaluation exclusion rather than extending one; the candidate `patches/llama-server-vulkan-workload-lease.patch` opens and acquires at the top of `load_model` through `workload_lease_acquire_bounded` on a `QWEN_GPU_COMPUTE_LEASE_WAIT_S` deadline, leaves the decode pass its blocking acquire, refuses inactivity sleeping, synchronizes ahead of every release, and keeps the hold a refused unlock did not give back, reading `reach=accepted` under four mutation controls (`evidence/lease-coverage/`); the served stage accepted on the 2B at ten readings with its projector and partial on the 0.8B at the nine its projector-none tuple allows (`evidence/lease-coverage/served-admission/run-02/`), after `evidence/lease-coverage/shutdown-stall/` showed the refused arm's bound is one a lease-free binary reaches | the provenance gap, the drain-before-destroy policy test, the strict CUDA0 and router admissions, the serialized image review, and the promotion that makes a served child read the lease, all before the combined session |
+| Compute lease coverage | the lease admits one job among `image-service.py`, `physics-service.py`, and `geometry-service.py`; the promoted closure `88681bf4d161` reads neither lease name, so the new closure proves loading exclusion and evaluation exclusion rather than extending one; the candidate `patches/llama-server-vulkan-workload-lease.patch` opens and acquires at the top of `load_model` through `workload_lease_acquire_bounded` on a `QWEN_GPU_COMPUTE_LEASE_WAIT_S` deadline, leaves the decode pass its blocking acquire, refuses inactivity sleeping, synchronizes ahead of every release, and keeps the hold a refused unlock did not give back, reading `reach=accepted` under four mutation controls (`evidence/lease-coverage/`); the served stage accepted on the 2B at ten readings with its projector and partial on the 0.8B at the nine its projector-none tuple allows (`evidence/lease-coverage/served-admission/run-02/`), after `evidence/lease-coverage/shutdown-stall/` showed the refused arm's bound is one a lease-free binary reaches, which is a root cause identified rather than a shutdown path repaired; source provenance resolved at `historical_source_reconstruction=unavailable` beside `replacement_source_provenance=verified` and `historical_binary_regression=required` (`evidence/lease-coverage/source-provenance/`) | the drain-before-destroy policy test, the strict CUDA0 and router admissions with the production per-model speculation settings, the serialized image review, and the promotion that makes a served child read the lease, all before the combined session; `88681bf4d161` stays the rollback and regression reference and a rollback disables the lease-dependent behavior it compiles in no lease for |
+| Combined session | each lane admitted alone: PhysX, OptiX, the CUDA image runtime with its serialized review, and the served LLM and vision path | the combined configuration itself, repeated use, contention between lanes, cancellation and recovery, and the final policy transitions that would promote any `refused` ledger row |
 | Coding page arm | the classifier, the phase timeline, and the fixtures are merged (`evidence/coding-agent/page-arm-classification/`), so a refusal names its own termination reason | the intermittent itself, which needs an instrumented occurrence or a controlled reproduction naming the failing mechanism |
 The settled operating configuration lives in `README.md`, repository doctrine
 lives in `CLAUDE.md`, and `evidence/ada/` holds this host's own measurements.
@@ -199,25 +200,77 @@ property constant; what it establishes is that a lease wait does not prevent a
 bounded termination, since its fixture holder takes the lock and opens no CUDA
 context. `scripts/test-probe-lease-shutdown-stall.sh` drives the probe against
 a client-bounded fixture and a lease-bounded one and requires the readings to
-swap, so a probe reporting either cell alone fails. That re-run happened: under the corrected criterion the 2B reads `ended 1s after
-the client left by=eintr attached_exit=no` and the 0.8B `ended 0s`, and the same
-arm on the same binary reaches `teardown: held=no` 426 microseconds after the
-cancel its client's departure triggers, where run-01 ended it on `SIGKILL` at
-the 30 s bound.
+swap, so a probe reporting either cell alone fails. That re-run happened: under
+the corrected criterion the 2B reads `ended 1s after the client left by=eintr
+attached_exit=no` and the 0.8B `ended 0s`. Both are the harness's own
+whole-second readings of process absence rather than a shutdown latency, and
+the one microsecond interval the logs support is a different pair of boundaries:
+`teardown: held=no` lands 426 microseconds after the cancel the client's
+departure triggers, which marks the destructor's entry into its lease handling
+while the device synchronize and the frees follow it, and the departure itself
+carries no microsecond timestamp. Run-01 ended the same arm on the same binary
+with `SIGKILL` at the 30 s bound.
 
-The candidate closure `15bc632adf7f` is built and
-`evidence/lease-coverage/candidate-build-source-identity.tsv` states what it is:
-it matches the recorded production architecture, payload counts, MMVQ
-thresholds, and specified feature-marker state, and exact source equivalence to
-the historical production build remains unresolved, since the promoted closure's
-`source_diff_sha256` is reproduced by none of five reconstructions from today's
-patch files. Promotion needs that gap resolved -- by recovering the historical
-snapshot or by building a named reconstructed lease-off companion from the
-candidate's own source and toolchain -- beside the served arms, the router
-admission, the serialized image review on the candidate, and the explicit
-teardown policy. The strict CUDA0 admission, the router admission, and the
-serialized image review stay `not_run`, since the served window was authorized
-for the served stage alone. The combined session follows all of them.
+The property the record accepts is bounded by the client rather than by the
+signal:
+
+> After the attached client departs, the candidate completes the tested
+> interrupted-decode shutdown within the declared bound.
+
+The unconditional reading -- that `SIGTERM` ends the process inside a bound
+whatever requests are attached -- is what run-01's criterion asserted, and it was
+never a validated property of the pinned server. Run-01's failure stands as the
+run produced it. The lease patch keeps its contribution: its interrupted acquire
+returns without posting `NEXT_RESPONSE`, which is how a task reaches the join
+unanswered, and the production control establishes only that the resulting
+shutdown behavior exists without the patch. It establishes neither that every
+interruption path is equivalent nor that an unanswered task is harmless. The
+control contributed timing and a log signature; the one thread sample came from
+the candidate, so no stack was taken from the production arm.
+
+Three outcomes stay separate:
+
+| Property | Record |
+| --- | --- |
+| loading and evaluation exclusion | accepted on the measured 2B and 0.8B conditions |
+| process shutdown after client departure | accepted in the tested interrupted-wait arms |
+| per-request cancellation preserving the server | open, and a combined-session obligation |
+
+The candidate closure `15bc632adf7f` is built and its source is known.
+`scripts/reconstruct-closure-source.sh` replays the builder's own identity
+procedure -- pin, apply in `verify-llama-patch-series.sh`'s order, stage, hash
+`git diff --binary HEAD` -- inside a scratch clone, reconstructs a control ahead
+of every subject, and refuses the run where the control misses, so an
+environment change reports as a broken procedure rather than as a verdict.
+`evidence/lease-coverage/source-provenance/` carries what it settled. The
+candidate reconstructs exactly from the checked-in patch files, and the
+lease-off companion is that sequence with the lease patch removed, differing by
+`tools/server/server-context.cpp` at 331 insertions and no deletion in one file,
+with the patch reapplied reproducing the candidate's recorded digest. The
+historical production source is unavailable: twenty distinct historical patch
+trees crossed with every candidate subset, over every git serialization setting
+shown to move a digest, reproduce neither `88681bf4d161`'s `0d6e3be3` nor the
+`689d3f35` the seven closures fourteen minutes earlier share, while the same
+sweep reproduces the candidate's digest and the empty-tree value three closures
+record. The gap belongs to that day's build practice rather than to the promoted
+binary alone.
+
+```text
+historical_source_reconstruction   unavailable
+replacement_source_provenance      verified
+historical_binary_regression       required
+```
+
+The companion's predicted `ca47669a` awaits its own build, which emits the
+authoritative digest; its cubin count, kernel contents, and binary bytes are
+unmeasured, and it inherits nothing from the candidate's served admission.
+`88681bf4d161` stays the behavioral regression reference, so the final campaign
+carries an arm against it rather than against the companion alone. Promotion
+still needs the drain-before-destroy policy tested beside the router admission
+and the serialized image review on the candidate. The strict CUDA0 admission,
+the router admission, and the serialized image review stay `not_run`, since the
+served window was authorized for the served stage alone. The combined session
+follows all of them.
 
 ## Depth validation
 
