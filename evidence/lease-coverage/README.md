@@ -354,19 +354,41 @@ against. The served arms remain, and `served=accepted` requires the positive
 control in place, so `partial` is the honest terminal state until a device
 window runs them.
 
-Promotion needs more than those arms. The candidate matches the recorded
-production architecture, payload counts, MMVQ thresholds, and specified
-feature-marker state, and exact source equivalence to the historical production
-build remains unresolved: matching counts of 187 cubins state that two builds
-emitted the same number of objects rather than the same kernels. Resolving that
-gap takes one of two routes -- recover the historical production source snapshot
-and name the complete difference against the candidate, or build a clearly named
-reconstructed lease-off companion from the candidate's own source and toolchain
-and isolate the lease change against it, keeping the promoted binary as a
-separate behavioral reference. A companion built that way is not the original
-production source and carries no such label. The contended-teardown policy is
-the other gate, and a passing functional arm is behavioral evidence rather than
-a substitute for either.
+Promotion needs more than those arms. The source-identity question is answered
+and the replacement route is half-built: `source-provenance/` runs both routes
+with
+`scripts/reconstruct-closure-source.sh`, which replays the builder's own
+`git diff --binary HEAD` procedure inside a scratch clone and refuses a run
+whose control fails to reproduce. Route A is exhausted: twenty distinct
+historical patch trees crossed with every candidate subset, over every git
+serialization setting shown to move a digest, reproduce neither the promoted
+closure's `0d6e3be3` nor the `689d3f35` that seven closures fourteen minutes
+earlier share, while the same sweep reproduces the candidate's own digest and
+the empty-tree `e3b0c442`. What that establishes is bounded: the retained patch
+material reproduces neither historical digest, and the same construction
+reproduces two digests it is asked for, so the negative is the material rather
+than the procedure. Which historical practice produced bytes no retained tree
+carries is a hypothesis `source-provenance/README.md` states as one. Route B
+holds: the candidate reconstructs exactly from
+the checked-in patch files, and the lease-off companion is that sequence minus
+the lease patch, differing by one file at 331 insertions and no deletion.
+
+```text
+historical_source_reconstruction   unavailable
+replacement_source_provenance      verified
+historical_binary_regression       required
+```
+
+The companion is a source-level result and the route it belongs to stays open.
+Its predicted digest awaits its own build, and matching counts of 187 cubins
+would state that two builds emitted the same number of objects rather than the
+same kernels, so its kernel contents and binary bytes stay unmeasured and it
+inherits none of the candidate's served admission. Building it and isolating the
+lease change against it is the remainder of Route B. `88681bf4d161` stays the
+behavioral regression reference. Two gates therefore remain before promotion:
+that companion build and comparison, and the contended-teardown policy, for
+which a passing functional arm is behavioral evidence rather than a
+substitute.
 
 The served stage's own refusal is a third item and it has closed.
 `served-admission/run-01/` refused the closure on

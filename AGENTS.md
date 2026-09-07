@@ -1324,6 +1324,27 @@ orderly teardown exclusion           holds where the teardown owns the lease
 contended teardown                   explicit unprotected-cleanup exception
 ```
 
+The three outcomes the lease record carries stay separate, because one of them
+is still open:
+
+```text
+loading and evaluation exclusion            accepted on the measured 2B and 0.8B
+process shutdown after client departure     accepted in the tested interrupted-wait arms
+per-request cancellation preserving server  open, a combined-session obligation
+```
+
+The second is bounded by the client rather than by the signal: after the
+attached client departs, the candidate completes the tested interrupted-decode
+shutdown within the declared bound. The unconditional reading -- that a signal
+ends the process inside a bound whatever requests are attached -- is what
+run-01's criterion asserted and was never a validated property of the pinned
+server. The lease patch keeps its contribution, since its interrupted acquire
+returns before `update_slots` posts `NEXT_RESPONSE` and that is how a task
+reaches the join unanswered; the production control establishes that the
+resulting shutdown behavior exists without the patch, and establishes neither
+that every interruption path is equivalent nor that an unanswered task is
+harmless.
+
 A served arm reads `teardown_held=no` as a successful termination rather than as
 teardown exclusion, and `unattributed` where the log carries no such line at
 all: the patch writes it inside `if (!workload_lease_held)`, so a teardown that
@@ -1386,7 +1407,10 @@ the same binary reaching `teardown: held=no` 426 microseconds after the cancel
 its client's departure triggers, where run-01 ended it on `SIGKILL` at the 30 s
 bound; that line marks the destructor's entry into its lease handling rather
 than the end of the shutdown, whose completion is the harness's own
-whole-second reading. What the arm
+whole-second reading, and the departure carries no microsecond timestamp of its
+own. The probe sampled one all-thread stack and it came from the candidate, so
+the promoted control contributed matching timing and a matching log signature
+rather than a stack. What the arm
 establishes is that a lease wait does not prevent a bounded termination: its
 fixture holder takes the lock and opens no CUDA context, so it reads process
 disappearance under contention rather than device exclusion, and the `by=` term
@@ -1423,19 +1447,53 @@ projector-required row handed none, so a text-path result is never read later as
 a multimodal one.
 
 `evidence/lease-coverage/candidate-build-source-identity.tsv` is the candidate
-closure's identity. It states that `15bc632adf7f` matches the recorded
-production architecture, payload counts, MMVQ thresholds, and specified
-feature-marker state, and that exact source equivalence to the historical
-production build remains unresolved: the promoted closure's own
-`source_diff_sha256` is reproduced by none of five reconstructions from today's
-patch files, and matching counts of 187 cubins state that two builds emitted the
-same number of objects rather than the same kernels. Resolving that gap is a
-promotion gate with two routes -- recover the historical source snapshot and
-name the complete difference, or build a clearly named reconstructed lease-off
-companion from the candidate's own source and toolchain and isolate the lease
-change against it, keeping the old production binary as a separate behavioral
-reference. A companion built that way is not the original production source and
-is not labeled as one.
+closure's identity and `evidence/lease-coverage/source-provenance/` is what
+resolved it. `scripts/reconstruct-closure-source.sh` replays the identity
+procedure `build-llama-cuda.sh:241` performs -- check the pin out into a scratch
+clone, apply the named patches in `verify-llama-patch-series.sh`'s order, stage
+every added file because the builder refuses an untracked one, and hash
+`git diff --binary HEAD` -- and every run reconstructs a control ahead of its
+subjects and refuses where the control misses, so a git or environment change
+reports as a broken procedure rather than as a provenance verdict. The scratch
+clone is what keeps the live source tree out of it: the candidate's identity
+exists as uncommitted working-tree bytes that a checkout or clean would destroy.
+
+The candidate reconstructs exactly. The historical production source does not:
+twenty distinct historical patch trees crossed with all eight subsets of the
+three candidate patches, over `core.abbrev`, `diff.context`, and
+`diff.noprefix`, the three settings shown to move a digest where the four
+`diff.algorithm` values do not, reproduce neither `88681bf4d161`'s `0d6e3be3`
+nor the `689d3f35` that the seven closures built fourteen minutes earlier share.
+The same sweep reproduces the candidate's digest and the empty-tree `e3b0c442`
+three closures record, so the negative is the material rather than the
+procedure, and it covers eight closures of that day rather than the promoted
+binary alone. The patch series is byte-identical across those fourteen minutes
+and the builder's own change is a threshold range check, so neither explains it.
+What the search establishes is that no retained patch set reproduces those diff
+digests; that the trees were edited live and exported to patch files afterwards
+is a hypothesis the timeline fits rather than a finding, since an unreproduced
+diff is equally consistent with an export that lost bytes the compiler read.
+
+```text
+historical_source_reconstruction   unavailable
+replacement_source_provenance      verified
+historical_binary_regression       required
+```
+
+The reconstructed lease-off companion is the replacement baseline: the
+candidate's sequence with `llama-server-vulkan-workload-lease.patch` removed,
+differing from it by `tools/server/server-context.cpp` at 331 insertions and no
+deletion in one file, with that patch reapplied reproducing the candidate's
+recorded digest. It is a source-level result. Its predicted `ca47669a` awaits
+its own build, whose builder emits the authoritative value, and matching counts
+of 187 cubins state that two builds emitted the same number of objects rather
+than the same kernels, so its kernel contents and binary bytes are unmeasured
+and it inherits none of the candidate's served admission. A companion built this
+way is not the original production source and is not labeled as one, and
+`88681bf4d161` stays the behavioral regression reference rather than being
+retired by it. Building the companion and isolating the lease change against it
+is the remainder of the replacement route and stays a promotion gate beside the
+drain-before-destroy policy.
 
 The order follows from how each
 acquire behaves rather than from granularity: a lease acquire whose caller can
@@ -1997,6 +2055,12 @@ scripts/summarize-probe.sh ~/qwen-webui-state/graphics-latency.log
 scripts/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
 scripts/admit-candidate-static.py REPO REV      # a header over a range read
 scripts/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
+scripts/prepare-provenance-manifest.sh WORK [OUT_TSV]
+                                                # materialize every historical patch set and emit a runnable manifest
+scripts/reconstruct-closure-source.sh SOURCE_REPO PIN WORK MANIFEST_TSV
+                                                # does a patch set reproduce a closure's recorded source_diff_sha256
+                                                # controls reconstruct first and gate whether subjects run at all
+                                                # QWEN_RECONSTRUCT_GIT_OPTIONS asks the same question under other -c settings
 scripts/measure-served-decode.sh LABEL MODEL    # served decode at a fixed length
 scripts/run-quality-suite.py ENDPOINT OUT_JSON --long-context-characters 24000
                                                 # the 75-row graded suite at explicit depth
@@ -2220,6 +2284,7 @@ scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
+scripts/test-reconstruct-closure-source.sh
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
