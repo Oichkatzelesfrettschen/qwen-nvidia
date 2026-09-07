@@ -236,7 +236,10 @@ class ServiceQuiescing(ServiceError):
 
     def __init__(self, detail):
         super().__init__("the admission barrier is closed: %s" % detail)
-        self.reason = "quiescing_%s" % detail if detail != "quiescing" else "quiescing"
+        # The protocol's reason field takes [A-Za-z0-9_-], and the barrier's
+        # own reasons are already in that alphabet. A detail that names the
+        # state keeps its own word rather than being prefixed twice.
+        self.reason = detail if detail.startswith("quiescing") else "quiescing_%s" % detail
 
 
 class LeaseUnavailable(ServiceError):
