@@ -374,21 +374,33 @@ the checked-in patch files, and the lease-off companion is that sequence minus
 the lease patch, differing by one file at 331 insertions and no deletion.
 
 ```text
-historical_source_reconstruction   unavailable
-replacement_source_provenance      verified
-historical_binary_regression       required
+historical_source_reconstruction        unavailable
+replacement_source_provenance           verified
+companion_source_and_binary_isolation   closed
+companion_behavioral_comparison         required
+historical_binary_regression            required
 ```
 
-The companion is a source-level result and the route it belongs to stays open.
-Its predicted digest awaits its own build, and matching counts of 187 cubins
-would state that two builds emitted the same number of objects rather than the
-same kernels, so its kernel contents and binary bytes stay unmeasured and it
-inherits none of the candidate's served admission. Building it and isolating the
-lease change against it is the remainder of Route B. `88681bf4d161` stays the
-behavioral regression reference. Two gates therefore remain before promotion:
-that companion build and comparison, and the contended-teardown policy, for
-which a passing functional arm is behavioral evidence rather than a
-substitute.
+The companion is built and the lease change is isolated against it, which
+`companion-build/` carries. The build emitted the predicted `fd27a84d9199` over
+source `ca47669a` with 187 cubins and no PTX, exit 0, executing nothing, and
+its configuration record differs from the candidate's in `source_diff_sha256`
+alone. `scripts/compare-closure-isolation.py` then read the pair three ways:
+one configuration axis, one differing translation unit whose ninja consumer
+closure reaches 41 targets and no device target, and two CUDA payloads whose
+disassembly is identical across 15052727 lines once six build-path-derived
+module identifiers are normalized. A byte comparison of linked artifacts is
+unavailable rather than negative, since both compilers embed `__FILE__` and the
+two trees sit at different absolute paths; that same contamination is what
+proves the companion's device objects were compiled from the companion tree
+rather than restored from the candidate's compiler cache.
+
+`88681bf4d161` stays the behavioral regression reference and the companion
+inherits none of the candidate's served admission. What Route B still owes is
+the behavioral comparison of the two closures, which needs a device window. Two
+gates therefore remain before promotion: that comparison, and the
+contended-teardown policy, for which a passing functional arm is behavioral
+evidence rather than a substitute.
 
 The served stage's own refusal is a third item and it has closed.
 `served-admission/run-01/` refused the closure on
