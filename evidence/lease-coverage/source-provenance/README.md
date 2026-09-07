@@ -197,12 +197,14 @@ missed control produces, the withholding of subject readings under a failed
 control, and the proof that an inherited `GIT_INDEX_FILE` leaves the source
 repository's index, working tree, configuration, and refs unchanged.
 
-Three of those checks are written against a specific defect rather than a
-behavior, so each was confirmed to fail under the defect it names. Restoring
+Two of the arms are written against a specific defect rather than a behavior,
+so each was run under the defect it names and confirmed to fail there.
+Restoring
 `git diff | sha256sum` in place of the file-backed diff gives a failed diff the
-digest of no bytes, which `diff_failure_is_not_an_empty_digest` reads directly.
-A reconstructor exiting the moment it sees a routing variable would leave the
-source intact and reconstruct nothing, which the `routed_*_terminal` and
-`routed_*_subject_matches` pairs refuse; the arm therefore asserts the accepted
-terminal line and the manifest's own counts beside the four preservation
-readings, under `GIT_INDEX_FILE` and `GIT_DIR` alike.
+digest of no bytes, and that mutation fails two readings, one of them
+`diff_failure_is_not_an_empty_digest` carrying the empty digest as its actual
+value. A reconstructor exiting the moment it sees a routing variable would
+leave the source intact and reconstruct nothing, and that mutation fails four
+readings, since the arm asserts the accepted terminal line and the manifest's
+own counts beside the preservation readings under `GIT_INDEX_FILE` and
+`GIT_DIR` alike.
