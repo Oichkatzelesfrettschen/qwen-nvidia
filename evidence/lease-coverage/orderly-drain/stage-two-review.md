@@ -46,3 +46,25 @@ All four suites ran in that clone, including
 stage one's sandbox refused. That closes the coverage gap stage one's record
 named: both halves of the branch have now been read and executed by an
 independent party.
+
+## The gate was not hermetic against the barrier
+
+The first full gate on the reviewed head refused at
+`scripts/sidecar-mcp/test-sidecar-mcp.py`, five failures, all reporting `the
+physics service refused the run: the admission barrier is closed: quiescing`.
+The barrier's directory falls back to the serving state directory, and the three
+sidecar suites isolated the compute lease while reading the live barrier, so any
+session or probe that left `~/qwen-webui-state/admission.barrier` closed refused
+the suites of a mechanism they never touched. A drain probe run without
+`QWEN_GPU_ADMISSION_BARRIER` put it there.
+
+The suites now isolate the barrier the way they already isolate the lease. The
+reading that establishes it: with the live barrier deliberately set to
+`quiescing`, `test-physics-service.py` and `test-sidecar-mcp.py` both pass, where
+that same condition refused them before. Recovery ran through the controller's
+own `resume` rather than by writing the state file, and the serving llama-server
+answered `/health` 200 throughout -- it consults no barrier, since the lease
+patch is a candidate and the promoted closure compiles none.
+
+This is a defect the branch owns, because the branch is what made those services
+consult a barrier at all.
