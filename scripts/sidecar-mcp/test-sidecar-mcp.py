@@ -100,7 +100,12 @@ def main():
             [sys.executable, str(PHYSICS_SERVICE), "--state-dir", str(state / "physics"),
              "--profiles", str(state / "physics" / "profiles.tsv"), "--runtime", str(runtime), "--lease-wait-s", "0.5"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            env={**os.environ, "QWEN_GPU_COMPUTE_LEASE": str(state / "vulkan-workload.lock"),
+            # The admission barrier is isolated the way the compute lease is. Its
+            # directory otherwise falls back to the serving state directory, so a
+            # suite driving a service that consults it would read whatever a live
+            # session left there and refuse its own run.
+                        env={**os.environ, "QWEN_GPU_COMPUTE_LEASE": str(state / "vulkan-workload.lock"),
+                 "QWEN_GPU_ADMISSION_BARRIER": str(state),
                  "QWEN_SIDECAR_TOKEN_KEY_FILE": str(key_path), "QWEN_SIDECAR_LANGUAGE_PROFILE": "fast-text"})
         line = service.stdout.readline()
         if not line.startswith("listening"):

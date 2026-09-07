@@ -1,0 +1,31 @@
+test_destroy_child_does_not_inherit_drain_lock (__main__.DrainFailureBoundaries.test_destroy_child_does_not_inherit_drain_lock) ... ok
+test_expired_drain_keeps_admission_closed (__main__.DrainFailureBoundaries.test_expired_drain_keeps_admission_closed) ... ok
+test_failed_destroy_keeps_admission_closed (__main__.DrainFailureBoundaries.test_failed_destroy_keeps_admission_closed) ... ok
+test_resume_refuses_while_work_remains (__main__.DrainFailureBoundaries.test_resume_refuses_while_work_remains) ... ok
+test_second_read_failure_closes_acquired_share (__main__.DrainFailureBoundaries.test_second_read_failure_closes_acquired_share) ... FAIL
+test_share_is_non_inheritable_with_close_fds_disabled (__main__.DrainFailureBoundaries.test_share_is_non_inheritable_with_close_fds_disabled) ... ok
+test_state_transition_preserves_locked_inode (__main__.DrainFailureBoundaries.test_state_transition_preserves_locked_inode) ... ok
+test_unlock_failure_still_closes_descriptor (__main__.DrainFailureBoundaries.test_unlock_failure_still_closes_descriptor) ... FAIL
+
+======================================================================
+FAIL: test_second_read_failure_closes_acquired_share (__main__.DrainFailureBoundaries.test_second_read_failure_closes_acquired_share)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "$FIXTURE/test-drain-failure-boundaries.py", line 93, in test_second_read_failure_closes_acquired_share
+    with self.assertRaises(OSError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^
+AssertionError: OSError not raised
+
+======================================================================
+FAIL: test_unlock_failure_still_closes_descriptor (__main__.DrainFailureBoundaries.test_unlock_failure_still_closes_descriptor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "$FIXTURE/test-drain-failure-boundaries.py", line 117, in test_unlock_failure_still_closes_descriptor
+    self.assertIsNone(share._descriptor)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: 3 is not None
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.195s
+
+FAILED (failures=2)

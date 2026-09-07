@@ -52,7 +52,13 @@ class Harness:
         (runtime_directory / "fake-mode").write_text(mode + "\n")
         self.marker = runtime_directory / "runtime-marker.txt"
         # the session names the lease; a service launched without it refuses
-        service_environment = {**os.environ, "QWEN_GPU_COMPUTE_LEASE": str(state / "vulkan-workload.lock")}
+        # The admission barrier is isolated the way the compute lease is. Its
+        # directory otherwise falls back to the serving state directory, so a
+        # suite driving a service that consults it would read whatever a live
+        # session left there and refuse its own run.
+        service_environment = {**os.environ,
+                               "QWEN_GPU_COMPUTE_LEASE": str(state / "vulkan-workload.lock"),
+                               "QWEN_GPU_ADMISSION_BARRIER": str(state)}
         service_environment.update(environment or {})
         self.process = subprocess.Popen(
             [sys.executable, str(SERVICE), "--state-dir", str(state), "--profiles", str(state / "profiles.tsv"),

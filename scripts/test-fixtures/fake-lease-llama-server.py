@@ -165,6 +165,14 @@ def wait_for_stall_release(connection):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # BaseHTTPRequestHandler defaults to HTTP/1.0, which closes the connection
+    # after every answer whatever the client asked for. A test reading whether
+    # an attached client holds the process would then have no attached client:
+    # the socket object stays alive in the client while the peer is already
+    # gone. Every response here carries Content-Length, so the connection can
+    # be framed and kept the way a served one is.
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *a):
         pass
 

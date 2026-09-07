@@ -46,6 +46,7 @@ import time
 SERVICE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SERVICE_DIRECTORY)
 import geometry_protocol as protocol  # noqa: E402
+import admission_barrier  # noqa: E402
 import sidecar_runtime  # noqa: E402
 
 PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
@@ -75,6 +76,28 @@ class ProfileRefused(ServiceError):
 
 class ServiceBusy(ServiceError):
     reason = "busy"
+
+
+class ServiceQuiescing(ServiceError):
+    """The admission barrier refused this entry point, and the reason names what refused."""
+
+    reason = "quiescing"
+
+    # A barrier refusal is either a session state or a barrier fault, and the
+    # reason field states which. These three words name the session's own
+    # position on the RUNNING -> QUIESCING -> DRAINING path and reach the reply
+    # unchanged; every other detail names a fault the barrier detected rather
+    # than a state the session reached, so it reads barrier_<detail> and asserts
+    # no quiescence. identity_mismatch is the case that separates them: the
+    # in-flight file was replaced under a live session, which refuses admission
+    # while the session is still RUNNING.
+    STATE_REASONS = ("quiescing", "quiescing_after_share", "draining")
+
+    def __init__(self, detail):
+        super().__init__("the admission barrier is closed: %s" % detail)
+        # The protocol's reason field takes [A-Za-z0-9_-] and both branches stay
+        # inside that alphabet.
+        self.reason = detail if detail in self.STATE_REASONS else "barrier_%s" % detail
 
 
 class GrantDenied(ServiceError):
@@ -282,7 +305,15 @@ class GeometryService:
             if not self.busy.acquire(blocking=False):
                 raise ServiceBusy("a query is running")
             try:
-                result = self.run(request_id, profile, rays)
+            # The barrier is consulted at the request entry point rather than in
+            # a page control, so a request that reached this socket by any route
+            # meets the same refusal while the session retires. The share is held
+            # across the job, which is what a drain's exclusive acquisition waits
+            # on, and it is released whatever the job did.
+                with admission_barrier.require_admission():
+                    result = self.run(request_id, profile, rays)
+            except admission_barrier.AdmissionRefused as error:
+                raise ServiceQuiescing(error.reason) from None
             finally:
                 self.busy.release()
         except ServiceError as error:
