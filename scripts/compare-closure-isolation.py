@@ -18,7 +18,11 @@ current contents are not necessarily the contents the build recorded, so the
 reader recomputes `git diff --binary HEAD` over each tree and requires it to
 equal the `source_diff_sha256` its build-configuration.tsv carries. Two builds
 naming one source path cannot both match, which is what keeps a pair of
-successive builds from reading as a comparison of two trees.
+successive builds from reading as a comparison of two trees. That digest is
+taken over a commit, so the reader also requires both trees to sit on one
+commit and records it: two trees at different pins each match their own record
+while differing in committed bytes that no uncommitted-state inventory
+reports.
 
 The reachability reading is what replaces a byte comparison of linked
 artifacts. Ninja records every edge, so the transitive consumer closure of a
@@ -103,7 +107,7 @@ def sanitize(value):
     home = os.path.expanduser("~")
     if home and home != "/":
         value = value.replace(home, "$HOME")
-    return re.sub(r"(?<![\w$])/(?:[\w.-]+/)*[\w.+-]+",
+    return re.sub(r"(?<![\w$/])/+(?:[\w.-]+/+)*[\w.+-]+",
                   lambda match: "<abs>/" + os.path.basename(match.group(0)),
                   value)
 
@@ -128,6 +132,14 @@ def read_source_directory(build_directory):
             if line.startswith(CMAKE_SOURCE_KEY):
                 return line[len(CMAKE_SOURCE_KEY):].strip()
     raise SystemExit("CMakeCache.txt names no source directory: %s" % path)
+
+
+def source_head(source_directory):
+    """The commit each tree carries, which its uncommitted diff is taken over."""
+    completed = subprocess.run(
+        ["git", "-C", source_directory, "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True, env=git_environment())
+    return completed.stdout.strip()
 
 
 def source_diff_digest(source_directory):
@@ -246,6 +258,16 @@ def read_consumers(ninja_path):
         if pending:
             joined.append(pending)
     bindings = {}
+    rspfile_rules = set()
+    current_rule = None
+    for line in joined:
+        if line.startswith("rule "):
+            current_rule = line[len("rule "):].strip()
+        elif current_rule and line.startswith((" ", "\t")):
+            if line.strip().startswith("rspfile"):
+                rspfile_rules.add(current_rule)
+        elif not line.startswith((" ", "\t")):
+            current_rule = None
     for line in joined:
         if line.startswith((" ", "\t")) or not line or line.startswith("#"):
             continue
@@ -273,7 +295,10 @@ def read_consumers(ninja_path):
         input_tokens = [expand(token, bindings)
                         for token in split_edge(body[separator + 1:])[1:]]
         edge_tokens = output_tokens + input_tokens
-        if any(NINJA_VARIABLE.search(token) for token in edge_tokens):
+        rule_name = split_edge(body[separator + 1:])[:1]
+        if (any(NINJA_VARIABLE.search(token) for token in edge_tokens)
+                or any(token.startswith("@") for token in edge_tokens)
+                or (rule_name and rule_name[0] in rspfile_rules)):
             unevaluated += 1
         output_names = [unescape(token) for token in output_tokens
                         if token != "|"]
@@ -432,13 +457,27 @@ def main():
     # A build directory names a source path; the tree at that path now is not
     # necessarily the tree the build recorded, so bind the two before reading.
     bound = 0
+    heads = {}
+    binding_rows = []
     for name in ("control", "subject"):
         recorded = configuration[name].get("source_diff_sha256", "absent")
         observed = source_diff_digest(sources[name])
+        heads[name] = source_head(sources[name])
         matched = recorded == observed
         bound += 1 if matched else 0
-        print("source_binding closure=%s recorded=%s observed=%s match=%s"
-              % (name, recorded[:12], observed[:12], "yes" if matched else "no"))
+        binding_rows.append((name, heads[name], recorded, observed,
+                             "yes" if matched else "no"))
+        print("source_binding closure=%s head=%s recorded=%s observed=%s match=%s"
+              % (name, heads[name][:12], recorded[:12], observed[:12],
+                 "yes" if matched else "no"))
+    # A diff digest is taken over a commit, so two trees at different commits
+    # can each match their own record while differing in committed bytes that
+    # no uncommitted-state inventory reports.
+    heads_equal = heads["control"] == heads["subject"]
+    print("source_heads_equal=%s" % ("yes" if heads_equal else "no"))
+    write_rows(os.path.join(arguments.out, "source-binding.tsv"),
+               ("closure", "head", "recorded_source_diff_sha256",
+                "observed_source_diff_sha256", "match"), binding_rows)
 
     differing = differing_sources(sources["control"], sources["subject"])
     write_rows(os.path.join(arguments.out, "source-delta.tsv"),
@@ -544,7 +583,7 @@ def main():
     if device_reached or device_verdict == "differs":
         verdict = REFUTED
     elif (untraced or disagreeing or unevaluated_total or bound != 2
-            or device_verdict != "identical"):
+            or not heads_equal or device_verdict != "identical"):
         verdict = NOT_ESTABLISHED
     else:
         verdict = HELD

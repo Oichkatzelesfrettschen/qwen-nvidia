@@ -111,7 +111,9 @@ per-object cache-hit inventory the compile did not retain.
 
 ```text
 configuration_axes        1, source_diff_sha256 alone
-source_binding            both trees match the digest their build recorded
+source_binding            both trees match the digest their build recorded,
+                          both on pin f280b26983ad
+source_heads_equal        yes
 differing_sources         1, tools/server/server-context.cpp
 transitive_consumers      41, in both graphs
 device_targets_reached    0
@@ -196,13 +198,23 @@ this build, and the defect is recorded here rather than repaired.
 
 ## The reader's own arms decide something
 
-`scripts/test-compare-closure-isolation.py` holds the reader to seventeen arms
+`scripts/test-compare-closure-isolation.py` holds the reader to twenty arms
 against fixtures whose answer is declared, and
-`isolation-mutation-summary.tsv` records what each discriminates: fourteen
+`isolation-mutation-summary.tsv` records what each discriminates: seventeen
 mutations, each reverting one mechanism, run through a harness that refuses a
 mutation whose text never matched, because a `sed` that matches nothing exits
-zero and reads as an arm that discriminates. Thirteen fail exactly the arms
-that name them and the reader restores byte-identical after every one.
+zero and a mutation that never landed reads as an arm that discriminates.
+Sixteen fail exactly the arms that name them and the reader restores
+byte-identical after every one.
+
+Two fixture properties exist because they were wrong first. The two fixture
+repositories pin `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE`, since two
+`git init` runs over identical content reach one commit hash only where both
+commits land in the same wall-clock second, and the arm that requires equal
+pins would otherwise pass or fail by timing. The arm that requires two trees on
+different pins to read `not_established` runs its device stage, because taking
+`--skip-device-code` would have produced exit 4 from the skip and reported
+nothing about the pin.
 
 M07 is the exception and it reports on a repair of mine rather than on a gap.
 Collapsing every module identifier onto one placeholder fails no arm, because
@@ -271,3 +283,38 @@ unread, and no such dependency exists in either graph.
 
 
 
+
+## What the second external review moved
+
+Stage two read `18f7fff..752e93a` with the first review's disposition attached
+and reported three further defects, two of them severity one, each with an
+executed discriminator. All three are repaired.
+
+```text
+a response file names inputs never opened   an `@`-prefixed input and a rule
+                                             declaring `rspfile` each count
+                                             into edges_unevaluated
+a diff digest is taken over a commit        both trees are required on one
+                                             commit, which is recorded per
+                                             closure in source-binding.tsv,
+                                             since two trees at different pins
+                                             each match their own record while
+                                             differing in committed bytes no
+                                             uncommitted-state inventory reports
+a doubled slash survived the sanitizer      the pattern consumes every leading
+                                             slash, so `//host/path` reduces
+```
+
+Neither severity-one defect refutes this run. Both graphs declare no rule
+carrying an `rspfile` and name no `@`-prefixed input, so `edges_unevaluated`
+reads 0 on each side, and both source trees sit on pin
+`f280b26983ad0fdb705a0d9ebf0503e76f2899b0`, which `source-binding.tsv` now
+records beside each digest rather than leaving to a reader to check.
+
+The review also stated the boundary this directory's claim sits inside, and it
+is the right one: the rows establish that the lease source reaches no
+CUDA-named target in the declared ninja graph and that the two payloads carry
+identical instructions. They do not establish a consumer closure complete
+beyond what that graph declares. A dependency named only inside a response file
+would sit outside it, and the reader now refuses rather than reporting `held`
+where one could exist.

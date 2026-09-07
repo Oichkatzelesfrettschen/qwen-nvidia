@@ -16,6 +16,7 @@ the first check and leaks the second.
 """
 
 import hashlib
+import os
 import pathlib
 import subprocess
 import sys
@@ -51,9 +52,22 @@ DEVICE_OBJECT = "tools/server/CMakeFiles/server-context.dir/second.cpp.o"
 SOURCE = "tools/server/server-context.cpp"
 
 
-def git(*arguments, cwd):
+FIXED_DATE = "2026-01-01T00:00:00+00:00"
+FIXED_IDENTITY = {
+    "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+    "GIT_COMMITTER_NAME": "fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    "GIT_AUTHOR_DATE": FIXED_DATE, "GIT_COMMITTER_DATE": FIXED_DATE,
+}
+
+
+def git(*arguments, cwd, date=FIXED_DATE):
+    environment = dict(os.environ)
+    environment.update(FIXED_IDENTITY)
+    environment["GIT_AUTHOR_DATE"] = date
+    environment["GIT_COMMITTER_DATE"] = date
     subprocess.run(("git",) + arguments, cwd=cwd, check=True,
-                   capture_output=True, text=True)
+                   capture_output=True, text=True, env=environment)
 
 
 class ClosureFixture:
@@ -61,7 +75,8 @@ class ClosureFixture:
 
     def __init__(self, root, name, source_text, graphs="ON",
                  module_identifier="79f023fe", instruction="NOP",
-                 sass=SASS, extra_files=(), source=None, digest_override=None):
+                 sass=SASS, extra_files=(), source=None, digest_override=None,
+                 commit_date=FIXED_DATE, committed_text="base\n"):
         self.source = source or (root / ("source-" + name))
         self.build = root / ("build-" + name)
         if source is None:
@@ -70,9 +85,10 @@ class ClosureFixture:
             git("config", "user.email", "fixture@example.invalid", cwd=self.source)
             git("config", "user.name", "fixture", cwd=self.source)
             for relative in (SOURCE,) + tuple(extra_files):
-                (self.source / relative).write_text("base\n")
+                (self.source / relative).write_text(committed_text)
             git("add", "-A", cwd=self.source)
-            git("commit", "-q", "-m", "pin", cwd=self.source)
+            git("commit", "-q", "-m", "pin", cwd=self.source,
+                date=commit_date)
             (self.source / SOURCE).write_text(source_text)
         self.build.mkdir()
         (self.build / "bin").mkdir()
@@ -312,6 +328,48 @@ class CompareClosureIsolationTest(unittest.TestCase):
         _, output = self.run_reader(control, subject, skip_device_code=True)
         self.assertIn("differing_sources=2", output)
 
+    def test_an_edge_reaching_through_a_response_file_is_not_established(self):
+        # The reader never opens a response file, so an edge naming one is an
+        # edge whose real endpoints went unread.
+        control, subject = self.pair(module_identifier="1a52790f")
+        for fixture in (control, subject):
+            with (fixture.build / "build.ninja").open("a") as handle:
+                handle.write("build bin/other.so: RULE @device.rsp\n")
+        status, output = self.run_reader(control, subject)
+        self.assertEqual(status, 4, output)
+        self.assertIn("edges_unevaluated=1", output)
+        self.assertIn("device_path_isolation=not_established", output)
+
+    def test_a_rule_declaring_a_response_file_is_not_established(self):
+        control, subject = self.pair(module_identifier="1a52790f")
+        for fixture in (control, subject):
+            with (fixture.build / "build.ninja").open("a") as handle:
+                handle.write("rule LINKRSP\n  command = link\n"
+                             "  rspfile = out.rsp\n  rspfile_content = $in\n"
+                             "build bin/other.so: LINKRSP %s\n" % OBJECT)
+        status, output = self.run_reader(control, subject)
+        self.assertEqual(status, 4, output)
+        self.assertIn("edges_unevaluated=1", output)
+        self.assertIn("device_path_isolation=not_established", output)
+
+    def test_two_trees_on_different_commits_are_not_established(self):
+        # Each diff digest is taken over its own commit, so both bind while the
+        # committed bytes differ in a file no uncommitted inventory reports.
+        control = ClosureFixture(self.root, "control", "base\nlease\n",
+                                 committed_text="committed one\n")
+        subject = ClosureFixture(self.root, "subject", "base\nlease\n",
+                                 committed_text="committed two\n",
+                                 commit_date="2026-02-02T00:00:00+00:00")
+        for fixture in (control, subject):
+            fixture.host_only_graph()
+        # The device reading runs, so exit 4 comes from the pin alone.
+        status, output = self.run_reader(control, subject)
+        self.assertEqual(status, 4, output)
+        self.assertIn("match=yes", output)
+        self.assertIn("device_code=identical", output)
+        self.assertIn("source_heads_equal=no", output)
+        self.assertIn("device_path_isolation=not_established", output)
+
     def test_a_second_configuration_axis_ends_the_run(self):
         control, subject = self.pair(graphs="OFF")
         status, output = self.run_reader(control, subject)
@@ -332,15 +390,16 @@ class CompareClosureIsolationTest(unittest.TestCase):
         control, subject = self.pair(module_identifier="1a52790f")
         # An absolute path outside HOME is what a home-prefix sanitizer misses.
         with (subject.build / "build.ninja").open("a") as handle:
-            handle.write("build /opt/private/host.o: RULE %s\n"
-                         % (subject.source / SOURCE))
+            handle.write("build /opt/private/host.o //srv/private/two.o: "
+                         "RULE %s\n" % (subject.source / SOURCE))
         self.run_reader(control, subject)
         emitted = sorted(self.out.glob("*.tsv"))
-        self.assertEqual(len(emitted), 4, emitted)
+        self.assertEqual(len(emitted), 5, emitted)
         for path in emitted:
             text = path.read_text()
             self.assertNotIn(str(self.root), text, path.name)
             self.assertNotIn("/opt/private", text, path.name)
+            self.assertNotIn("/srv/private", text, path.name)
         self.assertIn("$HOME", (self.out / "device-code.tsv").read_text())
 
 
