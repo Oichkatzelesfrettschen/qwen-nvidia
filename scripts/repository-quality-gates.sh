@@ -130,6 +130,7 @@ scripts/test-cuda-build-tiling-threshold.sh
 scripts/test-cuda-build-threshold-authority.sh
 scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
+scripts/test-reconstruct-closure-source.sh
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
