@@ -56,11 +56,17 @@ the crossover patch at the contemporaneous `04f952c9` defines it as 12.
 
 The sweep then took every distinct `patches/` tree in this repository's history
 -- twenty of them, listed in `patch-trees.tsv` -- crossed with all eight subsets
-of the three candidate patches, against the promoted closure's digest. That
-reads 160 reconstructions, in `reconstruction-run.txt`, and **none matches**. An
-earlier pass extended the same crossing over `core.abbrev` at seven values,
-`diff.context` at two, and `diff.noprefix` at two: 4256 serialization variants,
-none matching either `0d6e3be3` or the 08:46 batch's `689d3f35`.
+of the three candidate patches, against the promoted closure's digest.
+`reconstruction-run.txt` is that run: one control, 160 historical
+reconstructions of which 152 produced a digest and eight named an absent patch,
+and **none matches**.
+
+`serialization-sweep.tsv` extends the same crossing over the three settings
+that move a digest, `core.abbrev` at seven values, `diff.context` at two, and
+`diff.noprefix` at two, with each setting's control being the candidate's own
+tree hashed under that same setting. It carries the variant count and the hit
+count against both `0d6e3be3` and `689d3f35` per setting, and every hit count is
+zero.
 
 The negative is real rather than procedural, because the same sweep reproduces
 the candidate's `76f4b8e8` exactly and reproduces the empty-tree
@@ -69,10 +75,21 @@ by hand on top of the contemporaneous patch set reproduces neither target
 either, so the Aug-31 tree carried content beyond that one macro.
 
 The scope is the generation rather than the binary. `689d3f35` covers seven
-closures and `0d6e3be3` one, and none of the eight reconstructs, so the gap is a
-property of how that day's trees were built -- edited live, exported to patch
-files afterwards -- rather than something peculiar to the promoted closure. The
-practice reproduces by 2026-09-05, which is what makes the candidate verifiable.
+closures and `0d6e3be3` one, and none of the eight reconstructs, so whatever
+the cause, it belongs to that day rather than to the promoted closure alone.
+The same construction reproduces closures built on 2026-09-05, so the practice
+changed between the two dates.
+
+What the search establishes is that no retained patch set reproduces those two
+**diff digests**. The document separates raw diff identity from source-tree
+identity above, and that separation applies here: an unreproduced digest is
+consistent with a source tree that was never exported to patch files, and it is
+equally consistent with an export that lost bytes the compiler read. The
+reading that the trees were edited live and exported afterwards is a hypothesis
+the timeline fits rather than a finding this search made, and it is recorded as
+one. Deciding it would take a retained artifact of that day's tree -- a build
+log naming file contents, an object with the compiled bytes, or a snapshot --
+and this repository holds none.
 
 `historical_source_reconstruction=unavailable`.
 
@@ -127,19 +144,40 @@ being retired by the companion, and `historical_binary_regression=required` is
 an obligation the final campaign carries: an arm against the promoted binary,
 not against the companion alone.
 
-Route B is independent replacement admission. It states that the candidate and
-its control have known source, and it states nothing retrospective about the
-historical source that remains unavailable.
+Route B is independent replacement admission and it is **not finished**. What
+holds is the source half: the candidate and its control have known source, and
+the difference between them is accounted for exactly. The route as the record
+states it also requires the companion to be built and the lease change isolated
+against it, and `companion_build_state` reads `not_built`, so that obligation
+stays open beside the drain-before-destroy policy rather than closing with this
+search.
+
+Route B states nothing retrospective about the historical source that remains
+unavailable.
 
 ## Reproducing this
 
+The retained manifest is a record rather than an input: its paths carry the
+`$HOME` and `$WORK` the tree scrubs from every checked-in surface, and a TSV
+field is read as bytes rather than expanded by a shell.
+`scripts/prepare-provenance-manifest.sh` is what turns it back into an input --
+it writes each historical patch set out of this repository's committed objects,
+by the commits `patch-trees.tsv` names, and emits a manifest naming those
+directories:
+
 ```sh
+scripts/prepare-provenance-manifest.sh WORK_DIR
 scripts/reconstruct-closure-source.sh ~/src/llama.cpp-qwen-nvidia \
-    f280b26983ad0fdb705a0d9ebf0503e76f2899b0 WORK_DIR \
-    evidence/lease-coverage/source-provenance/reconstruction-manifest.tsv
+    f280b26983ad0fdb705a0d9ebf0503e76f2899b0 WORK_DIR/run \
+    WORK_DIR/provenance-manifest.tsv
 ```
 
-The manifest's historical rows name patch directories materialized from the
-commits `patch-trees.tsv` lists; `scripts/test-reconstruct-closure-source.sh`
-holds the reconstructor itself against a two-file fixture repository, including
-the refusal a missed control produces.
+`QWEN_RECONSTRUCT_GIT_OPTIONS` carries additional `-c` settings into every git
+invocation, which is how the serialization arms are asked; a setting that moves
+the digest moves the control with it, so each arm carries its own control value.
+
+`scripts/test-reconstruct-closure-source.sh` holds the reconstructor against a
+two-file fixture repository across thirty-one checks, including the refusal a
+missed control produces, the withholding of subject readings under a failed
+control, and the proof that an inherited `GIT_INDEX_FILE` leaves the source
+repository's index, working tree, configuration, and refs unchanged.

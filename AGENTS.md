@@ -1466,10 +1466,13 @@ three candidate patches, over `core.abbrev`, `diff.context`, and
 nor the `689d3f35` that the seven closures built fourteen minutes earlier share.
 The same sweep reproduces the candidate's digest and the empty-tree `e3b0c442`
 three closures record, so the negative is the material rather than the
-procedure, and the gap belongs to that day's practice of editing a live tree and
-exporting patch files afterwards rather than to the promoted binary alone. The
-patch series is byte-identical across those fourteen minutes and the builder's
-own change is a threshold range check, so neither explains it.
+procedure, and it covers eight closures of that day rather than the promoted
+binary alone. The patch series is byte-identical across those fourteen minutes
+and the builder's own change is a threshold range check, so neither explains it.
+What the search establishes is that no retained patch set reproduces those diff
+digests; that the trees were edited live and exported to patch files afterwards
+is a hypothesis the timeline fits rather than a finding, since an unreproduced
+diff is equally consistent with an export that lost bytes the compiler read.
 
 ```text
 historical_source_reconstruction   unavailable
@@ -1488,7 +1491,9 @@ than the same kernels, so its kernel contents and binary bytes are unmeasured
 and it inherits none of the candidate's served admission. A companion built this
 way is not the original production source and is not labeled as one, and
 `88681bf4d161` stays the behavioral regression reference rather than being
-retired by it.
+retired by it. Building the companion and isolating the lease change against it
+is the remainder of the replacement route and stays a promotion gate beside the
+drain-before-destroy policy.
 
 The order follows from how each
 acquire behaves rather than from granularity: a lease acquire whose caller can
@@ -2050,9 +2055,12 @@ scripts/summarize-probe.sh ~/qwen-webui-state/graphics-latency.log
 scripts/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
 scripts/admit-candidate-static.py REPO REV      # a header over a range read
 scripts/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
+scripts/prepare-provenance-manifest.sh WORK [OUT_TSV]
+                                                # materialize every historical patch set and emit a runnable manifest
 scripts/reconstruct-closure-source.sh SOURCE_REPO PIN WORK MANIFEST_TSV
                                                 # does a patch set reproduce a closure's recorded source_diff_sha256
-                                                # controls reconstruct first; a control miss refuses the run
+                                                # controls reconstruct first and gate whether subjects run at all
+                                                # QWEN_RECONSTRUCT_GIT_OPTIONS asks the same question under other -c settings
 scripts/measure-served-decode.sh LABEL MODEL    # served decode at a fixed length
 scripts/run-quality-suite.py ENDPOINT OUT_JSON --long-context-characters 24000
                                                 # the 75-row graded suite at explicit depth

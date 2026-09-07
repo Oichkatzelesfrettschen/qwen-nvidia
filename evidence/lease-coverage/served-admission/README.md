@@ -127,14 +127,20 @@ drain the active holder before destroying an idle child, so an ordinary
 combined-session teardown is uncontended by construction and run-01's failing
 arm never reproduced its shape; what that arm reaches is the
 emergency-termination exception the policy reserves. Promotion still requires
-the provenance gap of `../candidate-build-source-identity.tsv` closed and the
-drain-before-destroy policy tested, and the strict CUDA0 admission, the router
-admission, and the serialized image review read `not_run` in both runs.
+the remainder of the replacement route -- the lease-off companion built and the
+lease change isolated against it -- and the drain-before-destroy policy tested,
+and the strict CUDA0 admission, the router admission, and the serialized image
+review read `not_run` in both runs.
 
 The candidate closure's other properties stand as
-`candidate-build-source-identity.tsv` states them, provenance gap included. No
-production pointer moved and the promoted closure served nothing during the
-window.
+`candidate-build-source-identity.tsv` states them. `../source-provenance/`
+resolved the source question after these runs:
+`historical_source_reconstruction=unavailable` beside
+`replacement_source_provenance=verified` and
+`historical_binary_regression=required`, so the historical source is closed as
+unrecoverable rather than outstanding while the companion's own build stays
+open. No production pointer moved and the promoted closure served nothing
+during the window.
 
 Run-01's 2B harness ran its remaining arms after the failure, since the arms
 are independent and each takes and releases its own fixture; what stopped there

@@ -354,8 +354,9 @@ against. The served arms remain, and `served=accepted` requires the positive
 control in place, so `partial` is the honest terminal state until a device
 window runs them.
 
-Promotion needs more than those arms, and the source-identity gate has closed.
-`source-provenance/` runs both routes to their end with
+Promotion needs more than those arms. The source-identity question is answered
+and the replacement route is half-built: `source-provenance/` runs both routes
+with
 `scripts/reconstruct-closure-source.sh`, which replays the builder's own
 `git diff --binary HEAD` procedure inside a scratch clone and refuses a run
 whose control fails to reproduce. Route A is exhausted: twenty distinct
@@ -374,13 +375,16 @@ replacement_source_provenance      verified
 historical_binary_regression       required
 ```
 
-The companion is a source-level result. Its predicted digest awaits its own
-build, and matching counts of 187 cubins would state that two builds emitted the
-same number of objects rather than the same kernels, so its kernel contents and
-binary bytes stay unmeasured and it inherits none of the candidate's served
-admission. `88681bf4d161` stays the behavioral regression reference. The
-contended-teardown policy is the remaining gate, and a passing functional arm is
-behavioral evidence rather than a substitute for it.
+The companion is a source-level result and the route it belongs to stays open.
+Its predicted digest awaits its own build, and matching counts of 187 cubins
+would state that two builds emitted the same number of objects rather than the
+same kernels, so its kernel contents and binary bytes stay unmeasured and it
+inherits none of the candidate's served admission. Building it and isolating the
+lease change against it is the remainder of Route B. `88681bf4d161` stays the
+behavioral regression reference. Two gates therefore remain before promotion:
+that companion build and comparison, and the contended-teardown policy, for
+which a passing functional arm is behavioral evidence rather than a
+substitute.
 
 The served stage's own refusal is a third item and it has closed.
 `served-admission/run-01/` refused the closure on
