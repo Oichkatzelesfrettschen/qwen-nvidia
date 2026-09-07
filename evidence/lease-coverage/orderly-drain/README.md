@@ -89,7 +89,14 @@ drained whole proves nothing about a capacity-one router retiring one child
 while keeping its own listener and service lanes alive, so the two carry their
 own arms.
 
-## What the existing fixture can already reach
+## What the existing fixture could reach before the controller existed
+
+The table below is the preregistration: it was written against
+`scripts/test-fixtures/fake-lease-llama-server.py` alone, before the barrier
+and the drain controller existed, and it is retained as written. The reading
+after it states what the implemented controller reaches, so the two together
+show which capability each arm gained rather than replacing a prediction with
+a result.
 
 `scripts/test-fixtures/fake-lease-llama-server.py` was written for the signal
 arms, and the eight discriminations this policy needs are mostly outside it.
@@ -110,6 +117,35 @@ branch was found after the run rather than before it.
 
 Five of eight need new capability and three are partial, so the fixture work is
 the majority of this transition rather than a step after it.
+
+## What the controller reaches, read after implementing it
+
+`scripts/qwen-drain-controller.sh` and `scripts/qwen-admission-barrier.sh`
+supply the state word, the in-flight share, and the destroy boundary the table
+above names as missing, and `scripts/test-qwen-drain-controller.sh` and
+`scripts/test-admission-barrier.py` are the arms that read them. Every row is
+joined to the readings that decide it, since a label is not a claim:
+
+| Discrimination | Reached | The readings that decide it |
+| --- | --- | --- |
+| an active holder finishes normally, and destruction starts only afterwards | yes | `drain_completed`, `destroy_follows_drain`, `destroy_saw_orderly_mode`, `teardown_orderly` |
+| a request arriving during quiescence is refused or deferred and cannot reopen execution | yes | `quiescing_refuses_admission`, `quiescing_names_state`, `quiescing_ran_no_job`, `test_quiescing_refuses_admission` |
+| an idle child is evicted while another lane is active | yes | `eviction_waits_for_active_lane`, `idle_participant_releases` |
+| a client attached to completed work is told from an unanswered request | at the barrier | `idle_participant_releases` reads a released share with the process still resident as idle, so the share rather than the process is what holds retirement open. The HTTP-level case -- a cpp-httplib worker waiting inside `recv_with_timeout` for a task no pass answered -- belongs to llama-server and stays with `test-load-lease-coverage.sh` arm G |
+| a request that cannot reach a terminal state takes the drain deadline's named failure path | yes | `deadline_refuses`, `deadline_mode`, `deadline_drain`, `deadline_exclusion`, `deadline_names_emergency_mode` |
+| a child that cannot obtain its teardown lease is not reported as an orderly teardown | yes | `failed_destroy_refuses`, `failed_destroy_drained`, `failed_destroy_not_exclusion` |
+| a holder or child surviving escalation retains its identity and reports residue | yes | `residue_holder_retained`, `residue_cleared_before_next_arm` |
+| a lease pathname change is refused rather than serialized against another inode | yes | `identity_match_reads_match`, `identity_mismatch_refuses`, `identity_mismatch_named`, `test_identity_reads_device_and_inode` |
+
+Seven of the eight are reached whole and the eighth is reached at the barrier
+alone. What that leaves for the device window is the llama-server side of the
+fourth row, since the barrier's notion of in flight is a held share and the
+server's is an unanswered task inside an HTTP worker; a session driving both
+has to show that a drain waiting on the first also waits on the second.
+
+Every reading above is a file and a lock on a host with no GPU. None of them
+states that the policy holds on the device, and the arms that would are the
+combined-session ones this record preregisters.
 
 Assertions are on event ordering and operation identity rather than on sleeps.
 Each participant records monotonic instants, a per-process event sequence

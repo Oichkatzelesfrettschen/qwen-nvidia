@@ -1,4 +1,11 @@
 #!/bin/sh
+# gpu-ownership: no claim. The barrier serializes admission on its own two
+# pathnames, opens no device context, and executes no device binary.
+# scripts/gpu-workloads.tsv carries it as a non-gpu-helper because the coverage
+# check matches its device-command alternation unanchored, so the `ncu` of
+# `concurrent` below names this file as an entry point; a row that states the
+# claim is the answer the ledger already gives two download helpers matched the
+# same way, and over-declaration is the safe direction for a coverage authority.
 # The admission barrier: the mechanism that stops new GPU work from entering
 # while a session or a child retires, kept deliberately apart from the compute
 # lease.
