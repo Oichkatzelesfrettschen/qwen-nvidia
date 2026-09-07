@@ -82,10 +82,10 @@ compile, which `build-result.tsv` records as running against an isolated
 read-only ccache, and today's run re-derived the configuration digest and
 re-verified the payload rather than rebuilding it.
 
-The objects were compiled independently rather than restored from the
-candidate's compiler cache, and the cubins carry the positive proof. nvcc
-writes the translation unit's absolute path into `.nv.global.init`, so a cubin
-restored from a candidate cache entry would name the candidate tree.
+No cubin came from the other closure's compiler cache, and the embedded paths
+are what state it. nvcc writes the translation unit's absolute path into
+`.nv.global.init`, so a cubin restored from a candidate cache entry would name
+the candidate tree.
 
 ```text
 companion cubins naming the companion tree   116 of 187
@@ -95,9 +95,14 @@ companion cubins naming the candidate tree     0
 candidate cubins naming the companion tree     0
 ```
 
-The 71 are the kernels whose sources place no `__FILE__` in device global data.
-What the count establishes is the absence of cross-contamination in both
-directions rather than a path in every cubin.
+The claim that count supports is bounded. For the 116 it is positive: each
+names its own tree, so each was compiled from it. The 71 place no `__FILE__` in
+device global data and are silent about their origin, so their independence
+rests on the recorded `cache_temp=isolated cache_mode=read_only` rather than on
+a reading of the artifact. An isolated cache that is also read-only reaches no
+shared entry and writes none, which is why the recorded mode is the right
+record to rest on; re-deriving it from the artifacts alone would need a
+per-object cache-hit inventory the compile did not retain.
 
 ## What the isolation established
 
@@ -106,12 +111,16 @@ directions rather than a path in every cubin.
 
 ```text
 configuration_axes        1, source_diff_sha256 alone
+source_binding            both trees match the digest their build recorded
 differing_sources         1, tools/server/server-context.cpp
-transitive_consumers      41
+transitive_consumers      41, in both graphs
 device_targets_reached    0
+graph_disagreements       0        untraced_sources 0    edges_unevaluated 0
 artifacts reached         bin/libllama-cli-impl.so, bin/libllama-server-impl.so,
                           bin/llama-cli, bin/llama-server
-device_code               identical
+device_code               identical at 2c25d6c80277
+device_code_coverage      15052727 lines and 8167 functions per side
+module_identifiers        6 per side, units matching, injective, none unmapped
 ```
 
 The reachability reading is what a byte comparison would have been asked for.
@@ -125,8 +134,8 @@ absolute build paths are, which is what a byte comparison here does not.
 this pin. A reader expecting the lease to reach the server alone reads one
 artifact too few.
 
-The device-code reading compares 15052727 lines of `cuobjdump -sass` per side
-and they are identical. Six symbols differ ahead of that normalization and all
+The device-code reading compares 15052727 lines of `cuobjdump -sass` per
+side, carrying 8167 functions each, and they are identical. Six symbols differ ahead of that normalization and all
 six are internal-linkage entities whose `_INTERNAL_<hex>_<len>_<unit>` module
 identifier nvcc derives from the translation unit: `binbcast.cu`, `unary.cu`,
 `convert.cu`, `set_rows.cu`, `cpy.cu`, and `getrows.cu` pair one-to-one across
@@ -187,15 +196,25 @@ this build, and the defect is recorded here rather than repaired.
 
 ## The reader's own arms decide something
 
-`scripts/test-compare-closure-isolation.py` holds the reader to fixtures whose
-answer is declared, and `isolation-mutation-summary.tsv` records what each arm
-discriminates: seven mutations, each reverting one mechanism, each failing
-exactly the arm that names it and no other, with the reader restored
-byte-identical after every one. M7 fails two arms because both rest on the
-module-identifier normalization producing agreeing device code.
+`scripts/test-compare-closure-isolation.py` holds the reader to seventeen arms
+against fixtures whose answer is declared, and
+`isolation-mutation-summary.tsv` records what each discriminates: fourteen
+mutations, each reverting one mechanism, run through a harness that refuses a
+mutation whose text never matched, because a `sed` that matches nothing exits
+zero and reads as an arm that discriminates. Thirteen fail exactly the arms
+that name them and the reader restores byte-identical after every one.
 
-M4 is the arm that matters most, and it exists because the first version of this
-reader failed it. That version computed
+M07 is the exception and it reports on a repair of mine rather than on a gap.
+Collapsing every module identifier onto one placeholder fails no arm, because
+the `<len>_<unit>` tail already separates symbols from different translation
+units; what carries the closure is the collision check M07b reverts, which
+refuses a reading where two identifiers name one unit and would therefore share
+a placeholder. The keyed placeholder is retained as the normalization the
+digest ought to have and is recorded as unproven by any arm.
+
+The verdict is three-valued because a positive isolation claim needs two
+positive readings rather than one absent negative, and the first version of
+this reader failed that. It computed
 
 ```python
 isolated = device_reached == 0 and device_verdict in ("identical", "not_run")
@@ -203,12 +222,52 @@ isolated = device_reached == 0 and device_verdict in ("identical", "not_run")
 
 so a run invoked with `--skip-device-code` printed `device_path_isolation=held`
 with the device payload unread, and a run on a host without `cuobjdump` printed
-`refuted` for a missing tool. One binary verdict produced a false positive and a
-false negative, which is the same positive-classification-from-absence the drain
-tranche closed eleven times. The verdict is three-valued for that reason:
-`held` requires every differing source traced, both graphs agreeing, no device
-target in any consumer closure, and a device reading that ran and agreed;
-`refuted` names a reading that contradicts the isolation; `not_established`
-covers a device payload that was not read, a source ninja traces to no object,
-and two graphs that disagree. The quality gate runs the reader against fixtures
-alone, so the arm that the gate exercises now states what it did not read.
+`refuted` for a missing tool. One binary verdict produced a false positive and
+a false negative, which is the same positive-classification-from-absence the
+drain tranche closed eleven times.
+
+## What the first external review moved
+
+Stage one read `18f7fff..f3b3091` and reported eight defects, five of them
+severity one, each with an executed discriminator. All eight are repaired and
+each repair carries an arm.
+
+```text
+ninja edges read as physical lines        a continued or escaped edge went unread
+                                          -> continuations joined, `$ ` and `$:`
+                                             unescaped, top-level bindings
+                                             expanded, and a reference that
+                                             survives expansion counted
+objects resolved by one naming            absolute-path and relative-path
+                                             matches unioned rather than
+                                             preferred
+porcelain read as text                    `git status --porcelain -z`, so a
+                                             quoted path and a rename record
+                                             reach the inventory
+an empty disassembly agreed with itself   a reading carrying no function is
+                                             `unavailable`
+graph agreement over artifacts alone      the whole reached set is compared
+a source tree unbound to its build        each tree's `git diff --binary HEAD`
+                                             is required to equal the
+                                             `source_diff_sha256` its build
+                                             recorded, which is also what
+                                             refuses two builds naming one tree
+module identifiers merged by one          the identifier-to-unit mapping is
+  placeholder                                required injective in both
+                                             directions
+a sanitizer rewriting only $HOME          any absolute path is reduced to its
+                                             basename
+```
+
+Two of the review's checks changed no verdict here and are recorded because
+they bound what the reading rests on. Both real graphs carry zero continued
+edges and zero escaped tokens, and their one variable reference,
+`${cmake_ninja_workdir}` on the UI-assets edge, expands from a top-level
+binding, so the reachability reading this directory retains was complete before
+the repair and reads `edges_unevaluated=0` after it. The review's own edge
+survey found implicit outputs, order-only inputs, phony edges, and response-file
+rules already handled; a dependency named only inside a response file stays
+unread, and no such dependency exists in either graph.
+
+
+

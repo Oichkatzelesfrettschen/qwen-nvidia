@@ -1493,7 +1493,13 @@ and in nothing else, so every lever is held equal by the configuration digest
 rather than by assertion.
 
 `scripts/compare-closure-isolation.py` is what turns that into an attribution,
-over three readings `evidence/lease-coverage/companion-build/` carries. Ninja
+over the readings `evidence/lease-coverage/companion-build/` carries, each of
+which lowers the verdict where it cannot be completed rather than being
+skipped. A build directory names a source path and the tree there now is not
+necessarily the tree the build recorded, so each side's `git diff --binary
+HEAD` is required to equal the `source_diff_sha256` its own
+`build-configuration.tsv` carries, which is also what refuses two builds naming
+one tree. Ninja
 records every edge, so the transitive consumer closure of
 `server-context.cpp.o` is the exact set of targets the lease change reaches:
 41 of them, `bin/llama-server`, `bin/llama-cli`, and the two implementation

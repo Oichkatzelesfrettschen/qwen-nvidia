@@ -4,23 +4,32 @@
 Two closures built from the same pin differ by whatever their source diffs
 differ by, and a rate or behavior comparison between them attributes every
 difference to that change. This reader establishes the attribution rather than
-assuming it, over three readings that answer different questions.
+assuming it, over readings that answer different questions, and every reading
+that cannot be completed lowers the verdict rather than being skipped.
 
 The configuration reading holds every lever equal. scripts/build-llama-cuda.sh
 folds each material CMake choice into build-configuration.tsv and digests the
 whole record into the closure name, so two closures differing in one field are
-a one-axis comparison and two closures differing in more are not. A second
-differing lever ends the run, because a comparison whose axes are unseparated
-answers no question either lever asked.
+a one-axis comparison and two closures differing in more are not.
+
+The source reading binds each build to the tree it was built from. A build
+directory names a source directory in its CMakeCache.txt, and that directory's
+current contents are not necessarily the contents the build recorded, so the
+reader recomputes `git diff --binary HEAD` over each tree and requires it to
+equal the `source_diff_sha256` its build-configuration.tsv carries. Two builds
+naming one source path cannot both match, which is what keeps a pair of
+successive builds from reading as a comparison of two trees.
 
 The reachability reading is what replaces a byte comparison of linked
 artifacts. Ninja records every edge, so the transitive consumer closure of a
 changed translation unit's object names the exact set of targets that change
-can reach, and a device-path target inside that set is the refutation the
-caller is looking for. Both graphs are read and required to agree, since one
-closure's graph states what that closure links rather than what its companion
-does. The reading is structural, so it holds whatever the absolute build paths
-are.
+can reach, and a device-path target inside that set is the refutation. Both
+graphs are read and required to agree over the whole reached set. Order-only
+and implicit inputs are followed as inputs, which over-approximates the closure
+in the safe direction: the reading can name more consumers than exist, never
+fewer. Syntax the parser does not evaluate -- an unexpanded variable reference
+-- is counted rather than ignored, because an edge read as a literal is an edge
+whose real endpoints went unread.
 
 The device-code reading compares instructions rather than bytes. nvcc writes
 __FILE__-derived strings into .nv.global.init, which is initialized device
@@ -29,25 +38,28 @@ identical sources at different absolute paths differ in content while carrying
 identical code. cuobjdump -sass prints the instruction stream without that
 data, which is why the device claim is made over the disassembly and why a
 linked-artifact byte comparison is reported as unavailable rather than as a
-difference this reader cannot attribute.
+difference this reader cannot attribute. A disassembly is accepted only where
+it carries functions, since a command that exits zero having printed nothing
+otherwise digests to the empty string on both sides and agrees.
 
-One path-derived token survives into the disassembly. nvcc mangles an
-internal-linkage entity through a module identifier it derives from the
-translation unit, which appears in the symbol as _INTERNAL_<hex>_<len>_<unit>,
-so the same source compiled at two paths yields two symbols differing in that
-hex alone. MODULE_IDENTIFIER replaces it with a fixed token of the same width,
-which keeps the mangled length prefix valid, and the reader reports how many
-distinct identifiers it normalized on each side so a reading that silently
-erased a real difference is visible as a count rather than hidden in a digest.
+nvcc mangles an internal-linkage entity through a module identifier it derives
+from the translation unit, `_INTERNAL_<hex>_<len>_<unit>`, so the same source
+compiled at two paths yields symbols differing in that hex alone. Replacing
+every identifier with one placeholder would merge two distinct identifiers into
+one symbol and hide a real difference, so each hex is replaced by a digest of
+the unit it names: distinct units keep distinct symbols, the width is
+preserved so the mangled length prefix stays valid, and the reader requires
+each side's hex-to-unit mapping to be injective in both directions, since two
+identifiers naming one unit would share a placeholder, and both sides to name
+the same units.
 
-The verdict is three-valued, because a positive isolation claim requires two
+The verdict is three-valued, because a positive isolation claim requires
 positive readings rather than the absence of a negative one. `held` needs every
-differing source traced to an object, no device target in any consumer closure,
-and a device-code reading that ran and agreed. `refuted` names a reading that
-contradicts the isolation. `not_established` covers the rest: a device reading
-that did not run or could not run, a differing source ninja traces to no
-object, and two graphs that disagree. A run that never read the device payload
-therefore states that it did not, rather than reporting isolation.
+differing source traced to an object, both graphs agreeing, no device target in
+any consumer closure, a source tree matching the digest its build recorded, a
+fully parsed graph, and a device reading that ran, carried functions, and
+agreed. `refuted` names a reading that contradicts the isolation. Everything
+else is `not_established`.
 """
 
 import argparse
@@ -59,10 +71,14 @@ import subprocess
 import sys
 
 DEVICE_TARGET = re.compile(r"ggml|cuda|\.cu\.o$|cubin|fatbin", re.IGNORECASE)
-MODULE_IDENTIFIER = re.compile(rb"_INTERNAL_[0-9a-f]{8}_")
-MODULE_PLACEHOLDER = b"_INTERNAL_XXXXXXXX_"
+MODULE_LENGTHED = re.compile(rb"_INTERNAL_([0-9a-f]{8})_([0-9]+)_")
+MODULE_SHORT = re.compile(rb"_INTERNAL_([0-9a-f]{8})_")
+SASS_FUNCTION = re.compile(rb"^\s*Function\s*:")
 CUDA_LIBRARY = re.compile(r"^libggml-cuda\.so\.[0-9]+(?:\.[0-9]+)*$")
 CMAKE_SOURCE_KEY = "CMAKE_HOME_DIRECTORY:INTERNAL="
+# A reference surviving top-level binding expansion names a node this reader
+# never resolves, so the edge carrying it is counted rather than followed.
+NINJA_VARIABLE = re.compile(r"\$[A-Za-z{]")
 
 HELD = "held"
 REFUTED = "refuted"
@@ -83,9 +99,13 @@ def git_environment():
 
 
 def sanitize(value):
-    """Retained rows carry no local absolute path."""
+    """Retained rows carry no local absolute path, wherever it is rooted."""
     home = os.path.expanduser("~")
-    return value.replace(home, "$HOME") if home and home != "/" else value
+    if home and home != "/":
+        value = value.replace(home, "$HOME")
+    return re.sub(r"(?<![\w$])/(?:[\w.-]+/)*[\w.+-]+",
+                  lambda match: "<abs>/" + os.path.basename(match.group(0)),
+                  value)
 
 
 def read_configuration(build_directory):
@@ -110,13 +130,39 @@ def read_source_directory(build_directory):
     raise SystemExit("CMakeCache.txt names no source directory: %s" % path)
 
 
-def changed_paths(source_directory):
-    """Every path the tree carries over its pin, as porcelain reports them."""
+def source_diff_digest(source_directory):
+    """The digest build-llama-cuda.sh records, recomputed over the tree now."""
     completed = subprocess.run(
-        ["git", "-C", source_directory, "status", "--porcelain"],
-        capture_output=True, text=True, check=True, env=git_environment())
-    return [line[3:].strip() for line in completed.stdout.splitlines()
-            if len(line) > 3]
+        ["git", "-C", source_directory, "diff", "--binary", "HEAD", "--"],
+        capture_output=True, check=True, env=git_environment())
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
+def changed_paths(source_directory):
+    """Every path the tree carries over its pin, read NUL-delimited.
+
+    Porcelain quotes a pathname carrying a space or a control character, and a
+    rename record names two paths, so the human-readable form drops files this
+    inventory exists to find.
+    """
+    completed = subprocess.run(
+        ["git", "-C", source_directory, "status", "--porcelain", "-z"],
+        capture_output=True, check=True, env=git_environment())
+    entries = completed.stdout.split(b"\0")
+    paths = []
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        status, path = entry[:2], entry[3:]
+        paths.append(os.fsdecode(path))
+        if status[0:1] in (b"R", b"C") or status[1:2] in (b"R", b"C"):
+            if index < len(entries) and entries[index]:
+                paths.append(os.fsdecode(entries[index]))
+                index += 1
+    return paths
 
 
 def digest_file(path):
@@ -142,24 +188,101 @@ def differing_sources(control_source, subject_source):
     return differing
 
 
+def unescape(token):
+    return token.replace("$:", ":").replace("$ ", " ").replace("$$", "$")
+
+
+def split_edge(text):
+    """Split a ninja edge on unescaped whitespace, honoring `$ `."""
+    tokens, current, index = [], [], 0
+    while index < len(text):
+        character = text[index]
+        if character == "$" and index + 1 < len(text):
+            current.append(text[index:index + 2])
+            index += 2
+            continue
+        if character.isspace():
+            if current:
+                tokens.append("".join(current))
+                current = []
+            index += 1
+            continue
+        current.append(character)
+        index += 1
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+BINDING = re.compile(r"^([A-Za-z0-9_.-]+)\s*=\s*(.*)$")
+
+
+def expand(token, bindings):
+    """Substitute top-level bindings, which is what CMake's paths reference."""
+    for _ in range(8):
+        replaced = re.sub(r"\$\{([A-Za-z0-9_.-]+)\}|\$([A-Za-z0-9_.-]+)",
+                          lambda match: bindings.get(
+                              match.group(1) or match.group(2), match.group(0)),
+                          token)
+        if replaced == token:
+            return token
+        token = replaced
+    return token
+
+
 def read_consumers(ninja_path):
-    """input -> outputs, over every build edge ninja records."""
+    """input -> outputs over every build edge, with unevaluated edges counted."""
     consumers = collections.defaultdict(set)
+    unevaluated = 0
     with open(ninja_path) as handle:
+        joined, pending = [], ""
         for line in handle:
-            if not line.startswith("build "):
+            line = line.rstrip("\n")
+            if line.endswith("$") and not line.endswith("$$"):
+                pending += line[:-1]
                 continue
-            body = line[len("build "):].rstrip("\n")
-            if ":" not in body:
+            joined.append(pending + line)
+            pending = ""
+        if pending:
+            joined.append(pending)
+    bindings = {}
+    for line in joined:
+        if line.startswith((" ", "\t")) or not line or line.startswith("#"):
+            continue
+        match = BINDING.match(line)
+        if match:
+            bindings[match.group(1)] = match.group(2).strip()
+    for line in joined:
+        if not line.startswith("build "):
+            continue
+        body = line[len("build "):]
+        separator = -1
+        index = 0
+        while index < len(body):
+            if body[index] == "$":
+                index += 2
                 continue
-            outputs, remainder = body.split(":", 1)
-            output_names = outputs.replace("|", " ").split()
-            input_names = [name for name in remainder.split()[1:]
-                           if name not in ("|", "||")]
-            for name in input_names:
-                for output in output_names:
-                    consumers[name].add(output)
-    return consumers
+            if body[index] == ":":
+                separator = index
+                break
+            index += 1
+        if separator < 0:
+            continue
+        output_tokens = [expand(token, bindings)
+                         for token in split_edge(body[:separator])]
+        input_tokens = [expand(token, bindings)
+                        for token in split_edge(body[separator + 1:])[1:]]
+        edge_tokens = output_tokens + input_tokens
+        if any(NINJA_VARIABLE.search(token) for token in edge_tokens):
+            unevaluated += 1
+        output_names = [unescape(token) for token in output_tokens
+                        if token != "|"]
+        input_names = [unescape(token) for token in input_tokens
+                       if token not in ("|", "||")]
+        for name in input_names:
+            for output in output_names:
+                consumers[name].add(output)
+    return consumers, unevaluated
 
 
 def transitive_consumers(consumers, seed):
@@ -174,20 +297,17 @@ def transitive_consumers(consumers, seed):
 
 
 def objects_for(consumers, name):
-    """The compiled objects ninja derives from one source path."""
-    direct = sorted(output for output in consumers.get(name, ())
-                    if output.endswith(".o"))
-    if direct:
-        return direct
-    suffix = os.path.basename(name) + ".o"
-    return sorted({output for outputs in consumers.values()
-                   for output in outputs if output.endswith(suffix)})
+    """Every compiled object ninja derives from one source path."""
+    return sorted(output for output in consumers.get(name, ())
+                  if output.endswith(".o"))
 
 
 def resolve_objects(consumers, source_directory, relative_source):
-    """Ninja names its inputs by absolute path where the source is out of tree."""
+    """Ninja names an input by absolute or by relative path, so union both."""
     absolute = os.path.join(source_directory, relative_source)
-    return objects_for(consumers, absolute) or objects_for(consumers, relative_source)
+    found = set(objects_for(consumers, absolute))
+    found.update(objects_for(consumers, relative_source))
+    return sorted(found)
 
 
 def cuda_library(build_directory):
@@ -202,25 +322,71 @@ def cuda_library(build_directory):
     return found
 
 
+def module_units(line):
+    """Each module identifier paired with the translation unit it names.
+
+    The mangling spells the unit as a decimal length followed by that many
+    characters, so reading the length is what separates the unit from the
+    function name that follows it; keying on the whole tail instead would give
+    one identifier several units and read as a collision.
+    """
+    for match in MODULE_LENGTHED.finditer(line):
+        length = int(match.group(2))
+        unit = line[match.end():match.end() + length]
+        if len(unit) == length:
+            yield match.group(1), unit
+
+
+def module_placeholder(unit):
+    """A width-preserving stand-in that keeps distinct units distinct."""
+    return hashlib.sha256(unit).hexdigest()[:8].encode()
+
+
 def device_code_digest(build_directory, cuobjdump):
+    """The disassembly digest, its coverage, and its module identifiers."""
+    reading = {"digest": "absent", "library": "no CUDA backend library",
+               "lines": 0, "functions": 0, "identifiers": {}, "unmapped": 0}
     library = cuda_library(build_directory)
     if library is None:
-        return "absent", "no CUDA backend library", 0
+        return reading
+    reading["library"] = sanitize(library)
     try:
         process = subprocess.Popen([cuobjdump, "-sass", library],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL)
     except OSError:
-        return "unavailable", sanitize(library), 0
-    digest = hashlib.sha256()
-    identifiers = set()
+        reading["digest"] = "unavailable"
+        return reading
+    body = []
     for line in process.stdout:
-        identifiers.update(MODULE_IDENTIFIER.findall(line))
-        digest.update(MODULE_IDENTIFIER.sub(MODULE_PLACEHOLDER, line))
+        reading["lines"] += 1
+        if SASS_FUNCTION.search(line):
+            reading["functions"] += 1
+        for identifier, unit in module_units(line):
+            reading["identifiers"].setdefault(identifier, set()).add(unit)
+        body.append(line)
     process.stdout.close()
     if process.wait() != 0:
-        return "unavailable", sanitize(library), len(identifiers)
-    return digest.hexdigest(), sanitize(library), len(identifiers)
+        reading["digest"] = "unavailable"
+        return reading
+    if reading["functions"] == 0:
+        reading["digest"] = "unavailable"
+        return reading
+    mapping = {}
+    for identifier, units in reading["identifiers"].items():
+        if len(units) == 1:
+            mapping[identifier] = module_placeholder(sorted(units)[0])
+    digest = hashlib.sha256()
+    for line in body:
+        def replace(match):
+            identifier = match.group(1)
+            if identifier in mapping:
+                return b"_INTERNAL_" + mapping[identifier] + b"_"
+            reading["unmapped"] += 1
+            return b"_INTERNAL_UNMAPPED_"
+        digest.update(MODULE_SHORT.sub(replace, line))
+    reading["digest"] = digest.hexdigest()
+    return reading
 
 
 def write_rows(path, header, rows):
@@ -241,13 +407,14 @@ def main():
     arguments = parser.parse_args()
 
     os.makedirs(arguments.out, exist_ok=True)
-    control = read_configuration(arguments.control_build)
-    subject = read_configuration(arguments.subject_build)
+    builds = {"control": arguments.control_build, "subject": arguments.subject_build}
+    configuration = {name: read_configuration(path) for name, path in builds.items()}
 
-    fields = sorted(set(control) | set(subject))
-    delta = [(field, control.get(field, "absent"), subject.get(field, "absent"))
+    fields = sorted(set(configuration["control"]) | set(configuration["subject"]))
+    delta = [(field, configuration["control"].get(field, "absent"),
+              configuration["subject"].get(field, "absent"))
              for field in fields
-             if control.get(field) != subject.get(field)]
+             if configuration["control"].get(field) != configuration["subject"].get(field)]
     write_rows(os.path.join(arguments.out, "configuration-delta.tsv"),
                ("field", "control", "subject"), delta)
     print("configuration_axes=%d" % len(delta))
@@ -258,49 +425,61 @@ def main():
         print("comparison_refused reason=configuration_axes_not_source_alone")
         return EXIT_STATUS[REFUTED]
 
-    control_source = read_source_directory(arguments.control_build)
-    subject_source = read_source_directory(arguments.subject_build)
-    print("build_paths_equal=%s"
-          % ("yes" if control_source == subject_source else "no"))
+    sources = {name: read_source_directory(path) for name, path in builds.items()}
+    print("source_paths_equal=%s"
+          % ("yes" if sources["control"] == sources["subject"] else "no"))
 
-    differing = differing_sources(control_source, subject_source)
+    # A build directory names a source path; the tree at that path now is not
+    # necessarily the tree the build recorded, so bind the two before reading.
+    bound = 0
+    for name in ("control", "subject"):
+        recorded = configuration[name].get("source_diff_sha256", "absent")
+        observed = source_diff_digest(sources[name])
+        matched = recorded == observed
+        bound += 1 if matched else 0
+        print("source_binding closure=%s recorded=%s observed=%s match=%s"
+              % (name, recorded[:12], observed[:12], "yes" if matched else "no"))
+
+    differing = differing_sources(sources["control"], sources["subject"])
     write_rows(os.path.join(arguments.out, "source-delta.tsv"),
                ("path", "control_sha256", "subject_sha256"), differing)
     print("differing_sources=%d" % len(differing))
 
-    graphs = {
-        "control": (read_consumers(os.path.join(arguments.control_build,
-                                                "build.ninja")), control_source),
-        "subject": (read_consumers(os.path.join(arguments.subject_build,
-                                                "build.ninja")), subject_source),
-    }
+    graphs = {}
+    unevaluated_total = 0
+    for name in ("control", "subject"):
+        consumers, unevaluated = read_consumers(
+            os.path.join(builds[name], "build.ninja"))
+        graphs[name] = consumers
+        unevaluated_total += unevaluated
+        print("graph closure=%s edges_unevaluated=%d" % (name, unevaluated))
+
     reachability = []
     device_reached = 0
     untraced = 0
     disagreeing = 0
     for relative, _, _ in differing:
-        artifact_sets = {}
-        for closure, (consumers, source) in graphs.items():
-            objects = resolve_objects(consumers, source, relative)
+        reached_sets = {}
+        for name in ("control", "subject"):
+            objects = resolve_objects(graphs[name], sources[name], relative)
             if not objects:
                 untraced += 1
-                reachability.append((closure, relative, "none", 0, 0, "no_object"))
-                artifact_sets[closure] = None
+                reachability.append((name, relative, "none", 0, 0, "no_object"))
+                reached_sets[name] = None
                 continue
-            artifacts = set()
+            whole = set()
             for object_name in objects:
-                reached = transitive_consumers(consumers, object_name)
-                device = sorted(name for name in reached
-                                if DEVICE_TARGET.search(name))
+                reached = transitive_consumers(graphs[name], object_name)
+                whole.update(reached)
+                device = sorted(node for node in reached
+                                if DEVICE_TARGET.search(node))
                 device_reached += len(device)
-                closure_artifacts = sorted(name for name in reached
-                                           if name.startswith("bin/"))
-                artifacts.update(closure_artifacts)
-                reachability.append((closure, relative, object_name, len(reached),
-                                     len(device),
-                                     ",".join(closure_artifacts) or "none"))
-            artifact_sets[closure] = artifacts
-        if artifact_sets.get("control") != artifact_sets.get("subject"):
+                artifacts = sorted(node for node in reached
+                                   if node.startswith("bin/"))
+                reachability.append((name, relative, object_name, len(reached),
+                                     len(device), ",".join(artifacts) or "none"))
+            reached_sets[name] = whole
+        if reached_sets.get("control") != reached_sets.get("subject"):
             disagreeing += 1
     write_rows(os.path.join(arguments.out, "reachability.tsv"),
                ("closure", "source", "object", "transitive_consumers",
@@ -316,33 +495,61 @@ def main():
         print("device_code=not_run reason=skip_requested")
         device_verdict = "not_run"
     else:
-        control_digest, control_library, control_ids = device_code_digest(
-            arguments.control_build, arguments.cuobjdump)
-        subject_digest, subject_library, subject_ids = device_code_digest(
-            arguments.subject_build, arguments.cuobjdump)
+        readings = {name: device_code_digest(builds[name], arguments.cuobjdump)
+                    for name in ("control", "subject")}
         write_rows(os.path.join(arguments.out, "device-code.tsv"),
-                   ("closure", "sass_sha256", "module_identifiers", "library"),
-                   (("control", control_digest, control_ids, control_library),
-                    ("subject", subject_digest, subject_ids, subject_library)))
-        print("module_identifiers_normalized control=%d subject=%d"
-              % (control_ids, subject_ids))
-        if {control_digest, subject_digest} & {"absent", "unavailable"}:
+                   ("closure", "sass_sha256", "sass_lines", "sass_functions",
+                    "module_identifiers", "unmapped_identifiers", "library"),
+                   tuple((name, readings[name]["digest"], readings[name]["lines"],
+                          readings[name]["functions"],
+                          len(readings[name]["identifiers"]),
+                          readings[name]["unmapped"], readings[name]["library"])
+                         for name in ("control", "subject")))
+        units = {name: {unit for units in readings[name]["identifiers"].values()
+                        for unit in units} for name in ("control", "subject")}
+        injective = True
+        for name in ("control", "subject"):
+            claimed = collections.Counter()
+            for units_of in readings[name]["identifiers"].values():
+                if len(units_of) != 1:
+                    injective = False
+                    continue
+                claimed[sorted(units_of)[0]] += 1
+            if any(count > 1 for count in claimed.values()):
+                injective = False
+        unmapped = sum(readings[name]["unmapped"] for name in readings)
+        print("module_identifiers control=%d subject=%d units_match=%s "
+              "injective=%s unmapped=%d"
+              % (len(readings["control"]["identifiers"]),
+                 len(readings["subject"]["identifiers"]),
+                 "yes" if units["control"] == units["subject"] else "no",
+                 "yes" if injective else "no", unmapped))
+        print("device_code_coverage control_lines=%d control_functions=%d "
+              "subject_lines=%d subject_functions=%d"
+              % (readings["control"]["lines"], readings["control"]["functions"],
+                 readings["subject"]["lines"], readings["subject"]["functions"]))
+        digests = {readings[name]["digest"] for name in readings}
+        if digests & {"absent", "unavailable"}:
             device_verdict = "unavailable"
-        elif control_digest == subject_digest:
-            device_verdict = "identical"
-        else:
+        elif len(digests) > 1:
             device_verdict = "differs"
+        elif not injective or unmapped or units["control"] != units["subject"]:
+            device_verdict = "unresolved_identifiers"
+        else:
+            device_verdict = "identical"
         print("device_code=%s control=%s subject=%s"
-              % (device_verdict, control_digest[:12], subject_digest[:12]))
+              % (device_verdict, readings["control"]["digest"][:12],
+                 readings["subject"]["digest"][:12]))
 
     if device_reached or device_verdict == "differs":
         verdict = REFUTED
-    elif untraced or disagreeing or device_verdict != "identical":
+    elif (untraced or disagreeing or unevaluated_total or bound != 2
+            or device_verdict != "identical"):
         verdict = NOT_ESTABLISHED
     else:
         verdict = HELD
     print("device_path_isolation=%s" % verdict)
-    if control_source != subject_source:
+    if sources["control"] != sources["subject"]:
         print("artifact_byte_comparison=unavailable reason=build_paths_differ")
     return EXIT_STATUS[verdict]
 
