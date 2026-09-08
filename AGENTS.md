@@ -7,6 +7,24 @@ The user-level guide supplies the shared baseline. This file holds the repositor
 
 `AGENTS.md` is the root instruction file for qwen-nvidia and owns its rules. Every agent and contributor reads it directly. `CLAUDE.md` is a tracked, repository-relative symbolic link to `AGENTS.md`, so Claude Code receives the canonical rules through the same bytes and the body lives in one place. A tool that requires a differently named loader references this file rather than copying doctrine that can drift.
 
+## Artifact storage and publication
+
+Task outputs live inside this repository. `.local-artifacts/` is the ignored
+home for raw captures, gate logs, scratch worktrees, and local tool environments;
+new task output directories stay out of the user's home and external scratch
+locations. `ARTIFACTS.md` defines the layout and the promotion route into
+tracked `evidence/`. Existing live source/build paths remain stable until an
+identity-preserving migration is admitted; moving a mapped binary or changing
+a build path is a runtime/provenance transition, not ordinary output cleanup.
+
+Analyze retained output before promoting a compact, sanitized record into Git.
+`scripts/sanitize-public-artifact.py SOURCE DESTINATION` creates a fresh text
+copy and preserves the raw source. Its `--check` mode rejects workstation home
+paths and labeled private usernames/hostnames in tracked bytes, and rejects
+force-added `.local-artifacts/` paths. CI runs that check before its full gate.
+The check establishes those identifier patterns, not general secret absence;
+raw profiler restrictions and the clean-environment wrapper remain mandatory.
+
 ## The repository runs on one machine
 
 The Git tree and the runtime share a host. A `scripts/` script executes from the
@@ -2353,6 +2371,9 @@ scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
 python3 scripts/test-geometry-service.py
 scripts/test-repository-quality-gates-host-role.sh
+python3 scripts/test-closure-identity-token-count.py
+python3 scripts/test-sanitize-public-artifact.py
+python3 scripts/sanitize-public-artifact.py --check
 ```
 
 These tests run by hand, and each entry names why the gate leaves it out. A

@@ -142,6 +142,9 @@ python3 scripts/test-physics-service.py
 python3 scripts/test-geometry-service.py
 scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-closure-identity-token-count.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-sanitize-public-artifact.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/sanitize-public-artifact.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-text-policy.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-tracked-artifacts.py
 

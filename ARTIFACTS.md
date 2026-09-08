@@ -30,6 +30,46 @@ the commit `evidence/legacy/raven2/README.md` names. No script under
 in it sets a default in this tree; a default here changes only when a
 measurement under `evidence/ada/` moves it.
 
+## Repository-local artifact layout
+
+New task outputs stay under the owning checkout. `.local-artifacts/` is
+ignored as a whole and is excluded from publication even if force-added:
+
+| Local directory | Contents | Durable publication |
+| --- | --- | --- |
+| `.local-artifacts/raw-profiler/` | exact private profiler captures, preserving relative evidence paths | sanitized exports and raw-file digests under `evidence/` |
+| `.local-artifacts/lease-admission-preparation/` | original gate logs and preparation scratch | `evidence/lease-coverage/admission-preparation/` |
+| `.local-artifacts/gates/` | one named gate run, stdout/stderr, exit status, tested-content receipt | compact revision-bound gate receipt |
+| `.local-artifacts/worktrees/` | disposable authoring checkouts | commits merged into primary main |
+| `.local-artifacts/ci/` | CI virtual environment and temporary files | job verdict on the tested head |
+
+Use a mechanism-named subdirectory for other campaigns. Set `TMPDIR` to the
+run's local temporary directory for tools that honor it. Agent-owned session
+records remain owned by the agent runtime; copy valuable records into this
+layout and verify their hashes rather than editing that runtime's records.
+The existing external model/source/build paths are frozen admission subjects,
+not new output destinations. Preserve those dependencies until a separately
+validated relocation keeps production and telemetry viable.
+
+The artifact inventory in `evidence/lease-coverage/admission-preparation/`
+records ten ignored profiler files relocated by rename with identical hashes,
+and verified copies of the original companion gate's log and exit sentinel.
+Raw profiler bytes remain ignored. The committed companion evidence, closure
+hashes, matrices, publication receipt, and bounded readiness findings are the
+records worth carrying into another checkout.
+
+Create a publication copy with
+`scripts/sanitize-public-artifact.py SOURCE DESTINATION`, inspect its diff,
+stage the accepted evidence, and refresh `evidence/SHA256SUMS`. The source stays
+intact and an existing destination is refused. Sanitization replaces Unix and
+Windows home prefixes with `$HOME` and labeled username/hostname values with
+`redacted`; `qwen-laptop` and explicit unavailable values stay intact.
+Binary inputs require a text export instead of byte rewriting. The CI check
+scans embedded ASCII identifiers in tracked binary files too, and reports
+filenames rather than leaking a rejected value into the public job log.
+Path-shape sanitation is a bounded check; credentials, raw profiler databases,
+and complete environments remain prohibited by their separate policies.
+
 ## Exact artifacts
 
 `scripts/build-llama-cuda.sh` regenerates `llama-server`, `llama-cli`,

@@ -17,15 +17,22 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Check publication sanitation
+        run: python3 scripts/sanitize-public-artifact.py --check
+
+      - name: Prepare repository-local CI artifacts
+        run: mkdir -p .local-artifacts/ci/tmp
+
       - name: Install pinned analysis tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes shellcheck
-          python3 -m venv /tmp/qwen-quality-gates
-          /tmp/qwen-quality-gates/bin/pip install ruff==0.14.11
+          python3 -m venv .local-artifacts/ci/venv
+          .local-artifacts/ci/venv/bin/pip install ruff==0.14.11
 
       - name: Run clone-local gates
         env:
-          PATH: /tmp/qwen-quality-gates/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          TMPDIR: ${{ github.workspace }}/.local-artifacts/ci/tmp
+          PATH: ${{ github.workspace }}/.local-artifacts/ci/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           QWEN_GATE_HOST_ROLE: runner
         run: scripts/repository-quality-gates.sh
