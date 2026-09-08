@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "$HOME/Github/qwen-nvidia/scripts/telemetry-restoration.py", line 455, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "$HOME/Github/qwen-nvidia/scripts/telemetry-restoration.py", line 444, in main
+    return capture(arguments)
+  File "$HOME/Github/qwen-nvidia/scripts/telemetry-restoration.py", line 124, in capture
+    owner_holder_pid = lineage_holds_file(arguments.pid, arguments.owner_lock,
+                                          arguments.proc_root)
+  File "$HOME/Github/qwen-nvidia/scripts/telemetry-restoration.py", line 216, in lineage_holds_file
+    observed_pid = process_record(observed_pid, proc_root)["parent_pid"]
+                   ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "$HOME/Github/qwen-nvidia/scripts/telemetry-restoration.py", line 26, in process_record
+    executable = os.readlink(root / "exe")
+PermissionError: [Errno 13] Permission denied: '/proc/1805/exe'
