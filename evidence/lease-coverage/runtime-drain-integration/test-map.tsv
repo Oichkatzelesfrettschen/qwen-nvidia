@@ -1,0 +1,19 @@
+mechanism	fixture	observation	boundary
+session_active_operation	scripts/test-qwen-session-signals.sh	accepted operation terminates before server retirement	off-device subprocess
+session_closed_admission	scripts/test-qwen-session-signals.sh	quiescing barrier refuses new execution	off-device subprocess
+child_teardown_proof	scripts/test-qwen-retire-server-child.sh	matching generation and positive teardown proof required	off-device subprocess
+controller_original_identity	scripts/test-qwen-drain-controller.sh	retire and resume validate original inflight identity	off-device barrier
+router_capacity_transition	scripts/test-router-retirement-caller.py	old terminal then exit then replacement ready; listener survives	CPU-only compiled router and fake child
+router_adapter	scripts/test-router-orderly-retirement.py	controller integration and missing-proof refusal	off-device HTTP protocol
+page_result_attribution	scripts/test-router-attribution-page-state.mjs	actual page result handler refuses stale conversation generation	production function with Node fixture
+telemetry_exact_restore	scripts/test-telemetry-restoration.py	argv executable environment config model libraries listener verified	isolated tmux and HTTP service
+telemetry_unsafe_preconditions	scripts/test-telemetry-restoration.py	residue lease owner and latch refuse restart	off-device subprocess
+telemetry_launch_failure	scripts/test-telemetry-restoration.py	affinity exec and malformed inputs produce blocked receipts	off-device subprocess
+telemetry_postlaunch_failure	scripts/test-telemetry-restoration.py	failed validation retains generation identity for explicit teardown	off-device subprocess
+session_integration_mutations	scripts/test-drain-integration-mutations.sh	intended drain-bypass and missing-proof assertions discriminate	disposable fixture snapshots
+campaign_late_descendant	scripts/test-telemetry-restoration.py	terminal process-session census detects child created by TERM handler	off-device subprocess
+answered_and_unanswered_connections	scripts/test-drain-client-attachment.py	completed keep-alive separates from unanswered attached request	existing stand-in protocol discrimination
+router_partial_output_deadline	scripts/test-router-retirement-caller.py QWEN_ROUTER_CALLER_MODE=partial-output	partial hook output reaches bounded refusal; listener survives	CPU-only compiled router
+router_attribution_transition	scripts/test-router-retirement-caller.py QWEN_ROUTER_CALLER_MODE=attribution	page-produced approval metadata artifact and tool history survive replacement	CPU-only compiled router and production page function
+session_pre_kill_identity	scripts/test-qwen-session-signals.sh	acknowledged TERM then changed identity withholds KILL and records failure	off-device subprocess
+router_early_replacement_mutation	scripts/test-router-retirement-caller.py	capacity-guard mutant fails named actual-generation ordering assertion	disposable CPU-only source and build

@@ -35,6 +35,10 @@ mkdir -p "$fixture_scripts"
 # /tmp/qwen-ad104-gpu-0.lock stays untouched.
 cp "$script_directory/gpu-workload-ownership.sh" \
     "$fixture_scripts/gpu-workload-ownership.sh"
+for drain_script in qwen-admission-barrier.sh qwen-drain-controller.sh \
+        qwen-retire-server-child.sh qwen-router-orderly-retire.py; do
+    cp "$script_directory/$drain_script" "$fixture_scripts/$drain_script"
+done
 QWEN_GPU_OWNERSHIP_LOCK=$temporary_directory/owner.lock
 QWEN_GPU_OWNERSHIP_NVIDIA_SMI=$temporary_directory/nvidia-smi
 QWEN_GPU_COMPUTE_LEASE=$temporary_directory/absent.lease
@@ -47,10 +51,21 @@ cp "$script_directory/qwen-webui-session.sh" \
 cat >"$fixture_scripts/run-qwen-capacity-server.sh" <<'SERVER'
 #!/bin/sh
 printf '%s\n' "$$" >"$QWEN_TEST_SERVER_PID_MARKER"
-trap 'exit 0' HUP INT TERM
-while :; do
-    sleep 1
-done
+if [ -n "${QWEN_TEST_ROUTER_RETIRE_ENV_RECORD:-}" ]; then
+    printf 'command=%s\napi_key_file=%s\n' \
+        "${QWEN_ROUTER_RETIRE_COMMAND:-unset}" \
+        "${QWEN_ROUTER_RETIRE_API_KEY_FILE:-unset}" \
+        >"$QWEN_TEST_ROUTER_RETIRE_ENV_RECORD"
+fi
+on_term() {
+    [ "${QWEN_TEST_TEARDOWN_PROOF:-held}" = missing ] ||
+        printf 'workload lease teardown: held=yes\n'
+    exit 0
+}
+trap on_term HUP INT TERM
+wait_pipe=${QWEN_TEST_SERVER_PID_MARKER}.wait
+mkfifo "$wait_pipe"
+while :; do read -r wait_value <"$wait_pipe" || true; done
 SERVER
 cat >"$fixture_scripts/signal-reset-exec.py" <<'PYTHON'
 import os
@@ -69,10 +84,12 @@ for signal_and_status in HUP:129 INT:130 TERM:143; do
     state_directory=$temporary_directory/state-$signal_name
     server_pid_marker=$temporary_directory/server-$signal_name.pid
     router_snapshot=$state_directory/.router-presets.active.$signal_name
+    router_retire_env=$temporary_directory/router-retire-default-$signal_name.env
     mkdir -p "$state_directory"
     : >"$router_snapshot"
     QWEN_ROUTER=1 QWEN_ROUTER_PRESETS=$router_snapshot \
         QWEN_TEST_SERVER_PID_MARKER=$server_pid_marker \
+        QWEN_TEST_ROUTER_RETIRE_ENV_RECORD=$router_retire_env \
         python3 "$fixture_scripts/signal-reset-exec.py" \
             "$fixture_scripts/qwen-webui-session.sh" \
                 "$temporary_directory/fake-server" \
@@ -93,6 +110,8 @@ for signal_and_status in HUP:129 INT:130 TERM:143; do
         exit 1
     fi
     server_pid=$(sed -n '1p' "$server_pid_marker")
+    grep -Fqx 'command=unset' "$router_retire_env"
+    grep -Fqx 'api_key_file=unset' "$router_retire_env"
     kill -"$signal_name" "$session_pid"
     set +e
     wait "$session_pid"
@@ -117,6 +136,136 @@ for signal_and_status in HUP:129 INT:130 TERM:143; do
     fi
 done
 
+# The explicit orderly-router switch sends the helper and the generated API-key
+# reference through the actual capacity-server launch. The default signal arms
+# above receive neither variable because the session unsets both at flag zero.
+state_directory=$temporary_directory/state-router-retire-env
+server_pid_marker=$temporary_directory/server-router-retire-env.pid
+router_env_record=$temporary_directory/router-retire.env
+mkdir -p "$state_directory"
+QWEN_ROUTER=1 QWEN_ROUTER_ORDERLY_RETIREMENT=1 QWEN_REQUIRE_API_KEY=1 \
+    QWEN_TEST_SERVER_PID_MARKER=$server_pid_marker \
+    QWEN_TEST_ROUTER_RETIRE_ENV_RECORD=$router_env_record \
+    "$fixture_scripts/qwen-webui-session.sh" \
+        "$temporary_directory/fake-server" "$temporary_directory/fake-model" \
+        "$temporary_directory/fake-static" 4096 4096 18080 "$state_directory" default \
+    >"$temporary_directory/session-router-env.stdout" \
+    2>"$temporary_directory/session-router-env.stderr" &
+session_pid=$!
+attempt=0
+while [ ! -s "$router_env_record" ] && [ "$attempt" -lt 200 ]; do
+    attempt=$((attempt + 1)); sleep 0.01
+done
+grep -Fqx "command=$fixture_scripts/qwen-router-orderly-retire.py" "$router_env_record"
+grep -Fqx "api_key_file=$state_directory/api.key" "$router_env_record"
+kill -TERM "$session_pid"
+wait "$session_pid" 2>/dev/null || true
+session_pid=''
+
+# A prior successful record cannot certify a new session whose child supplies
+# no teardown proof. Startup truncates the owned record and the new terminal
+# line binds the failure to the new session PID and start time.
+if [ "${QWEN_SKIP_STALE_RETIREMENT_FIXTURE:-0}" != 1 ]; then
+state_directory=$temporary_directory/state-stale-retirement
+server_pid_marker=$temporary_directory/server-stale-retirement.pid
+mkdir -p "$state_directory"
+printf 'teardown_exclusion=orderly\nsession_retirement=completed session_pid=1 session_start_time=1 barrier_identity=1:1\n' \
+    >"$state_directory/session-drain.record"
+QWEN_TEST_TEARDOWN_PROOF=missing QWEN_TEST_SERVER_PID_MARKER=$server_pid_marker \
+    "$fixture_scripts/qwen-webui-session.sh" \
+        "$temporary_directory/fake-server" "$temporary_directory/fake-model" \
+        "$temporary_directory/fake-static" 4096 4096 18080 "$state_directory" default \
+    >"$temporary_directory/session-stale.stdout" 2>"$temporary_directory/session-stale.stderr" &
+session_pid=$!
+attempt=0
+while [ ! -s "$server_pid_marker" ] && [ "$attempt" -lt 100 ]; do
+    attempt=$((attempt + 1)); sleep 0.01
+done
+kill -TERM "$session_pid"
+wait "$session_pid" 2>/dev/null || true
+session_pid=''
+terminal_retirement=$(grep '^session_retirement=' "$state_directory/session-drain.record" | tail -n 1)
+case $terminal_retirement in
+    'session_retirement=failed status=4 session_pid='*) ;;
+    *) printf 'stale success certified new failed retirement: %s\n' "$terminal_retirement" >&2; exit 1 ;;
+esac
+if grep -q 'session_pid=1 session_start_time=1' "$state_directory/session-drain.record"; then
+    printf 'session startup retained stale retirement record\n' >&2
+    exit 1
+fi
+fi
+
+# An admitted operation retains its active reference through session shutdown.
+# The controller closes admission first, waits for the accepted operation's
+# terminal marker, and only then signals the real server child. A request that
+# arrives after quiescence cannot reopen the execution set.
+state_directory=$temporary_directory/state-active-drain
+server_pid_marker=$temporary_directory/server-active-drain.pid
+active_started=$temporary_directory/active.started
+active_release=$temporary_directory/active.release
+mkdir -p "$state_directory"
+QWEN_TEST_SERVER_PID_MARKER=$server_pid_marker \
+    python3 "$fixture_scripts/signal-reset-exec.py" \
+        "$fixture_scripts/qwen-webui-session.sh" \
+            "$temporary_directory/fake-server" "$temporary_directory/fake-model" \
+            "$temporary_directory/fake-static" 4096 4096 18080 \
+            "$state_directory" default \
+    >"$temporary_directory/session-active.stdout" \
+    2>"$temporary_directory/session-active.stderr" &
+session_pid=$!
+attempt=0
+while [ ! -s "$server_pid_marker" ] && [ "$attempt" -lt 100 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+done
+[ -s "$server_pid_marker" ] || { printf 'active-drain server did not start\n' >&2; exit 1; }
+server_pid=$(sed -n '1p' "$server_pid_marker")
+QWEN_GPU_ADMISSION_BARRIER=$state_directory \
+    "$fixture_scripts/qwen-drain-controller.sh" admit -- \
+        sh -c 'touch "$1"; while [ ! -e "$2" ]; do sleep 0.05; done' \
+            sh "$active_started" "$active_release" &
+active_pid=$!
+attempt=0
+while [ ! -e "$active_started" ] && [ "$attempt" -lt 100 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+done
+[ -e "$active_started" ] || { printf 'active operation did not start\n' >&2; exit 1; }
+kill -TERM "$session_pid"
+attempt=0
+while [ "$(sed -n '1p' "$state_directory/admission.barrier" 2>/dev/null || true)" != quiescing ] && \
+      [ "$attempt" -lt 100 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+done
+if ! kill -0 "$server_pid" 2>/dev/null || ! kill -0 "$session_pid" 2>/dev/null; then
+    printf 'session retirement did not wait for active work\n' >&2
+    exit 1
+fi
+if QWEN_GPU_ADMISSION_BARRIER=$state_directory \
+    "$fixture_scripts/qwen-drain-controller.sh" admit -- true >/dev/null 2>&1; then
+    printf 'quiescing session admitted new work\n' >&2
+    exit 1
+fi
+touch "$active_release"
+wait "$active_pid"
+set +e
+wait "$session_pid"
+session_status=$?
+set -e
+session_pid=''
+server_pid=''
+if [ "$session_status" -ne 143 ]; then
+    printf 'active-drain session returned %s instead of 143\n' "$session_status" >&2
+    exit 1
+fi
+if ! grep -q 'teardown_exclusion=orderly' "$state_directory/session-drain.record" ||
+   ! grep -q 'session_retirement=completed' "$state_directory/session-drain.record"; then
+    printf 'active-drain session lacks positive orderly evidence\n' >&2
+    cat "$state_directory/session-drain.record" >&2
+    exit 1
+fi
+
 # The approval broker is a guarded child of the same session, so the arms below
 # drive a complete startup rather than the readiness loop the signal arms stop
 # inside: session.status carries broker_pid only after state=running, and the
@@ -124,7 +273,11 @@ done
 # startup reaches is a fixture, so the arm runs without a device.
 cat >"$fixture_scripts/monitor-qwen-runtime.sh" <<'MONITOR'
 #!/bin/sh
-trap 'exit 0' HUP INT TERM
+if [ -n "${QWEN_TEST_MONITOR_TERM_MARKER:-}" ]; then
+    trap 'touch "$QWEN_TEST_MONITOR_TERM_MARKER"' TERM
+else
+    trap 'exit 0' HUP INT TERM
+fi
 while :; do
     sleep 1
 done
@@ -545,6 +698,100 @@ run_teardown_arm() {
     teardown_status=$?
     set -e
 }
+
+# A disposable source mutation changes only the monitor's recorded start time.
+# The live monitor must remain unsignalled, the mismatch must be explicit, and
+# the terminal session record must refuse a successful cleanup claim.
+cp "$fixture_scripts/qwen-webui-session.sh" \
+    "$temporary_directory/qwen-webui-session.identity-control.sh"
+sed 's/^monitor_start_time=$(sed /monitor_start_time=1 # fixture mismatch; original: $(sed /' \
+    "$temporary_directory/qwen-webui-session.identity-control.sh" \
+    >"$fixture_scripts/qwen-webui-session.sh.new"
+mv "$fixture_scripts/qwen-webui-session.sh.new" \
+    "$fixture_scripts/qwen-webui-session.sh"
+chmod +x "$fixture_scripts/qwen-webui-session.sh"
+identity_state_directory=$temporary_directory/state-session-identity-mismatch
+start_ready_session "$identity_state_directory" 0
+identity_monitor_pid=$(read_status_field "$identity_state_directory" monitor_pid)
+kill -TERM "$session_pid"
+wait "$session_pid" 2>/dev/null || true
+session_pid=''
+if ! kill -0 "$identity_monitor_pid" 2>/dev/null; then
+    printf 'session signalled a monitor whose start identity did not match\n' >&2
+    exit 1
+fi
+if ! grep -Eq "^cleanup_identity_mismatch component=monitor pid=$identity_monitor_pid recorded_start=1 live_start=[0-9]+$" \
+    "$identity_state_directory/session-drain.record"; then
+    printf 'session did not record the monitor identity mismatch\n' >&2
+    cat "$identity_state_directory/session-drain.record" >&2
+    exit 1
+fi
+if ! grep -q '^session_retirement=failed ' \
+    "$identity_state_directory/session-drain.record"; then
+    printf 'session accepted cleanup after a child identity mismatch\n' >&2
+    cat "$identity_state_directory/session-drain.record" >&2
+    exit 1
+fi
+kill -TERM "$identity_monitor_pid" 2>/dev/null || true
+cp "$temporary_directory/qwen-webui-session.identity-control.sh" \
+    "$fixture_scripts/qwen-webui-session.sh"
+
+# The monitor acknowledges TERM but remains alive. A disposable session copy
+# shortens the wait bound and makes the second identity read represent a PID
+# reused after TERM. The session must withhold KILL and reject orderly cleanup.
+cp "$fixture_scripts/qwen-webui-session.sh" \
+    "$temporary_directory/qwen-webui-session.pre-kill-control.sh"
+python3 - "$fixture_scripts/qwen-webui-session.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+identity_read = "live_child_start=$(sed 's/^.*) //' \"/proc/$child_pid/stat\" 2>/dev/null | awk '{ print $20 }')"
+if source.count(identity_read) != 1:
+    raise SystemExit("pre-KILL identity read was not unique")
+source = source.replace(identity_read, "live_child_start=1")
+source = source.replace('[ "$child_waited_ms" -lt 10000 ]',
+                        '[ "$child_waited_ms" -lt 50 ]')
+path.write_text(source)
+PYTHON
+pre_kill_state_directory=$temporary_directory/state-session-pre-kill-identity-mismatch
+pre_kill_term_marker=$temporary_directory/monitor-pre-kill.term
+QWEN_TEST_MONITOR_TERM_MARKER=$pre_kill_term_marker
+export QWEN_TEST_MONITOR_TERM_MARKER
+start_ready_session "$pre_kill_state_directory" 0
+pre_kill_monitor_pid=$(read_status_field "$pre_kill_state_directory" monitor_pid)
+kill -TERM "$session_pid"
+wait "$session_pid" 2>/dev/null || true
+session_pid=''
+unset QWEN_TEST_MONITOR_TERM_MARKER
+attempt=0
+while [ ! -e "$pre_kill_term_marker" ] && [ "$attempt" -lt 200 ]; do
+    attempt=$((attempt + 1)); sleep 0.01
+done
+if [ ! -e "$pre_kill_term_marker" ]; then
+    printf 'monitor did not receive TERM before the identity transition\n' >&2
+    exit 1
+fi
+if ! kill -0 "$pre_kill_monitor_pid" 2>/dev/null; then
+    printf 'session sent KILL after the pre-KILL identity changed\n' >&2
+    exit 1
+fi
+if ! grep -Eq "^cleanup_identity_mismatch component=monitor pid=$pre_kill_monitor_pid recorded_start=[0-9]+ live_start=1$" \
+    "$pre_kill_state_directory/session-drain.record"; then
+    printf 'session did not record the pre-KILL identity mismatch\n' >&2
+    cat "$pre_kill_state_directory/session-drain.record" >&2
+    exit 1
+fi
+if ! grep -q '^session_retirement=failed ' \
+    "$pre_kill_state_directory/session-drain.record"; then
+    printf 'session accepted cleanup after the pre-KILL identity mismatch\n' >&2
+    cat "$pre_kill_state_directory/session-drain.record" >&2
+    exit 1
+fi
+kill -KILL "$pre_kill_monitor_pid" 2>/dev/null || true
+cp "$temporary_directory/qwen-webui-session.pre-kill-control.sh" \
+    "$fixture_scripts/qwen-webui-session.sh"
 
 # The arm reads the broker's own residue lines rather than the exit status,
 # because llama-server, the probe, and the tmux session the teardown also proves

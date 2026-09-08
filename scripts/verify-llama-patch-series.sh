@@ -109,6 +109,31 @@ else
     printf 'candidate_patches=not_run reason=QWEN_LLAMA_CANDIDATE_PATCHES_unset\n'
 fi
 
+# Orderly router retirement changes the host lifecycle above the admitted lease
+# candidate.  It has its own opt-in so enabling the candidate stage continues
+# to reproduce the existing 15bc632adf7f identity.  A build carrying this patch
+# receives a new configuration and source identity before device admission.
+if [ "${QWEN_LLAMA_ORDERLY_RETIREMENT_PATCH:-0}" = 1 ]; then
+    [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ] || {
+        printf 'QWEN_LLAMA_ORDERLY_RETIREMENT_PATCH requires QWEN_LLAMA_CANDIDATE_PATCHES=1\n' >&2
+        exit 2
+    }
+    orderly_retirement_patch=llama-router-orderly-retirement.patch
+    git -C "$temporary_directory/llama.cpp" apply --check \
+        "$patch_directory/$orderly_retirement_patch"
+    git -C "$temporary_directory/llama.cpp" apply \
+        "$patch_directory/$orderly_retirement_patch"
+    git -C "$temporary_directory/llama.cpp" diff --check
+    printf 'orderly_retirement_patch=%s applies=yes\n' "$orderly_retirement_patch"
+    for orderly_retirement_path in common/subproc.cpp common/subproc.h tools/server/server-models.cpp tools/server/server-models.h; do
+        printf 'orderly_retirement_sha256=%s path=%s\n' \
+            "$(sha256sum "$temporary_directory/llama.cpp/$orderly_retirement_path" | cut -d ' ' -f 1)" \
+            "$orderly_retirement_path"
+    done
+else
+    printf 'orderly_retirement_patch=not_run reason=QWEN_LLAMA_ORDERLY_RETIREMENT_PATCH_unset\n'
+fi
+
 # A diagnostic patch is instrumentation whose campaign has closed or whose
 # output is a record rather than a serving change: it applies to a closure
 # built to answer a question and to no closure this repository promotes, so it

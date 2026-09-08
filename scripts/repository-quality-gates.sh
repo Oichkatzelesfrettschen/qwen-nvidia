@@ -34,7 +34,7 @@ script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 cd "$repository_root"
 
-for required_command in bash node shellcheck ruff python3 curl; do
+for required_command in bash node shellcheck ruff python3 curl tmux; do
     if ! command -v "$required_command" >/dev/null 2>&1; then
         printf 'required quality-gate command is absent: %s\n' \
             "$required_command" >&2
@@ -87,6 +87,8 @@ python3 scripts/test-admission-barrier.py
 python3 scripts/test-drain-failure-boundaries.py
 scripts/test-qwen-drain-controller.sh
 python3 scripts/test-drain-client-attachment.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-router-orderly-retirement.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-telemetry-restoration.py
 scripts/check-validated-tuples.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-authority-consistency.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-authority-consistency.py
@@ -113,6 +115,9 @@ scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh
 scripts/test-prepare-llama-vulkan-source.sh
 scripts/test-qwen-session-signals.sh
+scripts/test-qwen-retire-server-child.sh
+scripts/test-drain-integration-mutations.sh
+node scripts/test-router-attribution-page-state.mjs >/dev/null
 scripts/test-admit-web-router-fake.sh
 scripts/test-quality-roster.sh
 scripts/test-qwen-runtime-guards.sh

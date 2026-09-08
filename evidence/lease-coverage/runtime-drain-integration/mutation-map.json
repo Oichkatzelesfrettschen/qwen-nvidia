@@ -1,0 +1,47 @@
+{
+  "mutations": [
+    {
+      "property": "drain_before_session_retirement",
+      "mutation": "replace controller invocation with direct retirement",
+      "oracle": "session retirement did not wait for active work",
+      "result": "discriminates",
+      "test": "scripts/test-drain-integration-mutations.sh"
+    },
+    {
+      "property": "positive_child_teardown_proof",
+      "mutation": "accept zero positive teardown observations",
+      "oracle": "missing teardown proof was accepted",
+      "result": "discriminates",
+      "test": "scripts/test-drain-integration-mutations.sh"
+    },
+    {
+      "property": "old_child_exit_before_replacement",
+      "mutation": "disable constructor capacity guard while fixture requests models-max=1",
+      "oracle": "replacement generation started before retiring child exited",
+      "result": "discriminates",
+      "test": "scripts/test-router-retirement-caller.py",
+      "control": "early-replacement-control.log",
+      "mutant": "early-replacement-mutant.log"
+    },
+    {
+      "property": "recorded_runtime_selection",
+      "mutation": "restore a different executable",
+      "result": "discriminates",
+      "test": "scripts/test-telemetry-restoration.py"
+    },
+    {
+      "property": "unsafe_latch_refuses_restore",
+      "mutation": "bypass both latch refusal layers",
+      "result": "discriminates",
+      "test": "scripts/test-telemetry-restoration.py"
+    },
+    {
+      "property": "unsafe_owner_refuses_restore",
+      "mutation": "bypass adapter flock only",
+      "result": "redundant guard; existing ownership authority still refuses 75",
+      "test": "scripts/test-telemetry-restoration.py"
+    }
+  ],
+  "earlier_early_replacement_calibration": "failed before intended oracle; raw timeout logs retained locally; superseded by the explicit capacity-guard mutation",
+  "companion_mutation_disposition": "unchanged; separate completed evidence"
+}
