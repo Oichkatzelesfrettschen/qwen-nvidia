@@ -70,11 +70,22 @@ pid_file=$state_directory/server.pid
 status_file=$state_directory/session.status
 api_key_file=$state_directory/api.key
 monitor_pid=""
+monitor_start_time=""
 latency_watchdog_pid=""
+latency_watchdog_start_time=""
 kernel_hazard_watchdog_pid=""
+kernel_hazard_watchdog_start_time=""
 server_pid=""
+server_start_time=""
 broker_pid=""
+broker_start_time=""
+image_service_start_time=""
+physics_service_start_time=""
+geometry_service_start_time=""
 router_preset_snapshot=''
+cleanup_started=0
+drain_record=$state_directory/session-drain.record
+session_start_time=$(sed 's/^.*) //' "/proc/$$/stat" | awk '{ print $20 }')
 # The approval broker signs one search grant per human approval and holds no
 # device, so it is a guarded child of this session the way the probe, the
 # monitor, and the kernel-hazard watcher are. qwen-web-launch.sh sets
@@ -128,46 +139,140 @@ case ${QWEN_ROUTER_PRESETS:-} in
         ;;
 esac
 
+# The serving session arms one stable admission barrier before any service can
+# accept work. A later retirement compares its held descriptor with this exact
+# startup identity rather than accepting whichever inode the pathname names.
+QWEN_GPU_ADMISSION_BARRIER=${QWEN_GPU_ADMISSION_BARRIER:-$state_directory}
+export QWEN_GPU_ADMISSION_BARRIER
+. "$script_directory/qwen-admission-barrier.sh"
+qwen_barrier_initialize
+session_barrier_identity=$(qwen_barrier_session_identity)
+if [ "$session_barrier_identity" = unrecorded ]; then
+    printf 'state=failed reason=admission_barrier_identity_unrecorded utc=%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+    exit 1
+fi
+QWEN_GPU_ADMISSION_IDENTITY=$session_barrier_identity
+export QWEN_GPU_ADMISSION_IDENTITY
+"$script_directory/qwen-drain-controller.sh" resume >/dev/null
+# One session owns one retirement record. Truncating before any child starts
+# prevents a prior successful run from certifying a later failed or killed one.
+: >"$drain_record"
+chmod 600 "$drain_record"
+
 cleanup() {
-    if [ -n "$monitor_pid" ]; then
-        kill "$monitor_pid" 2>/dev/null || true
-        wait "$monitor_pid" 2>/dev/null || true
-    fi
-    if [ -n "$latency_watchdog_pid" ]; then
-        kill "$latency_watchdog_pid" 2>/dev/null || true
-        wait "$latency_watchdog_pid" 2>/dev/null || true
-    fi
-    if [ -n "$kernel_hazard_watchdog_pid" ]; then
-        kill "$kernel_hazard_watchdog_pid" 2>/dev/null || true
-        wait "$kernel_hazard_watchdog_pid" 2>/dev/null || true
+    [ "$cleanup_started" -eq 0 ] || return 0
+    cleanup_started=1
+    retirement_status=0
+    if [ -n "$server_pid" ]; then
+        "$script_directory/qwen-drain-controller.sh" retire \
+                --keep-quiescing --barrier-identity "$session_barrier_identity" \
+                --record "$drain_record" -- \
+                "$script_directory/qwen-retire-server-child.sh" \
+                    "$server_pid" "$server_start_time" "$server_log" || retirement_status=$?
+        if process_running "$server_pid"; then
+            QWEN_DRAIN_MODE=emergency \
+                "$script_directory/qwen-retire-server-child.sh" \
+                    "$server_pid" "$server_start_time" "$server_log" || retirement_status=1
+        fi
     fi
     if [ -n "$server_pid" ]; then
-        kill "$server_pid" 2>/dev/null || true
         wait "$server_pid" 2>/dev/null || true
+        server_pid=""
+        server_start_time=""
     fi
+    cleanup_residue=0
+    stop_owned_child() {
+        child_pid=$1
+        child_name=$2
+        child_start_time=$3
+        [ -n "$child_pid" ] || return 0
+        if [ -r "/proc/$child_pid/stat" ]; then
+            live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" | awk '{ print $20 }')
+            if [ -z "$child_start_time" ] || [ "$live_child_start" != "$child_start_time" ]; then
+                cleanup_residue=1
+                printf 'cleanup_identity_mismatch component=%s pid=%s recorded_start=%s live_start=%s\n' \
+                    "$child_name" "$child_pid" "${child_start_time:-unrecorded}" "$live_child_start" >>"$drain_record"
+                return 0
+            fi
+        else
+            return 0
+        fi
+        kill -TERM "$child_pid" 2>/dev/null || true
+        child_waited_ms=0
+        while process_running "$child_pid" && [ "$child_waited_ms" -lt 10000 ]; do
+            sleep 0.05
+            child_waited_ms=$((child_waited_ms + 50))
+        done
+        if process_running "$child_pid"; then
+            live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" 2>/dev/null | awk '{ print $20 }')
+            if [ "$live_child_start" != "$child_start_time" ]; then
+                cleanup_residue=1
+                printf 'cleanup_identity_mismatch component=%s pid=%s recorded_start=%s live_start=%s\n' \
+                    "$child_name" "$child_pid" "$child_start_time" "${live_child_start:-absent}" >>"$drain_record"
+                return 0
+            fi
+            kill -KILL "$child_pid" 2>/dev/null || true
+            child_waited_ms=0
+            while process_running "$child_pid" && [ "$child_waited_ms" -lt 10000 ]; do
+                sleep 0.05
+                child_waited_ms=$((child_waited_ms + 50))
+            done
+            cleanup_residue=1
+            printf 'cleanup_escalation component=%s pid=%s\n' "$child_name" "$child_pid" >>"$drain_record"
+        fi
+        wait "$child_pid" 2>/dev/null || true
+        if process_running "$child_pid"; then
+            cleanup_residue=1
+        fi
+    }
+    stop_owned_child "$monitor_pid" monitor "$monitor_start_time"
+    stop_owned_child "$latency_watchdog_pid" latency_watchdog "$latency_watchdog_start_time"
+    stop_owned_child "$kernel_hazard_watchdog_pid" kernel_hazard_watchdog "$kernel_hazard_watchdog_start_time"
     # The broker removes its per-launch session secret while unwinding from
     # SIGTERM, so it is signalled and waited for rather than left to the
     # process group: a killed broker leaves that file for the next launch.
     if [ -n "$broker_pid" ]; then
-        kill "$broker_pid" 2>/dev/null || true
-        wait "$broker_pid" 2>/dev/null || true
+        stop_owned_child "$broker_pid" authorization_broker "$broker_start_time"
     fi
     # The image service unlinks its socket and releases the workload lease
     # while unwinding from SIGTERM, and a killed one leaves both for the next
     # launch to meet, so it is signalled and waited for the same way.
     if [ -n "$image_service_pid" ]; then
-        kill "$image_service_pid" 2>/dev/null || true
-        wait "$image_service_pid" 2>/dev/null || true
+        stop_owned_child "$image_service_pid" image_service "$image_service_start_time"
     fi
-    for sidecar_pid in "$physics_service_pid" "$geometry_service_pid"; do
-        if [ -n "$sidecar_pid" ]; then
-            kill "$sidecar_pid" 2>/dev/null || true
-            wait "$sidecar_pid" 2>/dev/null || true
-        fi
-    done
+    stop_owned_child "$physics_service_pid" physics_service "$physics_service_start_time"
+    stop_owned_child "$geometry_service_pid" geometry_service "$geometry_service_start_time"
+    if [ -n "$broker_pid" ] &&
+       { [ -e "$broker_state_directory/authorize-session.secret" ] ||
+         [ -L "$broker_state_directory/authorize-session.secret" ]; }; then
+        cleanup_residue=1
+    fi
+    if [ "$image_service_enabled" = 1 ] &&
+       ! "$script_directory/image-teardown-check.sh" "$state_directory"; then
+        cleanup_residue=1
+    fi
+    if [ "$physics_service_enabled" = 1 ] &&
+       ! "$script_directory/physics-teardown-check.sh" "$physics_service_state_directory"; then
+        cleanup_residue=1
+    fi
+    if [ "$geometry_service_enabled" = 1 ] &&
+       ! "$script_directory/geometry-teardown-check.sh" "$geometry_service_state_directory"; then
+        cleanup_residue=1
+    fi
     if [ -n "$router_preset_snapshot" ]; then
         rm -f -- "$router_preset_snapshot"
         router_preset_snapshot=''
+    fi
+    if [ -n "$router_preset_snapshot" ]; then
+        cleanup_residue=1
+    fi
+    if [ "$retirement_status" -eq 0 ] && [ "$cleanup_residue" -eq 0 ]; then
+        printf 'session_retirement=completed session_pid=%s session_start_time=%s barrier_identity=%s\n' \
+            "$$" "$session_start_time" "$session_barrier_identity" >>"$drain_record"
+    else
+        printf 'session_retirement=failed status=%s session_pid=%s session_start_time=%s barrier_identity=%s\n' \
+            "$retirement_status" "$$" "$session_start_time" "$session_barrier_identity" >>"$drain_record"
     fi
 }
 terminate_session() {
@@ -240,6 +345,27 @@ if [ "${QWEN_REQUIRE_API_KEY:-0}" = 1 ]; then
 else
     api_key_file=''
 fi
+
+# The integration closure opts into its authenticated retirement hook. The
+# production closure keeps its declared lifecycle until separately admitted.
+router_orderly_retirement=${QWEN_ROUTER_ORDERLY_RETIREMENT:-0}
+case $router_orderly_retirement in
+    0) unset QWEN_ROUTER_RETIRE_COMMAND QWEN_ROUTER_RETIRE_API_KEY_FILE ;;
+    1)
+        [ "${QWEN_ROUTER:-0}" = 1 ] || {
+            printf 'orderly router retirement requires QWEN_ROUTER=1\n' >&2
+            exit 2
+        }
+        QWEN_ROUTER_RETIRE_COMMAND=$script_directory/qwen-router-orderly-retire.py
+        [ -x "$QWEN_ROUTER_RETIRE_COMMAND" ] || {
+            printf 'orderly router retirement helper is unavailable\n' >&2
+            exit 2
+        }
+        QWEN_ROUTER_RETIRE_API_KEY_FILE=$api_key_file
+        export QWEN_ROUTER_RETIRE_COMMAND QWEN_ROUTER_RETIRE_API_KEY_FILE
+        ;;
+    *) printf 'QWEN_ROUTER_ORDERLY_RETIREMENT takes 0 or 1\n' >&2; exit 2 ;;
+esac
 
 printf 'state=starting utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
 
@@ -525,12 +651,13 @@ fi
 # tmux boundary.
 runtime_profile_variable=QWEN_CUDA_PROFILE
 
-env "$runtime_profile_variable=$runtime_profile" \
+setsid env "$runtime_profile_variable=$runtime_profile" \
 QWEN_WEBUI_STATE_DIRECTORY=$state_directory \
 "$script_directory/run-qwen-capacity-server.sh" \
     "$llama_server" "$model_path" "$context_size" "$required_device_mib" \
     "$server_port" "$static_path" "$api_key_file" >"$server_log" 2>&1 9>&- &
 server_pid=$!
+server_start_time=$(sed 's/^.*) //' "/proc/$server_pid/stat" | awk '{ print $20 }')
 printf '%s\n' "$server_pid" >"$pid_file"
 
 ready_for_monitor=0
@@ -640,6 +767,7 @@ fi
         --interval-ms 16 --deadline-us 20000 $latency_probe_mode_argument
 ) 9>&- &
 latency_watchdog_pid=$!
+latency_watchdog_start_time=$(sed 's/^.*) //' "/proc/$latency_watchdog_pid/stat" | awk '{ print $20 }')
 
 latency_ready=0
 attempt=0
@@ -664,6 +792,7 @@ fi
 "$script_directory/watch-qwen-kernel-hazards.sh" \
     "$server_pid" "$kernel_hazard_log" 9>&- &
 kernel_hazard_watchdog_pid=$!
+kernel_hazard_watchdog_start_time=$(sed 's/^.*) //' "/proc/$kernel_hazard_watchdog_pid/stat" | awk '{ print $20 }')
 
 kernel_watch_ready=0
 attempt=0
@@ -689,6 +818,7 @@ fi
     "$runtime_profile" "$latency_watchdog_pid" \
     "$kernel_hazard_watchdog_pid" 9>&- &
 monitor_pid=$!
+monitor_start_time=$(sed 's/^.*) //' "/proc/$monitor_pid/stat" | awk '{ print $20 }')
 require_broker_running
 # The paced profile uses the aggregate busy ceiling. The serialized LOW
 # profile uses the MEDIUM graphics-family deadline as its responsiveness gate.
@@ -712,9 +842,9 @@ fi
 if [ -n "$geometry_service_pid" ]; then
     broker_status_field="$broker_status_field geometry_service_pid=$geometry_service_pid"
 fi
-printf 'state=running server_pid=%s monitor_pid=%s latency_watchdog_pid=%s kernel_hazard_watchdog_pid=%s%s profile=%s host=%s port=%s context=%s latency_mode=%s utc=%s\n' \
-    "$server_pid" "$monitor_pid" "$latency_watchdog_pid" \
-    "$kernel_hazard_watchdog_pid" "$broker_status_field" "$runtime_profile" \
+printf 'state=running session_pid=%s session_start_time=%s server_pid=%s server_start_time=%s monitor_pid=%s monitor_start_time=%s latency_watchdog_pid=%s latency_watchdog_start_time=%s kernel_hazard_watchdog_pid=%s kernel_hazard_watchdog_start_time=%s%s profile=%s host=%s port=%s context=%s latency_mode=%s utc=%s\n' \
+    "$$" "$session_start_time" "$server_pid" "$server_start_time" "$monitor_pid" "$monitor_start_time" "$latency_watchdog_pid" "$latency_watchdog_start_time" \
+    "$kernel_hazard_watchdog_pid" "$kernel_hazard_watchdog_start_time" "$broker_status_field" "$runtime_profile" \
     "${QWEN_BIND_HOST:-127.0.0.1}" "$server_port" "$context_size" \
     "$latency_probe_mode" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
@@ -810,6 +940,26 @@ done
 if [ "$supervised_component" != server ]; then
     printf 'state=failed reason=%s_exited utc=%s\n' \
         "$supervised_component" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+    # A failed support component still leaves the serving child and accepted
+    # operations alive. Route the failure through the same closed barrier and
+    # bounded retirement instead of preempting the child ahead of its drain.
+    cleanup
+    server_status=1
+    monitor_status=0
+    latency_status=0
+    kernel_hazard_status=0
+    broker_status=0
+    case $supervised_component in
+        monitor) monitor_status=1 ;;
+        latency_watchdog) latency_status=1 ;;
+        kernel_hazard_watchdog) kernel_hazard_status=1 ;;
+        authorization_broker) broker_status=1 ;;
+    esac
+    printf 'state=stopped server_status=%s monitor_status=%s latency_status=%s kernel_hazard_status=%s broker_status=%s stopped_component=%s profile=%s utc=%s\n' \
+        "$server_status" "$monitor_status" "$latency_status" \
+        "$kernel_hazard_status" "$broker_status" "$supervised_component" \
+        "$runtime_profile" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+    exit 1
 fi
 for supervised_pid in "$server_pid" "$monitor_pid" "$latency_watchdog_pid" \
         "$kernel_hazard_watchdog_pid" "$broker_pid"; do

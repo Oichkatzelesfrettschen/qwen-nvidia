@@ -149,6 +149,16 @@ drain the active holder before destroying an idle child, and unleased cleanup
 stays reserved for an emergency termination the record names. That policy is a
 combined-session promotion gate, tested apart from the signal arms.
 
+The real-caller integration is recorded in
+`evidence/lease-coverage/runtime-drain-integration/`. Session stop and router
+capacity eviction use the existing admission controller; telemetry restoration
+binds the recorded owner, executable, argv, libraries and configuration to a
+safe campaign cleanup. The router patch requires a new source/build identity.
+The three retained runtime subjects keep their existing identities and evidence;
+`15bc632adf7f` does not acquire the new router behavior through a script update.
+`campaign.json` preserves both behavioral comparisons and separates the new
+closure's build requirement from its pending orderly-drain device admission.
+
 `scripts/test-load-lease-coverage.sh` reads `reach=accepted served=not_run`
 against it. Fifteen synthetic bodies split each predicate, each written against
 a demonstrated false positive rather than against its intent -- a `(void)` read

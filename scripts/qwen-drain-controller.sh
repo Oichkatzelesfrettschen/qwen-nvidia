@@ -50,9 +50,9 @@
 set -eu
 
 usage() {
-    printf 'usage: %s retire [--deadline MS] [--record FILE] -- COMMAND [ARGUMENT...]\n' "$0" >&2
+    printf 'usage: %s retire [--deadline MS] [--record FILE] [--keep-quiescing] [--barrier-identity ID] -- COMMAND [ARGUMENT...]\n' "$0" >&2
     printf '       %s admit [--record FILE] -- COMMAND [ARGUMENT...]\n' "$0" >&2
-    printf '       %s status|resume\n' "$0" >&2
+    printf '       %s status|resume [--barrier-identity ID]\n' "$0" >&2
     printf '  retire  quiesce, drain, then run COMMAND as the destroy step\n' >&2
     printf '  admit   run COMMAND holding one in-flight share, refused while quiescing\n' >&2
     printf '  exit    0 orderly, 4 transition complete with exclusion unproven, 1 failed\n' >&2
@@ -68,6 +68,8 @@ drain_deadline_ms=${QWEN_DRAIN_DEADLINE_MS:-30000}
 QWEN_DRAIN_ESCALATION_MS=${QWEN_DRAIN_ESCALATION_MS:-10000}
 export QWEN_DRAIN_ESCALATION_MS
 record_file=
+keep_quiescing=0
+required_barrier_identity=
 
 # Monotonic milliseconds. /proc/uptime rather than the wall clock, because a
 # clock step under NTP moves a deadline the kernel does not honor.
@@ -109,6 +111,18 @@ case $subcommand in
         exit 0
         ;;
     resume)
+        if [ "$#" -gt 0 ]; then
+            [ "$#" -eq 2 ] && [ "$1" = --barrier-identity ] || usage
+            required_barrier_identity=$2
+            case $required_barrier_identity in
+                *[!0-9:]* | :* | *: | '') usage ;;
+            esac
+            if [ "$(qwen_barrier_session_identity)" != "$required_barrier_identity" ] ||
+               [ "$(qwen_barrier_verify_session_identity)" != match ]; then
+                printf 'resume_refused reason=barrier_identity_mismatch\n' >&2
+                exit 4
+            fi
+        fi
         # Recovery is explicit and takes the drain reference before reopening.
         # A holder or retiring controller keeps this transition refused.
         qwen_barrier_initialize
@@ -131,6 +145,14 @@ case $subcommand in
             printf 'resume_refused reason=work_inflight\n' >&2
             exit 1
         fi
+        if [ -n "$required_barrier_identity" ] && {
+            [ "$(qwen_barrier_descriptor_identity 9)" != "$required_barrier_identity" ] ||
+            [ "$(qwen_barrier_session_identity)" != "$required_barrier_identity" ] ||
+            [ "$(qwen_barrier_verify_session_identity)" != match ];
+        }; then
+            printf 'resume_refused reason=barrier_identity_mismatch\n' >&2
+            exit 4
+        fi
         qwen_barrier_set_state running
         flock -u 9
         exec 9<&-
@@ -147,6 +169,8 @@ while [ $# -gt 0 ]; do
     case $1 in
         --deadline) [ $# -ge 2 ] || usage; drain_deadline_ms=$2; shift 2 ;;
         --record) [ $# -ge 2 ] || usage; record_file=$2; shift 2 ;;
+        --keep-quiescing) keep_quiescing=1; shift ;;
+        --barrier-identity) [ $# -ge 2 ] || usage; required_barrier_identity=$2; shift 2 ;;
         --) shift; break ;;
         *) usage ;;
     esac
@@ -157,6 +181,19 @@ case $drain_deadline_ms in
     '' | *[!0-9]*) printf 'deadline takes milliseconds: %s\n' "$drain_deadline_ms" >&2; exit 2 ;;
 esac
 
+# Real lifecycle callers bind retirement to the identity captured at startup.
+# Validate before initialization can recreate a missing identity record.
+if [ -n "$required_barrier_identity" ]; then
+    case $required_barrier_identity in
+        *[!0-9:]* | :* | *: | '') usage ;;
+    esac
+    if [ "$(qwen_barrier_session_identity)" != "$required_barrier_identity" ] ||
+       [ "$(qwen_barrier_verify_session_identity)" != match ]; then
+        record stopped 'shutdown_mode=refused orderly_drain=not_established teardown_exclusion=not_established reason=barrier_identity_mismatch'
+        printf 'shutdown_mode=refused\norderly_drain=not_established\nteardown_exclusion=not_established\nreason=barrier_identity_mismatch\n'
+        exit 4
+    fi
+fi
 qwen_barrier_initialize
 inflight_path=$(qwen_barrier_inflight_path)
 
@@ -284,6 +321,9 @@ record draining "$drain_result"
 # match while the share this retirement never counted is still held on the armed
 # inode, and the destruction then runs beside live work.
 identity_expected=$(qwen_barrier_session_identity)
+if [ -n "$required_barrier_identity" ]; then
+    identity_expected=$required_barrier_identity
+fi
 if [ "$identity_expected" = unrecorded ]; then
     identity_reading=unrecorded
 elif [ "$(qwen_barrier_descriptor_identity 9)" = "$identity_expected" ]; then
@@ -392,7 +432,12 @@ printf 'shutdown_mode=orderly\norderly_drain=completed\nteardown_exclusion=%s\n'
 # in-flight reference and close admission, and this one would then write
 # `running` over that quiescence -- reopening admission behind a retirement that
 # had already begun.
-qwen_barrier_set_state running
+# Session shutdown keeps admissions closed until a later owned startup resumes.
+# Strict callers preserve quiescence when teardown proof remains incomplete.
+if [ "$keep_quiescing" -eq 0 ] &&
+   { [ -z "$required_barrier_identity" ] || [ "$exclusion_status" -eq 0 ]; }; then
+    qwen_barrier_set_state running
+fi
 flock -u 9
 exec 9<&-
 flock -u 7

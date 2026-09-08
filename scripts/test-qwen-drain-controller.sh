@@ -268,6 +268,44 @@ check swapped_retire_not_exclusion 'teardown_exclusion=not_established' \
     "$(printf '%s' "$swapped_retire" | grep '^teardown_exclusion=')"
 check swapped_retire_exit_refuses_strict 4 "$swapped_retire_status"
 
+# Real callers retain the startup identity and leave session admission closed.
+QWEN_GPU_ADMISSION_BARRIER="$temporary_directory/strict-barrier"
+export QWEN_GPU_ADMISSION_BARRIER
+"$controller" status > "$temporary_directory/strict-status"
+strict_identity=$(cat "$QWEN_GPU_ADMISSION_BARRIER/admission.identity")
+strict_status=0
+"$controller" retire --keep-quiescing --barrier-identity "$strict_identity" -- \
+    "$temporary_directory/destroy.sh" "$temporary_directory/strict.marker" 0 yes \
+    > "$temporary_directory/strict.out" 2>&1 || strict_status=$?
+check strict_retirement_orderly 0 "$strict_status"
+check session_admission_stays_closed quiescing "$(cat "$QWEN_GPU_ADMISSION_BARRIER/admission.barrier")"
+"$controller" resume --barrier-identity "$strict_identity" > /dev/null
+check strict_resume_opens running "$(cat "$QWEN_GPU_ADMISSION_BARRIER/admission.barrier")"
+strict_status=0
+"$controller" retire --barrier-identity "$strict_identity" -- \
+    "$temporary_directory/destroy.sh" "$temporary_directory/missing-proof.marker" 0 absent \
+    > "$temporary_directory/missing-proof.out" 2>&1 || strict_status=$?
+check strict_missing_proof_refused 4 "$strict_status"
+check strict_missing_proof_stays_closed quiescing "$(cat "$QWEN_GPU_ADMISSION_BARRIER/admission.barrier")"
+"$controller" resume > /dev/null
+strict_status=0
+"$controller" resume --barrier-identity 0:0 > /dev/null 2>&1 || strict_status=$?
+check wrong_resume_identity_refused 4 "$strict_status"
+rm "$QWEN_GPU_ADMISSION_BARRIER/admission.identity"
+strict_status=0
+"$controller" resume --barrier-identity "$strict_identity" > /dev/null 2>&1 || strict_status=$?
+check missing_resume_identity_refused 4 "$strict_status"
+strict_status=0
+"$controller" retire --barrier-identity "$strict_identity" -- \
+    "$temporary_directory/destroy.sh" "$temporary_directory/unrecorded.marker" 0 yes \
+    > "$temporary_directory/unrecorded.out" 2>&1 || strict_status=$?
+check startup_identity_missing_refused 4 "$strict_status"
+if [ -e "$temporary_directory/unrecorded.marker" ]; then
+    check missing_identity_destroy_invoked absent present
+else
+    check missing_identity_destroy_refused absent absent
+fi
+
 if [ "$failures" -eq 0 ]; then
     printf 'test_qwen_drain_controller=accepted\n'
     exit 0

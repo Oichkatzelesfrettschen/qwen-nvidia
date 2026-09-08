@@ -2323,6 +2323,8 @@ python3 scripts/test-admission-barrier.py
 python3 scripts/test-drain-failure-boundaries.py
 scripts/test-qwen-drain-controller.sh
 python3 scripts/test-drain-client-attachment.py
+python3 scripts/test-router-orderly-retirement.py
+python3 scripts/test-telemetry-restoration.py
 python3 scripts/test-authority-consistency.py
 scripts/test-qwen-code-pin.sh
 scripts/test-coding-principal.sh            # appliance host role alone
@@ -2343,6 +2345,8 @@ scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh
 scripts/test-prepare-llama-vulkan-source.sh
 scripts/test-qwen-session-signals.sh
+scripts/test-qwen-retire-server-child.sh
+scripts/test-drain-integration-mutations.sh
 scripts/test-admit-web-router-fake.sh
 scripts/test-quality-roster.sh
 scripts/test-qwen-runtime-guards.sh
@@ -2381,6 +2385,8 @@ lane held outside the unattended set is a scoping choice rather than a
 technical barrier, and the entry says so where that is the whole reason:
 
 ```sh
+QWEN_ROUTER_FIXTURE_SERVER=CPU_ONLY_LLAMA_SERVER python3 scripts/test-router-retirement-caller.py
+                                                 # compiled patched router plus fake children; needs external pinned source and a CPU-only build
 scripts/test-strict-cuda-placement-fixture.sh    # device-placement lane, held outside the unattended set
 scripts/test-dispatch-census-summary.sh          # dispatch-census lane, held outside the unattended set
 scripts/test-gpu-state-latch.sh                  # driver-failure latch lane, held outside the unattended set

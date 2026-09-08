@@ -18,12 +18,24 @@ status_file=$state_directory/session.status
 
 # The session script rewrites session.status to state=stopped as it exits,
 # which drops the guard PIDs, so read them before asking it to stop.
-guard_pids=''
+guard_identities=''
+server_pid=''
+server_start_time=''
 broker_pid=''
 broker_secret_file=''
 if [ -r "$status_file" ]; then
-    guard_pids=$(sed -n '1p' "$status_file" | tr ' ' '\n' |
-        sed -n 's/^\(monitor_pid\|latency_watchdog_pid\|kernel_hazard_watchdog_pid\)=//p')
+    server_pid=$(sed -n '1p' "$status_file" | tr ' ' '\n' |
+        sed -n 's/^server_pid=//p')
+    server_start_time=$(sed -n '1p' "$status_file" | tr ' ' '\n' |
+        sed -n 's/^server_start_time=//p')
+    for guard_name in monitor latency_watchdog kernel_hazard_watchdog; do
+        guard_pid=$(sed -n '1p' "$status_file" | tr ' ' '\n' | sed -n "s/^${guard_name}_pid=//p")
+        guard_start=$(sed -n '1p' "$status_file" | tr ' ' '\n' | sed -n "s/^${guard_name}_start_time=//p")
+        case $guard_pid:$guard_start in
+            *[!0-9:]* | :* | *: | *::* ) ;;
+            *) guard_identities="$guard_identities $guard_pid:$guard_start:$guard_name" ;;
+        esac
+    done
     # The broker is read a second time on its own, because its absence proof
     # covers a file as well as a process: it unlinks its per-launch session
     # secret while unwinding from SIGTERM, and a secret surviving the teardown
@@ -64,7 +76,8 @@ geometry_service_start_time=$(sed -n 's/^geometry_service_identity .*start_time=
 physics_service_pid=${physics_service_pid:-}
 geometry_service_pid=${geometry_service_pid:-}
 
-"$script_directory/qwen-webui-control.sh" stop || true
+control_status=0
+"$script_directory/qwen-webui-control.sh" stop || control_status=$?
 
 # Forced tmux termination bypasses the session EXIT trap. Once control has
 # stopped the only session that can own these unique snapshots, remove the
@@ -82,8 +95,13 @@ for router_preset_snapshot in "$state_directory"/.router-presets.active.*; do
     fi
 done
 
+case $server_pid:$server_start_time in
+    *[!0-9:]* | :* | *: | *::* ) server_pid='' ;;
+esac
 attempt=0
-while [ "$attempt" -lt 300 ] && pgrep -x llama-server >/dev/null 2>&1; do
+while [ -n "$server_pid" ] && [ "$attempt" -lt 300 ] && \
+      [ -r "/proc/$server_pid/stat" ] && \
+      [ "$(sed 's/^.*) //' "/proc/$server_pid/stat" | awk '{ print $20 }')" = "$server_start_time" ]; do
     attempt=$((attempt + 1))
     sleep 0.1
 done
@@ -94,32 +112,29 @@ done
 # had gone. The session recorded each guard's PID, so signal those rather than
 # matching command lines: `pgrep -f` also matches any shell whose arguments
 # happen to contain the pattern, including the one running this script.
-for guard_pid in $guard_pids; do
-    case $guard_pid in
-        '' | *[!0-9]*) continue ;;
-    esac
-    if kill -0 "$guard_pid" 2>/dev/null; then
+guard_residue=0
+for guard_identity in $guard_identities; do
+    guard_pid=${guard_identity%%:*}
+    guard_remainder=${guard_identity#*:}
+    guard_start=${guard_remainder%%:*}
+    guard_name=${guard_remainder#*:}
+    if [ -r "/proc/$guard_pid/stat" ] &&
+       [ "$(sed 's/^.*) //' "/proc/$guard_pid/stat" | awk '{ print $20 }')" = "$guard_start" ]; then
         printf 'stopping guard pid %s (%s)\n' \
-            "$guard_pid" "$(ps -o comm= -p "$guard_pid" 2>/dev/null | tr -d ' ')"
+            "$guard_pid" "$guard_name"
         kill -TERM "$guard_pid" 2>/dev/null || true
+        attempt=0
+        while [ "$attempt" -lt 100 ] && [ -r "/proc/$guard_pid/stat" ] &&
+              [ "$(sed 's/^.*) //' "/proc/$guard_pid/stat" | awk '{ print $20 }')" = "$guard_start" ]; do
+            attempt=$((attempt + 1))
+            sleep 0.1
+        done
+        if [ -r "/proc/$guard_pid/stat" ] &&
+           [ "$(sed 's/^.*) //' "/proc/$guard_pid/stat" | awk '{ print $20 }')" = "$guard_start" ]; then
+            printf 'owned guard survived: component=%s pid=%s\n' "$guard_name" "$guard_pid" >&2
+            guard_residue=1
+        fi
     fi
-done
-
-# The probe is matched by executable name, which cannot collide with a shell
-# that merely mentions it.
-probe_pids=$(pgrep -x vulkan-graphics-service-probe 2>/dev/null || true)
-for probe_pid in $probe_pids; do
-    kill -TERM "$probe_pid" 2>/dev/null || true
-done
-
-attempt=0
-while [ "$attempt" -lt 100 ] && \
-      pgrep -x vulkan-graphics-service-probe >/dev/null 2>&1; do
-    attempt=$((attempt + 1))
-    sleep 0.1
-done
-for probe_pid in $(pgrep -x vulkan-graphics-service-probe 2>/dev/null || true); do
-    kill -KILL "$probe_pid" 2>/dev/null || true
 done
 
 # The broker unlinks its session secret in the cleanup that runs after the
@@ -278,6 +293,13 @@ stop_sidecar physics "$physics_service_pid" "$physics_service_start_time"
 stop_sidecar geometry "$geometry_service_pid" "$geometry_service_start_time"
 
 residue=$snapshot_residue
+if [ "$control_status" -ne 0 ]; then
+    printf 'session control stop failed: status=%s\n' "$control_status" >&2
+    residue=1
+fi
+if [ "$guard_residue" -ne 0 ]; then
+    residue=1
+fi
 if [ "$broker_residue" -ne 0 ]; then
     residue=1
 fi
@@ -287,18 +309,13 @@ fi
 if [ "$sidecar_residue" -ne 0 ]; then
     residue=1
 fi
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'llama-server still running: %s\n' \
-        "$(pgrep -x llama-server | tr '\n' ' ')" >&2
+if [ -n "$server_pid" ] && [ -r "/proc/$server_pid/stat" ] && \
+   [ "$(sed 's/^.*) //' "/proc/$server_pid/stat" | awk '{ print $20 }')" = "$server_start_time" ]; then
+    printf 'owned llama-server still running: %s\n' "$server_pid" >&2
     residue=1
 fi
 if tmux -L qwen-runtime has-session -t qwen-webui 2>/dev/null; then
     printf 'tmux session qwen-webui still present\n' >&2
-    residue=1
-fi
-if pgrep -x vulkan-graphics-service-probe >/dev/null 2>&1; then
-    printf 'graphics latency probe still running: %s\n' \
-        "$(pgrep -x vulkan-graphics-service-probe | tr '\n' ' ')" >&2
     residue=1
 fi
 if command -v ss >/dev/null 2>&1 && \

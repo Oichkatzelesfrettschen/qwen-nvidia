@@ -130,6 +130,7 @@ case $action in
                               QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
                               QWEN_INFERENCE_CPU \
                               QWEN_BACKEND_SAMPLING \
+                              QWEN_GPU_ADMISSION_BARRIER QWEN_GPU_COMPUTE_LEASE \
                               QWEN_GPU_COMPUTE_LEASE_WAIT_S \
                               QWEN_CACHE_TYPE_K QWEN_CACHE_TYPE_V \
                               QWEN_FLASH_ATTN \
@@ -138,6 +139,7 @@ case $action in
                               QWEN_ROUTER_PRESET_SHA256 \
                               QWEN_ROUTER_INCLUDE_QUARANTINE \
                               QWEN_ROUTER_MAX \
+                              QWEN_ROUTER_ORDERLY_RETIREMENT \
                               QWEN_WEB_BROKER QWEN_WEB_BROKER_PORT \
                               QWEN_WEB_BROKER_PROGRAM QWEN_WEB_STATE_DIR \
                               QWEN_WEB_TOKEN_KEY_FILE QWEN_WEB_PROFILE \
@@ -273,29 +275,61 @@ case $action in
             printf 'stop does not accept a profile\n' >&2
             exit 2
         fi
-        if [ -r "$pid_file" ]; then
-            server_pid=$(sed -n '1p' "$pid_file")
-            case $server_pid in
-                '' | *[!0-9]*) server_pid=0 ;;
+        recorded_session_pid=
+        recorded_session_start=
+        if tmux -L "$tmux_socket" has-session -t "$tmux_session" 2>/dev/null; then
+            recorded_session_pid=$(sed -n '1p' "$status_file" 2>/dev/null | tr ' ' '\n' |
+                sed -n 's/^session_pid=//p')
+            recorded_session_start=$(sed -n '1p' "$status_file" 2>/dev/null | tr ' ' '\n' |
+                sed -n 's/^session_start_time=//p')
+            case $recorded_session_pid:$recorded_session_start in
+                *[!0-9:]* | :* | *: | *::* )
+                    printf 'session status carries an invalid process identity\n' >&2
+                    exit 1
+                    ;;
             esac
-            if [ "$server_pid" -gt 0 ] && kill -0 "$server_pid" 2>/dev/null; then
-                server_command=$(ps -o comm= -p "$server_pid" | tr -d ' ')
-                if [ "$server_command" = llama-server ]; then
-                    kill -TERM "$server_pid"
-                else
-                    printf 'stale PID file names non-llama process %s; leaving it running\n' \
-                        "$server_pid" >&2
-                fi
+            if [ ! -r "/proc/$recorded_session_pid/stat" ] ||
+               [ "$(sed 's/^.*) //' "/proc/$recorded_session_pid/stat" | awk '{ print $20 }')" != "$recorded_session_start" ]; then
+                printf 'session status process identity is stale: pid=%s\n' "$recorded_session_pid" >&2
+                exit 1
             fi
+            # Signal the owning session so its trap closes admission, drains
+            # accepted work, and retires its child. Signalling llama-server
+            # directly bypasses every one of those lifecycle transitions.
+            kill -TERM "$recorded_session_pid"
         fi
         wait_attempt=0
-        while [ "$wait_attempt" -lt 100 ] && \
+        forced_session_stop=0
+        drain_deadline_ms=${QWEN_DRAIN_DEADLINE_MS:-30000}
+        drain_escalation_ms=${QWEN_DRAIN_ESCALATION_MS:-10000}
+        case $drain_deadline_ms:$drain_escalation_ms in
+            *[!0-9:]* | :* | *: | *::* )
+                printf 'drain deadlines must be nonnegative milliseconds\n' >&2
+                exit 2
+                ;;
+        esac
+        # Retirement can consume the drain deadline, two server escalation
+        # intervals, and one TERM/KILL pair for each of seven support services.
+        wait_limit=$(((drain_deadline_ms + 2 * drain_escalation_ms + 140000) / 100 + 10))
+        while [ "$wait_attempt" -lt "$wait_limit" ] && \
               tmux -L "$tmux_socket" has-session -t "$tmux_session" 2>/dev/null; do
             wait_attempt=$((wait_attempt + 1))
             sleep 0.1
         done
         if tmux -L "$tmux_socket" has-session -t "$tmux_session" 2>/dev/null; then
             tmux -L "$tmux_socket" kill-session -t "$tmux_session"
+            forced_session_stop=1
+        fi
+        terminal_retirement=$(grep '^session_retirement=' \
+            "$state_directory/session-drain.record" 2>/dev/null | tail -n 1 || true)
+        case $terminal_retirement in
+            "session_retirement=completed session_pid=$recorded_session_pid session_start_time=$recorded_session_start barrier_identity="*) ;;
+            *) terminal_retirement=invalid ;;
+        esac
+        if [ "$forced_session_stop" -ne 0 ] || [ "$terminal_retirement" = invalid ] || [ -z "$recorded_session_pid" ] ||
+           ! grep -q 'teardown_exclusion=orderly' "$state_directory/session-drain.record" 2>/dev/null; then
+            printf 'session stop lacks positive orderly retirement evidence\n' >&2
+            exit 1
         fi
         printf 'stopped tmux_socket=%s tmux_session=%s\n' \
             "$tmux_socket" "$tmux_session"

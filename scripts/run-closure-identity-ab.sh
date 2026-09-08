@@ -130,6 +130,12 @@ mkdir -p "$output_directory"
 output_directory=$(CDPATH='' cd -- "$output_directory" && pwd)
 summary_file=$output_directory/summary.tsv
 : >"$summary_file"
+campaign_run_nonce=${QWEN_CAMPAIGN_RUN_NONCE:-$(cat /proc/sys/kernel/random/uuid)}
+campaign_revision=$(git -C "$script_directory/.." rev-parse HEAD)
+campaign_script_sha256=$(sha256sum "$0" | awk '{ print $1 }')
+campaign_lifecycle=$output_directory/campaign-lifecycle.tsv
+campaign_cleanup_record=${QWEN_CAMPAIGN_CLEANUP_RECORD:-$output_directory/campaign-cleanup.json}
+printf 'run_nonce\trevision\tscript_sha256\tsession_id\tpid\tstart_ticks\trole\n' >"$campaign_lifecycle"
 
 gpu_ownership_require > "$output_directory/ownership-open.txt" || {
     ownership_status=$?
@@ -255,8 +261,46 @@ for token_id in tokens:
 PYTHON
 
 server_pid=''
+server_start_ticks=''
+server_session_id=''
+record_process_identity() {
+    record_pid=$1
+    record_role=$2
+    [ -r "/proc/$record_pid/stat" ] || return 0
+    record_stat=$(sed 's/.*) //' "/proc/$record_pid/stat")
+    record_session=$(printf '%s\n' "$record_stat" | awk '{ print $4 }')
+    record_start=$(printf '%s\n' "$record_stat" | awk '{ print $20 }')
+    grep -q "^[^\t]*\t[^\t]*\t[^\t]*\t$record_session\t$record_pid\t$record_start\t" \
+        "$campaign_lifecycle" 2>/dev/null ||
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$campaign_run_nonce" \
+            "$campaign_revision" "$campaign_script_sha256" "$record_session" "$record_pid" \
+            "$record_start" "$record_role" >>"$campaign_lifecycle"
+}
+
+record_process_tree() {
+    tree_parent=$1
+    record_process_identity "$tree_parent" server
+    for tree_child in $(pgrep -P "$tree_parent" 2>/dev/null || :); do
+        record_process_identity "$tree_child" descendant
+        record_process_tree "$tree_child"
+    done
+}
+
 stop_server() {
     [ -n "$server_pid" ] || return 0
+    if [ -z "$server_start_ticks" ]; then
+        printf 'refused: server launch identity is unrecorded: pid=%s\n' "$server_pid" >&2
+        return 1
+    fi
+    observed_server_start=$(sed 's/.*) //' "/proc/$server_pid/stat" 2>/dev/null | \
+        awk '{ print $20 }' || :)
+    if [ -n "$observed_server_start" ] && \
+       [ "$observed_server_start" != "$server_start_ticks" ]; then
+        printf 'refused: server PID identity changed before retirement: pid=%s recorded=%s observed=%s\n' \
+            "$server_pid" "$server_start_ticks" "$observed_server_start" >&2
+        return 1
+    fi
+    record_process_tree "$server_pid"
     kill "$server_pid" 2>/dev/null || true
     wait_iteration=0
     while [ "$wait_iteration" -lt 60 ] && kill -0 "$server_pid" 2>/dev/null; do
@@ -265,9 +309,80 @@ stop_server() {
     done
     kill -9 "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
+    if [ -n "$server_session_id" ]; then
+        printf '%s\t%s\t%s\t%s\t-\t-\tboundary_complete\n' \
+            "$campaign_run_nonce" "$campaign_revision" "$campaign_script_sha256" \
+            "$server_session_id" >>"$campaign_lifecycle"
+    fi
     server_pid=''
+    server_start_ticks=''
+    server_session_id=''
 }
-trap 'stop_server' EXIT
+
+write_campaign_cleanup_record() {
+    "$script_directory/campaign-cleanup-record.py" "$campaign_lifecycle" \
+        "$campaign_cleanup_record" "$campaign_run_nonce" "$campaign_revision" \
+        "$campaign_script_sha256"
+}
+
+finish_campaign() {
+    campaign_status=$?
+    trap - EXIT INT TERM
+    stop_status=0
+    stop_server || stop_status=$?
+    cleanup_status=0
+    write_campaign_cleanup_record || cleanup_status=$?
+    pre_restore_status=0
+    if [ -n "${QWEN_TELEMETRY_RESTORE_SNAPSHOT:-}" ] && [ "$cleanup_status" -eq 0 ]; then
+        snapshot_value() {
+            python3 -c 'import functools,json,sys; print(functools.reduce(dict.__getitem__, sys.argv[2:], json.load(open(sys.argv[1]))))' \
+                "$QWEN_TELEMETRY_RESTORE_SNAPSHOT" "$@"
+        }
+        QWEN_WEBUI_STATE_DIRECTORY=$(snapshot_value latch state_directory) \
+            "$(snapshot_value latch program)" require-clear || pre_restore_status=$?
+    fi
+    exec 9>&-
+    restore_status=0
+    if [ -n "${QWEN_TELEMETRY_RESTORE_SNAPSHOT:-}" ]; then
+        [ -n "${QWEN_TELEMETRY_RESTORED_PID_FILE:-}" ] || restore_status=2
+        if [ "$stop_status" -ne 0 ]; then
+            "$script_directory/telemetry-restoration.py" blocked \
+                --record "${QWEN_TELEMETRY_RESTORE_RECORD:-$output_directory/telemetry-restoration.json}" \
+                --reason teardown_failed || :
+        elif [ "$cleanup_status" -ne 0 ]; then
+            "$script_directory/telemetry-restoration.py" blocked \
+                --record "${QWEN_TELEMETRY_RESTORE_RECORD:-$output_directory/telemetry-restoration.json}" \
+                --reason campaign_residue || :
+        elif [ "$pre_restore_status" -ne 0 ]; then
+            "$script_directory/telemetry-restoration.py" blocked \
+                --record "${QWEN_TELEMETRY_RESTORE_RECORD:-$output_directory/telemetry-restoration.json}" \
+                --reason gpu_state_latch_refused || :
+            restore_status=$pre_restore_status
+        elif [ "$restore_status" -eq 0 ]; then
+            snapshot_field() {
+                python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["path"])' \
+                    "$QWEN_TELEMETRY_RESTORE_SNAPSHOT" "$1"
+            }
+            "$script_directory/telemetry-restoration.py" restore \
+                --snapshot "$QWEN_TELEMETRY_RESTORE_SNAPSHOT" \
+                --record "${QWEN_TELEMETRY_RESTORE_RECORD:-$output_directory/telemetry-restoration.json}" \
+                --campaign-record "$campaign_cleanup_record" \
+                --campaign-nonce "$campaign_run_nonce" \
+                --campaign-revision "$campaign_revision" \
+                --campaign-script-sha256 "$campaign_script_sha256" \
+                --compute-lease "$(snapshot_field compute_lease)" \
+                --owner-lock "$(snapshot_field owner_lock)" \
+                --restored-pid-file "$QWEN_TELEMETRY_RESTORED_PID_FILE" || restore_status=$?
+        fi
+    fi
+    [ "$campaign_status" -eq 0 ] || exit "$campaign_status"
+    [ "$stop_status" -eq 0 ] || exit "$stop_status"
+    [ "$cleanup_status" -eq 0 ] || exit "$cleanup_status"
+    [ "$pre_restore_status" -eq 0 ] || exit "$pre_restore_status"
+    [ "$restore_status" -eq 0 ] || exit "$restore_status"
+    exit 0
+}
+trap 'finish_campaign' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -302,7 +417,7 @@ start_server() {
         arm_slot_arguments="--slot-save-path $arm_slot_directory"
     fi
     # shellcheck disable=SC2086
-    env $arm_environment LLAMA_NO_CPU_FALLBACK=1 \
+    setsid env $arm_environment LLAMA_NO_CPU_FALLBACK=1 \
         "$arm_build/$server_relative_path" $arm_extra_arguments $arm_slot_arguments \
         --model "$arm_model_path" \
         --host 127.0.0.1 \
@@ -326,6 +441,21 @@ start_server() {
         --log-verbosity 4 \
         >"$arm_log" 2>&1 9>&- &
     server_pid=$!
+    boundary_iteration=0
+    while [ "$boundary_iteration" -lt 100 ]; do
+        server_stat=$(sed 's/.*) //' "/proc/$server_pid/stat" 2>/dev/null || :)
+        server_session_id=$(printf '%s\n' "$server_stat" | awk '{ print $4 }')
+        [ "$server_session_id" = "$server_pid" ] && break
+        boundary_iteration=$((boundary_iteration + 1))
+        sleep 0.01
+    done
+    if [ "$server_session_id" != "$server_pid" ]; then
+        printf 'refused: server did not establish its campaign session boundary: pid=%s session=%s\n' \
+            "$server_pid" "${server_session_id:-absent}" >&2
+        return 1
+    fi
+    server_start_ticks=$(printf '%s\n' "$server_stat" | awk '{ print $20 }')
+    record_process_identity "$server_pid" server
 
     ready_iteration=0
     while [ "$ready_iteration" -lt "$readiness_seconds" ]; do

@@ -1,0 +1,63 @@
+drain	seq=1	monotonic_ms=738273910	state=running	admission=admitted
+drain	seq=2	monotonic_ms=738273910	state=running	job_started pid=3125914
+drain	seq=3	monotonic_ms=738275410	state=running	job_complete status=0
+ok retire_exit_orderly 0
+ok drain_completed orderly_drain=completed
+ok teardown_orderly teardown_exclusion=orderly
+ok destroy_saw_orderly_mode mode=orderly
+ok destroy_follows_drain holder=738275410 destroy=738275450
+ok quiescing_refuses_admission 1
+ok quiescing_names_state 1
+ok quiescing_ran_no_job 0
+drain	seq=1	monotonic_ms=738275490	state=running	admission=admitted
+drain	seq=1	monotonic_ms=738275490	state=running	admission=admitted
+drain	seq=2	monotonic_ms=738275500	state=running	job_started pid=3126586
+drain	seq=2	monotonic_ms=738275500	state=running	job_started pid=3126587
+drain	seq=3	monotonic_ms=738275800	state=running	job_complete status=0
+drain	seq=3	monotonic_ms=738277300	state=running	job_complete status=0
+ok eviction_waits_for_active_lane later_lane=738277300 destroy=738277350
+ok idle_participant_releases none
+drain	seq=1	monotonic_ms=738277390	state=running	admission=admitted
+drain	seq=2	monotonic_ms=738277390	state=running	job_started pid=3127279
+ok deadline_refuses 1
+ok deadline_mode shutdown_mode=emergency
+ok deadline_drain orderly_drain=failed
+ok deadline_exclusion teardown_exclusion=not_established
+ok deadline_names_emergency_mode mode=emergency
+ok residue_holder_retained pid=3127225
+drain	seq=3	monotonic_ms=738278000	state=running	job_complete status=0
+ok residue_cleared_before_next_arm none
+ok failed_destroy_refuses 1
+ok failed_destroy_drained orderly_drain=completed
+ok failed_destroy_not_exclusion teardown_exclusion=not_established
+ok failed_retirement_stays_closed quiescing
+ok explicit_recovery_reopens running
+ok held_no_destroy_succeeded 1
+ok held_no_drained orderly_drain=completed
+ok held_no_not_exclusion teardown_exclusion=not_established
+ok held_no_exit_refuses_strict 4
+ok silent_teardown_unattributed teardown_exclusion=unattributed
+ok silent_exit_refuses_strict 4
+drain	seq=1	monotonic_ms=738278150	state=running	admission=admitted
+drain	seq=2	monotonic_ms=738278150	state=running	job_started pid=3129869
+drain	seq=3	monotonic_ms=738278190	state=running	signal_forwarded pid=3129869
+ok orphan_share_held_after_signal held
+drain	seq=4	monotonic_ms=738278250	state=running	job_complete status=0
+ok orphan_share_released_after_child none
+ok identity_match_reads_match 1
+ok identity_mismatch_refuses 1
+ok identity_mismatch_named 1
+ok swapped_admit_refuses 1
+ok swapped_admit_names_identity 1
+ok swapped_retire_not_exclusion teardown_exclusion=not_established
+ok swapped_retire_exit_refuses_strict 4
+ok strict_retirement_orderly 0
+ok session_admission_stays_closed quiescing
+ok strict_resume_opens running
+ok strict_missing_proof_refused 4
+ok strict_missing_proof_stays_closed quiescing
+ok wrong_resume_identity_refused 4
+ok missing_resume_identity_refused 4
+ok startup_identity_missing_refused 4
+ok missing_identity_destroy_refused absent
+test_qwen_drain_controller=accepted

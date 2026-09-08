@@ -1,0 +1,163 @@
+{
+  "schema": 1,
+  "execution": "not_run",
+  "device_authorization": "not_granted",
+  "readiness": "integration_fixtures_accepted; new_cuda_closure_and_merged_identity_freeze_required_before_device_request",
+  "repository_revision": "bind_after_merge",
+  "runtime_subjects": {
+    "historical": {
+      "closure": "88681bf4d161",
+      "executable": {
+        "role": "historical",
+        "path": "$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-88681bf4d161/bin/llama-server",
+        "bytes": "15992",
+        "sha256": "037b287eccd18d64248dc0997296be3eaa3e99a319acba90f5db1cfa70c095ec"
+      },
+      "build_configuration": {
+        "role": "historical",
+        "path": "$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-88681bf4d161/build-configuration.tsv",
+        "bytes": "1013",
+        "sha256": "88681bf4d161653985b6942f069914655137954a04d25dbd8aec0101c2f9b509"
+      }
+    },
+    "companion": {
+      "closure": "fd27a84d9199",
+      "executable": {
+        "role": "companion",
+        "path": "$HOME/src/llama.cpp-lease-off-companion/build-qwen-cuda-fd27a84d9199/bin/llama-server",
+        "bytes": "15992",
+        "sha256": "05bf40a03939e49c8ab161d7bfecc5cf0212e870d10f260572c5fd13a76c8971"
+      },
+      "build_configuration": {
+        "role": "companion",
+        "path": "$HOME/src/llama.cpp-lease-off-companion/build-qwen-cuda-fd27a84d9199/build-configuration.tsv",
+        "bytes": "1035",
+        "sha256": "fd27a84d919905588efff5c2627f55ad066877f4a3b7b9996692912870dab903"
+      }
+    },
+    "candidate": {
+      "closure": "15bc632adf7f",
+      "executable": {
+        "role": "candidate",
+        "path": "$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/llama-server",
+        "bytes": "15992",
+        "sha256": "1060aeda2e4e527dba06e7c9ffe79b93fc79b5a8a8e56ff6d4fae27e9f9db944"
+      },
+      "build_configuration": {
+        "role": "candidate",
+        "path": "$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/build-configuration.tsv",
+        "bytes": "1035",
+        "sha256": "15bc632adf7f6b307fa0a8920cbc66a7dc5e596aa9aaa7a5ad4aea880c1c92ce"
+      }
+    }
+  },
+  "behavioral_matrix": {
+    "path": "../admission-preparation/behavioral-matrix.tsv",
+    "sha256": "0c68a039263ef5dadbc1a665849d00ffacaff84ffe6db899e027bfe02a9915ea"
+  },
+  "frozen_inputs": {
+    "path": "../admission-preparation/frozen-inputs.tsv",
+    "sha256": "e206e5c40489fdc542b73bac9997fdc623e980660baa812a511d9a43127a24ab",
+    "scope": "full executable, adjacent library, build configuration, model, projector and authority digests",
+    "status": "retained_subject_baseline; refresh changed implementation and runtime-profile identities after merge"
+  },
+  "model_order": [
+    "qwen35-2b",
+    "qwen35-08b"
+  ],
+  "comparisons": [
+    {
+      "control": "companion",
+      "subject": "candidate",
+      "purpose": "lease_change_attribution"
+    },
+    {
+      "control": "historical",
+      "subject": "candidate",
+      "purpose": "deployed_behavior_regression"
+    }
+  ],
+  "integration_runtime": {
+    "state": "not_built",
+    "patch": "../../../patches/llama-router-orderly-retirement.patch",
+    "identity_policy": "new source and build identity; existing candidate evidence remains bound to 15bc632adf7f",
+    "required_before_device_window": [
+      "materialize and verify integration source",
+      "build and freeze new executable and library digests",
+      "bind numerical regression and final admissions to the new closure"
+    ],
+    "activation": {
+      "QWEN_ROUTER": "1",
+      "QWEN_ROUTER_ORDERLY_RETIREMENT": "1",
+      "QWEN_GPU_ADMISSION_IDENTITY": "session original identity; populated by session"
+    },
+    "additional_comparisons": [
+      "retained candidate versus newly built integration closure under matched numerical settings",
+      "historical deployed regression and final serving admissions qualified on new integration closure"
+    ]
+  },
+  "drain_arms": [
+    {
+      "name": "orderly-session-stop",
+      "subject": "integration_runtime",
+      "required": [
+        "original_barrier_identity",
+        "accepted_work_terminal",
+        "child_teardown_lease_proof",
+        "owned_process_and_resource_absence",
+        "owner_released"
+      ]
+    },
+    {
+      "name": "capacity-one-eviction",
+      "subject": "integration_runtime",
+      "required": [
+        "deferred_request_outside_old_active_references",
+        "old_child_exited_before_replacement",
+        "router_listener_survives",
+        "approval_artifact_tool_result_attribution",
+        "positive_teardown_lease_proof"
+      ]
+    }
+  ],
+  "admission_order": [
+    "behavioral_comparisons",
+    "orderly_drain_device",
+    "strict_CUDA0_text_and_multimodal",
+    "router",
+    "serialized_image_generation_and_qwen35_2b_review",
+    "evidence_review",
+    "explicit_promotion",
+    "post_promotion_verification",
+    "combined_session"
+  ],
+  "preserved_policy": {
+    "kv": "ordinary",
+    "device_embedding": "off",
+    "model_context_and_speculation": "per-row frozen matrix",
+    "numerical": "exact_generated_token_ids; actual tokens_predicted count; self-reproducing controls with identical prefill and cache composition",
+    "production": "88681bf4d161",
+    "rollback": "historical closure plus disable behavior requiring LLM compute-lease participation"
+  },
+  "telemetry_restoration": {
+    "execution": "not_run",
+    "snapshot": "fresh private operational capture at authorized handoff under .local-artifacts",
+    "preconditions": [
+      "campaign_children_reaped",
+      "owned_residue_absent",
+      "compute_lease_identity_and_state_verified",
+      "gpu_state_latch_permits",
+      "campaign_owner_released"
+    ],
+    "verification": [
+      "recorded_owner",
+      "resolved_executable_and_loaded_libraries",
+      "argv_boundaries",
+      "explicit_nonsecret_environment",
+      "cwd_affinity_nice",
+      "model_projector_and_configuration_references",
+      "listener_attribution_and_health"
+    ]
+  },
+  "stop_policy": "retain first failure; refuse automatic retry, latch clearing and automatic promotion"
+}
