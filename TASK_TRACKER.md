@@ -167,6 +167,10 @@ found a different loaded-library inventory. The campaign stopped; historical
 regression, integration comparison and drain device admission remain pending.
 `evidence/lease-coverage/companion-behavior-telemetry-restoration/` retains the
 bounded numerical result and the separate restoration failure.
+The separate controlled restoration repair on `06162f9` subsequently matched
+the original executable/configuration and all 59 loaded-library hashes. Telemetry
+health is restored; the original campaign retains its exit-4 failure and later
+device arms remain unexecuted. The same evidence directory records the repair.
 
 `scripts/test-load-lease-coverage.sh` reads `reach=accepted served=not_run`
 against it. Fifteen synthetic bodies split each predicate, each written against
