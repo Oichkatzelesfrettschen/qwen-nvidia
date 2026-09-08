@@ -21,7 +21,7 @@ jobs:
         run: python3 scripts/sanitize-public-artifact.py --check
 
       - name: Prepare repository-local CI artifacts
-        run: mkdir -p .local-artifacts/ci/tmp
+        run: mkdir -p .local-artifacts/tmp
 
       - name: Install pinned analysis tools
         run: |
@@ -32,7 +32,7 @@ jobs:
 
       - name: Run clone-local gates
         env:
-          TMPDIR: ${{ github.workspace }}/.local-artifacts/ci/tmp
+          TMPDIR: ${{ github.workspace }}/.local-artifacts/tmp
           PATH: ${{ github.workspace }}/.local-artifacts/ci/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           QWEN_GATE_HOST_ROLE: runner
         run: scripts/repository-quality-gates.sh

@@ -41,7 +41,14 @@ ignored as a whole and is excluded from publication even if force-added:
 | `.local-artifacts/lease-admission-preparation/` | original gate logs and preparation scratch | `evidence/lease-coverage/admission-preparation/` |
 | `.local-artifacts/gates/` | one named gate run, stdout/stderr, exit status, tested-content receipt | compact revision-bound gate receipt |
 | `.local-artifacts/worktrees/` | disposable authoring checkouts | commits merged into primary main |
-| `.local-artifacts/ci/` | CI virtual environment and temporary files | job verdict on the tested head |
+| `.local-artifacts/ci/` | CI virtual environment | job verdict on the tested head |
+| `.local-artifacts/tmp/` | short temporary roots for socket-bearing fixtures | temporary; gate verdict retained separately |
+
+Linux Unix-socket pathnames have a 108-byte buffer including the terminator.
+The CI temporary root stays directly under `.local-artifacts/tmp/`: the coding
+service fixture needs 106 pathname bytes there, against 109 in a nested
+`ci/tmp/` directory. The retained CI failure names `AF_UNIX path too long`;
+shortening the repository-local layout preserves the fixture and its protocol.
 
 Use a mechanism-named subdirectory for other campaigns. Set `TMPDIR` to the
 run's local temporary directory for tools that honor it. Agent-owned session
