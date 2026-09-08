@@ -13,7 +13,7 @@ helper's 10-second health deadline. The restored process subsequently answered
 health and reported the recorded model, executable, argv, working directory,
 selected environment and scheduling configuration. Its mapped-library inventory
 contained 28 additional libraries and omitted one recorded library. Exact
-restoration therefore remains unestablished. The campaign stopped at that failure;
+restoration was unestablished at that observation. The campaign stopped at that failure;
 the numerical result does not turn the complete admission green.
 
 `comparison-summary.tsv` is a sanitized copy of the harness summary. `result.json`
@@ -48,3 +48,19 @@ Image review has opt-in generated-token evidence through
 the reader requires the integer-array length to match both native predicted
 count and OpenAI completion usage before retaining the array. Ordinary review
 requests and output records preserve their default shape.
+
+## Controlled restoration repair
+
+The separate repair attempt on merged revision `06162f9` retired the retained
+restored process by its PID/start identity, observed its exit through pidfd,
+and proved reaping before relaunch. The bounded nonsecret owner-context
+proposal retained the original executable, argv, model and library oracle.
+The repaired restore command exited zero; independent verification matched
+all 59 original library hashes, executable, argv, working directory, scheduling,
+selected environment, listener ownership, health and served model.
+
+`restoration-repair.json` records that result and hashes the private raw records.
+The qualification applies to the recovered environment as a set; it attributes
+no individual library change to one variable. The original numerical campaign
+retains exit 4 and its original restoration failure. Further numerical and
+drain arms remain unexecuted under the stop-on-first-failure policy.
