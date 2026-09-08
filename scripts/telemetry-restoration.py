@@ -21,6 +21,15 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def process_stat_identity(pid, proc_root):
+    stat = (pathlib.Path(proc_root) / str(pid) / "stat").read_text(encoding="utf-8")
+    close = stat.rfind(")")
+    if close < 0:
+        raise ValueError("process stat has no closing command delimiter")
+    stat_fields = stat[close + 2:].split()
+    return int(stat_fields[1]), stat_fields[19]
+
+
 def process_record(pid, proc_root):
     root = pathlib.Path(proc_root) / str(pid)
     executable = os.readlink(root / "exe")
@@ -109,20 +118,32 @@ def atomic_private_json(destination, payload):
     os.chmod(destination, 0o600)
 
 
+def capture_ancestry_identities(record, owner, proc_root):
+    record_identity = record["parent_pid"], record["start_ticks"]
+    owner_identity = owner["parent_pid"], owner["start_ticks"]
+    if record["pid"] == owner["pid"] and record_identity != owner_identity:
+        raise RuntimeError("telemetry owner identity changed during capture")
+    capture_identities = {record["pid"]: record_identity, owner["pid"]: owner_identity}
+    ancestor = record["parent_pid"]
+    while ancestor > 1 and ancestor != owner["pid"]:
+        ancestor_identity = process_stat_identity(ancestor, proc_root)
+        recorded_identity = capture_identities.get(ancestor)
+        if recorded_identity is not None and recorded_identity != ancestor_identity:
+            raise RuntimeError(f"process identity changed during ancestry scan for pid {ancestor}")
+        capture_identities[ancestor] = ancestor_identity
+        ancestor = ancestor_identity[0]
+    if ancestor != owner["pid"] and record["pid"] != owner["pid"]:
+        raise SystemExit("recorded owner is outside the telemetry process ancestry")
+    return capture_identities
+
+
 def capture(arguments):
     record = process_record(arguments.pid, arguments.proc_root)
     owner = process_record(arguments.owner_pid, arguments.proc_root)
-    ancestor = record["parent_pid"]
-    ancestry_matched = arguments.owner_pid == arguments.pid
-    while ancestor > 1 and not ancestry_matched:
-        if ancestor == arguments.owner_pid:
-            ancestry_matched = True
-            break
-        ancestor = process_record(ancestor, arguments.proc_root)["parent_pid"]
-    if not ancestry_matched:
-        raise SystemExit("recorded owner is outside the telemetry process ancestry")
-    owner_holder_pid = lineage_holds_file(arguments.pid, arguments.owner_lock,
-                                          arguments.proc_root)
+    capture_identities = capture_ancestry_identities(record, owner, arguments.proc_root)
+    owner_holder_pid = lineage_holds_file(
+        arguments.pid, arguments.owner_pid, arguments.owner_lock,
+        arguments.proc_root, capture_identities)
     if not listener_owned(arguments.pid, arguments.listener, arguments.proc_root):
         raise SystemExit("captured process does not own the declared listener")
     for name in arguments.environment:
@@ -200,23 +221,37 @@ def file_identity(path):
     return f"{status.st_dev}:{status.st_ino}"
 
 
-def lineage_holds_file(pid, path, proc_root):
+def lineage_holds_file(pid, owner_pid, path, proc_root, expected_identities):
     expected = file_identity(path)
     observed_pid = pid
     while observed_pid > 1:
+        identity_before = process_stat_identity(observed_pid, proc_root)
+        expected_identity = expected_identities.get(observed_pid)
+        if expected_identity is not None and identity_before != expected_identity:
+            raise RuntimeError(f"process identity changed before lock scan for pid {observed_pid}")
         descriptors = pathlib.Path(proc_root) / str(observed_pid) / "fd"
-        try:
-            for descriptor in descriptors.iterdir():
-                try:
-                    status = os.stat(descriptor, follow_symlinks=True)
-                except OSError:
-                    continue
-                if f"{status.st_dev}:{status.st_ino}" == expected:
-                    return observed_pid
-            observed_pid = process_record(observed_pid, proc_root)["parent_pid"]
-        except (FileNotFoundError, ProcessLookupError):
+        descriptor_observation_error = None
+        holder_observed = False
+        for descriptor in descriptors.iterdir():
+            try:
+                status = os.stat(descriptor, follow_symlinks=True)
+            except OSError as error:
+                descriptor_observation_error = error
+                continue
+            if f"{status.st_dev}:{status.st_ino}" == expected:
+                holder_observed = True
+                break
+        identity_after = process_stat_identity(observed_pid, proc_root)
+        if identity_after != identity_before:
+            raise RuntimeError(f"process identity changed during lock scan for pid {observed_pid}")
+        if holder_observed:
+            return observed_pid
+        if descriptor_observation_error is not None:
+            raise descriptor_observation_error
+        if observed_pid == owner_pid:
             return None
-    return None
+        observed_pid = identity_after[0]
+    raise ValueError("declared owner was not reached during lock-holder traversal")
 
 
 def restore(arguments):

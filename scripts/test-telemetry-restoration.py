@@ -3,6 +3,7 @@
 
 import contextlib
 import fcntl
+import importlib.util
 import json
 import os
 import pathlib
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unittest.mock
 import urllib.request
 
 
@@ -21,6 +23,32 @@ PROGRAM = ROOT / "telemetry-restoration.py"
 CLEANUP_PROGRAM = ROOT / "campaign-cleanup-record.py"
 SERVER = ROOT / "test-fixtures" / "fake-telemetry-server.py"
 FIXTURE_OWNER = ROOT / "test-fixtures" / "fake-telemetry-owner.py"
+
+
+def load_restoration_module():
+    specification = importlib.util.spec_from_file_location("telemetry_restoration", PROGRAM)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def write_fake_stat(proc_root, pid, parent_pid, start_ticks):
+    stat_fields = ["S", str(parent_pid)] + ["0"] * 20
+    stat_fields[19] = start_ticks
+    (proc_root / str(pid) / "stat").write_text(
+        f"{pid} (fixture process) {' '.join(stat_fields)}\n", encoding="utf-8")
+
+
+def write_fake_process(proc_root, pid, parent_pid, descriptor_target=None, start_ticks="100"):
+    process_root = proc_root / str(pid)
+    (process_root / "fd").mkdir(parents=True)
+    write_fake_stat(proc_root, pid, parent_pid, start_ticks)
+    if descriptor_target is not None:
+        (process_root / "fd" / "9").symlink_to(descriptor_target)
+
+
+def fake_identities(*rows):
+    return {pid: (parent_pid, start_ticks) for pid, parent_pid, start_ticks in rows}
 
 
 def free_port():
@@ -119,6 +147,132 @@ def extracted_finalizer_fixture(root, snapshot, restored_pid_file, owner_lock,
 with (tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.get("TMPDIR")) as temporary,
       contextlib.ExitStack() as resources):
     root = pathlib.Path(temporary)
+    restoration = load_restoration_module()
+    owner_boundary_lock = root / "owner-boundary.lock"
+    owner_boundary_lock.touch()
+
+    holder_proc = root / "holder-proc"
+    write_fake_process(holder_proc, 410, 420, owner_boundary_lock)
+    write_fake_process(holder_proc, 420, 430)
+    write_fake_process(holder_proc, 430, 1)
+    assert restoration.lineage_holds_file(
+        410, 420, owner_boundary_lock, holder_proc,
+        fake_identities((410, 420, "100"), (420, 430, "100"))) == 410
+    (holder_proc / "410" / "fd" / "9").unlink()
+    (holder_proc / "420" / "fd" / "9").symlink_to(owner_boundary_lock)
+    assert restoration.lineage_holds_file(
+        410, 420, owner_boundary_lock, holder_proc,
+        fake_identities((410, 420, "100"), (420, 430, "100"))) == 420
+
+    bounded_proc = root / "bounded-proc"
+    write_fake_process(bounded_proc, 510, 520)
+    write_fake_process(bounded_proc, 520, 530)
+    write_fake_process(bounded_proc, 530, 1)
+    (bounded_proc / "530" / "fd").rmdir()
+    (bounded_proc / "530" / "fd").write_text("outside boundary", encoding="utf-8")
+    assert restoration.lineage_holds_file(
+        510, 520, owner_boundary_lock, bounded_proc,
+        fake_identities((510, 520, "100"), (520, 530, "100"))) is None
+
+    missing_proc = root / "missing-proc"
+    write_fake_process(missing_proc, 610, 620)
+    try:
+        restoration.lineage_holds_file(
+            610, 620, owner_boundary_lock, missing_proc,
+            fake_identities((610, 620, "100"), (620, 1, "100")))
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("missing declared owner produced an unheld lock claim")
+
+    unreadable_proc = root / "unreadable-proc"
+    write_fake_process(unreadable_proc, 710, 720)
+    write_fake_process(unreadable_proc, 720, 1)
+    (unreadable_proc / "720" / "fd").rmdir()
+    (unreadable_proc / "720" / "fd").write_text("unreadable boundary", encoding="utf-8")
+    try:
+        restoration.lineage_holds_file(
+            710, 720, owner_boundary_lock, unreadable_proc,
+            fake_identities((710, 720, "100"), (720, 1, "100")))
+    except NotADirectoryError:
+        pass
+    else:
+        raise AssertionError("unreadable declared owner produced an unheld lock claim")
+    changed_proc = root / "changed-proc"
+    write_fake_process(changed_proc, 810, 1, owner_boundary_lock)
+    changed_descriptor = changed_proc / "810" / "fd" / "9"
+    original_stat = os.stat
+
+    def change_identity_during_descriptor_scan(path, *args, **kwargs):
+        if pathlib.Path(path) == changed_descriptor:
+            write_fake_stat(changed_proc, 810, 1, "101")
+        return original_stat(path, *args, **kwargs)
+
+    with unittest.mock.patch.object(
+            restoration.os, "stat", side_effect=change_identity_during_descriptor_scan):
+        try:
+            restoration.lineage_holds_file(
+                810, 810, owner_boundary_lock, changed_proc,
+                fake_identities((810, 1, "100")))
+        except RuntimeError as error:
+            assert "changed during lock scan" in str(error)
+        else:
+            raise AssertionError("replaced holder retained positive lock attribution")
+
+    exited_proc = root / "exited-proc"
+    write_fake_process(exited_proc, 910, 1, owner_boundary_lock)
+    exited_descriptor = exited_proc / "910" / "fd" / "9"
+
+    def exit_during_descriptor_scan(path, *args, **kwargs):
+        if pathlib.Path(path) == exited_descriptor:
+            shutil.rmtree(exited_proc / "910")
+        return original_stat(path, *args, **kwargs)
+
+    with unittest.mock.patch.object(
+            restoration.os, "stat", side_effect=exit_during_descriptor_scan):
+        try:
+            restoration.lineage_holds_file(
+                910, 910, owner_boundary_lock, exited_proc,
+                fake_identities((910, 1, "100")))
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("exited holder retained positive lock attribution")
+
+    rebound_proc = root / "rebound-proc"
+    write_fake_process(rebound_proc, 1010, 1)
+    try:
+        restoration.lineage_holds_file(
+            1010, 1010, owner_boundary_lock, rebound_proc,
+            fake_identities((1010, 1, "99")))
+    except RuntimeError as error:
+        assert "changed before lock scan" in str(error)
+    else:
+        raise AssertionError("replacement process matched the captured telemetry identity")
+
+    for outcome, descriptor_target in (("unheld", None), ("holder", owner_boundary_lock)):
+        intermediate_proc = root / f"intermediate-{outcome}-proc"
+        write_fake_process(intermediate_proc, 1110, 1120)
+        write_fake_process(intermediate_proc, 1120, 1130, descriptor_target)
+        write_fake_process(intermediate_proc, 1130, 1)
+        telemetry_record = {"pid": 1110, "parent_pid": 1120, "start_ticks": "100"}
+        owner_record = {"pid": 1130, "parent_pid": 1, "start_ticks": "100"}
+        ancestry_identities = restoration.capture_ancestry_identities(
+            telemetry_record, owner_record, intermediate_proc)
+        assert ancestry_identities[1120] == (1130, "100")
+        write_fake_stat(intermediate_proc, 1120, 1130, "101")
+        try:
+            restoration.lineage_holds_file(
+                1110, 1130, owner_boundary_lock, intermediate_proc,
+                ancestry_identities)
+        except RuntimeError as error:
+            assert "changed before lock scan for pid 1120" in str(error)
+        else:
+            raise AssertionError(
+                f"replaced intermediate process produced a false {outcome} result")
+
+    print("telemetry_owner_boundary=accepted holder=descendant,owner outside_boundary=unread unreadable_inside=refused missing_inside=refused changed_holder=refused exited_holder=refused rebound_identity=refused intermediate_replacement=unheld,holder_refused")
+
     exited_child = subprocess.Popen(["/usr/bin/true"])
     exited_child.wait(timeout=2)
     campaign_text = (ROOT / "run-closure-identity-ab.sh").read_text()
