@@ -108,6 +108,18 @@ case $keep_state in 0 | 1) ;; *)
     exit 2 ;;
 esac
 readiness_seconds=${QWEN_IDENTITY_READY_SECONDS:-300}
+telemetry_restore_ready_seconds=${QWEN_TELEMETRY_RESTORE_READY_SECONDS:-300}
+if ! python3 -c '
+import math
+import sys
+
+value = float(sys.argv[1])
+raise SystemExit(0 if math.isfinite(value) and value > 0 else 1)
+' "$telemetry_restore_ready_seconds" 2>/dev/null; then
+    printf 'refused: QWEN_TELEMETRY_RESTORE_READY_SECONDS must be a positive finite number: %s\n' \
+        "$telemetry_restore_ready_seconds" >&2
+    exit 2
+fi
 request_seconds=${QWEN_IDENTITY_REQUEST_SECONDS:-1800}
 appliance_port=${QWEN_SERVER_PORT:-8080}
 
@@ -372,7 +384,8 @@ finish_campaign() {
                 --campaign-script-sha256 "$campaign_script_sha256" \
                 --compute-lease "$(snapshot_field compute_lease)" \
                 --owner-lock "$(snapshot_field owner_lock)" \
-                --restored-pid-file "$QWEN_TELEMETRY_RESTORED_PID_FILE" || restore_status=$?
+                --restored-pid-file "$QWEN_TELEMETRY_RESTORED_PID_FILE" \
+                --timeout "$telemetry_restore_ready_seconds" || restore_status=$?
         fi
     fi
     [ "$campaign_status" -eq 0 ] || exit "$campaign_status"

@@ -83,14 +83,14 @@ def stop_pid(pid):
 
 
 def run_restore(snapshot, record, pid_file, lease, owner_lock, latch, campaign_record,
-                program=PROGRAM):
+                program=PROGRAM, timeout="2"):
     command = [sys.executable, str(program), "restore", "--snapshot", str(snapshot),
                "--record", str(record), "--compute-lease", str(lease),
                "--owner-lock", str(owner_lock),
                "--restored-pid-file", str(pid_file), "--campaign-record",
                str(campaign_record), "--campaign-nonce", "fixture-nonce",
                "--campaign-revision", "fixture-revision",
-               "--campaign-script-sha256", "fixture-script-digest", "--timeout", "2"]
+               "--campaign-script-sha256", "fixture-script-digest", f"--timeout={timeout}"]
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -101,7 +101,7 @@ def assert_blocked(result, record, reason):
 
 
 def extracted_finalizer_fixture(root, snapshot, restored_pid_file, owner_lock,
-                                mode, exit_status=0):
+                                mode, exit_status=0, restore_timeout="300"):
     source = (ROOT / "run-closure-identity-ab.sh").read_text(encoding="utf-8")
     begin = source.index("server_pid=''\n")
     end_marker = "trap 'exit 143' TERM\n"
@@ -125,6 +125,7 @@ def extracted_finalizer_fixture(root, snapshot, restored_pid_file, owner_lock,
         f"QWEN_TELEMETRY_RESTORE_SNAPSHOT={str(snapshot)!r}\n"
         f"QWEN_TELEMETRY_RESTORED_PID_FILE={str(restored_pid_file)!r}\n"
         f"QWEN_TELEMETRY_RESTORE_RECORD={str(restore_record)!r}\n"
+        f"telemetry_restore_ready_seconds={str(restore_timeout)!r}\n"
         "export QWEN_TELEMETRY_RESTORE_SNAPSHOT QWEN_TELEMETRY_RESTORED_PID_FILE QWEN_TELEMETRY_RESTORE_RECORD\n"
         + exact_block +
         f"exec 9>{str(owner_lock)!r}\nflock -n 9\n"
@@ -393,6 +394,10 @@ with (tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.ge
             "fixture-9b", "--config", str(config), "--boundary", boundary]
     environment = dict(os.environ)
     environment["QWEN_FIXTURE_RUNTIME"] = "selected-runtime"
+    environment["HOME"] = str(root / "fixture-home")
+    environment["DISPLAY"] = ":fixture"
+    environment["XDG_DATA_DIRS"] = "/fixture/data"
+    environment.pop("VK_ICD_FILENAMES", None)
     # The directory descriptor keeps repository-local sockets below AF_UNIX path limits.
     socket_directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     resources.callback(os.close, socket_directory)
@@ -430,8 +435,19 @@ with (tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.ge
     assert capture.returncode == 0, capture.stderr
     saved = json.loads(snapshot.read_text())
     assert saved["argv"] == argv
-    assert saved["environment"] == {"QWEN_EXPLICIT_UNSET": None,
-                                    "QWEN_FIXTURE_RUNTIME": "selected-runtime"}
+    expected_environment = {
+        name: environment.get(name)
+        for name in restoration.RESTORATION_ENVIRONMENT_BASELINE
+    }
+    expected_environment.update({"QWEN_EXPLICIT_UNSET": None,
+                                 "QWEN_FIXTURE_RUNTIME": "selected-runtime"})
+    assert saved["environment"] == expected_environment
+    assert saved["environment"]["HOME"] == str(root / "fixture-home")
+    assert saved["environment"]["DISPLAY"] == ":fixture"
+    assert saved["environment"]["XDG_DATA_DIRS"] == "/fixture/data"
+    assert saved["environment"]["VK_ICD_FILENAMES"] is None
+    assert saved["environment_scope"] == (
+        "required restoration baseline plus explicit allowlist")
     assert snapshot.stat().st_mode & 0o777 == 0o600
     assert snapshot.parent.stat().st_mode & 0o777 == 0o700
     stop_pid(initial_pid)
@@ -497,6 +513,64 @@ with (tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.ge
     assert [part.decode() for part in restored_argv] == argv
     assert boundary.encode() in restored_argv
     stop_pid(restored_pid)
+    restored_pid_file.unlink()
+
+    for invalid_timeout in ("0", "-1", "nan", "inf", "-inf"):
+        invalid_record = root / f"invalid-timeout-{invalid_timeout}.json"
+        invalid_result = run_restore(
+            snapshot, invalid_record, restored_pid_file, lease, owner_lock,
+            latch, campaign_record, timeout=invalid_timeout)
+        assert invalid_result.returncode == 2, invalid_result.stderr
+        assert "timeout must be a positive finite number" in invalid_result.stderr, invalid_result.stderr
+        assert not invalid_record.exists() and not restored_pid_file.exists()
+
+    incomplete_environment = root / "incomplete-environment.json"
+    incomplete_environment_snapshot = json.loads(json.dumps(saved))
+    del incomplete_environment_snapshot["environment"]["HOME"]
+    incomplete_environment.write_text(
+        json.dumps(incomplete_environment_snapshot), encoding="utf-8")
+    incomplete_environment_record = root / "incomplete-environment-record.json"
+    assert_blocked(
+        run_restore(incomplete_environment, incomplete_environment_record,
+                    restored_pid_file, lease, owner_lock, latch, campaign_record),
+        incomplete_environment_record, "restoration_environment_baseline_incomplete")
+    incomplete_environment_payload = json.loads(incomplete_environment_record.read_text())
+    assert incomplete_environment_payload["missing_environment"] == ["HOME"]
+    assert not restored_pid_file.exists()
+
+    delayed_success = root / "delayed-success.json"
+    delayed_success_snapshot = json.loads(json.dumps(saved))
+    delayed_success_snapshot["argv"] = [*saved["argv"], "--health-delay", "0.25"]
+    delayed_success.write_text(json.dumps(delayed_success_snapshot), encoding="utf-8")
+    delayed_success_record = root / "delayed-success-record.json"
+    delayed_success_result = run_restore(
+        delayed_success, delayed_success_record, restored_pid_file, lease,
+        owner_lock, latch, campaign_record, timeout="2")
+    assert delayed_success_result.returncode == 0, delayed_success_result.stderr
+    delayed_success_pid = int(restored_pid_file.read_text())
+    assert json.loads(delayed_success_record.read_text())["restoration"] == "accepted"
+    stop_pid(delayed_success_pid)
+    restored_pid_file.unlink()
+
+    delayed_failure = root / "delayed-failure.json"
+    delayed_failure_snapshot = json.loads(json.dumps(saved))
+    delayed_failure_snapshot["argv"] = [*saved["argv"], "--health-delay", "1.0"]
+    delayed_failure.write_text(json.dumps(delayed_failure_snapshot), encoding="utf-8")
+    delayed_failure_record = root / "delayed-failure-record.json"
+    delayed_failure_result = run_restore(
+        delayed_failure, delayed_failure_record, restored_pid_file, lease,
+        owner_lock, latch, campaign_record, timeout="0.5")
+    assert_blocked(
+        delayed_failure_result, delayed_failure_record, "health_request_failed_HTTPError")
+    delayed_failure_payload = json.loads(delayed_failure_record.read_text())
+    delayed_failure_pid = int(restored_pid_file.read_text())
+    assert delayed_failure_payload["restored_pid"] == delayed_failure_pid
+    assert (delayed_failure_payload["restored_service_disposition"] ==
+            "retained_pending_identity_bound_teardown")
+    os.kill(delayed_failure_pid, 0)
+    stop_pid(delayed_failure_pid)
+    restored_pid_file.unlink()
+    print("telemetry_readiness_timeout=accepted default=300 delayed_success_bound=2 delayed_failure_bound=0.5 retained_identity=verified invalid=zero,negative,nan,infinity")
 
     # Mutation: a recorded executable different from the argv executable cannot
     # acquire an accepted runtime identity merely because its digest is valid.
@@ -680,4 +754,6 @@ close_position = campaign_source.index("exec 9>&-")
 restore_position = campaign_source.index('"$script_directory/telemetry-restoration.py" restore')
 assert close_position < restore_position
 assert 'write_campaign_cleanup_record || cleanup_status=$?' in campaign_source
+assert 'telemetry_restore_ready_seconds=${QWEN_TELEMETRY_RESTORE_READY_SECONDS:-300}' in campaign_source
+assert '--timeout "$telemetry_restore_ready_seconds"' in campaign_source
 print("campaign_cleanup_wiring=accepted producer=incomplete,residue,reaped late_descendant=detected binding=nonce,revision,script-digest owner_release_before_restore=accepted")

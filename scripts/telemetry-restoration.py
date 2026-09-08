@@ -5,12 +5,54 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import pathlib
 import subprocess
 import sys
 import time
 import urllib.request
+
+
+RESTORATION_ENVIRONMENT_BASELINE = (
+    "HOME",
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XDG_CONFIG_DIRS",
+    "XDG_CONFIG_HOME",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_DATA_DIRS",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_MENU_PREFIX",
+    "XDG_RUNTIME_DIR",
+    "XDG_SEAT",
+    "XDG_SEAT_PATH",
+    "XDG_SESSION_CLASS",
+    "XDG_SESSION_DESKTOP",
+    "XDG_SESSION_ID",
+    "XDG_SESSION_PATH",
+    "XDG_SESSION_TYPE",
+    "XDG_VTNR",
+    "EGL_PLATFORM",
+    "__EGL_VENDOR_LIBRARY_FILENAMES",
+    "__EGL_VENDOR_LIBRARY_DIRS",
+    "__GLX_VENDOR_LIBRARY_NAME",
+    "LIBGL_DRIVERS_PATH",
+    "GBM_BACKENDS_PATH",
+    "VK_ICD_FILENAMES",
+    "VK_DRIVER_FILES",
+    "VK_ADD_DRIVER_FILES",
+    "VK_LAYER_PATH",
+    "VK_INSTANCE_LAYERS",
+    "VK_LOADER_DRIVERS_SELECT",
+    "VK_LOADER_DRIVERS_DISABLE",
+    "VK_LOADER_LAYERS_ENABLE",
+    "VK_LOADER_LAYERS_DISABLE",
+    "MESA_VK_DEVICE_SELECT",
+    "MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE",
+)
 
 
 def sha256(path):
@@ -146,7 +188,9 @@ def capture(arguments):
         arguments.proc_root, capture_identities)
     if not listener_owned(arguments.pid, arguments.listener, arguments.proc_root):
         raise SystemExit("captured process does not own the declared listener")
-    for name in arguments.environment:
+    environment_names = list(dict.fromkeys(
+        (*RESTORATION_ENVIRONMENT_BASELINE, *arguments.environment)))
+    for name in environment_names:
         if any(fragment in name.upper() for fragment in
                ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "API_KEY", "PRIVATE_KEY")):
             raise SystemExit(f"credential-like environment name is refused: {name}")
@@ -162,8 +206,8 @@ def capture(arguments):
                   "observed_process": {key: owner[key] for key in
                                        ("pid", "start_ticks", "executable",
                                         "executable_sha256", "parent_pid")}},
-        "environment": read_environment(arguments.pid, arguments.environment, arguments.proc_root),
-        "environment_scope": "explicit allowlist",
+        "environment": read_environment(arguments.pid, environment_names, arguments.proc_root),
+        "environment_scope": "required restoration baseline plus explicit allowlist",
         "configuration_references": [
             {"path": path, "sha256": sha256(path)} for path in arguments.config_reference
         ],
@@ -260,6 +304,11 @@ def restore(arguments):
         campaign = json.loads(pathlib.Path(arguments.campaign_record).read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         return block(arguments.record, f"required_record_unreadable_{type(error).__name__}")
+    missing_environment = sorted(
+        set(RESTORATION_ENVIRONMENT_BASELINE) - set(snapshot.get("environment", {})))
+    if missing_environment:
+        return block(arguments.record, "restoration_environment_baseline_incomplete",
+                     missing_environment=missing_environment)
     if campaign.get("state") != "reaped":
         return block(arguments.record, "campaign_cleanup_unproven")
     expected_binding = (arguments.campaign_nonce, arguments.campaign_revision,
@@ -421,6 +470,16 @@ def restore(arguments):
     return 0
 
 
+def positive_finite_timeout(value):
+    try:
+        timeout = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("timeout must be a positive finite number") from error
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise argparse.ArgumentTypeError("timeout must be a positive finite number")
+    return timeout
+
+
 def parser():
     top = argparse.ArgumentParser()
     subparsers = top.add_subparsers(dest="action", required=True)
@@ -468,7 +527,7 @@ def parser():
     restore_parser.add_argument("--compute-lease", required=True)
     restore_parser.add_argument("--owner-lock", required=True)
     restore_parser.add_argument("--restored-pid-file", required=True)
-    restore_parser.add_argument("--timeout", type=float, default=10)
+    restore_parser.add_argument("--timeout", type=positive_finite_timeout, default=300.0)
     restore_parser.add_argument("--tmux", default="tmux")
     return top
 

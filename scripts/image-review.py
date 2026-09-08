@@ -86,6 +86,7 @@ import urllib.request
 
 REVIEW_TIMEOUT_SECONDS = 300
 REVIEW_MAX_TOKENS = 400
+EXACT_TOKEN_CAPTURE_ENV = "QWEN_IMAGE_REVIEW_CAPTURE_TOKENS"
 # The artifact listener's own cap (scripts/image-service.py:ARTIFACT_BYTE_CAP),
 # read here so a route that answers with something other than an artifact is
 # bounded by the same number on both sides.
@@ -292,6 +293,11 @@ def build_verdict_schema(constraints):
     }
 
 
+def exact_token_capture_enabled():
+    """Return whether the caller requested exact generated-token evidence."""
+    return os.environ.get(EXACT_TOKEN_CAPTURE_ENV) == "1"
+
+
 def build_review_request(model, png_bytes, prompt_hash, constraints,
                          cache_prompt=True):
     """Build the chat request one review posts.
@@ -320,7 +326,7 @@ def build_review_request(model, png_bytes, prompt_hash, constraints,
     grammar bounds the reply's shape before the strict parser reads its content
     a second time.
     """
-    return {
+    payload = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_instruction(constraints)},
@@ -342,6 +348,40 @@ def build_review_request(model, png_bytes, prompt_hash, constraints,
             },
         },
     }
+    if exact_token_capture_enabled():
+        payload["return_tokens"] = True
+        payload["verbose"] = True
+    return payload
+
+
+def exact_generated_tokens(document):
+    """Read and cross-check the exact token ids from a verbose server reply."""
+    if not isinstance(document, dict):
+        raise ReviewRefused("token_capture_reply_not_object", "the reply is not a JSON object")
+    verbose = document.get("__verbose")
+    if not isinstance(verbose, dict):
+        raise ReviewRefused(
+            "token_capture_verbose_missing", "the reply carries no __verbose object")
+    tokens = verbose.get("tokens")
+    if not isinstance(tokens, list) or not tokens:
+        raise ReviewRefused(
+            "token_capture_tokens_missing", "the reply carries no non-empty token array")
+    if any(not isinstance(token, int) or isinstance(token, bool) for token in tokens):
+        raise ReviewRefused(
+            "token_capture_token_not_integer", "the token array carries a non-integer value")
+    tokens_predicted = verbose.get("tokens_predicted")
+    usage = document.get("usage")
+    completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+    for field_name, count in (("__verbose.tokens_predicted", tokens_predicted),
+                              ("usage.completion_tokens", completion_tokens)):
+        if not isinstance(count, int) or isinstance(count, bool):
+            raise ReviewRefused(
+                "token_capture_count_missing", f"{field_name} is not an integer")
+    if len(tokens) != tokens_predicted or len(tokens) != completion_tokens:
+        raise ReviewRefused(
+            "token_capture_count_mismatch",
+            "the token array length differs from the two predicted-token counts")
+    return list(tokens)
 
 
 def fetch_artifact_png(artifact_origin, digest, api_key, timeout=REVIEW_TIMEOUT_SECONDS):
@@ -671,6 +711,7 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
     wall_seconds = time.monotonic() - started
     reasoning_emitted = False
     raw_reply = None
+    generated_tokens = None
     try:
         message = reply_message(document)
         reasoning_emitted = bool(message.get("reasoning_content"))
@@ -679,6 +720,8 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
     except ReviewRefused:
         pass
     try:
+        if exact_token_capture_enabled():
+            generated_tokens = exact_generated_tokens(document)
         verdict = parse_verdict(document, names)
     except ReviewRefused as refusal:
         refusal.audit = audit_line(
@@ -689,7 +732,7 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
         refusal.raw_reply = raw_reply
         raise
     admitted, reason = correction_admitted(verdict)
-    return {
+    record = {
         "model": model,
         "artifact_sha256": digest,
         "image_mode": image_mode,
@@ -712,6 +755,9 @@ def review_artifact(router_origin, artifact_origin, api_key, model, digest,
                             bindings=bindings,
                             constraints_sha256=constraints_digest(constraints)),
     }
+    if generated_tokens is not None:
+        record["generated_tokens"] = generated_tokens
+    return record
 
 
 def raw_reply_sibling_path(verdict_json_path):
