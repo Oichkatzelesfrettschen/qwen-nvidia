@@ -159,6 +159,15 @@ The three retained runtime subjects keep their existing identities and evidence;
 `campaign.json` preserves both behavioral comparisons and separates the new
 closure's build requirement from its pending orderly-drain device admission.
 
+The integration closure is built as `821563144f34`. The first 2B companion-to-
+candidate text comparison reproduced its control and matched all 12 token and
+12 slot-state comparisons. The complete campaign exited 4 on telemetry
+restoration: readiness exceeded the deadline, and later health verification
+found a different loaded-library inventory. The campaign stopped; historical
+regression, integration comparison and drain device admission remain pending.
+`evidence/lease-coverage/companion-behavior-telemetry-restoration/` retains the
+bounded numerical result and the separate restoration failure.
+
 `scripts/test-load-lease-coverage.sh` reads `reach=accepted served=not_run`
 against it. Fifteen synthetic bodies split each predicate, each written against
 a demonstrated false positive rather than against its intent -- a `(void)` read

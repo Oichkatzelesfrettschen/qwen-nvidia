@@ -58,6 +58,7 @@ CONSTRAINTS = [
     ("background_color", "the background is snow, and reads white"),
 ]
 CONSTRAINT_NAMES = [name for name, _description in CONSTRAINTS]
+GENERATED_TOKENS = [101, 202, 303]
 
 PASSING_VERDICT = {
     "hard_constraints": [
@@ -94,7 +95,7 @@ def verdict_text(verdict):
 
 
 def make_handler(state, reply, artifact_bytes=ONE_PIXEL_PNG, artifact_digest=None,
-                 artifacts=None):
+                 artifacts=None, token_metadata=None):
     """Play the artifact listener and the router for one arm.
 
     `reply` is either the assistant message dictionary the router answers with
@@ -157,7 +158,17 @@ def make_handler(state, reply, artifact_bytes=ONE_PIXEL_PNG, artifact_digest=Non
                      "function": {"name": "web_search_exa", "arguments": "{}"}}]}
             else:
                 message = reply(body) if callable(reply) else reply
-            self._send_json(200, {"choices": [{"message": message, "finish_reason": "stop"}]})
+            document = {"choices": [{"message": message, "finish_reason": "stop"}]}
+            if body.get("return_tokens") is True and body.get("verbose") is True:
+                metadata = token_metadata if token_metadata is not None else {
+                    "__verbose": {
+                        "tokens": GENERATED_TOKENS,
+                        "tokens_predicted": len(GENERATED_TOKENS),
+                    },
+                    "usage": {"completion_tokens": len(GENERATED_TOKENS)},
+                }
+                document.update(metadata)
+            self._send_json(200, document)
 
     return Handler
 
@@ -171,14 +182,19 @@ def serve(handler):
 
 def run_review(reply, constraints=None, artifact_bytes=ONE_PIXEL_PNG,
                artifact_digest=None, digest=None, prompt_hash=PROMPT_HASH,
-               artifacts=None, image_mode="real", swap_digest=None, bindings=None):
+               artifacts=None, image_mode="real", swap_digest=None, bindings=None,
+               capture_tokens=False, token_metadata=None):
     """Run one review against a stub answering `reply`, returning (record, error, state)."""
     state = {"lock": threading.Lock(), "chat_bodies": [], "unauthorized_reads": 0}
     server, thread, origin = serve(
         make_handler(state, reply, artifact_bytes=artifact_bytes,
-                     artifact_digest=artifact_digest, artifacts=artifacts))
+                     artifact_digest=artifact_digest, artifacts=artifacts,
+                     token_metadata=token_metadata))
     record = None
     refusal = None
+    previous_capture = os.environ.pop(image_review.EXACT_TOKEN_CAPTURE_ENV, None)
+    if capture_tokens:
+        os.environ[image_review.EXACT_TOKEN_CAPTURE_ENV] = "1"
     try:
         record = image_review.review_artifact(
             origin, origin, API_KEY, VISION_MODEL, digest or ARTIFACT_SHA256,
@@ -187,6 +203,9 @@ def run_review(reply, constraints=None, artifact_bytes=ONE_PIXEL_PNG,
     except image_review.ReviewRefused as error:
         refusal = error
     finally:
+        os.environ.pop(image_review.EXACT_TOKEN_CAPTURE_ENV, None)
+        if previous_capture is not None:
+            os.environ[image_review.EXACT_TOKEN_CAPTURE_ENV] = previous_capture
         server.shutdown()
         thread.join(timeout=5)
     return record, refusal, state
@@ -219,6 +238,8 @@ def test_accepted_verdict():
         failures.append("the review request did not bound the reply at 400 tokens")
     if body.get("temperature") != 0:
         failures.append("the review request did not set temperature 0")
+    if "return_tokens" in body or "verbose" in body:
+        failures.append("the default review request enabled exact-token capture")
     if (body.get("chat_template_kwargs") or {}).get("enable_thinking") is not False:
         failures.append("the review request did not turn thinking off")
     roles = [message.get("role") for message in body.get("messages", [])]
@@ -256,7 +277,55 @@ def test_accepted_verdict():
         failures.append("the audit line does not report the reasoning state: " + audit)
     if record["raw_reply"] != verdict_text(PASSING_VERDICT):
         failures.append("the record does not retain the raw reply text")
+    if "generated_tokens" in record:
+        failures.append("the default verdict record carries generated tokens")
     return failures, ["accepted_verdict=" + audit]
+
+
+def test_exact_token_capture_is_opt_in_and_bound_to_both_counts():
+    record, refusal, state = run_review(
+        message_with(verdict_text(PASSING_VERDICT)), capture_tokens=True)
+    failures = []
+    if refusal is not None:
+        return ["an exact-token capture was refused: " + refusal.code], []
+    body = state["chat_bodies"][0]
+    if body.get("return_tokens") is not True or body.get("verbose") is not True:
+        failures.append("the capture request did not enable both server response fields")
+    if record.get("generated_tokens") != GENERATED_TOKENS:
+        failures.append("the verdict record carries tokens " + repr(
+            record.get("generated_tokens")))
+
+    valid = {
+        "__verbose": {"tokens": GENERATED_TOKENS,
+                        "tokens_predicted": len(GENERATED_TOKENS)},
+        "usage": {"completion_tokens": len(GENERATED_TOKENS)},
+    }
+    invalid = [
+        ("empty", {"__verbose": {"tokens": [], "tokens_predicted": 0},
+                   "usage": {"completion_tokens": 0}}, "token_capture_tokens_missing"),
+        ("non_integer", {"__verbose": {"tokens": [101, "202"], "tokens_predicted": 2},
+                         "usage": {"completion_tokens": 2}},
+         "token_capture_token_not_integer"),
+        ("predicted_skew", {"__verbose": {"tokens": GENERATED_TOKENS,
+                                           "tokens_predicted": 2},
+                            "usage": {"completion_tokens": 3}},
+         "token_capture_count_mismatch"),
+        ("usage_skew", {"__verbose": {"tokens": GENERATED_TOKENS,
+                                       "tokens_predicted": 3},
+                        "usage": {"completion_tokens": 2}},
+         "token_capture_count_mismatch"),
+    ]
+    if image_review.exact_generated_tokens(valid) != GENERATED_TOKENS:
+        failures.append("the exact-token validator changed a valid token array")
+    for label, document, expected_code in invalid:
+        try:
+            image_review.exact_generated_tokens(document)
+            failures.append(label + " token metadata was accepted")
+        except image_review.ReviewRefused as error:
+            if error.code != expected_code:
+                failures.append("{} refused as {} rather than {}".format(
+                    label, error.code, expected_code))
+    return failures, ["exact_token_capture=bound"]
 
 
 def test_uncertain_verdict():
@@ -882,6 +951,7 @@ def test_declared_bounds():
 def main():
     arms = [
         ("accepted_verdict", test_accepted_verdict),
+        ("exact_token_capture", test_exact_token_capture_is_opt_in_and_bound_to_both_counts),
         ("uncertain_verdict", test_uncertain_verdict),
         ("bindings", test_bindings_are_recorded),
         ("response_format_schema", test_response_format_carries_bounded_schema),
