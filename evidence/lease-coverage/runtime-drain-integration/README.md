@@ -113,3 +113,10 @@ and telemetry preserve their recorded identities and settings. Integration is
 ready for device admission; device drain and both runtime comparisons remain
 unexecuted. The new CUDA closure and final merged-revision freeze remain explicit
 prerequisites to requesting that window.
+
+Hosted run `34271125798` refused the telemetry fixture because the repository-local
+tmux socket pathname exceeded the Unix socket address limit on the runner. The
+fixture now addresses the same repository-local directory through a held directory
+descriptor and verifies the socket resolves inside that directory. The descriptor
+remains open through restoration and isolated-server cleanup. The failed hosted
+run remains retained; the repair changes fixture addressing alone.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise exact telemetry capture and restoration against an isolated service."""
 
+import contextlib
 import fcntl
 import json
 import os
@@ -115,7 +116,8 @@ def extracted_finalizer_fixture(root, snapshot, restored_pid_file, owner_lock,
     return result, cleanup, restore_record
 
 
-with tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.get("TMPDIR")) as temporary:
+with (tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.get("TMPDIR")) as temporary,
+      contextlib.ExitStack() as resources):
     root = pathlib.Path(temporary)
     exited_child = subprocess.Popen(["/usr/bin/true"])
     exited_child.wait(timeout=2)
@@ -237,10 +239,15 @@ with tempfile.TemporaryDirectory(prefix="telemetry-restore-", dir=os.environ.get
             "fixture-9b", "--config", str(config), "--boundary", boundary]
     environment = dict(os.environ)
     environment["QWEN_FIXTURE_RUNTIME"] = "selected-runtime"
-    tmux_socket = root / "isolated-tmux.sock"
+    # The directory descriptor keeps repository-local sockets below AF_UNIX path limits.
+    socket_directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    resources.callback(os.close, socket_directory)
+    tmux_socket = pathlib.Path(f"/proc/{os.getpid()}/fd/{socket_directory}/tmux.sock")
     subprocess.run(["tmux", "-S", str(tmux_socket), "new-session", "-d", "-s",
                     "telemetry-fixture", "sleep", "300"], cwd=root, env=environment,
                    check=True)
+    assert tmux_socket.resolve(strict=True) == root.resolve() / "tmux.sock"
+    print("telemetry_socket_address=accepted branch=directory_descriptor repository_local=verified")
     subprocess.run(["tmux", "-S", str(tmux_socket), "new-window", "-d", "-t",
                     "telemetry-fixture", "-n", "telemetry-initial",
                     sys.executable, str(FIXTURE_OWNER),
