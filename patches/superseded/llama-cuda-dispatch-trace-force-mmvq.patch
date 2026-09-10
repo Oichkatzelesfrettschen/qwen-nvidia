@@ -1,0 +1,178 @@
+diff --git a/ggml/CMakeLists.txt b/ggml/CMakeLists.txt
+index 5f4742a38..feffb97af 100644
+--- a/ggml/CMakeLists.txt
++++ b/ggml/CMakeLists.txt
+@@ -199,7 +199,12 @@ option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"
+ option(GGML_CUDA                            "ggml: use CUDA"                                  OFF)
+ option(GGML_MUSA                            "ggml: use MUSA"                                  OFF)
+ option(GGML_CUDA_FORCE_MMQ                  "ggml: use mmq kernels instead of cuBLAS"         OFF)
++option(GGML_CUDA_FORCE_MMVQ                 "ggml: use mmvq for supported quantized batches"  OFF)
+ option(GGML_CUDA_FORCE_CUBLAS               "ggml: always use cuBLAS instead of mmq kernels"  OFF)
++
++if (GGML_CUDA_FORCE_MMQ AND GGML_CUDA_FORCE_MMVQ)
++    message(FATAL_ERROR "GGML_CUDA_FORCE_MMQ and GGML_CUDA_FORCE_MMVQ are mutually exclusive")
++endif()
+ set   (GGML_CUDA_PEER_MAX_BATCH_SIZE "128" CACHE STRING
+                                             "ggml: max. batch size for using peer access")
+ option(GGML_CUDA_NO_PEER_COPY               "ggml: do not use peer to peer copies"            OFF)
+diff --git a/ggml/src/ggml-cuda/CMakeLists.txt b/ggml/src/ggml-cuda/CMakeLists.txt
+index d3953eee9..63f985930 100644
+--- a/ggml/src/ggml-cuda/CMakeLists.txt
++++ b/ggml/src/ggml-cuda/CMakeLists.txt
+@@ -139,6 +139,10 @@ if (CUDAToolkit_FOUND)
+         add_compile_definitions(GGML_CUDA_FORCE_MMQ)
+     endif()
+ 
++    if (GGML_CUDA_FORCE_MMVQ)
++        add_compile_definitions(GGML_CUDA_FORCE_MMVQ)
++    endif()
++
+     if (GGML_CUDA_FORCE_CUBLAS)
+         add_compile_definitions(GGML_CUDA_FORCE_CUBLAS)
+     endif()
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 2456f7dcc..60af9739b 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -1813,6 +1813,32 @@ static bool ggml_cuda_should_fuse_mul_mat_vec_q(const ggml_tensor * tensor) {
+     return use_mul_mat_vec_q;
+ }
+ 
++static bool ggml_cuda_dispatch_trace_enabled() {
++    static const bool enabled = []() {
++        const char * value = getenv("GGML_CUDA_DISPATCH_TRACE");
++        return value != nullptr && value[0] != '\0' && !(value[0] == '0' && value[1] == '\0');
++    }();
++    return enabled;
++}
++
++static void ggml_cuda_trace_mul_mat_dispatch(
++        const char * route, const ggml_tensor * src0, const ggml_tensor * src1,
++        const ggml_tensor * dst, int device, int cc) {
++    if (!ggml_cuda_dispatch_trace_enabled()) {
++        return;
++    }
++
++    GGML_LOG_INFO(
++        "ggml_cuda_dispatch: op=%s route=%s device=%d cc=%d type=%s "
++        "src0=[%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "] "
++        "src1=[%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "] "
++        "dst=[%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "]\n",
++        ggml_op_name(dst->op), route, device, cc, ggml_type_name(src0->type),
++        src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
++        src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
++        dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3]);
++}
++
+ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+     GGML_TENSOR_BINARY_OP_LOCALS
+ 
+@@ -1827,6 +1853,8 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
+     const bool bad_padding_clear = ggml_backend_buffer_get_usage(src0->buffer) == GGML_BACKEND_BUFFER_USAGE_COMPUTE
+         && ggml_nbytes(src0) != ggml_backend_buffer_get_alloc_size(src0->buffer, src0) && src0->view_src;
+     if (bad_padding_clear || src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32) {
++        ggml_cuda_trace_mul_mat_dispatch("cublas_input_contract", src0, src1, dst, ctx.device,
++            ggml_cuda_info().devices[ctx.device].cc);
+         ggml_cuda_mul_mat_cublas(ctx, src0, src1, dst);
+         return;
+     }
+@@ -1837,6 +1865,7 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
+     if (ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne, src0->nb, ne11)) {
+         // The custom F16 vector kernel can be used over batched cuBLAS GEMM.
+         // But this is only faster for GPUs without tensor cores or with a thin src0 matrix (particularly KQV in attention)
++        ggml_cuda_trace_mul_mat_dispatch("mmvf", src0, src1, dst, ctx.device, cc);
+         ggml_cuda_mul_mat_vec_f(ctx, src0, src1, nullptr, dst);
+         return;
+     }
+@@ -1851,21 +1880,35 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
+         dst_vec.nb[1] = dst_vec.nb[0]*ne11;
+         dst_vec.nb[2] = dst_vec.nb[1];
+         dst_vec.nb[3] = dst_vec.nb[1];
++        ggml_cuda_trace_mul_mat_dispatch("mmvf_transposed", src0, src1, dst, ctx.device, cc);
+         ggml_cuda_mul_mat_vec_f(ctx, src1, src0, nullptr, &dst_vec);
+         return;
+     }
+     if (ggml_cuda_should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, ne11, /*mul_mat_id =*/ false)) {
++        ggml_cuda_trace_mul_mat_dispatch("mmf", src0, src1, dst, ctx.device, cc);
+         ggml_cuda_mul_mat_f(ctx, src0, src1, nullptr, dst);
+         return;
+     }
+-    if (ggml_cuda_should_use_mmvq(src0->type, cc, ne11)) {
+-        ggml_cuda_mul_mat_vec_q(ctx, src0, src1, nullptr, dst);
+-        return;
+-    }
++#ifdef GGML_CUDA_FORCE_MMQ
+     if (ggml_cuda_should_use_mmq(src0->type, cc, ne11, /*n_experts =*/ 0)) {
++        ggml_cuda_trace_mul_mat_dispatch("mmq", src0, src1, dst, ctx.device, cc);
+         ggml_cuda_mul_mat_q(ctx, src0, src1, nullptr, dst);
+         return;
+     }
++#endif // GGML_CUDA_FORCE_MMQ
++    if (ggml_cuda_should_use_mmvq(src0->type, cc, ne11)) {
++        ggml_cuda_trace_mul_mat_dispatch("mmvq", src0, src1, dst, ctx.device, cc);
++        ggml_cuda_mul_mat_vec_q(ctx, src0, src1, nullptr, dst);
++        return;
++    }
++#ifndef GGML_CUDA_FORCE_MMQ
++    if (ggml_cuda_should_use_mmq(src0->type, cc, ne11, /*n_experts =*/ 0)) {
++        ggml_cuda_trace_mul_mat_dispatch("mmq", src0, src1, dst, ctx.device, cc);
++        ggml_cuda_mul_mat_q(ctx, src0, src1, nullptr, dst);
++        return;
++    }
++#endif // GGML_CUDA_FORCE_MMQ
++    ggml_cuda_trace_mul_mat_dispatch("cublas_policy", src0, src1, dst, ctx.device, cc);
+     ggml_cuda_mul_mat_cublas(ctx, src0, src1, dst);
+ }
+ 
+@@ -1919,11 +1962,13 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+             if (ggml_is_quantized(src0->type)) {
+                 const int mmvq_mmid_max = get_mmvq_mmid_max_batch(src0->type, cc);
+                 if (ne2 <= mmvq_mmid_max) {
++                    ggml_cuda_trace_mul_mat_dispatch("mmvq_id", src0, src1, dst, ctx.device, cc);
+                     ggml_cuda_mul_mat_vec_q(ctx, src0, src1, ids, dst);
+                     return;
+                 }
+             } else {
+                 if (GGML_CUDA_CC_IS_AMD(cc)) {
++                    ggml_cuda_trace_mul_mat_dispatch("mmvf_id", src0, src1, dst, ctx.device, cc);
+                     ggml_cuda_mul_mat_vec_f(ctx, src0, src1, ids, dst);
+                     return;
+                 }
+@@ -1931,11 +1976,13 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+         }
+ 
+         if (ggml_cuda_should_use_mmq(src0->type, cc, ne12, /*n_experts=*/ne02)) {
++            ggml_cuda_trace_mul_mat_dispatch("mmq_id", src0, src1, dst, ctx.device, cc);
+             ggml_cuda_mul_mat_q(ctx, src0, src1, ids, dst);
+             return;
+         }
+ 
+         if (ggml_cuda_should_use_mmf(src0->type, cc, WARP_SIZE, src0->ne, src0->nb, src1->ne[2], /*mul_mat_id=*/true)) {
++            ggml_cuda_trace_mul_mat_dispatch("mmf_id", src0, src1, dst, ctx.device, cc);
+             ggml_cuda_mul_mat_f(ctx, src0, src1, ids, dst);
+             return;
+         }
+@@ -5428,6 +5475,9 @@ static ggml_backend_feature * ggml_backend_cuda_get_features(ggml_backend_reg_t
+     #ifdef GGML_CUDA_FORCE_MMQ
+         features.push_back({ "FORCE_MMQ", "1" });
+     #endif
++    #ifdef GGML_CUDA_FORCE_MMVQ
++        features.push_back({ "FORCE_MMVQ", "1" });
++    #endif
+ 
+     #ifdef GGML_CUDA_FORCE_CUBLAS
+         features.push_back({ "FORCE_CUBLAS", "1" });
+diff --git a/ggml/src/ggml-cuda/mmvq.cu b/ggml/src/ggml-cuda/mmvq.cu
+index 970534809..f0ed14d93 100644
+--- a/ggml/src/ggml-cuda/mmvq.cu
++++ b/ggml/src/ggml-cuda/mmvq.cu
+@@ -290,6 +290,9 @@ bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11) {
+     if (!ggml_is_quantized(type)) {
+         return false;
+     }
++#ifdef GGML_CUDA_FORCE_MMVQ
++    return ne11 <= MMVQ_MAX_BATCH_SIZE;
++#endif
+     // k-quants cost more to decode and mvq redoes that per column, so MMQ wins sooner.
+     // Only list quant-types MMQ supports, others would fall back to cuBLAS.
+     if (GGML_CUDA_CC_IS_NVIDIA(cc) && cc == GGML_CUDA_CC_ADA_LOVELACE) {
