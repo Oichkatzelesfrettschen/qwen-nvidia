@@ -2417,6 +2417,8 @@ QWEN_LLAMA_CANDIDATE_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # the same source tree, candidate patches included
 QWEN_LLAMA_CANDIDATE_PATCHES=1 QWEN_LLAMA_DIAGNOSTIC_PATCHES=1 scripts/verify-llama-patch-series.sh
                                                  # and the census and lifecycle recorders on top, promotion_candidate=no
+scripts/check-superseded-dispatch-telemetry-patch.sh [LLAMA_SOURCE]
+                                                 # exact commit-diff replay at f280b269; retained source only, promotion refused
 GGUF_PY_PATH=~/src/llama.cpp-qwen-nvidia/gguf-py \
     scripts/test-gguf-tensor-census.py [MODEL...]
                                                  # needs the pinned gguf-py, and GGUF files for the optional arms
