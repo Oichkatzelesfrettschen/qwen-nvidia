@@ -49,14 +49,64 @@ EXPECTED_IDENTITY = {
 }
 
 DECISION_FIELDS = ["item", "stale_value", "current_observation", "decision"]
-EXPECTED_DECISIONS = {
-    "strip-default",
-    "obsolete-v12-option",
-    "hardcoded-sm89-default",
-    "global-fast-math",
-    "unmeasured-performance-claim",
-    "force-policy-comments",
-}
+EXPECTED_DECISION_ROWS = [
+    {
+        "item": "strip-default",
+        "stale_value": "options=(!strip)",
+        "current_observation": (
+            "fetched AUR master uses options=(lto !debug); the diff retains no "
+            "current strip failure or reproducer"
+        ),
+        "decision": "refused",
+    },
+    {
+        "item": "obsolete-v12-option",
+        "stale_value": "GGML_CUDA_V12=ON",
+        "current_observation": (
+            "the option is absent from the cached newer llama.cpp source and the "
+            "qwen-nvidia pinned source"
+        ),
+        "decision": "refused",
+    },
+    {
+        "item": "hardcoded-sm89-default",
+        "stale_value": "CMAKE_CUDA_ARCHITECTURES=89",
+        "current_observation": (
+            "the AUR package serves three architectures and exposes "
+            "LLAMA_BUILD_EXTRA_ARGS; qwen-nvidia already owns its measured SM89 "
+            "closure"
+        ),
+        "decision": "refused",
+    },
+    {
+        "item": "global-fast-math",
+        "stale_value": "CMAKE_CUDA_FLAGS=-use_fast_math -O3",
+        "current_observation": (
+            "the diff retains no numerical comparison or task result for the "
+            "global compiler flags"
+        ),
+        "decision": "refused",
+    },
+    {
+        "item": "unmeasured-performance-claim",
+        "stale_value": "10-15 percent token generation gain",
+        "current_observation": (
+            "the diff retains no binary identities, workload, token output, "
+            "clocks, timings, or control arm"
+        ),
+        "decision": "refused",
+    },
+    {
+        "item": "force-policy-comments",
+        "stale_value": "FORCE_CUBLAS 5x slower and FORCE_MMQ redundant",
+        "current_observation": (
+            "the free-form figures carry no retained source, binary, workload, "
+            "or measurement tuple"
+        ),
+        "decision": "refused",
+    },
+]
+EXPECTED_DECISION_ITEMS = {row["item"] for row in EXPECTED_DECISION_ROWS}
 
 README_MARKERS = [
     EXPECTED_IDENTITY["base_commit"],
@@ -104,11 +154,13 @@ def verify(repository_root: Path) -> None:
     decision_items = [row["item"] for row in decision_rows]
     if len(decision_items) != len(set(decision_items)):
         raise RetentionError("decision.tsv: duplicate item")
-    if set(decision_items) != EXPECTED_DECISIONS:
+    if set(decision_items) != EXPECTED_DECISION_ITEMS:
         raise RetentionError("decision.tsv: refusal denominator changed")
     for row in decision_rows:
         if row["decision"] != "refused":
             raise RetentionError(f"decision.tsv: {row['item']} is not refused")
+    if decision_rows != EXPECTED_DECISION_ROWS:
+        raise RetentionError("decision.tsv: registered decision rows changed")
 
     readme_text = (evidence_directory / "README.md").read_text(encoding="utf-8")
     for marker in README_MARKERS:

@@ -19,7 +19,11 @@ EVIDENCE_RELATIVE = Path("evidence/ada/aur-llama-cpp-cuda-stale-flags")
 
 class RetentionCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary_directory = tempfile.TemporaryDirectory()
+        local_temporary_root = REPOSITORY_ROOT / ".local-artifacts" / "tmp"
+        local_temporary_root.mkdir(parents=True, exist_ok=True)
+        self.temporary_directory = tempfile.TemporaryDirectory(
+            prefix="aur-retention-", dir=local_temporary_root
+        )
         self.fixture_root = Path(self.temporary_directory.name)
         fixture_evidence = self.fixture_root / EVIDENCE_RELATIVE
         fixture_evidence.parent.mkdir(parents=True)
@@ -82,6 +86,21 @@ class RetentionCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(result.returncode, 1)
         self.assertIn("is not refused", result.stdout)
+
+    def test_decision_observation_mutation_is_rejected(self) -> None:
+        decision_path = self.fixture_root / EVIDENCE_RELATIVE / "decision.tsv"
+        decision_text = decision_path.read_text(encoding="utf-8")
+        decision_path.write_text(
+            decision_text.replace(
+                "the option is absent from the cached newer llama.cpp source",
+                "the option is present in the cached newer llama.cpp source",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("registered decision rows changed", result.stdout)
 
 
 if __name__ == "__main__":
