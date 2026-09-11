@@ -1,0 +1,7 @@
+item	stale_value	current_observation	decision
+strip-default	options=(!strip)	fetched AUR master uses options=(lto !debug); the diff retains no current strip failure or reproducer	refused
+obsolete-v12-option	GGML_CUDA_V12=ON	the option is absent from the cached newer llama.cpp source and the qwen-nvidia pinned source	refused
+hardcoded-sm89-default	CMAKE_CUDA_ARCHITECTURES=89	the AUR package serves three architectures and exposes LLAMA_BUILD_EXTRA_ARGS; qwen-nvidia already owns its measured SM89 closure	refused
+global-fast-math	CMAKE_CUDA_FLAGS=-use_fast_math -O3	the diff retains no numerical comparison or task result for the global compiler flags	refused
+unmeasured-performance-claim	10-15 percent token generation gain	the diff retains no binary identities, workload, token output, clocks, timings, or control arm	refused
+force-policy-comments	FORCE_CUBLAS 5x slower and FORCE_MMQ redundant	the free-form figures carry no retained source, binary, workload, or measurement tuple	refused
