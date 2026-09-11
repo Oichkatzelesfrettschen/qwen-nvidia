@@ -16,10 +16,12 @@ default-off route log and a forced MMVQ build mode. The retained commit changes
 four files with 66 additions and four deletions and produces tree
 `ca89214846cf056897a949059b11e92fcd01580c`.
 
-`scripts/check-superseded-dispatch-telemetry-patch.sh` verifies the patch
-digest, checks the diff against a fresh checkout of the pinned base, applies
-the diff, rejects whitespace errors, and requires the replayed tree to equal
-the commit tree. The patch stays superseded. The current diagnostic census
+`scripts/check-superseded-dispatch-telemetry-patch.sh` resolves the retained
+target commit, requires its parent and tree to match the registered identities,
+verifies the patch digest, checks the diff against a fresh checkout of the
+pinned base, applies the diff, rejects whitespace errors, and requires the
+replayed tree to equal the resolved commit tree. The fresh checkout stays under
+the repository's ignored artifact root. The patch stays superseded. The current diagnostic census
 records dispatch at graph granularity through
 `patches/llama-cuda-dispatch-census.patch`, while the AD104 crossover patch
 owns the measured MMVQ thresholds.

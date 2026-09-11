@@ -11,6 +11,7 @@ repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 patch_path=${2:-"$repository_directory/patches/superseded/llama-cuda-dispatch-trace-force-mmvq.patch"}
 expected_commit=f280b26983ad0fdb705a0d9ebf0503e76f2899b0
+expected_target_commit=54f7f7a7ac554d0ef7ec16f9a2e1e8a93b551000
 expected_patch_sha256=46b7a05e4fb636cd59166c20a5f77c6f1b5168f2eb953e6af9d08d7b5c663795
 expected_tree=ca89214846cf056897a949059b11e92fcd01580c
 
@@ -30,7 +31,29 @@ if [ "$actual_patch_sha256" != "$expected_patch_sha256" ]; then
     exit 1
 fi
 
-temporary_directory=$(mktemp -d)
+target_parent=$(git -C "$source_directory" rev-parse \
+    "$expected_target_commit^") || {
+    printf 'superseded target commit is unavailable: %s\n' \
+        "$expected_target_commit" >&2
+    exit 1
+}
+if [ "$target_parent" != "$expected_commit" ]; then
+    printf 'superseded target parent mismatch: expected %s found %s\n' \
+        "$expected_commit" "$target_parent" >&2
+    exit 1
+fi
+target_tree=$(git -C "$source_directory" rev-parse \
+    "$expected_target_commit^{tree}")
+if [ "$target_tree" != "$expected_tree" ]; then
+    printf 'superseded target tree mismatch: expected %s found %s\n' \
+        "$expected_tree" "$target_tree" >&2
+    exit 1
+fi
+
+temporary_root=$repository_directory/.local-artifacts/tmp
+mkdir -p "$temporary_root"
+temporary_directory=$(mktemp -d \
+    "$temporary_root/superseded-dispatch-telemetry.XXXXXX")
 cleanup() {
     rm -rf -- "$temporary_directory"
 }
@@ -52,9 +75,9 @@ git -C "$temporary_directory/llama.cpp" apply "$patch_path"
 git -C "$temporary_directory/llama.cpp" diff --check
 git -C "$temporary_directory/llama.cpp" add -A
 actual_tree=$(git -C "$temporary_directory/llama.cpp" write-tree)
-if [ "$actual_tree" != "$expected_tree" ]; then
+if [ "$actual_tree" != "$target_tree" ]; then
     printf 'superseded patch replay tree mismatch: expected %s found %s\n' \
-        "$expected_tree" "$actual_tree" >&2
+        "$target_tree" "$actual_tree" >&2
     exit 1
 fi
 
@@ -62,4 +85,6 @@ printf 'superseded_patch=%s sha256=%s\n' \
     "$(basename -- "$patch_path")" "$actual_patch_sha256"
 printf 'superseded_patch_base=%s replay_tree=%s\n' \
     "$actual_commit" "$actual_tree"
+printf 'superseded_patch_target=%s parent=%s tree=%s\n' \
+    "$expected_target_commit" "$target_parent" "$target_tree"
 printf 'superseded_patch_replay=accepted promotion=refused\n'
