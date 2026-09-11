@@ -21,8 +21,11 @@ target commit, requires its parent and tree to match the registered identities,
 verifies the patch digest, checks the diff against a fresh checkout of the
 pinned base, applies the diff, rejects whitespace errors, and requires the
 replayed tree to equal the resolved commit tree. The fresh checkout stays under
-the repository's ignored artifact root. The patch stays superseded. The current diagnostic census
-records dispatch at graph granularity through
+the repository's ignored artifact root. The checker resolves relative inputs
+before entering that checkout, clears inherited Git repository and index
+routing, and disables replacement objects for every identity and replay read.
+The patch stays superseded. The current diagnostic census records dispatch at
+graph granularity through
 `patches/llama-cuda-dispatch-census.patch`, while the AD104 crossover patch
 owns the measured MMVQ thresholds.
 
