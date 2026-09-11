@@ -78,18 +78,39 @@ instantiated range.
 shape: kernel ceiling sixteen, per-type defaults still eight, serving
 thresholds Q6_K ten and Q8_0 sixteen selected at build time.
 MMVQ_MAX_BATCH_SIZE stays 8, so every other architecture and the mul_mat_id
-static assert keep stock behavior; a kernel-side MMVQ_KERNEL_MAX_NCOLS of 12
+static assert keep stock behavior; a kernel-side MMVQ_KERNEL_MAX_NCOLS of 16
 carries the instantiations; and the Ada dispatch reads two cache settings,
 GGML_CUDA_ADA_MMVQ_Q6_K_MAX_BATCH_SIZE and
 GGML_CUDA_ADA_MMVQ_Q8_0_MAX_BATCH_SIZE, both defaulting to the upstream
 eight, so a control and a subject differ by one named threshold and a
 static_assert bounds each by the kernel ceiling. The measured production
-values are ten for Q6_K and twelve for Q8_0. The verification build at those
-values runs Q6_K on MMVQ at nine (72.2 per token), on MMQ at eleven (64.6,
-the stock rate), and Q8_0 on MMVQ at twelve (206.7), so each knob reaches its
-own type alone. `QWEN_LLAMA_CANDIDATE_PATCHES=1
+values are ten for Q6_K and sixteen for Q8_0. The earlier verification build
+at ten and twelve ran Q6_K on MMVQ at nine (72.2 per token), on MMQ at eleven
+(64.6, the stock rate), and Q8_0 on MMVQ at twelve (206.7), proving that each
+knob reached its own type before the Q8_0 extension. `QWEN_LLAMA_CANDIDATE_PATCHES=1
 scripts/verify-llama-patch-series.sh` accepts the series with the candidate
 applied third.
+
+## Exact retention of the intermediate per-type source
+
+The source directory beside the two builds named in `binaries.sha256` did not
+carry the earlier global-threshold `mmvq12-experimental.patch` at retirement
+time. Its three modified files carried the later per-type configuration
+mechanism, but stopped at a 12-column kernel ceiling. The exact diff is retained
+as `mmvq12-per-type-source.patch`; `mmvq12-per-type-source.tsv` binds it to base
+`f280b26983ad0fdb705a0d9ebf0503e76f2899b0`, patch digest
+`1c24aec7a88974b9471a979a6126b9890373e2ddc46dd67609f8b27dad800e03`,
+and replay tree `f0dfae3e08010071264f47c296ad6fb5b624f668`.
+
+`scripts/check-superseded-mmvq12-per-type-patch.sh` also replays the current
+16-column candidate from the same base and requires the distinct tree
+`bf008e6802aa206c780d0c15e3f9a6980be0c759`. The retained 12-column tree is
+worktree-source provenance, not a source-to-binary attestation, another
+candidate, a new runtime result, or authority to replace the promoted 10/16
+thresholds. The private build configuration retained before cleanup records
+Q6_K=10 and Q8_0=12; the public binary manifest remains the authority for the
+two executable identities alone. The TSV binds the private seven-entry
+retention manifest by digest without publishing its absolute paths.
 
 ## Supersession: the Q8_0 threshold moved to sixteen
 

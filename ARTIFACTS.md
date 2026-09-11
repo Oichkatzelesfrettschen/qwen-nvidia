@@ -10,6 +10,7 @@
 | llama.cpp build tree | derived regenerable | excluded | `scripts/build-llama-cuda.sh` |
 | View-metadata incremental patch | superseded retain | `patches/superseded/` | folded into `llama-no-cpu-fallback.patch` |
 | AD104 dispatch trace and forced-MMVQ patch | superseded retain | `patches/superseded/` | exact commit diff plus `scripts/check-superseded-dispatch-telemetry-patch.sh` |
+| Intermediate AD104 per-type 12-column MMVQ source | superseded retain | `evidence/ada/mmvq-crossover-ad104/` | pinned base, exact patch digest, replay tree, and `scripts/check-superseded-mmvq12-per-type-patch.sh` |
 | Historical AD104 trace-only binary closure | raw exact-target evidence | ignored `.local-artifacts/retained-closures/` with public digests under `evidence/ada/ad104-dispatch-telemetry-source-retention/` | private SHA-256 manifest and relocation receipt |
 | Fallback Web UI | adapted source asset | ordinary Git under `webui/` | qwen-lab 1.5.0 source plus this repository's policy tests |
 | Prior-host evidence conclusions | retained comparative summary | ordinary Git under `evidence/legacy/raven2/` | raw originals in the `qwen-apu` repository at the commit `README.md` names |
@@ -182,6 +183,14 @@ mechanisms. `scripts/check-superseded-dispatch-telemetry-patch.sh` replays the
 patch in its own fresh checkout and requires the resulting Git tree to equal
 the commit tree; the patch enters no production, candidate, diagnostic, or
 rejected build stage.
+
+`evidence/ada/mmvq-crossover-ad104/mmvq12-per-type-source.patch` retains the
+exact uncommitted source that introduced separate Ada Q6_K and Q8_0 thresholds
+with a 12-column kernel ceiling. The later candidate patch extends the same
+per-type mechanism to sixteen columns and remains the only one used by the
+candidate build stage. `scripts/check-superseded-mmvq12-per-type-patch.sh`
+replays both patches from the common pin, requires their registered digests and
+distinct trees, and leaves the retained 12-column source unpromoted.
 
 The retained llama.cpp executables and derived source patches carry the
 upstream MIT terms in `licenses/llama.cpp-LICENSE`. The external GGUF model
