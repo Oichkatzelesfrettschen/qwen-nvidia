@@ -2370,6 +2370,8 @@ scripts/test-mmvq-width-request-tails.sh
 scripts/test-mmvq-tail-logit-margin.sh
 scripts/test-reconstruct-closure-source.sh
 python3 scripts/test-compare-closure-isolation.py
+python3 scripts/test-aur-llama-cpp-cuda-retention.py
+python3 scripts/check-aur-llama-cpp-cuda-retention.py
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py

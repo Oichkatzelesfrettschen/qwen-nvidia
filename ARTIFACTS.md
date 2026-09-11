@@ -11,10 +11,17 @@
 | View-metadata incremental patch | superseded retain | `patches/superseded/` | folded into `llama-no-cpu-fallback.patch` |
 | AD104 dispatch trace and forced-MMVQ patch | superseded retain | `patches/superseded/` | exact commit diff plus `scripts/check-superseded-dispatch-telemetry-patch.sh` |
 | Intermediate AD104 per-type 12-column MMVQ source | superseded retain | `evidence/ada/mmvq-crossover-ad104/` | pinned base, exact patch digest, replay tree, and `scripts/check-superseded-mmvq12-per-type-patch.sh` |
+| Stale local AUR llama.cpp-cuda flags | superseded retain | private raw diff under `.local-artifacts/`; compact negative admission under `evidence/ada/aur-llama-cpp-cuda-stale-flags/` | base and fetched-origin commits, file and raw-diff digests, private-manifest digest, and `scripts/check-aur-llama-cpp-cuda-retention.py` |
 | Historical AD104 trace-only binary closure | raw exact-target evidence | ignored `.local-artifacts/retained-closures/` with public digests under `evidence/ada/ad104-dispatch-telemetry-source-retention/` | private SHA-256 manifest and relocation receipt |
 | Fallback Web UI | adapted source asset | ordinary Git under `webui/` | qwen-lab 1.5.0 source plus this repository's policy tests |
 | Prior-host evidence conclusions | retained comparative summary | ordinary Git under `evidence/legacy/raven2/` | raw originals in the `qwen-apu` repository at the commit `README.md` names |
 | Generated image artifacts | raw exact-target evidence, one binary per admission, when produced | ordinary Git under `evidence/image-appliance/` | `evidence/SHA256SUMS`, and the profile, seed, and runtime the provenance record beside it names |
+
+Platform-specific llama.cpp patches, replay inputs, and measurements stay in
+the repository that owns their backend and hardware boundary. qwen-nvidia owns
+CUDA and NVIDIA variants; qwen-apu separately owns Vulkan variants.
+An AUR checkout or another packaging tree may supply upstream comparison
+material, but it does not own either repository's local patch lineage.
 
 `scripts/refresh-evidence-manifest.sh` regenerates `evidence/SHA256SUMS` from
 the tracked `benchmarks/` and `evidence/` trees, and `--check` exits non-zero
