@@ -137,9 +137,9 @@ The served closure is configuration `15bc632adf7f`
 threshold 10, Q8_0 MMVQ threshold 16, and
 `patches/llama-server-vulkan-workload-lease.patch`, so llama-server holds the
 compute lease across its model load and every decoding pass and its teardown
-reports the hold. Configuration `88681bf4d161` is retained as the rollback
-target, and configuration `572951d25562` is retained as the PTX-bearing
-dual-backend diagnostic closure.
+reports the hold. Configuration `88681bf4d161` is retained as the
+rollback target, and configuration `572951d25562` is retained as the
+PTX-bearing dual-backend diagnostic closure.
 
 ## Roadmap
 
