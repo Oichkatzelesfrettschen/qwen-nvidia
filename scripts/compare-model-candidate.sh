@@ -49,7 +49,7 @@ curl --silent --fail "$endpoint/props" >"$result_directory/props.json" || true
 request() {
     reasoning_flag=$1
     output_name=$2
-    printf '{"model":"qwen-apu","messages":[{"role":"user","content":"Which is larger, 9.11 or 9.9? Answer in one sentence."}],"max_tokens":%s,"temperature":0,"chat_template_kwargs":{"enable_thinking":%s}%s}' \
+    printf '{"model":"qwen-nvidia","messages":[{"role":"user","content":"Which is larger, 9.11 or 9.9? Answer in one sentence."}],"max_tokens":%s,"temperature":0,"chat_template_kwargs":{"enable_thinking":%s}%s}' \
         "$3" "$reasoning_flag" "$4" >"$result_directory/$output_name.request.json"
     curl --silent --show-error --max-time 900 \
         --header 'Content-Type: application/json' \
