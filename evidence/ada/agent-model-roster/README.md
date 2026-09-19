@@ -80,9 +80,16 @@ identifier and nothing about the rendered prompt or the model's behavior.
 ## Device arms
 
 `campaign-runner.sh` is the runner, retained here with its selection and
-order. It waits for all nine fetch scripts to verify, then for the
-detached graft deep build to exit, and refuses to start when either
-condition or `sudo` (which the hazard watchdog needs) is missing.
+order. It reconciles the fetch chain by each row's fetch script name, waits
+for the detached graft deep build to exit, and refuses to start when either
+condition or `sudo` (which the hazard watchdog needs) is missing. A strict
+failure excludes that row from the roster; a strict failure whose logs
+carry a kernel hazard halts the campaign; a signal stops the child in
+flight, tears the served process down, and exits 130 or 143.
+`campaign-status.tsv` records each row's strict state, each roster arm's
+exit, and a final `campaign_status` of `complete`, `partial` or `failed`
+reconciled from the expected answer count (three per admitted row, three
+per control arm) against the retained JSON answers.
 
 1. `scripts/test-strict-cuda-placement.sh` on each new row: two CPU
    refusals and one CUDA0 load at a 128-token context answering a
@@ -93,12 +100,17 @@ condition or `sudo` (which the hazard watchdog needs) is missing.
 2. `scripts/admit-summarize-roster.sh` over the nine rows and the
    `qwen38-4b-distill` control with every `QWEN_SPEC_*` variable unset:
    the checkpoint comparison, `roster.tsv`. Each request is graft's own
-   summarize prompt and 24000-character clip at a 32768 reply cap (the
-   installed graft's cap), with the full answer retained as
-   `roster.tsv.<id>.<file>.json`, wall time in milliseconds, the HTTP
-   status, and an outcome column that separates `stop`, `capped`,
-   `context_exhausted` (prompt plus completion at the context size),
-   `http`, `body`, `transport_*` and `launch_failed`. The `tool_call`
+   summarize prompt and 24000-character clip (a character count, cut at
+   a character boundary) at a 32768 reply cap (the installed graft's
+   cap), with the request body and the full answer retained as
+   `roster.tsv.<id>.<file>.request.json` and `.json`, monotonic wall
+   time in milliseconds, the HTTP status, a `context_boundary` column
+   (prompt plus completion at the context size, beside the finish reason
+   rather than replacing it), and an outcome column that separates
+   `stop`, `blank` (stopped with no non-whitespace content), `capped`,
+   `http`, `body`, `transport_*` and `launch_failed`.
+   `scripts/test-admit-summarize-roster.sh` proves each classification
+   and each selection refusal against a fake chain. The `tool_call`
    column is the repaired probe: one completed `record_probe` call with
    `ok=true`, not the presence of the field name.
 3. The control alone under `QWEN_SPEC_TYPE=draft-mtp` with one drafted
