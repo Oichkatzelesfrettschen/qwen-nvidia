@@ -88,7 +88,7 @@ fi
 
 # ignore_eos fixes the generation length, so the rate covers the same number of
 # decode steps as `llama-bench -n 64` rather than however many the model chose.
-printf '{"model":"qwen-apu","messages":[{"role":"user","content":"Write one paragraph about tides."}],"max_tokens":%s,"temperature":0,"top_k":1,"seed":1,"ignore_eos":true,"chat_template_kwargs":{"enable_thinking":false}}' \
+printf '{"model":"qwen-nvidia","messages":[{"role":"user","content":"Write one paragraph about tides."}],"max_tokens":%s,"temperature":0,"top_k":1,"seed":1,"ignore_eos":true,"chat_template_kwargs":{"enable_thinking":false}}' \
     "$generate_tokens" >"$result_directory/request.json"
 
 set +e

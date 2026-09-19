@@ -996,7 +996,7 @@ else
         --model "$model_path" \
         --host "$bind_host" \
         --port "$server_port" \
-        --alias qwen-apu \
+        --alias qwen-nvidia \
         --cors-origins "$cors_origins"
 fi
 

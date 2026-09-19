@@ -27,7 +27,7 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> None:
     arguments = parse_arguments()
     payload = {
-        "model": "qwen-apu",
+        "model": "qwen-nvidia",
         "messages": [{"role": "user", "content": arguments.prompt}],
         "max_tokens": arguments.decode_tokens,
         "temperature": 0.0,

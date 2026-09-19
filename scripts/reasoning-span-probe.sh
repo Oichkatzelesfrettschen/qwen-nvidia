@@ -24,7 +24,7 @@ prompts = [
 records = []
 for index, prompt in enumerate(prompts):
     body = json.dumps({
-        "model": "qwen-apu",
+        "model": "qwen-nvidia",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 2048,
         "temperature": 0,

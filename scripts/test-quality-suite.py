@@ -236,7 +236,7 @@ with tempfile.TemporaryDirectory() as temporary_directory:
         handle.write("call\ttool\ttool_call\tget_weather:city=Oslo\t"
                      "Weather in Oslo?\ttools:weather\n")
     tool_document = {
-        "model": "qwen-apu",
+        "model": "qwen-nvidia",
         "choices": [{
             "message": {
                 "content": "",
@@ -303,7 +303,7 @@ for row in rows:
         failures += 1
 
 
-def synthetic_document(content, finish_reason="stop", served_model="qwen-apu"):
+def synthetic_document(content, finish_reason="stop", served_model="qwen-nvidia"):
     document = {
         "choices": [{
             "message": {"content": content, "reasoning_content": ""},
@@ -435,7 +435,7 @@ with tempfile.TemporaryDirectory() as temporary_directory:
         print("unattributed row did not retain its attribution failure",
               file=sys.stderr)
         failures += 1
-    if result["summary"]["served_models"] != ["qwen-apu"]:
+    if result["summary"]["served_models"] != ["qwen-nvidia"]:
         print("served-model roster changed while checking row attribution",
               file=sys.stderr)
         failures += 1

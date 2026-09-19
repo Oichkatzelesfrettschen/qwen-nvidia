@@ -48,7 +48,7 @@ expected_arguments='--model
 --port
 8080
 --alias
-qwen-apu
+qwen-nvidia
 --cors-origins
 localhost
 --no-ui

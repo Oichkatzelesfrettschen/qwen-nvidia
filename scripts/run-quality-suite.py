@@ -379,7 +379,7 @@ def main(argv):
     # so the served id is the name a preset section carries. A single-model
     # server accepts any name and answers with its own alias, which is why the
     # served id is recorded per row rather than assumed from this argument.
-    parser.add_argument("--model", default="qwen-apu",
+    parser.add_argument("--model", default="qwen-nvidia",
                         help="model id sent in the request body")
     parser.add_argument("--thinking", default="on", choices=("on", "off"))
     parser.add_argument(
