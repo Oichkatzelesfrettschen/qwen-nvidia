@@ -436,6 +436,10 @@ for artifact in llama-bench llama-server llama-cli llama-mtmd-cli llama-quantize
     }
 done
 
+# promote-llama-build.sh rehashes the closure against this manifest, and a
+# build without one is refused at the gate by name.
+"$script_directory/write-artifact-manifest.sh" "$build_directory"
+
 cuobjdump_command=$(command -v cuobjdump 2>/dev/null || true)
 if [ -z "$cuobjdump_command" ] && [ -x /opt/cuda/bin/cuobjdump ]; then
     cuobjdump_command=/opt/cuda/bin/cuobjdump
