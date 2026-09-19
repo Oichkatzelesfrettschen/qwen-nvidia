@@ -1,0 +1,12 @@
+### 1. Overall Function
+This file contains the low-level logic for managing flash memory on the RP2040 microcontroller. It handles a specific type of memory operation called a "swap," which involves moving data between flash pages without erasing the entire memory block. The code ensures that data is written in a specific order (ascending address) and aligns with erase sectors to prevent corruption. It is likely used for testing or specific hardware features where the host needs to verify the production algorithm against a NOR model.
+
+### 2. Key Exported Functions
+
+**`flash_swap_append`**
+*   **Purpose:** Appends a piece of data to the flash memory.
+*   **Logic:** It checks if the data offset is aligned to a program page boundary. If not, it returns an error. It calculates the size of the chunk to write. If the chunk is a full program page, it writes directly. If the chunk is smaller, it writes to a temporary buffer (`scratch`) and then writes that buffer to the flash. It handles the erasing of the flash sector before writing the new data.
+
+**`flash_swap_rewrite`**
+*   **Purpose:** Rewrites an arbitrary range of data using a spare sector.
+*   **Logic:** It calculates the destinatio

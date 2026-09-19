@@ -1,0 +1,15 @@
+## Summary of `bin/cat/cat.c`
+
+### What it does overall
+
+This is the source code for the Unix `cat` command — a utility that concatenates (concatenates = concatenates) files and writes their contents to standard output. It reads one or more files and prints them to stdout. It supports several optional flags to control how output is formatted (e.g., show line numbers, show special characters, squeeze blank lines, etc.).
+
+### Key exported functions
+
+| Function | Purpose |
+|----------|----------|
+| `main()` | The entry point. Parses command-line arguments (flags and filenames), opens each file, and routes the output either through `copyopt()` (when flags are set) or `fastcat()` (when no flags are set). |
+| `copyopt(FILE *f)` | Handles the "flagged" mode. It reads character-by-character from the file and applies formatting rules: prints line numbers (`-n`), shows special characters (`-v`), squeezes blank lines (`-s`), shows end-of-line (`-e`), and shows tabs (`-t`). |
+| `fastcat(int fd)` | Handles the "fast" mode (no flags). It reads the file in large chunks (buffered I/O) and writes them directly to stdout. This is the default, optimized path for simple concatenation. |
+
+### How it 

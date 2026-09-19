@@ -1,0 +1,17 @@
+## Summary
+
+This file provides flash memory write utilities for the RP2040 device. It implements two functions that handle writing data to flash memory while managing the erase/program cycle correctly. Flash memory can only be erased in large blocks (sectors), so these functions handle the complexity of erasing sectors before writing new data.
+
+## Key Functions
+
+### `flash_swap_append`
+Writes data sequentially to flash memory. It starts at an erase-sector boundary and writes in ascending address order. When a piece of data reaches a sector boundary, it erases that sector first. Partial program pages are padded with erased bytes (0xFF).
+
+**Use case:** Writing a large file or image in one continuous operation.
+
+### `flash_swap_rewrite`
+Rewrites an arbitrary range of flash memory by using a spare sector as a temporary buffer. It reads the old data into the spare sector, erases the target sector, then writes the new data. This avoids needing a full erase sector in SRAM.
+
+**Use case:** Updating a specific region of flash memory without erasing the entire sector.
+
+Both functions return `0` on success or `-1` on failure. They require a `struct flash_swap_ops` interface that provides the u

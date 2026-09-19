@@ -1,0 +1,14 @@
+### Summary
+
+The `bin/cat/cat.c` file is a C program that concatenates files and writes them to the standard output. It provides various options to control the behavior of the concatenation process, such as numbering lines, handling non-printable characters, and avoiding output buffering.
+
+### Key Exported Functions and Their Purposes
+
+1. **`main(argc, argv)`**
+   - **Purpose**: The main function is the entry point of the program. It parses command-line arguments to determine the options and files to be concatenated. It then calls `copyopt` or `fastcat` to handle the actual concatenation based on the specified options.
+
+2. **`copyopt(f)`**
+   - **Purpose**: This function reads characters from the input file `f` and writes them to the standard output. It handles options like numbering lines (`-n`), handling non-printable characters (`-v`), and avoiding output buffering (`-u`). It also handles special characters like tabs (`-t`) and end-of-file markers (`-e`).
+
+3. **`fastcat(fd)`**
+   - **Purpose**: This function reads data from the file descriptor `fd` and writes it to the standard output using a buffer. It handles large writes by repeatedly calling `write` until all data is written

@@ -1,0 +1,18 @@
+The file is a USB driver for a console device on the RP2040, enabling CDC-ACM (console over USB) with /dev/ttyACM0. It allows the console to be connected via USB and provides functions for setting up the device, handling USB transactions, sending/receiving data, controlling the device, and interacting with the console.
+
+Key exported functions include:
+- usb_setup: initializes USB buffers and device state.
+- usb_service: the main service that handles interrupts, buffers, and status.
+- usb_tx_kick: sends out bulk IN buffers (for host data).
+- usb_rx_done: handles received data.
+- usbopen and usbclose: open/close USB devices.
+- usbread and usbwrite: read/write data.
+- usbioctl: control device operations.
+- usbselect: select the device.
+- usbstart: start console input.
+- usbdrain: drain the console buffer.
+- usbgetc: read from the console.
+- usbpoll: poll the device.
+- usbprobe: probe the device (driver initialization).
+
+Overall, it's a USB console driver that allows CDC-ACM console access over USB, with robust transaction handling and device control.

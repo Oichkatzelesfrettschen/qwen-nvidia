@@ -1,0 +1,18 @@
+## Overview
+
+This file is a **USB-to-serial driver** for the RP2040 microcontroller. It implements a **CDC-ACM (Class-Device-ACM)** interface, meaning the RP2040 exposes a USB device that Linux (and other OSes) can bind to as `/dev/ttyACM0` — essentially giving the RP2040 a serial console port.
+
+The driver uses the RP2040's built-in USB controller (a CDC-ACM device) rather than a separate UART peripheral, and it provides a "Reset" interface that lets `picotool` reboot the board without needing a physical button.
+
+---
+
+## Key Exported Functions
+
+| Function | Purpose |
+|----------|---------|
+| `usbinit(void)` | Initializes the USB controller, sets up the DPSRAM buffers, configures the E15 guard timer, and enables the controller. |
+| `usbopen(dev_t dev, int flag, int mode)` | Opens the console as a serial terminal (reads input, writes output). |
+| `usbclose(dev_t dev, int flag, int mode)` | Closes the console connection. |
+| `usbread(dev_t dev, struct uio *uio, int flag)` | Reads bytes from the console (reads from the terminal). |
+| `usbwrite(dev_t dev, struct uio *uio, int flag)` | Writes bytes to the console (writes to the terminal). |
+| `usbioctl(dev_t dev, u_int cmd, caddr_t add

@@ -1,0 +1,9 @@
+The file is a C program that performs a swap operation on a raw swap image. It takes a pointer to a structure containing the operations to be performed on the swap image, the offset of the starting point, the source and length of the swap image, and the sector to swap. The program then performs the swap operation and returns a non-negative value.
+
+The key exported functions are:
+
+1. `flash_swap_append`: This function takes a pointer to a structure containing the operations to be performed on the swap image, the offset of the starting point, the source and length of the swap image, and the sector to swap. It returns a non-negative value if the swap is successful, and -1 if it fails.
+
+2. `flash_swap_rewrite`: This function takes a pointer to a structure containing the operations to be performed on the swap image, the offset of the starting point, the source and length of the swap image, the sector to swap, and the scratch image. It returns a non-negative value if the swap is successful, and -1 if it fails.
+
+The program also includes a comment explaining the purpose of the `flash_swap_rewrite` function, which is to rewrite an arbitrary program-page-aligned range through a spare sector

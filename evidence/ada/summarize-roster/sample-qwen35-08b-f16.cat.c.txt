@@ -1,0 +1,7 @@
+**1. What it does overall:**
+This is a command-line utility for concatenating files. It allows users to combine multiple files into a single output. The program parses arguments like `-u`, `-n`, `-b`, `-v`, `-s`, `-e`, and `-t` to determine specific file handling modes. It checks file permissions and uses `main` to handle the command-line arguments, while `copyopt` handles output formatting and `fastcat` handles file concatenation.
+
+**2. Key exported functions and what each is for:**
+*   **`main`**: Handles command-line arguments, file opening, and file checking. It parses arguments like `-u`, `-n`, `-b`, `-v`, `-s`, `-e`, and `-t` to determine specific file handling modes. It checks file permissions and uses `main` to handle the command-line arguments, while `copyopt` handles output formatting and `fastcat` handles file concatenation.
+*   **`copyopt`**: Handles output formatting (printf). It processes input characters and formats them into a specific output format.
+*   **`fastcat`**: Handles file concatenation (reads from stdin, writes to stdout). It reads data from a file and writes it to a file.

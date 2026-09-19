@@ -1,0 +1,17 @@
+This file, `flash_swap.c`, is the core logic for the **RP2040 Flash Controller**, specifically designed to handle the "Swap" operation. In the context of the RP2040, the flash memory is **NOR Flash**, which is "erase-aligned." This means the controller cannot write to a random address; it must write to a boundary (usually a page or sector) to perform a write.
+
+### 1. What it does overall
+The file implements a **Flash Swap Image** mechanism. When the host (the PC or bootloader) wants to write to a specific address in the flash, it cannot do so directly. Instead, it:
+1.  **Erase** a "spare sector" (a piece of flash that is never erased).
+2.  **Copy** the data from the source to the spare sector.
+3.  **Write** the "Swap Image" (the data from the source) to the target address.
+4.  **Erase** the original target sector.
+
+This allows the host to use a "temporary swap device" to perform a rewrite without permanently erasing the destination sector.
+
+---
+
+### 2. Key Exported Functions
+
+#### `flash_swap_append`
+This function handles the **Write** operation. It ensures that the data being written is aligned to a page boundary (128 bytes) and a sector boundary (4096 bytes). It manages the trans

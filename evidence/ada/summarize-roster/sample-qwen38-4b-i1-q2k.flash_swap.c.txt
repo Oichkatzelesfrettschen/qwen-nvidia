@@ -1,0 +1,11 @@
+## Summary
+
+This file provides two functions for manipulating swap images on the RP2040 flash memory:
+
+**Overall purpose:** It handles writing data to flash memory in a way that preserves the swap image's structure — keeping track of which pages are erased and which are filled, so that later operations can be performed without needing to erase the entire sector.
+
+**Key functions:**
+
+- **`flash_swap_append`** — Appends a piece of data to a swap image. It starts at an erase-sector boundary and writes data in ascending address order. It erases a sector when a piece first reaches its boundary, and pads the final program page with erased bytes.
+
+- **`flash_swap_rewrite`** — Rewrites an arbitrary range of pages through a spare sector. It copies every untouched page to the spare sector, so that temporary swap devices retain normal block-rewrite semantics without requiring a full erase sector in SRAM.

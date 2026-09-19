@@ -1,0 +1,13 @@
+### Overall Purpose
+This file contains the source code for the Unix `cat` command. Its main job is to concatenate (join) multiple files together and display the result on the screen. It supports various command-line flags to modify how the output is displayed, such as showing line numbers, non-printable characters, or removing blank lines.
+
+### Key Exported Functions
+
+1.  **`main`**
+    *   **What it is for:** This is the entry point of the program. It handles the command-line arguments (flags like `-n`, `-v`, `-e`, etc.) and determines which files to process. It checks for errors, such as trying to read a file that is also the output stream, and decides whether to use the standard fast output method or the formatted output method based on the flags provided.
+
+2.  **`copyopt`**
+    *   **What it is for:** This function handles the "verbose" or "formatted" output modes. It reads files character by character and applies specific formatting rules based on the flags (like `-n` for line numbers, `-e` for end-of-line markers, `-s` for blank line removal, `-t` for tab handling, and `-v` for non-printable characters).
+
+3.  **`fastcat`**
+    *   **What it is for:** This function handles the

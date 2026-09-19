@@ -1,0 +1,18 @@
+**Summary of the File**
+
+**Overall Purpose:**  
+The file `sys/arch/rp2040/dev/flash_swap.c` is part of the RP2040 microcontroller's hardware, focusing on managing flash memory operations. It handles data swapping and rewriting, ensuring proper alignment with flash memory's erase sectors and program pages. This is critical for embedded systems and IoT devices that rely on flash memory for storage.
+
+**Key Exported Functions:**
+
+1. **`flash_swap_append`**  
+   - **What it does:** Appends data to flash memory, ensuring the data is written in a way that aligns with the flash's erase sectors.  
+   - **Key behaviors:**  
+     - Checks if the offset is aligned to program bytes (the last byte of a program page). If not, it returns an error.  
+     - Processes data in chunks, erasing sectors when necessary and writing the data.  
+     - Handles cases where the chunk size is larger than a program page by truncating it.  
+   - **Use case:** Used when writing new data to flash memory, ensuring proper alignment and handling of data in chunks.
+
+2. **`flash_swap_rewrite`**  
+   - **What it does:** Rewrites data from one location to another, using a spare sector as a temporary buffer.  
+   - **Key 

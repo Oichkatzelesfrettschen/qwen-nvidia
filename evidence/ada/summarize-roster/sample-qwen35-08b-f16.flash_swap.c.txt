@@ -1,0 +1,12 @@
+Here is a plain English summary of the file:
+
+### 1. What it does overall
+This file is a C program designed for a specific device (RP2040) that handles flash memory operations. It manages the erasing and writing of data to a swap image. It is designed to be separate from the flash driver to allow testing against a NOR model that rejects certain bit transitions, unaligned calls, and overlapping images.
+
+### 2. Key exported functions and what each is for
+*   **`flash_swap_append`**:
+    *   **Purpose:** Appends data to a swap image.
+    *   **Function:** It checks if the offset is within a program page or sector boundary. If not, it returns -1. It iterates through chunks of data, checking if the erase operation is allowed. If the data is larger than a program page, it is treated as a program page; otherwise, it is treated as a spare sector.
+*   **`flash_swap_rewrite`**:
+    *   **Purpose:** Rewrites an arbitrary program-page-aligned range through a spare sector.
+    *   **Function:** It checks if the offset is within a program page or spare sector. If not, it returns -1. It iterates through chunks of data, checking if the erase operation is allowed. If the data is larger than a progr

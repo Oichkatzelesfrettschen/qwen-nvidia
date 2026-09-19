@@ -1,0 +1,8 @@
+**1. What it does overall**
+This is a C source file for a Unix command-line utility called `cat`. Its main job is to read files from the standard input stream (stdin) and write them to the standard output stream (stdout). It supports various command-line options to control how the output is formatted, such as spacing, newlines, and special characters.
+
+**2. Key exported functions and what each is for**
+
+*   **`main`**: The entry point of the program. It parses the command-line arguments to determine which options are active (like `-u`, `-n`, `-b`, `-v`, `-s`, `-e`, `-t`). It validates that the input file is a regular file (not a device or block device) and opens the input file (stdin) and the output file (stdout). It loops through the arguments to process each file.
+*   **`copyopt`**: This function handles the formatting of the output. It processes newlines, spaces, and special characters (like `$`, `M-`, `^`, `^?`, `^@`) based on the flags passed in. It manages the spacing logic (whether to print newlines or not).
+*   **`fastcat`**: This function handles the actual reading and writing of data. It uses buffering to read from the input file and write to the output file. It manages m

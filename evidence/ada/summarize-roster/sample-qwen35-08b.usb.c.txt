@@ -1,0 +1,22 @@
+**Summary of File: sys/arch/rp2040/dev/usb.c**
+
+This file implements a USB console driver for the RP2040 microcontroller. It allows the user to connect a console to the USB port and interact with it via the CDC-ACM protocol. It uses the Pico SDK's reset interface to boot the device without a hand on the button. It manages a ring buffer for data transfer and uses specific hardware registers to control the console.
+
+**Key Functions:**
+
+*   **`usbinit`**: Initializes the device, sets up registers, enables interrupts, etc.
+*   **`usbopen`**: Opens the device, sets up the tty, etc.
+*   **`usbclose`**: Closes the device.
+*   **`usbread`**: Reads data from the ring.
+*   **`usbwrite`**: Writes data to the ring.
+*   **`usbioctl`**: IO control.
+*   **`usbselect`**: Select mode.
+*   **`usbstart`**: Starts the console.
+*   **`usbputc`**: Prints to the console.
+*   **`usbdrain`**: Drains the ring.
+*   **`usbgetc`**: Reads from the ring.
+*   **`usbreset_to_bootsel`**: Resets to boot sel.
+*   **`usbreset_to_flash`**: Resets to flash.
+*   **`usb_service`**: Main service routine (interrupts, polling, etc.).
+*   **`usb_tx_kick`**: Releases the TX ring.
+*   **`usb_tx_put`**: Pushes a byte to the TX r

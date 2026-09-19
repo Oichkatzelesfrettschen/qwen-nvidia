@@ -1,0 +1,8 @@
+1.  **What it does overall:**
+    The file `cat.c` is a C program that concatenates files. It is a utility program that takes a list of files and writes them to a single output file. It supports a set of command-line flags (`-u`, `-n`, `-b`, `-v`, `-s`, `-e`, `-t`) to control the behavior of the concatenation process.
+
+2.  **Key exported functions and what each is for:**
+    *   **`main`**: This is the main entry point of the program. It parses command-line arguments to determine which flags are being used and then executes the logic to read input from stdin, process the files, and write the output to stdout.
+    *   **`copyopt`**: This function handles the output formatting. It processes the input file and writes the output to stdout. It includes logic for handling newlines, special characters, and formatting (like `M-` for `M` and `^` for `^`).
+    *   **`fastcat`**: This function handles the actual file concatenation. It reads the input file, writes the output to stdout, and returns the number of bytes written. It is used when no flags are specified.
+    *   **`bflg`, `eflg`, `nflg`, `sflg`, `tflg`, `uflg`, `vflg`**: These are flags used to control the behavior of the `cat` comm

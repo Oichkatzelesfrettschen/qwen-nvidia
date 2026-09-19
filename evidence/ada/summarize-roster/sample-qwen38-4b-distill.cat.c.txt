@@ -1,0 +1,13 @@
+## Summary of `cat.c`
+
+### What It Does Overall
+
+This file implements the `cat` command in Unix/Linux. It reads one or more files from the command line and concatenates (joins) their contents, outputting the result to standard output (stdout). It supports various flags to modify how files are displayed (e.g., show line numbers, show special characters, etc.).
+
+### Key Exported Functions
+
+| Function | Purpose |
+|----------|---------|
+| `main(argc, argv)` | The entry point. Parses command-line flags (like `-n`, `-s`, `-v`, `-e`, `-t`, `-u`, `-b`) and processes each input file, concatenating them and writing to stdout. |
+| `copyopt(f)` | Handles the optional flags (`-n`, `-s`, `-v`, `-e`, `-t`). It reads characters from the file and outputs them with modifications: line numbers, spacing, special character display, and end-of-file markers. |
+| `fastcat(fd)` | The core I/O loop. Reads data from a file descriptor into a buffer and writes it to stdout in chunks. It handles buffering, error checking, and multiple write calls if needed. |

@@ -1,0 +1,12 @@
+### 1. What it does overall
+
+This file (`sys/arch/rp2040/dev/usb.c`) is the **USB driver for the Raspberry Pi Pico (RP2040)**. Its main purpose is to make the RP2040's USB controller behave like a standard USB device, specifically a **CDC-ACM (Common Data Link - Audio Control Management)** device.
+
+*   **Virtual Terminal (TTY):** It allows the RP2040 to act as a serial console over USB. When connected to a Linux system, it appears as `/dev/ttyACM0`, allowing users to send keystrokes and receive output (like boot messages) without needing a specific USB driver.
+*   **Boot/Reset Interface:** It provides a special "Reset" interface (`picotool reboot -u`) that allows the board to reboot to a specific bootloader (BOOTSEL) or flash memory without needing a physical button press.
+*   **USB Ring Buffer:** It manages a ring buffer (8KB transmit, 64 bytes receive) to handle data transfers between the host and the device, ensuring data is processed correctly even if the host is slow or absent.
+*   **Interrupt Handling:** It uses the RP2040's USB interrupt controller to process data packets and status updates efficiently.
+
+### 2. The key exported functions and what each is for
+
+Here are the mo

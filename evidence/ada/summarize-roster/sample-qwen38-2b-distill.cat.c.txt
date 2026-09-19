@@ -1,0 +1,27 @@
+## Overview
+
+**`cat`** is a Unix command that takes multiple input files and outputs them to standard output (stdout) in order. It's a simple utility that reads files from stdin and writes them to stdout.
+
+---
+
+## Key Exported Functions
+
+### `copyopt(f)`
+**Purpose:** Copies command-line options to the output stream.
+
+- Reads each character from the input file.
+- If the character is a newline (`\n`), it prints the current line number (`lno++`) and a tab character, then outputs a `$` (indicating a line break).
+- If the character is a tab (`\t`), it prints the current line number.
+- If the character is a special character (like `M-` or `^?`), it prints a special representation.
+- After printing, it resets `spaced` to 0 and jumps back to the top of the function to continue processing the next character.
+
+### `fastcat(fd)`
+**Purpose:** Reads data from a file descriptor and writes it to stdout.
+
+- Reads data from the input file descriptor (`fd`) into a buffer.
+- Writes the buffered data to stdout.
+- Handles the case where the read operation returns fewer bytes than requested (common on some systems with large pipes).
+- Frees the allocated buffer.
+- Returns 0 on success, 1 on failure.
+
+--

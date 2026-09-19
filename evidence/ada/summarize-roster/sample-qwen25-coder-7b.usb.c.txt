@@ -1,0 +1,17 @@
+### Summary
+
+This file, `sys/arch/rp2040/dev/usb.c`, is part of a software implementation for a USB device controller on the RP2040 microcontroller. The device controller is configured to act as a CDC-ACM (Communication Device Class - Abstract Control Model) device, which allows it to communicate over USB as a serial console. The device also includes a vendor-specific interface for resetting the board.
+
+### Key Exported Functions and Their Purposes
+
+1. **`usbintr(void)`**
+   - **Purpose**: Handles USB interrupts. It calls `usb_service()` to process the interrupt.
+   - **Details**: This function is the entry point for USB interrupts and ensures that the controller is serviced with every interrupt, preventing any packet overwrites.
+
+2. **`usb_service(void)`**
+   - **Purpose**: Services the USB controller by handling various USB events such as SOF (Start of Frame), bus reset, setup requests, and buffer status changes.
+   - **Details**: This function processes different types of USB events and updates the device state accordingly. It also handles rearming of buffers and kicking the transmit process.
+
+3. **`usbinit(void)`**
+   - **Purpose**: Initializes the USB controller.
+   - **Detail

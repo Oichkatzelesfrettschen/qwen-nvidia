@@ -1,0 +1,17 @@
+## Summary of `sys/arch/rp2040/dev/usb.c`
+
+### What it does overall
+
+This file implements a USB-to-serial console driver for the Raspberry Pi Pico (RP2040) in DiscoBSD. It turns the Pico's single USB port into a virtual serial terminal that Linux sees as `/dev/ttyACM0`. It also implements a vendor-specific "reset" interface that lets `picotool reboot -u` reboot the board without pressing a physical button.
+
+The driver uses the RP2040's built-in USB controller in full-speed mode, presenting itself as a CDC-ACM (USB serial) device. It uses a ring buffer to store output so that boot messages aren't lost when the host opens the port late. It handles the RP2040-E15 silicon quirk where bulk IN transfers must be sent within a specific 200µs window of each USB frame.
+
+### Key exported functions
+
+| Function | Purpose |
+|----------|---------|
+| `usbintr()` | USB interrupt handler — services the controller (handles data, SOF, setup requests, etc.) |
+| `USBCTRL_IRQ_Handler()` | IRQ vector entry point that calls `usbintr()` |
+| `usbinit()` | Initializes the USB controller hardware and configures endpoints |
+| `usbopen()` | Opens the device; sets up tty state and drains any pre-open input |
+|

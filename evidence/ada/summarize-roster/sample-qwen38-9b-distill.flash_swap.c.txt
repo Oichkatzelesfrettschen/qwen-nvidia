@@ -1,0 +1,16 @@
+## Summary of `flash_swap.c`
+
+### Overall Purpose
+
+This file implements a "swap" layer for flash memory on the RP2040. It provides a way to write data to flash that is resilient to power loss — if power is cut during a write, the data can be recovered by swapping in a spare copy. It works by writing data in small chunks and erasing sectors only when needed, keeping the geometry logic separate from the actual flash driver.
+
+### Key Exported Functions
+
+| Function | What It Does |
+|----------|---------------|
+| `flash_swap_append` | Writes a block of data to flash. It writes in page-sized chunks, erasing a sector only when a new piece of data reaches its boundary. If the final piece is smaller than a full page, it pads the rest with erased (all 1s) bytes. |
+| `flash_swap_rewrite` | Rewrites a range of data through a "spare sector" (a backup area). It reads unchanged pages from the spare sector and writes them back, while writing new data to the target pages. This lets the swap device behave like a normal block device without needing a full spare sector in RAM. |
+
+### How It Works (Briefly)
+
+- **`flash_swap_append`** writes data in ascending order, erasing sectors just-in-time as new
