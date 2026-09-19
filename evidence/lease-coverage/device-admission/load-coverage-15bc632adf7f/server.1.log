@@ -1,0 +1,58 @@
+0.00.027.261 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.027.681 W srv  llama_server: -----------------
+0.00.027.684 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.027.684 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.027.685 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.027.686 W srv  llama_server: -----------------
+0.00.029.012 I srv  workload_lea: vulkan workload lease armed: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.00.029.042 I srv  workload_lea: vulkan workload lease waiting: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock deadline_s=120
+0.09.639.820 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=9610 bound=deadline
+0.09.639.936 I srv    load_model: loading model '$HOME/models/Qwen3.5-2B-GGUF/Qwen3.5-2B-Q4_K_M.gguf'
+0.10.308.586 W model has unused tensor blk.24.attn_norm.weight (size = 8192 bytes) -- ignoring
+0.10.308.592 W model has unused tensor blk.24.post_attention_norm.weight (size = 8192 bytes) -- ignoring
+0.10.308.598 W model has unused tensor blk.24.attn_q.weight (size = 8912896 bytes) -- ignoring
+0.10.308.600 W model has unused tensor blk.24.attn_k.weight (size = 1114112 bytes) -- ignoring
+0.10.308.602 W model has unused tensor blk.24.attn_v.weight (size = 1114112 bytes) -- ignoring
+0.10.308.609 W model has unused tensor blk.24.attn_output.weight (size = 4456448 bytes) -- ignoring
+0.10.308.611 W model has unused tensor blk.24.attn_q_norm.weight (size = 1024 bytes) -- ignoring
+0.10.308.613 W model has unused tensor blk.24.attn_k_norm.weight (size = 1024 bytes) -- ignoring
+0.10.308.615 W model has unused tensor blk.24.ffn_gate.weight (size = 13369344 bytes) -- ignoring
+0.10.308.617 W model has unused tensor blk.24.ffn_down.weight (size = 13369344 bytes) -- ignoring
+0.10.308.619 W model has unused tensor blk.24.ffn_up.weight (size = 13369344 bytes) -- ignoring
+0.10.308.623 W model has unused tensor blk.24.nextn.eh_proj.weight (size = 8912896 bytes) -- ignoring
+0.10.308.625 W model has unused tensor blk.24.nextn.enorm.weight (size = 8192 bytes) -- ignoring
+0.10.308.628 W model has unused tensor blk.24.nextn.hnorm.weight (size = 8192 bytes) -- ignoring
+0.10.308.634 W model has unused tensor blk.24.nextn.shared_head_norm.weight (size = 8192 bytes) -- ignoring
+0.14.103.574 I cmn          init: llama threadpool init, n_threads = 6
+0.14.183.243 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 262144, kv_unified = 'true'
+0.14.187.749 I srv  llama_server: model loaded
+0.14.187.753 I srv  llama_server: listening on http://127.0.0.1:18114
+0.14.187.827 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.14.260.501 I slot get_availabl: id  3 | task -1 | selected slot by LRU, t_last = -1
+0.14.260.522 I slot launch_slot_: id  3 | task 0 | processing task, is_child = 0
+0.14.260.964 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0
+0.14.395.592 I slot print_timing: id  3 | task 0 | prompt eval time =     104.16 ms /     6 tokens (   17.36 ms per token,    57.60 tokens per second)
+0.14.395.596 I slot print_timing: id  3 | task 0 |        eval time =      30.45 ms /     7 tokens (    5.08 ms per token,   197.03 tokens per second)
+0.14.395.596 I slot print_timing: id  3 | task 0 |       total time =     134.61 ms /    13 tokens
+0.14.395.599 I slot print_timing: id  3 | task 0 |    graphs reused =          6
+0.14.395.619 I slot      release: id  3 | task 0 | stop processing: n_tokens = 12, truncated = 0
+0.14.395.628 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.14.510.042 I slot get_availabl: id  3 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.500
+0.14.510.064 I slot launch_slot_: id  3 | task 9 | processing task, is_child = 0
+0.14.510.494 I srv  workload_lea: vulkan workload lease waiting: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.23.496.206 I srv  workload_lea: vulkan workload lease acquired: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=8985
+0.23.593.291 I slot print_timing: id  3 | task 9 | prompt eval time =      34.43 ms /     4 tokens (    8.61 ms per token,   116.17 tokens per second)
+0.23.593.295 I slot print_timing: id  3 | task 9 |        eval time =      62.62 ms /     7 tokens (   10.44 ms per token,    95.81 tokens per second)
+0.23.593.295 I slot print_timing: id  3 | task 9 |       total time =      97.05 ms /    11 tokens
+0.23.593.296 I slot print_timing: id  3 | task 9 |    graphs reused =         11
+0.23.593.303 I slot      release: id  3 | task 9 | stop processing: n_tokens = 12, truncated = 0
+0.23.593.311 I srv  workload_lea: vulkan workload lease released: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.23.720.196 I slot get_availabl: id  3 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.500
+0.23.720.216 I slot launch_slot_: id  3 | task 17 | processing task, is_child = 0
+0.23.720.591 I srv  workload_lea: vulkan workload lease waiting: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock
+0.23.820.130 W srv  workload_lea: vulkan workload lease wait ended without the lease: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=99 reason=Interrupted system call
+0.23.820.156 I srv    operator(): operator(): cleaning up before exit...
+0.28.720.573 W srv          stop: cancel task, id_task = 17
+0.28.721.503 I srv  workload_lea: vulkan workload lease waiting: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock deadline_s=0
+0.28.721.509 W srv  workload_lea: vulkan workload lease deadline reached without the lease: path=$LEASE_TEST_TMPDIR/vulkan-workload.lock waited_ms=0 deadline_s=0
+0.28.721.510 I srv       destroy: vulkan workload lease teardown: held=no

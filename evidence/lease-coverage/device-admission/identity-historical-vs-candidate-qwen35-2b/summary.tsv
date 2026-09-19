@@ -1,0 +1,46 @@
+kernel_ring	open	read	source=sudo hazard_lines=0
+prompt_count	6
+clients	open	pid=1996,pid=2271760,pid=3753,
+geometry	qwen35-2b	context=16384 batch=2048 ubatch=512 cache_k=q8_0 cache_v=q4_0 flash_attn=on
+environment	qwen35-2b	control-open	QWEN_GPU_COMPUTE_LEASE=$HOME/qwen-webui-state/vulkan-workload.lock
+placement	qwen35-2b	control-open	a606ce4ef8f2d5c16acd0a48ed323e13390b6014eaebb85e2710d95603b3ac91
+tokens	qwen35-2b	control-open	accumulator	fd7ab657695034506e8c375f3abd05ab705510e34ee08db09fcbc8a3b46ebf8e
+tokens	qwen35-2b	control-open	stack	8f83c4a23740d7f44a5147e732420bcf8de123b1070e2b9b7a076c81a6444ea2
+tokens	qwen35-2b	control-open	list-transform	66dbc081d585b0a10861da0fc5b212a7c53660b25a6749540a3a4af15e1b0a0a
+tokens	qwen35-2b	control-open	variable-trace	96499e24eda4313ab6ad2a87aab42f580696ce1bf13087550dcc02b6564fc4a2
+tokens	qwen35-2b	control-open	state-machine	44739422cf1e64d9b58f47cb3b42ff8f767bc34147e6754639be66aaeeaac96c
+tokens	qwen35-2b	control-open	constraints	2cf98b6767492ad8569b17a2fdb318c51dd59a04181d3b1760cc82417a38399f
+environment	qwen35-2b	subject	QWEN_GPU_COMPUTE_LEASE=$HOME/qwen-webui-state/vulkan-workload.lock
+placement	qwen35-2b	subject	a606ce4ef8f2d5c16acd0a48ed323e13390b6014eaebb85e2710d95603b3ac91
+tokens	qwen35-2b	subject	accumulator	fd7ab657695034506e8c375f3abd05ab705510e34ee08db09fcbc8a3b46ebf8e
+tokens	qwen35-2b	subject	stack	8f83c4a23740d7f44a5147e732420bcf8de123b1070e2b9b7a076c81a6444ea2
+tokens	qwen35-2b	subject	list-transform	66dbc081d585b0a10861da0fc5b212a7c53660b25a6749540a3a4af15e1b0a0a
+tokens	qwen35-2b	subject	variable-trace	96499e24eda4313ab6ad2a87aab42f580696ce1bf13087550dcc02b6564fc4a2
+tokens	qwen35-2b	subject	state-machine	44739422cf1e64d9b58f47cb3b42ff8f767bc34147e6754639be66aaeeaac96c
+tokens	qwen35-2b	subject	constraints	2cf98b6767492ad8569b17a2fdb318c51dd59a04181d3b1760cc82417a38399f
+environment	qwen35-2b	control-close	QWEN_GPU_COMPUTE_LEASE=$HOME/qwen-webui-state/vulkan-workload.lock
+placement	qwen35-2b	control-close	a606ce4ef8f2d5c16acd0a48ed323e13390b6014eaebb85e2710d95603b3ac91
+tokens	qwen35-2b	control-close	accumulator	fd7ab657695034506e8c375f3abd05ab705510e34ee08db09fcbc8a3b46ebf8e
+tokens	qwen35-2b	control-close	stack	8f83c4a23740d7f44a5147e732420bcf8de123b1070e2b9b7a076c81a6444ea2
+tokens	qwen35-2b	control-close	list-transform	66dbc081d585b0a10861da0fc5b212a7c53660b25a6749540a3a4af15e1b0a0a
+tokens	qwen35-2b	control-close	variable-trace	96499e24eda4313ab6ad2a87aab42f580696ce1bf13087550dcc02b6564fc4a2
+tokens	qwen35-2b	control-close	state-machine	44739422cf1e64d9b58f47cb3b42ff8f767bc34147e6754639be66aaeeaac96c
+tokens	qwen35-2b	control-close	constraints	2cf98b6767492ad8569b17a2fdb318c51dd59a04181d3b1760cc82417a38399f
+identity	qwen35-2b	subject	accumulator	identical	divergent_at=-
+identity	qwen35-2b	subject	stack	identical	divergent_at=-
+identity	qwen35-2b	subject	list-transform	identical	divergent_at=-
+identity	qwen35-2b	subject	variable-trace	identical	divergent_at=-
+identity	qwen35-2b	subject	state-machine	identical	divergent_at=-
+identity	qwen35-2b	subject	constraints	identical	divergent_at=-
+identity	qwen35-2b	control-close	accumulator	identical	divergent_at=-
+identity	qwen35-2b	control-close	stack	identical	divergent_at=-
+identity	qwen35-2b	control-close	list-transform	identical	divergent_at=-
+identity	qwen35-2b	control-close	variable-trace	identical	divergent_at=-
+identity	qwen35-2b	control-close	state-machine	identical	divergent_at=-
+identity	qwen35-2b	control-close	constraints	identical	divergent_at=-
+placement_match	qwen35-2b	subject	same
+placement_match	qwen35-2b	control-close	same
+clients	close	pid=1996,pid=2271760,pid=3753,
+kernel_ring	close	read	source=sudo hazard_lines=0
+comparisons	expected=12 tokens_identical=12 states_identical=0 models_requested=1 models_run=1
+verdict	identical	subject_divergences=0 control_divergences=0 refusals=0

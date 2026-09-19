@@ -1,0 +1,33 @@
+started tmux_socket=qwen-runtime tmux_session=qwen-webui profile=default host=127.0.0.1 port=8080 context=24576 latency_mode=observe model=$HOME/models/Qwen3.8-2B-Distill-GGUF/Qwen3.8-2B-Q4_K_M.gguf server=$HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/llama-server
+speculation spec_type=off draft_n_max=default draft_p_min=default draft_backend_sampling=0 backend_sampling=0
+cache cache_type_k=registry cache_type_v=registry flash_attention=registry override_context_ceiling=registry
+state=running session_pid=2400 session_start_time=10096663 server_pid=2583 server_start_time=10096673 monitor_pid=2851 monitor_start_time=10096777 latency_watchdog_pid=2809 latency_watchdog_start_time=10096757 kernel_hazard_watchdog_pid=2841 kernel_hazard_watchdog_start_time=10096777 profile=default host=127.0.0.1 port=8080 context=24576 latency_mode=observe utc=2026-09-19T04:48:47Z
+reachable at http://127.0.0.1:8080 (loopback only)
+stop it with $HOME/worktrees/qwen-nvidia/campaign/lease-admission/scripts/qwen-teardown.sh
+launch_exit=0
+--alias qwen-nvidia --jinja 
+the served llama-server answered a forced tool call without tool_calls; launch with QWEN_CHAT_TOOLS=on
+stopped tmux_socket=qwen-runtime tmux_session=qwen-webui
+vulkan workload lease is free: $HOME/qwen-webui-state/vulkan-workload.lock
+image teardown verified: no service, no runtime, no partial artifact, lease free
+physics_teardown=clean state_directory=$HOME/qwen-webui-state/physics
+geometry_teardown=clean state_directory=$HOME/qwen-webui-state/geometry
+torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port 8080 free
+teardown_exit=0
+== drain-record
+drain	seq=1	monotonic_ms=100968210	state=running	retire_begin inflight_identity=66312:235422287
+drain	seq=2	monotonic_ms=100968210	state=quiescing	admission_closed state=quiescing
+drain	seq=3	monotonic_ms=100968220	state=draining	drained waited_ms=0
+drain	seq=4	monotonic_ms=100968220	state=ready_to_destroy	state=quiescing inflight=none inflight_identity=match
+drain	seq=5	monotonic_ms=100969410	state=destroying	destroy_status=0 teardown_reading=held
+drain	seq=6	monotonic_ms=100969420	state=stopped	shutdown_mode=orderly orderly_drain=completed teardown_exclusion=orderly inflight_identity=match teardown_reading=held
+session_retirement=completed session_pid=2400 session_start_time=10096663 barrier_identity=66312:235422287
+== lease-lines
+0.00.099.562 I srv  workload_lea: vulkan workload lease armed: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.00.099.586 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0 bound=deadline
+0.00.623.229 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.01.063.393 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+0.01.327.648 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.01.396.775 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0 bound=deadline
+0.01.396.776 I srv       destroy: vulkan workload lease teardown: held=yes
+0.01.448.010 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
