@@ -2079,6 +2079,8 @@ scripts/qwen-web-launch.sh [PROFILE]     # web presets, loopback only
 scripts/qwen-image-launch.sh [PROFILE]   # web presets with the image lane armed
 scripts/qwen-teardown.sh
 scripts/qwen-webui-control.sh status
+QWEN_CHAT_TOOLS=on scripts/qwen-launch.sh default   # --jinja: native tool calls for an OpenAI-format client
+eval "$(scripts/graft-consumer-env.sh)"  # GRAFT_* for graft --deep, after a tool-call probe
 scripts/gpu-state-latch.sh status|require-clear|recover
                                          # the latch between a driver failure and the next launch
 
@@ -2331,6 +2333,7 @@ scripts/test-coding-principal.sh            # appliance host role alone
 python3 scripts/test-coding-agent-service.py
 python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
+scripts/test-graft-consumer-env.sh
 scripts/test-coding-principal-path.sh       # appliance host role alone
 scripts/test-admit-coding-chain.sh
 scripts/test-coding-page-arm-classification.sh

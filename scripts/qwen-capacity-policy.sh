@@ -1129,6 +1129,20 @@ case ${QWEN_SERVING_BACKEND:-cuda} in
         ;;
 esac
 serving_device=CUDA0
+# llama-server reads the `tools` and `tool_choice` fields of a chat request
+# only under --jinja; without it the served b1935 answers a forced tool call
+# in prose with finish_reason=length and no tool_calls member, and a client
+# that requires the call, graft's --deep pass among them, records nothing.
+# The promoted defaults were measured without the flag, so it stays behind
+# QWEN_CHAT_TOOLS and a caller that needs native tool calls sets it to on.
+chat_tools=${QWEN_CHAT_TOOLS:-off}
+case $chat_tools in
+    on | off) ;;
+    *)
+        printf 'QWEN_CHAT_TOOLS must be on or off: %s\n' "$chat_tools" >&2
+        exit 2
+        ;;
+esac
 serving_threads=${QWEN_SERVING_THREADS:-6}
 case $serving_threads in
     '' | *[!0-9]* | 0)
@@ -1152,6 +1166,9 @@ set -- "$@" \
     --cache-ram 0 \
     --no-context-shift \
     --offline
+if [ "$chat_tools" = on ]; then
+    set -- "$@" --jinja
+fi
 
 # The six per-checkpoint flags stay off the router's own argv, because
 # server-models.cpp ends its preset assembly with `preset.merge(base_preset)`
