@@ -266,10 +266,15 @@ if ! grep -q "vulkan workload lease waiting: path=$lock_path" "$server_log"; the
     cat "$server_log" >&2
     fail 'the server logged no wait while it was blocked'
 fi
-# The path carries slashes, so the substitution takes another delimiter.
-waited_ms=$(sed -n \
+# The path carries slashes, so the substitution takes another delimiter. The
+# load path acquires first, through workload_lease_acquire_bounded, and logs
+# its own acquire line with `bound=deadline` and waited_ms=0 while the lease
+# is still free; the decode-path acquire that waited on the holder is the
+# later line without that suffix, so the reading takes the last unbounded
+# acquire rather than the first acquire of any kind.
+waited_ms=$(grep -v 'bound=deadline' "$server_log" | sed -n \
     "s|.*vulkan workload lease acquired: path=$lock_path waited_ms=\([0-9]*\).*|\1|p" \
-    "$server_log" | sed -n '1p')
+    | sed -n '$p')
 if [ -z "$waited_ms" ]; then
     cat "$server_log" >&2
     fail 'the server logged no acquire line'
