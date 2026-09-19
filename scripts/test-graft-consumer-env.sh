@@ -70,6 +70,23 @@ else
     check prose_answer_refused fail "status=$status stderr=$(cat "$work_directory/stderr")"
 fi
 
+# Every answer that is not one completed record_probe(ok=true) is refused,
+# and the refusal names the shape it had rather than the absence of the field.
+for shape in wrong_function:function_record_graph empty_calls:tool_calls_0 \
+    bad_arguments:arguments_unparsed ok_false:arguments_ok_false \
+    truncated:finish_length http_error:HTTP\ 500 quoted_field:without\ tool_calls; do
+    mode=${shape%%:*}
+    expected=${shape#*:}
+    start_fixture "$mode"
+    status=$(run_consumer)
+    if [ "$status" = 1 ] && grep -q "$expected" "$work_directory/stderr" \
+        && [ ! -s "$work_directory/stdout" ]; then
+        check "${mode}_refused" pass
+    else
+        check "${mode}_refused" fail "status=$status stderr=$(cat "$work_directory/stderr")"
+    fi
+done
+
 # A tool_calls answer passes and the emitted environment is complete.
 start_fixture jinja
 status=$(run_consumer)

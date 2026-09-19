@@ -87,7 +87,15 @@ carries the same policy on the transition
 `evidence/ada/evict-first-7b-admission/` measured, where the resident child
 unloaded 1404 ms before its successor loaded. A roster holding either row
 serves one child at a time, so router construction and launch are
-constrained to `QWEN_ROUTER_MAX=1`. The active model quarantine set in
+constrained to `QWEN_ROUTER_MAX=1`. Nine rows carry
+`switch_policy=standalone-only`, which the router never serves: the
+coding-agent roster `oxcoder-9b`, `ornith15-9b`, `qwable-9b-fable5`,
+`qwen3-4b-instruct-2507`, `klear-agentforge-8b`, `hammer21-3b`,
+`granite40-micro`, `swe-dev-7b` and `swe-agent-lm-7b`, admitted in
+`evidence/ada/agent-model-roster/` as standalone launch subjects for the
+summarize roster. Each holds that policy until a router transition of its
+own is measured, because three of them are Q6_K 9B artifacts whose tensor
+sets alone exceed the device pairwise. The active model quarantine set in
 `scripts/quarantine.tsv` consists of `ministral3-3b`.
 
 ## Measured baseline
