@@ -1,0 +1,18 @@
+## What `cat` Does Overall
+
+`cat` is a command-line utility that **concatenates (joins) multiple input files into a single output file**. It reads files from the command line arguments and writes them together, with optional formatting options.
+
+## Key Exported Functions
+
+| Function | Purpose |
+|----------|---------|
+| `copyopt(f)` | Processes command-line options and formats the output. It reads characters from the input file, checks for special characters (like tabs), and decides whether to print them as-is or escape them (e.g., with `$` or `^`). |
+| `fastcat(fd)` | The main processing function. It reads data from a file descriptor (`fd`) and writes it to the standard output. It uses a buffer (`buff`) to handle large files efficiently, and handles cases where the read/write sizes don't match the buffer size (common on V7 systems). |
+
+## How It Works
+
+1. **`main()`** parses command-line arguments to determine which files to read and which options to use.
+2. **`copyopt()`** handles formatting:
+   - It reads characters from the input file.
+   - If a tab character (`\t`) is encountered, it prints the tab as-is.
+   - If a special character (like `$` or `^`) is encountered, it escapes 

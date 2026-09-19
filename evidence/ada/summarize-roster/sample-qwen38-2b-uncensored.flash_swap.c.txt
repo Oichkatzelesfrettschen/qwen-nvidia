@@ -1,0 +1,21 @@
+## Summary
+
+**What this file does:**
+This file (`flash_swap.c`) is part of the RP2040 microcontroller's flash memory driver. It provides two functions that allow the host computer to write data to the flash memory in a special "swap" format — a format where data is written in small chunks (program pages) rather than as a single large block. This is useful when the flash memory has a limited number of program pages and the host needs to write data in smaller chunks.
+
+---
+
+## Key Exported Functions
+
+### 1. `flash_swap_append`
+
+**Purpose:** Appends a new piece of data to the end of an existing swap image.
+
+**What it does:**
+- Takes an offset (where to start writing), a source buffer (the data to write), and a length (how many bytes to write).
+- It writes the data in small chunks (one program page at a time) into the flash memory.
+- Each chunk is written to a spare sector (a spare flash page that hasn't been used yet).
+- After writing each chunk, it erases the destination sector.
+- The offset is advanced by the size of each chunk.
+
+**Example:** If you want to write 100 bytes of data starting at offset 0, and each program page is 64 bytes, the function will write 64 bytes, erase the s

@@ -1,0 +1,21 @@
+## Summary
+
+This file implements the `cat` utility, which concatenates and displays the contents of one or more files on the terminal.
+
+### Key exported functions
+
+- **`main(argc, argv)`** – The main function that parses command-line options (like `-b`, `-n`, `-s`, `-t`, `-v`, `-u`, `-e`) and processes the input files. It handles the logic for normal file concatenation, binary mode, and various flag-based behaviors.
+
+- **`copyopt(f)`** – Handles the `-s` (short) and `-v` (verbose) flags. It prints line numbers and displays non-printable characters (like control characters) in a special format.
+
+### How it works
+
+The program reads files from the command line and writes their combined output to the terminal. It supports several modes:
+
+- **Normal mode** (no flags): simply concatenates files.
+- **Binary mode** (`-b`): treats the file as a binary stream.
+- **Verbose mode** (`-v`): shows line numbers and special characters.
+- **Short mode** (`-s`): prints line numbers and special characters.
+- **Extended mode** (`-e`): shows line numbers and special characters.
+- **Tab mode** (`-t`): shows line numbers and special characters.
+- **Unbuffered mode** (`-u`): uses `getc()` for each char

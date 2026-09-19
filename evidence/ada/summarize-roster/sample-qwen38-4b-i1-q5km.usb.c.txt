@@ -1,0 +1,16 @@
+## Summary
+
+This file is a USB CDC-ACM (serial console) driver for the Raspberry Pi Pico (RP2040) microcontroller. It exposes the Pico's USB port as a serial console device (`/dev/ttyACM0` on Linux), allowing the board to be used as a serial console. It also includes a Microsoft OS 2.0 descriptor set that lets Windows tools like `picotool` recognize and use the reset interface without needing third-party software like Zadig.
+
+## Key Exported Functions
+
+| Function | Purpose |
+|----------|---------|
+| `usbopen()` | Opens the USB console device; initializes the tty with 115200 baud, 8N1, and an 80x24 terminal size. |
+| `usbclose()` | Closes the console, flushing any pending output. |
+| `usbread()` | Reads data from the USB console into a `uio` buffer. |
+| `usbwrite()` | Writes data to the USB console via a `uio` buffer. |
+| `usbioctl()` | Handles `tty` ioctl commands (e.g., `TIOCGWINSZ`). |
+| `usbselect()` | Implements `select()` for the console file descriptor. |
+| `usbintr()` | The main interrupt handler that services the USB controller (handles SOF, bus reset, setup requests, and buffer status). |
+| `USBCTRL_IRQ_Handler()` | The interrupt vector entry point that calls `usbintr()`. 

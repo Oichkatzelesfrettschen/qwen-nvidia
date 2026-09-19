@@ -1,0 +1,17 @@
+## Summary
+
+This file implements a USB CDC-ACM (Console) device driver for the Raspberry Pi Pico (RP2040). It provides a serial console over the USB interface, allowing picotool to reboot the board without a physical button press. The driver uses a ring buffer to preserve boot messages when the host is present but slow, and supports the Microsoft OS 2.0 reset interface for compatibility with picotool.
+
+## Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `usb_ep0_send()` | Sends a packet on the EP0 endpoint (used for replies and status responses) |
+| `usb_ep0_in_next()` | Sends the next packet of an EP0 IN reply |
+| `usb_ep0_ack()` | Sends a zero-length OUT response to close an IN request |
+| `usb_ep0_expect_status()` | Waits for the zero-length OUT that closes an IN reply |
+| `usb_ep0_stall()` | Stalls the EP0 endpoint (used on invalid requests) |
+| `usb_ep0_send()` | Sends a packet on the EP0 endpoint (used for replies and status responses) |
+| `usb_ep0_in_next()` | Sends the next packet of an EP0 IN reply |
+| `usb_ep0_ack()` | Sends a zero-length OUT response to close an IN request |
+| `usb_ep0_expect_status()` | Waits for the zero-length OUT that closes an IN reply

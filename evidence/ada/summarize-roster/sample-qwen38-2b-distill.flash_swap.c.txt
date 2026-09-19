@@ -1,0 +1,37 @@
+## Overview
+
+This file (`flash_swap.c`) provides helper functions for the RP2040 flash memory driver that handle **swap operations** — essentially swapping data between flash memory and a spare (SRAM) buffer.
+
+The file exports two functions:
+- `flash_swap_append`
+- `flash_swap_rewrite`
+
+---
+
+## Key Functions
+
+### `flash_swap_append`
+
+**Purpose:** Appends a piece of data to the end of a flash image.
+
+**What it does:**
+- Takes a starting offset in flash memory, a source buffer, and a length.
+- Reads the data from the source into a temporary buffer.
+- Writes that data to the specified offset in flash.
+- Returns `-1` if the operation fails.
+
+**How it works:**
+1. Checks that the offset is aligned to a program-page boundary (must be a multiple of 256 bytes).
+2. Reads the data from the source into a temporary buffer.
+3. Writes the data to the target offset in flash.
+4. Advances the offset and source pointer by the number of bytes written.
+
+**Example:**
+```
+Flash:  [0x0000-0x00FF] [0x1000-0x1FFF] [0x2000-0x2FFF]
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+       offset = 0x2000, length = 0x1000
+
+Result:
+Flash:  [0x0000-0x00FF] [0x1000-0x1FFF] [0x2000-0x2FFF]
+       ^^^^^^^^

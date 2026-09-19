@@ -1,0 +1,32 @@
+### Summary
+
+This file implements two functions for managing an erase-aligned raw swap image in the RP2040 microcontroller. The functions are designed to handle swapping and rewriting of program pages in a way that preserves the host's ability to test against a NOR model with strict constraints.
+
+---
+
+### Key Functions
+
+#### 1. `flash_swap_append`
+
+**Purpose:**  
+Appends a new program page to the end of the swap image, starting at an erase-sector boundary.
+
+**How it works:**
+- The function iterates through the swap image in chunks of `FLASH_PROG_BYTES`.
+- For each chunk, it checks if the chunk is a program page and if the erase operation is valid.
+- If valid, it writes the source page to the destination sector and updates the scratch buffer.
+- If any step fails (e.g., invalid erase or program write), it returns `-1`.
+
+**Use Case:**  
+Adds a new program page to the end of the swap image, starting at an erase-sector boundary.
+
+---
+
+#### 2. `flash_swap_rewrite`
+
+**Purpose:**  
+Rewrites a specific range of program pages in the swap image, starting at an erase-sector boundary.
+
+**How it works:**
+- The function iterates through the swap image in chunks of `FLASH_PROG_BYTES`.
+- For each c

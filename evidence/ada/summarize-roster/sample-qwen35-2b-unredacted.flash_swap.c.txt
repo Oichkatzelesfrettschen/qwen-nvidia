@@ -1,0 +1,16 @@
+### 1. What it does overall
+
+This file (`flash_swap.c`) is part of the kernel driver for the **RP2040** platform (likely Rockchip). Its primary purpose is to manage how data is written to the device's flash memory (NAND/NOR flash).
+
+Specifically, it handles a concept called a **"swap image."** This is a data structure used to manage flash memory by ensuring that data is written in a way that respects specific hardware boundaries.
+
+*   **Sector Alignment:** The code ensures that data is written starting at the beginning of a flash sector (a specific block size on the chip).
+*   **Page Alignment:** The code ensures that data is written starting at the beginning of a flash page (a smaller block size within a sector).
+*   **Testing:** By keeping the logic for writing separate from the main driver, this file allows the system to test how the flash behaves against different hardware models (like NOR vs. NAND flash) and handle edge cases like unaligned data or duplicate erases.
+
+### 2. Key exported functions and what each is for
+
+The file defines two main functions that are part of the public API for this driver.
+
+#### `flash_swap_append`
+*   **What it does:** This function is used to **a

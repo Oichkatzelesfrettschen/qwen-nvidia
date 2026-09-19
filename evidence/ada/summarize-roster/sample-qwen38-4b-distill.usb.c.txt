@@ -1,0 +1,19 @@
+## Summary
+
+This file implements a **CDC-ACM (USB serial) device driver** for the Raspberry Pi Pico (RP2040) microcontroller, used as a console device in DiscoBSD. It exposes the RP2040's USB controller as a serial port (`/dev/ttyACM0` on Linux, a BSD `tty` device here) and also provides a vendor-defined reset interface for `picotool`.
+
+### What it does overall
+
+The driver configures the RP2040's USB controller as a full-speed CDC-ACM device with three endpoints:
+- **EP0** (interrupt IN): CDC class interrupt endpoint (never armed)
+- **EP1** (bulk OUT): host writes keystrokes here
+- **EP2** (bulk IN): console writes output here
+
+Output goes through an **8KB ring buffer** rather than directly to the endpoint, so the kernel can print boot messages even before a terminal opens. The driver also implements the **Microsoft OS 2.0 descriptor set** so Windows hosts (via `picotool`) can recognize and reset the board without a physical button press.
+
+### Key exported functions
+
+| Function | Purpose |
+|----------|---------|
+| `usbinit(void)` | Initializes the USB controller (sets up endpoints, interrupts, pull-up, etc.) |
+| `usbopen()` | Opens the console tty; sets up line speed (115200), flag

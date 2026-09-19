@@ -1,0 +1,19 @@
+## Summary
+
+**What it does overall:**
+
+This is the source code for the Unix `cat` command, which concatenates (joins together) the contents of one or more files and prints them to the standard output. It's the simplest file-reading tool in Unix.
+
+---
+
+**Key exported functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `main(argc, argv)` | The entry point. Parses command-line options, opens input files, and orchestrates the concatenation process. |
+| `copyopt(f)` | Handles the "verbose" (`-v`) and "spaced" (`-s`) options. It reads characters one at a time, prints line numbers, and optionally shows non-printable characters in a readable format. |
+| `fastcat(fd)` | The core I/O loop. Reads a file in large blocks (using the system's block size) and writes them to stdout in a single pass. This is the default, fast path when no special options are given. |
+
+---
+
+**In short:** The program reads files from the command line (or stdin), optionally applies formatting (line numbers, spacing, non-printable character display), and streams the combined output to the terminal.

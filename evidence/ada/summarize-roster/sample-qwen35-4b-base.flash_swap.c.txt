@@ -1,0 +1,7 @@
+**1. What it does overall**
+This file provides helper functions to safely write data to the flash memory on the RP2040 microcontroller. Flash memory has strict hardware rules: you cannot write to a page until the entire sector containing it is erased, and writes must be aligned to specific page sizes. This code handles those constraints automatically so the rest of the system doesn't have to worry about them.
+
+**2. The key exported functions and what each is for**
+
+*   **`flash_swap_append`**: This function adds new data to the flash memory. It ensures that data is written in the correct order and erases sectors when necessary to make room for new data. It handles partial writes by padding them with erased bytes to ensure the flash hardware accepts the command.
+*   **`flash_swap_rewrite`**: This function updates a specific range of existing data in the flash memory. It uses a "spare sector" as a temporary workspace to safely overwrite data. It copies the old data to the spare sector, erases the target sector, writes the new data, and then restores the old data for any parts that weren't changed. This prevents the flash from being left in a half-written state.

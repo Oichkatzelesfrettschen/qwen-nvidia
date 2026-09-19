@@ -1,0 +1,19 @@
+## Summary of `sys/arch/rp2040/dev/flash_swap.c`
+
+### Overall Purpose
+
+This file provides a flash memory swap mechanism for the RP2040 chip. It allows data to be written to flash memory in a way that avoids the need for a full sector erase before writing. Instead, it uses a "swap" technique where data is written in small chunks, and sectors are erased only when they reach their erase boundary. This is useful for systems that need to update flash content without waiting for full sector erases.
+
+### Key Exported Functions
+
+**`flash_swap_append`**
+- Appends data to a swap image starting at a given offset.
+- Automatically erases sectors when a piece of data reaches an erase-sector boundary.
+- Writes data in program-page-sized chunks.
+- If the final piece is shorter than a full page, it pads the rest with erased bytes.
+- Returns `0` on success, `-1` on failure.
+
+**`flash_swap_rewrite`**
+- Rewrites an arbitrary range of flash memory through a spare sector.
+- Uses a spare sector as a temporary buffer: it reads the destination pages, writes them to the spare sector, erases the destination, then writes the data back.
+- Preserves any pages in the destination that weren't part of the rewrite.

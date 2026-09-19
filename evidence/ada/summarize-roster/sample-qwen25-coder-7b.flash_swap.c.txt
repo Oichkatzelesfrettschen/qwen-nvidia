@@ -1,0 +1,13 @@
+### Summary
+
+This file, `flash_swap.c`, is part of a system that handles swapping data on a flash memory device, specifically for the RP2040 microcontroller. The main purpose is to manage the swapping of data in a way that minimizes wear on the flash memory by erasing and rewriting data in a controlled manner.
+
+### Key Exported Functions
+
+1. **`flash_swap_append`**
+   - **Purpose**: This function appends a piece of data to an existing swap image.
+   - **How it works**: It starts writing data at the next available program-page boundary. If the data fits exactly within a program page, it writes it directly. If not, it pads the remaining space with erased bytes and then writes the data. The function ensures that each sector is erased only when a new piece of data reaches its boundary.
+
+2. **`flash_swap_rewrite`**
+   - **Purpose**: This function rewrites a range of data in the flash memory using a spare sector.
+   - **How it works**: It copies data from the original location to a spare sector, erases the original location, and then writes the data back to the original location. This process ensures that any untouched pages remain available after the rewrite, maintaining the semantics o

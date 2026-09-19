@@ -1,0 +1,22 @@
+**Overall Purpose:**  
+The `cat` utility is a command-line tool that concatenates multiple input files and outputs their contents in a specific format based on command-line options. It's commonly used to combine files into a single output, with formatting controlled by flags like `-u` (unbuffered output), `-n` (numbered lines), `-b` (block size), etc.
+
+**Key Exported Functions:**
+
+1. **`main(argc, argv)`**  
+   - **Purpose:** Entry point that processes command-line arguments and files.  
+   - **What it does:**  
+     - Parses options like `-u`, `-n`, `-b`, etc., to determine output formatting.  
+     - Checks if input and output are the same file, and if so, outputs an error.  
+     - Reads input files, checks file size and block size for performance optimization.  
+     - Calls `copyopt` or `fastcat` to process the output based on flags.  
+
+2. **`copyopt(f)`**  
+   - **Purpose:** Formats the output of each file based on command-line options.  
+   - **What it does:**  
+     - Processes each line of the output file.  
+     - Handles special characters like `$`, `^`, and tabs depending on flags.  
+     - Increments line numbers and outputs formatted lines.  
+
+3. **`fastcat(fd)`**  
+ 

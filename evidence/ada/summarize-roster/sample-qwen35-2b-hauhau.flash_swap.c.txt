@@ -1,0 +1,15 @@
+Here is a plain English summary of the file `sys/arch/rp2040/dev/flash_swap.c`:
+
+### 1. What it does overall
+This file contains low-level code used to manage flash memory on the RP2040 microcontroller. Its main purpose is to handle "swap images," which is a technique used to manage flash wear leveling or data migration. It allows the system to move data between the main flash memory and a spare sector (likely for wear leveling or data migration) by reading data from one place and writing it to another.
+
+### 2. Key exported functions and what each is for
+
+**`flash_swap_append`**
+*   **What it does:** Appends a piece of data to the flash memory.
+*   **What it does:** It takes the data you want to write, checks if the memory address is aligned correctly (to the sector boundary), and writes the data to the flash. It handles the logic of sectors and pages to ensure the data is written correctly.
+*   **Return Value:** Returns 0 if successful, -1 if the offset is not aligned or the write fails.
+
+**`flash_swap_rewrite`**
+*   **What it does:** Rewrites a range of data using a spare sector.
+*   **What it does:** It takes a range of data and a spare sector address. It erases the spare sector,

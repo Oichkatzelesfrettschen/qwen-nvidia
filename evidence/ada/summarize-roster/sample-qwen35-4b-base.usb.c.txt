@@ -1,0 +1,12 @@
+### Overall Purpose
+This file implements the USB driver for the DiscoBSD operating system running on the Raspberry Pi Pico (RP2040) hardware. It configures the chip's built-in USB controller to function as a **serial console** (CDC-ACM device) and a **special reset interface**.
+
+*   **Serial Console:** It allows the board to be accessed via a standard USB cable as a serial terminal (appearing as `/dev/ttyACM0` on Linux), enabling debugging and input/output.
+*   **Reset Interface:** It implements a specific "reset" interface compatible with the Pico SDK. This allows tools like `picotool` to reboot the board via USB without needing to press a physical button.
+*   **Hardware Handling:** It manages the RP2040's USB controller registers, handles USB enumeration (descriptors), and includes specific logic to handle hardware quirks (like the E15 guard) to ensure stable communication.
+
+### Key Exported Functions
+These are the primary functions exposed to the rest of the system or user space:
+
+1.  **`usbinit()`**: Initializes the USB hardware, configures the controller registers, and registers the driver with the system.
+2.  **`usbintr()`**: The main interrupt handler that processes USB even

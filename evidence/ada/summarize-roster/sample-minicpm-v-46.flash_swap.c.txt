@@ -1,0 +1,9 @@
+The file is a C program for handling flash swap operations on a RP2040 microcontroller. Overall, it provides functions to swap and manage flash images, ensuring that swaps are done correctly by checking erase and program operations.
+
+Key exported functions and their purposes:
+
+1. `flash_swap_append`: appends a chunk of data to a swap, checks if the offset is valid, and then either programs or erases to maintain the swap's integrity. It returns 0 on success, -1 otherwise.
+
+2. `flash_swap_rewrite`: rewrites a range through a spare sector, copying data from source to a destination, and ensuring erase and program operations are done correctly. It returns 0 on success, -1 otherwise.
+
+In plain terms, the file enables safe swapping of flash images by managing where to erase and program, and ensuring data is preserved during swaps.

@@ -1,0 +1,7 @@
+<think> Okay, let's tackle this. The user wants a summary in plain English of the two functions provided: sys/arch/rp2040/dev/flash_swap.c. They specified two parts: what the file does overall and the key functions with their purposes.
+
+First, looking at the first function, flash_swap_append. The comment says it's about swapping parts of a raw swap image. The key points from the description are that it handles erasing aligned raw swap images, processes pieces starting at erase-sector boundaries, and arranges them in order. It mentions handling different scenarios like unaligned calls and overlapping images, and pads with erased bytes. So overall, this function manages swapping data in a way that avoids full erases, maintaining structure.
+
+Now the second function, flash_swap_rewrite. The description says it rewrites a range of pages through a spare sector. It mentions copying untouched pages after erasing, allowing block-rewrite without full erase sectors. The parameters involve offsets and sectors, handling erasing a spare sector and swapping data around. The key here is efficient swapping with minimal erase operations, especially useful for handling specific memory layouts.
+
+So pu

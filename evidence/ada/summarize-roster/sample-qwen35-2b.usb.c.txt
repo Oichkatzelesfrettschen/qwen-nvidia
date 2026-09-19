@@ -1,0 +1,17 @@
+### 1. Overall Function
+
+This file implements a USB-to-Serial (CDC-ACM) driver for the Raspberry Pi Pico (RP2040). It creates a virtual serial port (`/dev/ttyACM0`) that appears to Windows/Linux as a standard USB device.
+
+*   **Core Purpose:** It manages the RP2040's internal USB controller (DPSRAM buffers, interrupt handling) to allow the Pico to act as a CDC-ACM device.
+*   **Key Features:**
+    *   **Console Output:** Provides a serial console interface for input/output.
+    *   **Boot Mode:** Supports a reset interface (WinUSB) to reboot the board without a physical button press.
+    *   **Ring Buffer:** Uses an 8KB ring buffer to manage data transmission, ensuring the host sees the last bytes even if the host is slow.
+    *   **E15 Guard:** Implements a microsecond timer-based guard to handle USB frame timing and prevent buffer corruption during host communication.
+    *   **Descriptors:** Uses Microsoft OS 2.0 descriptors to make the reset interface look like a standard WinUSB function to Windows.
+
+### 2. Key Exported Functions
+
+The following functions are the main interface for the kernel driver and the user space console:
+
+*   **`usbinit(void)`**: Initializes the USB contro

@@ -1,0 +1,21 @@
+The file `sys/arch/rp2040/dev/usb.c` is a C program that implements a USB device controller for the RP2040. It handles the communication between the host and the device, including the device's own control and data handling.
+
+The file includes:
+
+1. A description of the device: it is a CDC-ACM device on the RP2040's own controller.
+
+2. The device controller is programmed as the datasheet describes in section 4.1.2: control and buffer words in DPSRAM, one buffer per endpoint, an interrupt per completed buffer, and the setup packet at DPSRAM offset 0.
+
+3. The device controller exposes a bulk IN buffer, a bulk OUT buffer, and a reset interface.
+
+4. The device uses a microsecond timer for the free-running microsecond timer, which is a monotonic microsecond count readable with no side effect.
+
+5. The device controller measures the frame position with the microsecond timer.
+
+6. The device controller exposes a set of registers for configuration, control, and other functions.
+
+7. The device controller has a state machine that handles interrupts, events, and other operations.
+
+8. The device controller has a buffer ring that holds the data.
+
+9. The device controller has a set of functions that

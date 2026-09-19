@@ -1,0 +1,13 @@
+The provided code is a comprehensive implementation of the RP2040-E15 bus controller, designed for use on the Raspberry Pi 4. It includes a detailed description of the bus, controller, and bus operations, as well as various interrupt handlers and bus operations. Here's a breakdown of the key components and their functionality:
+
+1. **Bus Overview**:
+   - The RP2040 bus is configured with USB 2.0 descriptor support, enabling USB 2.1.0 and 2.0.0.0 descriptors.
+   - The bus uses a DDR memory controller (DDRM) and a USB bus controller (USB_DPRAM_BUF_CTRL).
+   - The bus is designed for a 115200 byte data stream, with a 24x80 baud rate.
+
+2. **Bus Operations**:
+   - **EP0 INPUT**: The bus is configured to accept input from the Raspberry Pi 4, with a buffer size of 24 bytes.
+   - **EP0 OUTPUT**: The bus is designed to output data from the Raspberry Pi 4, with a buffer size of 80 bytes.
+   - **EP OUT**: The bus is used for outgoing data from the Raspberry Pi 4, with a buffer size of 0 bytes.
+   - **USB_BUS_CTRL**: A bus control register that manages the bus's state, including reset, interrupt, and data toggle operations.
+   - **USB_DPRAM_BUF_CTRL**: A bus control register that manages the DP

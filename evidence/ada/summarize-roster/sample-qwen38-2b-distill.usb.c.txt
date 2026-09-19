@@ -1,0 +1,20 @@
+## Overview
+
+This file implements a **CDC-ACM (Console over USB) device driver** for the RP2040 microcontroller. It exposes a virtual terminal (TTY) interface over the USB controller, allowing the RP2040 to act as a serial console that Linux can bind to as `/dev/ttyACM0`.
+
+The driver uses the RP2040's built-in USB controller (not a separate USB peripheral) to provide a serial console interface.
+
+---
+
+## Key Exported Functions
+
+| Function | Purpose |
+|----------|---------|
+| `usbinit(void)` | Initializes the USB controller, programs the DPSRAM with configuration data, and enables the controller |
+| `usbopen(dev_t dev, int flag, int mode)` | Opens the virtual terminal device (returns `NULL` if already open) |
+| `usbclose(dev_t dev, int flag, int mode)` | Closes the virtual terminal device |
+| `usbread(dev_t dev, struct uio *uio, int flag)` | Reads bytes from the virtual terminal |
+| `usbwrite(dev_t dev, struct uio *uio, int flag)` | Writes bytes to the virtual terminal |
+| `usbioctl(dev_t dev, u_int cmd, caddr_t addr, int flag)` | Sends a command to the virtual terminal |
+| `usbselect(dev_t dev, int rw)` | Selects read/write mode for the virtual terminal |
+| `usbstart(struct tty *tp)

@@ -1,0 +1,9 @@
+This driver implements a **CDC-ACM (Class-Compliant Device over ACM) USB Console** for the RP2040. Its primary goal is to provide a serial console (like `/dev/ttyACM0`) that behaves exactly like a standard serial terminal, including the ability to reboot the board via the `reset` interface.
+
+### 1. Overall Purpose
+The driver bridges the gap between the RP2040's USB controller and the Linux kernel's `cdc_acm` driver. By presenting itself as a CDC device, the RP2040 can be used as a serial console. The driver handles the complex handshake between the host and the device, specifically managing the **E15 Guard** (a hardware feature on the RP2040-E15 silicon that prevents the CPU from entering deep sleep or stopping the bus).
+
+### 2. Key Exported Functions and Their Roles
+
+*   **`usbinit()`**: Initializes the USB controller. It clears the DPSRAM (Data Processing RAM) and sets up the endpoints. It pulls the D+ (Data+ Power) line up to ensure the host sees a full-speed device.
+*   **`usb_setup()`**: The core logic for handling USB control requests. It parses the `setup` packet from the host, identifies the request type (e.g., `REQ_GET_STATUS`, `REQ_SET_ADDRESS`), and responds with the app

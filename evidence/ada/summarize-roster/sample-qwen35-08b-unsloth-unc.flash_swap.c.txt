@@ -1,0 +1,34 @@
+```cpp
+// Program one ascending piece of an erase-aligned raw swap image.
+// The first nonempty piece starts at an erase-sector boundary. Later pieces
+// start at program-page boundaries in the same image and arrive in ascending
+// address order. A sector is therefore erased exactly when a piece first
+// reaches its boundary. A short final program page is padded with erased
+// bytes; the next piece starts beyond that page.
+// Keeping the geometry loop separate from the flash driver lets the host test
+// run the production algorithm against a NOR model that rejects 0-to-1 bit
+// transitions, unaligned calls, duplicate erases, and overlapping images.
+
+#include <sys/types.h>
+
+#include <rp2040/dev/flash.h>
+#include <rp2040/dev/flash_swap.h>
+
+int
+flash_swap_append(const struct flash_swap_ops *ops, unsigned int offset,
+    const unsigned char *source, unsigned int length, unsigned char *scratch)
+{
+	unsigned int chunk, index;
+
+	if ((offset & (FLASH_PROG_BYTES - 1)) != 0)
+		return -1;
+
+	while (length != 0) {
+		if ((offset & (FLASH_SECTOR_BYTES - 1)) != 0)
+			return -1;
+
+		chunk = length;
+		if (chunk > FLASH_PROG_BYTES)
+			chunk = FLASH_PROG_BYTES;
+		if (chunk == FLASH_PROG_BYTES) {
+			if (

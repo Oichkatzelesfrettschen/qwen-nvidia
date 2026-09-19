@@ -1,0 +1,18 @@
+**Overall Purpose**
+This file implements a USB console driver for the **RP2040** microcontroller. It allows the RP2040 to act as a **CDC-ACM (Control and Data Channel)** device, exposing a console interface via USB. The driver uses a **ring buffer** for output and a **timer** for frame positioning. It handles **reset interfaces** and specific **Windows descriptors (MS OS 2.0)** for compatibility.
+
+**Key Exported Functions and Their Purpose**
+The file contains a set of functions that manage the device initialization, service loop, and interrupt handling.
+
+1.  **`usbinit`**: Initializes the device, sets up registers, and starts the service loop.
+2.  **`usbopen`**: Opens the device, handles input/output, and returns to the host.
+3.  **`usbclose`**: Closes the device.
+4.  **`usbread`**: Reads data from the device.
+5.  **`usbwrite`**: Writes data to the device.
+6.  **`usbioctl`**: Sends commands to the device.
+7.  **`usbselect`**: Selects the device.
+8.  **`usbstart`**: Starts the service loop.
+9.  **`usbputc`**: Sends a character to the device.
+10. **`usbdrain`**: Drains the device (flushes the ring).
+11. **`usbgetc`**: Reads a character from the device.
+12. **`usb_service`**: The main

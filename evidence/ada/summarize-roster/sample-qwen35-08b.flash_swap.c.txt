@@ -1,0 +1,16 @@
+# Summary of `sys/arch/rp2040/dev/flash_swap.c`
+
+## 1. What it does overall
+This C program implements a **flash memory swap algorithm** designed to manage data between a flash image and a spare sector (likely SRAM or a temporary buffer). Its primary goal is to write data to the spare sector and then write that data back to the flash image, ensuring the data is written correctly without errors.
+
+The file is designed to be isolated from the flash driver. This allows the host to test the production algorithm against a NOR model that rejects specific errors (like 0-to-1 bit transitions, unaligned calls, duplicate erases, and overlapping images).
+
+## 2. Key exported functions and what each is for
+
+### `flash_swap_append`
+*   **Purpose:** Appends data to the flash image.
+*   **How it works:**
+    *   It checks if the current offset is within a program page. If not, it returns -1.
+    *   It iterates through chunks, checking if the offset is at the start of a sector (erase boundary). If so, it checks if the erase operation is valid.
+    *   If valid, it checks if the source data is within the program page. If valid, it copies the source data into the scratch buffer.
+    *   It checks if t

@@ -1,0 +1,18 @@
+**Summary in Plain English:**
+
+**Overall Purpose:**
+This file sets up a USB-to-serial console on the RP2040's USB controller. It allows the Pico (a Raspberry Pi clone) to act as a serial console via USB, binding to `/dev/ttyACM0` on Linux. When you run `picotool reboot -u`, it returns the board to BOOTSEL without needing a physical button press.
+
+**Key Exported Functions:**
+
+1. **`usbinit()`** - Initializes the USB controller by resetting the reset bits, clearing DPSRAM, and enabling the endpoints. It sets up the SOF (Subframe Overlap) interrupt and enables the pull-up on D+.
+
+2. **`usb_setup()`** - Handles the setup packet from the host. It parses the request type, data, and length, and responds accordingly. For example, it can send device descriptors, configuration, or string information.
+
+3. **`usb_configure()`** - Sets up the endpoints based on whether the configuration is enabled. It arms the data buffer for the host to write to and enables the SOF interrupt.
+
+4. **`usb_ep0_in_next()`** - Sends the next packet of an EP0 IN reply to the host.
+
+5. **`usb_ep0_send()`** - Sends a reply to an IN request with at most wLength bytes.
+
+6. **`usb_ep0_ack()`** - Closes an OUT request wit

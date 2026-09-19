@@ -1,0 +1,17 @@
+### 1. What it does overall
+
+This file contains the **kernel driver** for the RP2040 microcontroller's USB controller. Its primary purpose is to turn the RP2040 into a USB device that acts as a **Console over USB (CDC-ACM)**.
+
+*   **The Device:** It exposes a virtual serial port (`/dev/ttyACM0`) to the Linux operating system.
+*   **The Hardware:** It uses the RP2040's onboard USB controller to communicate with a host computer (like a Raspberry Pi or PC) via USB.
+*   **The Function:** It manages the USB communication, handles data transmission (sending text to the host), and handles hardware resets (like rebooting via a button or flashing to a specific state). It essentially bridges the gap between the RP2040 hardware and the Linux kernel's TTY (terminal) interface.
+
+### 2. Key exported functions and what each is for
+
+Here are the main functions defined in this file, broken down by their role:
+
+*   **`usbinit`**:
+    *   **Purpose:** Initializes the USB controller.
+    *   **What it does:** Sets up the hardware registers, configures the DPSRAM buffers (memory for data), enables the interrupt lines, and pulls the power line up so the host sees a full-speed device.
+
+*   **`usbintr`**:

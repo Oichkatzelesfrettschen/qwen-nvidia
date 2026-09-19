@@ -1,0 +1,16 @@
+Here is a plain English summary of the file `bin/cat/cat.c`.
+
+### 1. What it does overall
+This file contains the source code for a Unix shell command called **`cat`**. Its job is to take multiple input files (or a pipe) and combine them into a single output stream.
+
+*   **Input:** It accepts files or a pipe (stdin) as input.
+*   **Output:** It writes the combined content to the standard output (stdout).
+*   **Features:** It supports command-line flags to control how the output looks (like adding line numbers or handling special characters) and uses efficient memory management to handle large files.
+
+### 2. The key exported functions and what each is for
+
+The code defines three main functions that work together to perform the task:
+
+*   **`main` (The Entry Point)**
+    *   **What it does:** This is the main driver of the program. It reads the command-line arguments (like `-n`, `-u`, `-b`) to determine how the output should be formatted. It opens the input files and decides whether to read from a file or a pipe.
+    *   **Key Logic:** It loops through the arguments to parse flags, checks if the input file is the same as the output file (to avoid loops), and handles errors if a file c

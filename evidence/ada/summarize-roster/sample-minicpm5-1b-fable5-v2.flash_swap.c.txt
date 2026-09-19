@@ -1,0 +1,16 @@
+These are two functions in the flash driver that perform swap operations. Here's a summary:
+
+**flash_swap_append** - Appends a program page to an erase sector.
+- Takes an offset, source data, length, and scratch.
+- Aligns the offset to erase-sector boundaries.
+- Iterates over chunks of source data, erases them if needed, then writes them back to the erase sector.
+- Returns 0 if successful, -1 if an error occurs.
+
+**flash_swap_rewrite** - Rewrites a program page through a spare sector.
+- Takes an offset, source data, length, spare sector, and scratch.
+- Aligns the offset to program-page boundaries.
+- Writes the source data to the spare sector, then erases the source data from the erase sector.
+- Rewrites the source data back to the program page.
+- Returns 0 if successful, -1 if an error occurs.
+
+Both functions are used to perform swap operations in the flash driver. The `flash_swap_append` function is used for appending a program page to an erase sector, while the `flash_swap_rewrite` function is used for rewriting a program page through a spare sector.
