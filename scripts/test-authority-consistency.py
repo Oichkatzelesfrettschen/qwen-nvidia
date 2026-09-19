@@ -91,14 +91,14 @@ def main():
     def mut_stale_promotion(tmp_path):
         readme = tmp_path / "README.md"
         text = readme.read_text(encoding="utf-8")
-        text = text.replace("88681bf4d161", "000000000000")
+        text = text.replace("15bc632adf7f", "000000000000")
         readme.write_text(text, encoding="utf-8")
 
     test_case("stale_production_promotion_reference_fails", mut_stale_promotion, expect_pass=False)
 
     # 3. Missing referenced promotion evidence fails
     def mut_missing_evidence(tmp_path):
-        ev_dir = tmp_path / "evidence" / "ada" / "promotion-88681bf4d161"
+        ev_dir = tmp_path / "evidence" / "ada" / "promotion-15bc632adf7f"
         if ev_dir.exists():
             shutil.rmtree(ev_dir)
 
@@ -265,13 +265,13 @@ def main():
     test_case("removed_task_tracker_fails_closed", mut_remove_task_tracker, expect_pass=False)
 
     # 15. The served-closure statement is role-qualified: relabeling the
-    # rollback digest as the served closure fails even though 88681bf4d161
+    # rollback digest as the served closure fails even though 15bc632adf7f
     # remains present elsewhere in README.md.
     def mut_relabel_served_closure(tmp_path):
         readme = tmp_path / "README.md"
         text = readme.read_text(encoding="utf-8")
-        text = text.replace("served closure is configuration `88681bf4d161`",
-                            "served closure is configuration `31d0775c5bc6`")
+        text = text.replace("served closure is configuration `15bc632adf7f`",
+                            "served closure is configuration `88681bf4d161`")
         readme.write_text(text, encoding="utf-8")
 
     test_case("relabeled_served_closure_fails", mut_relabel_served_closure, expect_pass=False)
@@ -407,8 +407,8 @@ def main():
     def mut_rollback_under_served_role(root):
         readme = root / "README.md"
         readme.write_text(readme.read_text().replace(
-            "served closure is configuration `88681bf4d161`",
-            "served closure is configuration `31d0775c5bc6`"))
+            "served closure is configuration `15bc632adf7f`",
+            "served closure is configuration `88681bf4d161`"))
     test_case("rollback_digest_under_served_role_fails",
               mut_rollback_under_served_role, expect_pass=False,
               expect_error="served-closure statement names")
@@ -438,7 +438,7 @@ def main():
 
     # The promotion summary states an outcome rather than merely existing.
     def mut_malformed_serving_summary(root):
-        path = (root / "evidence" / "ada" / "promotion-88681bf4d161"
+        path = (root / "evidence" / "ada" / "promotion-15bc632adf7f"
                 / "serving-summary.tsv")
         path.write_text("check\tresult\tdetail\nlaunch\taccepted\tx\n")
     test_case("incomplete_serving_summary_fails",
@@ -446,7 +446,7 @@ def main():
               expect_error="omits required checks")
 
     def mut_serving_summary_wrong_device(root):
-        path = (root / "evidence" / "ada" / "promotion-88681bf4d161"
+        path = (root / "evidence" / "ada" / "promotion-15bc632adf7f"
                 / "serving-summary.tsv")
         text = path.read_text().replace("CUDA0", "Vulkan0")
         path.write_text(text)
@@ -534,8 +534,8 @@ def main():
     def mut_swapped_role_digests(root):
         path = root / "README.md"
         text = path.read_text(encoding="utf-8")
-        text = (text.replace("31d0775c5bc6", "\0")
-                    .replace("572951d25562", "31d0775c5bc6")
+        text = (text.replace("88681bf4d161", "\0")
+                    .replace("572951d25562", "88681bf4d161")
                     .replace("\0", "572951d25562"))
         path.write_text(text, encoding="utf-8")
     test_case("swapped_rollback_and_diagnostic_roles_fails",

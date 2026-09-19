@@ -8,8 +8,9 @@ set -eu
 #
 # graft speaks the OpenAI wire format and records each summary through a
 # forced `tool_choice`; a llama-server launched without --jinja ignores the
-# `tools` field and answers in prose, and graft then leaves every node
-# pending. The probe below sends the smallest forced tool call and requires a
+# `tools` field and answers in prose, the 2B distill answers a forced call in
+# prose even under --jinja while the 4B distill records it, and graft then
+# leaves every node pending. The probe below sends the smallest forced tool call and requires a
 # `tool_calls` member in the answer, so a launch that lacks QWEN_CHAT_TOOLS=on
 # is refused here rather than discovered as an empty graph.
 #
@@ -84,7 +85,7 @@ probe_answer=$(curl --silent --max-time 120 --config "$header_file" \
 case $probe_answer in
     *'"tool_calls"'*) ;;
     *)
-        printf 'the served llama-server answered a forced tool call without tool_calls; launch with QWEN_CHAT_TOOLS=on\n' >&2
+        printf 'the served llama-server answered a forced tool call without tool_calls; launch with QWEN_CHAT_TOOLS=on and a model that records one, such as the 4B distill (the 2B distill answers in prose)\n' >&2
         exit 1
         ;;
 esac

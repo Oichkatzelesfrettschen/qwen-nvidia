@@ -1287,10 +1287,12 @@ OptiX, and TensorRT execution that follows. It leaves out the broker, the HTTP
 listener, telemetry, the kernel watcher, ordinary file work, an idle resident
 process, and the graphics-latency monitor. What a participant covers is what it
 implements: `image-service.py`, `physics-service.py`, and `geometry-service.py`
-each hold the lease across one job, while the promoted closure `88681bf4d161`
-reads neither lease name, since
-`patches/llama-server-vulkan-workload-lease.patch` is a candidate armed under
-`QWEN_LLAMA_CANDIDATE_PATCHES=1` alone. That patch opens the descriptor and
+each hold the lease across one job, and the promoted closure `15bc632adf7f`
+carries `patches/llama-server-vulkan-workload-lease.patch`, so llama-server is
+the fourth holder; the rollback closure `88681bf4d161` reads neither lease
+name. The patch stays a candidate in `verify-llama-patch-series.sh`, armed
+under `QWEN_LLAMA_CANDIDATE_PATCHES=1`, the way the promoted MMVQ crossover
+patch does. The patch opens the descriptor and
 acquires at the top of `load_model`, ahead of the `common_init_from_params` and
 `mtmd_init_from_file` calls that allocate and upload to CUDA0, with the open
 first because an acquire returns true while the descriptor is closed;
@@ -1409,7 +1411,7 @@ departure, one `HTTP_POLLING_SECONDS` later, and `scripts/probe-lease-shutdown-s
 measured that on the device across five arms: the client's departure ends the
 shutdown in 1230 to 1340 ms, releasing the holder moves nothing, and an
 untouched server exits 2.6 s past its own client's 20 s timeout rather than on
-the signal. The promoted closure `88681bf4d161`, which compiles in no lease at
+the signal. The rollback closure `88681bf4d161`, which compiles in no lease at
 all, holds the same join for 30.9 s with a generation in flight and leaves it
 1.34 s after its client departs, so a lease-free binary reaches the same bound
 and production already carries it; each closure carries one in-flight
@@ -1951,8 +1953,8 @@ the block, so a stall is visible while it lasts and the acquire line carries
 `server-models.cpp` spawns each child from the `environ` snapshot in `base_env`.
 `scripts/test-vulkan-workload-lease.sh` admits both halves and
 `evidence/vulkan-workload-lease/README.md` registers the invariant, the
-falsifiers, and the appliance sequence; the patch is a candidate under
-`QWEN_LLAMA_CANDIDATE_PATCHES=1` awaiting admission on the device.
+falsifiers, and the appliance sequence; `evidence/ada/promotion-15bc632adf7f/`
+records the device admission that promoted the patched closure.
 
 A review of a generated image is the next transition through idle, and it runs
 against a vision model holding no executable tool. `scripts/image-review.py`
@@ -2079,7 +2081,8 @@ scripts/qwen-web-launch.sh [PROFILE]     # web presets, loopback only
 scripts/qwen-image-launch.sh [PROFILE]   # web presets with the image lane armed
 scripts/qwen-teardown.sh
 scripts/qwen-webui-control.sh status
-QWEN_CHAT_TOOLS=on scripts/qwen-launch.sh default   # --jinja: native tool calls for an OpenAI-format client
+QWEN_CHAT_TOOLS=on QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
+    scripts/qwen-launch.sh default           # --jinja: native tool calls; the 4B records a forced call, the 2B answers in prose
 eval "$(scripts/graft-consumer-env.sh)"  # GRAFT_* for graft --deep, after a tool-call probe
 scripts/gpu-state-latch.sh status|require-clear|recover
                                          # the latch between a driver failure and the next launch
@@ -2334,6 +2337,7 @@ python3 scripts/test-coding-agent-service.py
 python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
 scripts/test-graft-consumer-env.sh
+scripts/test-write-artifact-manifest.sh
 scripts/test-coding-principal-path.sh       # appliance host role alone
 scripts/test-admit-coding-chain.sh
 scripts/test-coding-page-arm-classification.sh

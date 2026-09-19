@@ -27,8 +27,8 @@ kernels for the served `cache_type_k=q8_0`/`cache_type_v=q4_0` pair rather than
 leaving it off the flash-attention path, and the build runs through `g++-15`
 because nvcc refuses a host compiler newer than GCC 15.
 
-CUDA0 is the one serving backend, and the promoted closure `88681bf4d161`
-carries the CUDA backend alone. Vulkan serving and Vulkan admission campaigns
+CUDA0 is the one serving backend, and the promoted closure `15bc632adf7f`
+carries the CUDA backend alone and the compute lease. Vulkan serving and Vulkan admission campaigns
 are retired in this repository: `QWEN_SERVING_BACKEND` takes `cuda` alone and
 the launch chain refuses `vulkan`, `scripts/promote-llama-build.sh` refuses a
 build carrying `libggml-vulkan.so`, and the retained diagnostic closure
@@ -122,7 +122,8 @@ dequant+GEMM runs at roughly half the MMQ rate past the crossover.
 `patches/llama-cuda-mmvq-crossover-ad104.patch` parameterizes the Ada Q6_K
 and Q8_0 ceilings as named CMake thresholds and instantiates the kernel
 through sixteen columns. The promoted serving closure places Q6_K at ten and
-Q8_0 at sixteen (`evidence/ada/promotion-88681bf4d161/`).
+Q8_0 at sixteen (`evidence/ada/promotion-15bc632adf7f/`, carried forward
+from `evidence/ada/promotion-88681bf4d161/`).
 
 ## Promotion is CUDA-authoritative
 
@@ -131,11 +132,14 @@ one-token placement check and a multimodal smoke both run with
 `LLAMA_NO_CPU_FALLBACK=1` and require every weight buffer to name CUDA0. A
 build that also carries `libggml-vulkan.so` is refused ahead of both smokes,
 and an accepted promotion reports `backend_set=cuda`.
-The served closure is configuration `88681bf4d161`
-(`evidence/ada/promotion-88681bf4d161/`), using 89-real, CUDA only, Q6_K MMVQ
-threshold 10, and Q8_0 MMVQ threshold 16. Configuration `31d0775c5bc6` is
-retained as the rollback target, and configuration `572951d25562` is retained
-as the PTX-bearing dual-backend diagnostic closure.
+The served closure is configuration `15bc632adf7f`
+(`evidence/ada/promotion-15bc632adf7f/`), using 89-real, CUDA only, Q6_K MMVQ
+threshold 10, Q8_0 MMVQ threshold 16, and
+`patches/llama-server-vulkan-workload-lease.patch`, so llama-server holds the
+compute lease across its model load and every decoding pass and its teardown
+reports the hold. Configuration `88681bf4d161` is retained as the
+rollback target, and configuration `572951d25562` is retained as the
+PTX-bearing dual-backend diagnostic closure.
 
 ## Roadmap
 

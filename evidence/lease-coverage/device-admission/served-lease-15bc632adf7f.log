@@ -1,0 +1,18 @@
+ok lock_basename=vulkan-workload.lock shared by the policy and the service
+ok both writers resolve the lock under the session state directory
+ok both lease variable names survive the environment scrub
+ok the legacy lease name aliases the new one over one file
+ok the authority fallback resolves the lease the policy and the service share\
+ok two distinct lease paths are refused
+ok an llama workload against a held image lease waits its deadline and then refuses
+ok an image generation against a held llama lease waits its deadline and then refuses
+ok a released lease admits the other lane
+ok patch_applies=yes sha256=64cf5b75eeb1fc21e7e985dd633a2ed7b59b84e24bd120a97cd33ddbd5a0e48d
+ok the server arms the lease at startup
+ok an idle loaded server leaves the lease free
+ok the reply waits for the holder: elapsed=6s hold=6s
+ok the acquire names the wait: waited_ms=5897
+ok the completion answers after the lease is taken
+ok the lease returns once every slot is idle
+served_lease=admitted waited_ms=5897 elapsed_s=6
+exit=0

@@ -100,6 +100,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-coding-agent-service.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
 scripts/test-graft-consumer-env.sh
+scripts/test-write-artifact-manifest.sh
 if [ "$gate_host_role" = appliance ]; then
     scripts/test-coding-principal-path.sh
 fi
