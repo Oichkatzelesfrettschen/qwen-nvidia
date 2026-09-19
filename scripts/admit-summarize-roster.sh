@@ -12,6 +12,8 @@
 #
 #   usage: admit-summarize-roster.sh OUTPUT_TSV
 #   QWEN_SUMMARIZE_SOURCE   the tree the three probe files are read from
+#   QWEN_ROSTER_IDS         space-separated row ids to measure; unset measures
+#                           every admitted row
 #
 # Rows whose context_ceiling is below graft's 16384-token floor are skipped.
 set -eu
@@ -21,6 +23,7 @@ OUT=$1
 printf 'model\tfile\tprompt_tokens\tcompletion_tokens\tfinish\treasoning_chars\tcontent_chars\twall_s\ttool_call\n' >"$OUT"
 grep -v '^#' "$Q/scripts/models.tsv" | awk -F'\t' '$16!="archive" && $16!="quarantine" && $6>=16384 {print $1"\t"$6"\t"$3}' |
 while IFS="$(printf '\t')" read -r id ceil file; do
+    case " ${QWEN_ROSTER_IDS:-$id} " in *" $id "*) ;; *) continue ;; esac
     ctx=$ceil; [ "$ctx" -gt 32768 ] && ctx=32768
     "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1
     if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=8192 QWEN_CONTEXT_SIZE=$ctx \
