@@ -80,7 +80,11 @@ done
 
 now_ms() { python3 -c 'import time; print(time.monotonic_ns() // 1000000)'; }
 clip() { python3 -c 'import sys; sys.stdout.write(open(sys.argv[1], encoding="utf-8", errors="replace").read()[:24000])' "$1"; }
-trap '"$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true' EXIT INT TERM
+# A signal ends the run after the teardown; the handler's own exit is what
+# makes it terminal, since a trapped signal alone resumes the script.
+trap '"$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 printf 'model\tfile\tprompt_tokens\tcompletion_tokens\tfinish\treasoning_chars\tcontent_chars\tcontext_boundary\twall_ms\ttool_call\thttp_status\toutcome\n' >"$OUT"
 printf '%s\n' "$eligible" | while IFS="$TAB" read -r id ceil file; do
     [ -n "$id" ] || continue

@@ -79,25 +79,33 @@ identifier and nothing about the rendered prompt or the model's behavior.
 
 ## Device arms
 
-`campaign-runner.sh` is the runner, retained here with its selection and
-order. It reconciles the fetch chain by each row's fetch script name, waits
-for the detached graft deep build to exit, and refuses to start when either
-condition or `sudo` (which the hazard watchdog needs) is missing. A strict
-failure excludes that row from the roster; a strict failure whose logs
-carry a kernel hazard halts the campaign; a signal stops the child in
-flight, tears the served process down, and exits 130 or 143.
-`campaign-status.tsv` records each row's strict state, each roster arm's
-exit, and a final `campaign_status` of `complete`, `partial` or `failed`
-reconciled from the expected answer count (three per admitted row, three
-per control arm) against the retained JSON answers.
+`scripts/campaign-agent-model-roster.sh` is the runner;
+`scripts/test-campaign-agent-model-roster.sh` proves its lifecycle against
+a fake chain (nine checks). Each invocation owns one `run-<stamp>-<pid>/`
+directory here and reconciles `expected.tsv`, one (arm, row, file) entry
+per expected answer, against the outcomes the roster wrote in that
+directory, so a file retained by another run never counts. Before it owns
+the device it verifies each row's fetch by script name and waits for the
+detached graft deep build to exit; a refusal or a signal in that phase
+exits at once and touches no served process. Ownership begins at its
+first teardown, after which every child runs in its own process group: a
+signal stops the group in flight, tears the served process down, and
+exits 130 or 143, so no request or launch follows a cancellation. The exit
+status agrees with `campaign-status.tsv`: 0 complete, 4 partial, 1 failed
+or refused, 3 halted.
 
 1. `scripts/test-strict-cuda-placement.sh` on each new row: two CPU
    refusals and one CUDA0 load at a 128-token context answering a
-   fixed-seed completion twice, results under `strict/`. This is the
-   first gate; it exercises no template, no tool schema, no filled
-   sequence, and not the 2048/512 batch geometry, so a pass admits the
-   artifact as a load subject and nothing more.
-2. `scripts/admit-summarize-roster.sh` over the nine rows and the
+   fixed-seed completion twice, results under `strict/<id>/` beside the
+   kernel-ring lines added during the load (`kernel-ring.log`, read
+   through sudo with `dmesg --since`). A hazard in either halts the
+   campaign; a ring that cannot be read leaves the load unverified and
+   halts; an ordinary failure excludes the row and records it as
+   `excluded` in `expected.tsv`. This is the first gate; it exercises no
+   template, no tool schema, no filled sequence, and not the 2048/512
+   batch geometry, so a pass admits the artifact as a load subject and
+   nothing more.
+2. `scripts/admit-summarize-roster.sh` over the admitted rows and the
    `qwen38-4b-distill` control with every `QWEN_SPEC_*` variable unset:
    the checkpoint comparison, `roster.tsv`. Each request is graft's own
    summarize prompt and 24000-character clip (a character count, cut at
@@ -116,9 +124,12 @@ per control arm) against the retained JSON answers.
 3. The control alone under `QWEN_SPEC_TYPE=draft-mtp` with one drafted
    token: the deployment comparison, `roster-4b-mtp.tsv`.
 
-Until those files exist the device arms read `not run`, every row stays at
-`validated_filled_depth -` with its rate fields at `-`, and the PR that
-carries this directory stays a draft. A row that passes the screen still
-needs a filled-depth arm at its cache, batch, template and request
-configuration before its ceiling stands, and a router transition
-measurement before its switch policy changes from `standalone-only`.
+A `complete` status states that every expected answer was retained; the
+per-request outcomes and a source review of the answers decide whether
+they are usable. Until a run directory exists the device arms read
+`not run`, every row stays at `validated_filled_depth -` with its rate
+fields at `-`, and the PR that carries this directory stays a draft. A
+row that passes the screen still needs a filled-depth arm at its cache,
+batch, template and request configuration before its ceiling stands, and
+a router transition measurement before its switch policy changes from
+`standalone-only`.
