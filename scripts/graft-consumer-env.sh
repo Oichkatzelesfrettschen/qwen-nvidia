@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+# gpu-ownership: non-gpu-helper; executes no device binary.
+
 # Emit the environment graft's --deep pass needs to use the served appliance
 # as its model, after proving the endpoint answers a forced tool call.
 #
