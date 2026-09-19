@@ -2083,6 +2083,9 @@ scripts/qwen-teardown.sh
 scripts/qwen-webui-control.sh status
 QWEN_CHAT_TOOLS=on QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
     scripts/qwen-launch.sh default           # --jinja: native tool calls; the 4B records a forced call, the 2B answers in prose
+QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=8000 QWEN_CONTEXT_SIZE=32768 \
+QWEN_MODEL_PATH=$HOME/models/Qwen3.8-4B-Distill-GGUF/Qwen3.8-4B-Q4_K_M.gguf \
+    scripts/qwen-launch.sh default           # --reasoning-budget: bound the thought block; unbounded, a thinking model fills a client's reply cap and returns empty content
 eval "$(scripts/graft-consumer-env.sh)"  # GRAFT_* for graft --deep, after a tool-call probe
 scripts/gpu-state-latch.sh status|require-clear|recover
                                          # the latch between a driver failure and the next launch

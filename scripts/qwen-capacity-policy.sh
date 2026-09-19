@@ -1143,6 +1143,31 @@ case $chat_tools in
         exit 2
         ;;
 esac
+# A thinking model spends its reply budget on the thought block first: the
+# 0.8B answers a 2048-token summarize request with 2048 tokens of reasoning
+# and an empty content field, and the request reports success. --reasoning
+# selects whether the template thinks at all and --reasoning-budget bounds
+# the thought block, after which llama-server closes it and the content
+# follows; a client's reply cap has to exceed the budget by the answer's
+# length. The promoted defaults were measured under the template's own
+# setting, so both stay behind knobs at their llama-server defaults.
+chat_reasoning=${QWEN_CHAT_REASONING:-auto}
+case $chat_reasoning in
+    on | off | auto) ;;
+    *)
+        printf 'QWEN_CHAT_REASONING must be on, off or auto: %s\n' "$chat_reasoning" >&2
+        exit 2
+        ;;
+esac
+chat_reasoning_budget=${QWEN_CHAT_REASONING_BUDGET:--1}
+case $chat_reasoning_budget in
+    -1 | 0 | [1-9] | [1-9][0-9]* ) ;;
+    *)
+        printf 'QWEN_CHAT_REASONING_BUDGET must be -1, 0 or a positive token count: %s\n' \
+            "$chat_reasoning_budget" >&2
+        exit 2
+        ;;
+esac
 serving_threads=${QWEN_SERVING_THREADS:-6}
 case $serving_threads in
     '' | *[!0-9]* | 0)
@@ -1168,6 +1193,12 @@ set -- "$@" \
     --offline
 if [ "$chat_tools" = on ]; then
     set -- "$@" --jinja
+fi
+if [ "$chat_reasoning" != auto ]; then
+    set -- "$@" --reasoning "$chat_reasoning"
+fi
+if [ "$chat_reasoning_budget" != -1 ]; then
+    set -- "$@" --reasoning-budget "$chat_reasoning_budget"
 fi
 
 # The six per-checkpoint flags stay off the router's own argv, because
