@@ -1,0 +1,229 @@
+========================================================================
+sys/arch/rp2040/dev/flash.c#dhara_nand_copy  L374-L404
+--- source ---
+374	int
+375	dhara_nand_copy(const struct dhara_nand *n, dhara_page_t src,
+376	    dhara_page_t dst, dhara_error_t *err)
+377	{
+378		u_int offset;
+379	
+380		/*
+381		 * Move one physical program page at a time. The source cannot be read
+382		 * through the XIP window while the destination is being programmed,
+383		 * because the program takes XIP down. Every caller holds splbio, and the
+384		 * one-page static buffer is written before each program call.
+385		 */
+386		if (flscratch_owner == FLS_SWAP)
+387			panic("flash: page copy during a swap write");
+388		if (dst >= FLASH_FS_BYTES / FLASH_UNIT_BYTES) {
+389			dhara_set_error(err, DHARA_E_BAD_BLOCK);
+390			return -1;
+391		}
+392		for (offset = 0; offset < FLASH_UNIT_BYTES;
+393		    offset += FLASH_PROG_BYTES) {
+394			if (dhara_nand_read(n, src, offset, FLASH_PROG_BYTES,
+395			    flscratch, err) < 0)
+396				return -1;
+397			if (flash_program(FLASH_FS_OFFSET + dst * FLASH_UNIT_BYTES +
+398			    offset, flscratch, FLASH_PROG_BYTES) < 0) {
+399				dhara_set_error(err, DHARA_E_BAD_BLOCK);
+   ... (span continues)
+--- qwen38-4b-distill  crux=L374-L385
+    Copies a page by reading from source and programming to destination via scratch buffer.
+--- qwen3-4b-instruct-2507  crux=L386-L397
+    Copies one flash page from source to destination, ensuring no concurrent access by checking scratch buffer ownership and performing byte-by-byte transfer.
+========================================================================
+sys/arch/rp2040/dev/flash.c#flsize  L549-L562
+--- source ---
+549	daddr_t
+550	flsize(dev_t dev)
+551	{
+552		int unit = flunit(dev);
+553		int part = flpart(dev);
+554		struct fldisk *du;
+555	
+556		if (unit >= NFL || part > NPARTITIONS)
+557			return 0;
+558		du = &fldrives[unit];
+559		if (du->part[RAWPART].dp_nsectors == 0 && fl_setup(unit) != 0)
+560			return 0;
+561		return du->part[part].dp_nsectors >> 1;
+562	}
+--- qwen38-4b-distill  crux=L549-L560
+    Returns the size of a partition in DEV_BSIZE blocks.
+--- qwen3-4b-instruct-2507  crux=L550-L561
+    Returns the size of a flash device partition in DEV_BSIZE blocks, based on the partition table or calculated capacity.
+========================================================================
+sys/arch/rp2040/dev/uart.c#uartclose  L231-L243
+--- source ---
+231	int
+232	uartclose(dev_t dev, int flag __unused, int mode __unused)
+233	{
+234	    register int unit = minor(dev);
+235	    register struct tty *tp = &uartttys[unit];
+236	
+237	    if (! tp->t_addr)
+238	        return ENODEV;
+239	
+240	    ttywflush(tp);
+241	    ttyclose(tp);
+242	    return(0);
+243	}
+--- qwen38-4b-distill  crux=L237-L241
+    Closes a UART device by flushing the output queue and closing the tty.
+--- qwen3-4b-instruct-2507  crux=L240-L243
+    Closes a UART device by flushing output, cleaning up terminal state, and releasing resources.
+========================================================================
+sys/arch/rp2040/dev/uart.h#uart_rx_ready  L83-L87
+--- source ---
+83	static __inline int
+84	uart_rx_ready(u_int base)
+85	{
+86		return (UART_REG(base, UART_FR) & UART_FR_RXFE) == 0;
+87	}
+--- qwen38-4b-distill  crux=L86-L86
+    Checks whether the UART receive FIFO is ready (not empty) for reading.
+--- qwen3-4b-instruct-2507  crux=L83-L87
+    Checks if the UART receive FIFO is not empty, indicating new data is available for reading.
+========================================================================
+sys/arch/rp2040/dev/usb.c#usb_e15_critical  L386-L392
+--- source ---
+386	static int
+387	usb_e15_critical(void)
+388	{
+389		u_int delta = REG32(TIMER_BASE + TIMER_TIMERAWL) - usb_sof_us;
+390	
+391		return delta >= 800 && delta <= 998;
+392	}
+--- qwen38-4b-distill  crux=L386-L392
+    Checks whether the microsecond timer is within the critical 800–998 us window for E15 guard.
+--- qwen3-4b-instruct-2507  crux=L389-L392
+    Determines if a bulk IN buffer should be armed based on frame timing to prevent USB E15 guard violations.
+========================================================================
+sys/arch/rp2040/dev/usb.c#usbgetc  L1188-L1200
+--- source ---
+1188	char
+1189	usbgetc(dev_t dev __unused)
+1190	{
+1191		int s, c;
+1192	
+1193		s = spltty();
+1194		while (usbd.rx_tail == usbd.rx_head)
+1195			usb_service();
+1196		c = usbd.rx_ring[usbd.rx_tail % USB_RXRING];
+1197		usbd.rx_tail++;
+1198		splx(s);
+1199		return c;
+1200	}
+--- qwen38-4b-distill  crux=L1188-L1199
+    Reads a single byte from the USB port, handling the E15 guard and receive ring.
+--- qwen3-4b-instruct-2507  crux=L1188-L1199
+    Reads a character from the USB receive ring buffer, returning the next available byte.
+========================================================================
+sys/arch/rp2040/dev/usb.h#usbopen  L103-L103
+--- source ---
+103	int	usbopen(dev_t dev, int flag, int mode);
+--- qwen38-4b-distill  crux=None
+    Opens a USB device, allocating a tty and registering it with the kernel.
+--- qwen3-4b-instruct-2507  crux=L103-L103
+    Opens a USB device connection, preparing the endpoint and buffer structures for data transfer.
+========================================================================
+sys/arch/rp2040/rp2040/exec_hsaout.c#exec_hsaout_text  L222-L256
+--- source ---
+222	int
+223	exec_hsaout_text (struct inode *ip, const struct exec *e, char *dst,
+224	    unsigned len)
+225	{
+226	    struct hsx_work *swapwork;
+227	    int result;
+228	
+229	    /*
+230	     * swapin runs in the swapper, proc 0, whose getnewbuf would sleep on
+231	     * a scarce buffer and stall the mechanism that frees memory. The
+232	     * swapper is the only caller and never re-enters. A SwapRAM kernel uses
+233	     * the owner-checked codec workspace because packed-text restoration and
+234	     * SwapRAM expansion are consecutive stages of the same swapin. A swapout
+235	     * scheduled while rdwri sleeps observes the packed-text owner and uses
+236	     * flash until restoration releases the workspace.
+237	     */
+238	#ifndef SWAPRAM
+239	    static struct hsx_work private_swapwork;
+240	#endif
+241	    struct hsx x;
+242	
+243	    if (hsx_headers (ip, e, &x) != HSX_OK || e->a_text != len)
+244	        return -1;
+245	#ifdef SWAPRAM
+246	    swapwork = swapram_codec_acquire (SWAPRAM_CODEC_PACKED_TEXT);
+247	#else
+   ... (span continues)
+--- qwen38-4b-distill  crux=L243-L251
+    Expands the text stream of the executable into dst for swapin, validating headers and CRC.
+--- qwen3-4b-instruct-2507  crux=L243-L252
+    Expands the text segment of a packed executable into memory during swap-in, ensuring the content matches the expected size and CRC for safe loading into the process.
+========================================================================
+sys/arch/rp2040/rp2040/machdep.c#bzero  L997-L1041
+--- source ---
+997	void
+998	bzero(void *dst0, size_t nbytes)
+999	{
+1000		u_char *dst;
+1001		u_int *aligned_dst;
+1002	
+1003		dst = (u_char *)dst0;
+1004		/*
+1005		 * Return before the alignment prefix at length zero. Otherwise an
+1006		 * unaligned dst writes one byte, then --nbytes wraps 0 to SIZE_MAX and
+1007		 * the word loops below scribble the whole address space.
+1008		 */
+1009		if (nbytes == 0)
+1010			return;
+1011		while (UNALIGNED(dst, sizeof(u_int))) {
+1012			*dst++ = 0;
+1013			if (--nbytes == 0)
+1014				return;
+1015		}
+1016	
+1017		if (nbytes >= sizeof(u_int)) {
+1018			/*
+1019			 * If we get this far, we know that nbytes is large
+1020			 * and dst is word-aligned.
+1021			 */
+1022			aligned_dst = (u_int *)dst;
+   ... (span continues)
+--- qwen38-4b-distill  crux=L998-L1009
+    Zero-initializes a block of memory.
+--- qwen3-4b-instruct-2507  crux=L997-L1008
+    Fills a block of memory with zeros, used to clear memory before use.
+========================================================================
+sys/arch/rp2040/rp2040/machdep.c#swap_cursor_init  L203-L227
+--- source ---
+203	void
+204	swap_cursor_init(u_int blocks)
+205	{
+206		u_int index, sample, sectors, scratch, tries;
+207	
+208		sectors = (blocks - SWAP_IMAGE_ALIGN) / SWAP_IMAGE_ALIGN;
+209		scratch = MREG32(WATCHDOG_BASE + WATCHDOG_SCRATCH0);
+210		index = scratch & 0xff;
+211		if ((scratch & SWAP_CURSOR_TAG_MASK) != SWAP_CURSOR_TAG ||
+212		    index >= sectors) {
+213			index = 0;
+214			for (tries = 0; tries < 8; tries++) {
+215				sample = 0;
+216				for (u_int bit = 0; bit < 7; bit++)
+217					sample = (sample << 1) |
+218					    (MREG32(ROSC_BASE + ROSC_RANDOMBIT) & 1);
+219				if (sample < sectors) {
+220					index = sample;
+221					break;
+222				}
+223			}
+224		}
+225		swapnext = SWAP_IMAGE_ALIGN + index * SWAP_IMAGE_ALIGN;
+226		swap_cursor_publish(swapnext);
+227	}
+--- qwen38-4b-distill  crux=L208-L219
+    Initializes the swap cursor position in flash by sampling ROSC random bits.
+--- qwen3-4b-instruct-2507  crux=L208-L219
+    Initializes the swap cursor to a valid sector position using random sampling if needed, ensuring consistent swap file management across resets.
