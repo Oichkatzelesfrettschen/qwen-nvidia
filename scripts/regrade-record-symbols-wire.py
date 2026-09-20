@@ -30,10 +30,21 @@ saw rather than on the tree as it stands now:
     usage: regrade-record-symbols-wire.py WIRE_DIRECTORY
 """
 
+import importlib.util
 import json
 import os
 import re
 import sys
+
+# One acceptance predicate, shared. A summary this reads as present and a span
+# this reads as well formed must be the same ones record-symbols-contract.py
+# reads that way, or the two graders disagree about the same bytes.
+_spec = importlib.util.spec_from_file_location(
+    "record_symbols_contract",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "record-symbols-contract.py"),
+)
+CONTRACT = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CONTRACT)
 
 COLUMNS = (
     "model file targets entries id_exact id_missing id_invented id_duplicate "
@@ -82,9 +93,7 @@ def grade(rows, symbols, model, rel):
     # One entry per row: a name listed twice expects two entries, so a count
     # below its row count is a dropped occurrence and above it a duplicate.
     duplicate = sorted(n for n in names if seen.count(n) > len(by_name[n]))
-    blank = sum(
-        1 for s in entries if s.get("id") in names and not str(s.get("summary") or "").strip()
-    )
+    blank = sum(1 for s in entries if s.get("id") in names and not CONTRACT.summary_text(s))
 
     in_range = zero = bad = ungradeable = 0
     for s in entries:
@@ -92,17 +101,14 @@ def grade(rows, symbols, model, rel):
         if not candidates:
             continue
         a, b = s.get("crux_start"), s.get("crux_end")
-        numeric = all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer()
-            for v in (a, b)
-        )
-        if not numeric:
+        shape = CONTRACT.span_shape(a, b)
+        if shape == "malformed":
             bad += 1
             continue
-        a, b = int(a), int(b)
-        if a == 0 and b == 0:
+        if shape == "absent":
             zero += 1
             continue
+        a, b = int(a), int(b)
         holding = [r for r in candidates if r["start"] <= a <= b <= r["end"]]
         if len(candidates) > 1 and len(holding) != 1:
             ungradeable += 1
