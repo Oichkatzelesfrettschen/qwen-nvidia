@@ -1,0 +1,1888 @@
+0.00.015.750 I cmn  common_param: common_params_print_info: build 1935 (f280b2698) with GNU 15.3.0 for Linux x86_64
+0.00.015.752 I cmn  common_param: common_params_print_info: verbosity = 10 (adjust with the `-lv N` CLI arg)
+0.00.015.752 I cmn  common_param: device_info:
+0.00.083.920 I cmn  common_param:   - CUDA0   : NVIDIA GeForce RTX 4070 Ti (11933 MiB, 9582 MiB free)
+0.00.083.925 I cmn  common_param:   - CPU     : AMD Ryzen 5 5600X3D 6-Core Processor (15875 MiB, 15875 MiB free)
+0.00.083.962 I cmn  common_param: system_info: n_threads = 1 (n_threads_batch = 1) / 12 | CUDA : ARCHS = 890 | USE_GRAPHS = 1 | FA_ALL_QUANTS = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.00.083.985 I srv          init: running without SSL
+0.00.084.026 I srv          init: using 11 threads for HTTP server
+0.00.084.027 I srv          init: The UI is disabled
+0.00.084.027 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.084.075 W srv  llama_server: -----------------
+0.00.084.076 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.084.076 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.084.077 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.084.077 W srv  llama_server: -----------------
+0.00.084.091 I srv         start: binding port with default address family
+0.00.085.272 I srv    load_model: loading model '$HOME/models/SWE-Dev-7B-GGUF/SWE-Dev-7B.Q6_K.gguf'
+0.00.085.274 I srv    load_model: local path '$HOME/models/SWE-Dev-7B-GGUF/SWE-Dev-7B.Q6_K.gguf'
+0.00.105.809 I llama_model_loader: loaded meta data with 33 key-value pairs and 339 tensors from $HOME/models/SWE-Dev-7B-GGUF/SWE-Dev-7B.Q6_K.gguf (version GGUF V3 (latest))
+0.00.105.820 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+0.00.105.829 I llama_model_loader: - kv   0:                       general.architecture str              = qwen2
+0.00.105.831 I llama_model_loader: - kv   1:                               general.type str              = model
+0.00.105.831 I llama_model_loader: - kv   2:                               general.name str              = SWE Dev 7B
+0.00.105.832 I llama_model_loader: - kv   3:                           general.basename str              = SWE-Dev
+0.00.105.832 I llama_model_loader: - kv   4:                         general.size_label str              = 7B
+0.00.105.832 I llama_model_loader: - kv   5:                            general.license str              = mit
+0.00.105.834 I llama_model_loader: - kv   6:                          qwen2.block_count u32              = 28
+0.00.105.834 I llama_model_loader: - kv   7:                       qwen2.context_length u32              = 32768
+0.00.105.834 I llama_model_loader: - kv   8:                     qwen2.embedding_length u32              = 3584
+0.00.105.835 I llama_model_loader: - kv   9:                  qwen2.feed_forward_length u32              = 18944
+0.00.105.835 I llama_model_loader: - kv  10:                 qwen2.attention.head_count u32              = 28
+0.00.105.835 I llama_model_loader: - kv  11:              qwen2.attention.head_count_kv u32              = 4
+0.00.105.841 I llama_model_loader: - kv  12:                       qwen2.rope.freq_base f32              = 1000000.000000
+0.00.105.842 I llama_model_loader: - kv  13:     qwen2.attention.layer_norm_rms_epsilon f32              = 0.000001
+0.00.105.843 I llama_model_loader: - kv  14:                       tokenizer.ggml.model str              = gpt2
+0.00.105.843 I llama_model_loader: - kv  15:                         tokenizer.ggml.pre str              = qwen2
+0.00.117.242 I llama_model_loader: - kv  16:                      tokenizer.ggml.tokens arr[str,152064]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+0.00.120.385 I llama_model_loader: - kv  17:                  tokenizer.ggml.token_type arr[i32,152064]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+0.00.131.395 I llama_model_loader: - kv  18:                      tokenizer.ggml.merges arr[str,151387]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+0.00.131.397 I llama_model_loader: - kv  19:                tokenizer.ggml.eos_token_id u32              = 151645
+0.00.131.397 I llama_model_loader: - kv  20:            tokenizer.ggml.padding_token_id u32              = 151643
+0.00.131.398 I llama_model_loader: - kv  21:                tokenizer.ggml.bos_token_id u32              = 151643
+0.00.131.398 I llama_model_loader: - kv  22:               tokenizer.ggml.add_bos_token bool             = false
+0.00.131.399 I llama_model_loader: - kv  23:                    tokenizer.chat_template str              = {%- if tools %}\n    {{- '<|im_start|>...
+0.00.131.400 I llama_model_loader: - kv  24:               general.quantization_version u32              = 2
+0.00.131.401 I llama_model_loader: - kv  25:                          general.file_type u32              = 18
+0.00.131.401 I llama_model_loader: - kv  26:                                general.url str              = https://huggingface.co/mradermacher/S...
+0.00.131.402 I llama_model_loader: - kv  27:              mradermacher.quantize_version str              = 2
+0.00.131.402 I llama_model_loader: - kv  28:                  mradermacher.quantized_by str              = mradermacher
+0.00.131.402 I llama_model_loader: - kv  29:                  mradermacher.quantized_at str              = 2025-04-23T06:17:26+02:00
+0.00.131.403 I llama_model_loader: - kv  30:                  mradermacher.quantized_on str              = leia
+0.00.131.403 I llama_model_loader: - kv  31:                         general.source.url str              = https://huggingface.co/THUDM/SWE-Dev-7B
+0.00.131.403 I llama_model_loader: - kv  32:                  mradermacher.convert_type str              = hf
+0.00.131.405 I llama_model_loader: - type  f32:  141 tensors
+0.00.131.405 I llama_model_loader: - type q6_K:  198 tensors
+0.00.131.406 I print_info: file format = GGUF V3 (latest)
+0.00.131.408 I print_info: file type   = Q6_K
+0.00.131.409 I print_info: file size   = 5.82 GiB (6.56 BPW) 
+0.00.131.472 I llama_prepare_model_devices: using device CUDA0 (NVIDIA GeForce RTX 4070 Ti) (0000:0b:00.0) - 9582 MiB free
+0.00.172.372 D init_tokenizer: initializing tokenizer for type 2
+0.00.180.657 I load: 0 unused tokens
+0.00.180.669 D load: control token: 151660 '<|fim_middle|>' is not marked as EOG
+0.00.180.670 D load: control token: 151659 '<|fim_prefix|>' is not marked as EOG
+0.00.180.670 D load: control token: 151653 '<|vision_end|>' is not marked as EOG
+0.00.180.670 D load: control token: 151648 '<|box_start|>' is not marked as EOG
+0.00.180.671 D load: control token: 151646 '<|object_ref_start|>' is not marked as EOG
+0.00.180.762 D load: control token: 151649 '<|box_end|>' is not marked as EOG
+0.00.181.314 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.00.181.711 D load: control token: 151655 '<|image_pad|>' is not marked as EOG
+0.00.181.848 D load: control token: 151651 '<|quad_end|>' is not marked as EOG
+0.00.183.155 D load: control token: 151647 '<|object_ref_end|>' is not marked as EOG
+0.00.184.778 D load: control token: 151652 '<|vision_start|>' is not marked as EOG
+0.00.186.643 D load: control token: 151654 '<|vision_pad|>' is not marked as EOG
+0.00.188.253 D load: control token: 151656 '<|video_pad|>' is not marked as EOG
+0.00.188.503 D load: control token: 151644 '<|im_start|>' is not marked as EOG
+0.00.189.011 D load: control token: 151661 '<|fim_suffix|>' is not marked as EOG
+0.00.189.439 D load: control token: 151650 '<|quad_start|>' is not marked as EOG
+0.00.192.179 I load: printing all EOG tokens:
+0.00.192.180 I load:   - 128247 ('</s>')
+0.00.192.180 I load:   - 151643 ('<|endoftext|>')
+0.00.192.181 I load:   - 151645 ('<|im_end|>')
+0.00.192.181 I load:   - 151662 ('<|fim_pad|>')
+0.00.192.181 I load:   - 151663 ('<|repo_name|>')
+0.00.192.181 I load:   - 151664 ('<|file_sep|>')
+0.00.192.327 I load: special tokens cache size = 23
+0.00.224.214 I load: token to piece cache size = 0.9310 MB
+0.00.224.224 I print_info: arch                  = qwen2
+0.00.224.225 I print_info: vocab_only            = 0
+0.00.224.225 I print_info: no_alloc              = 0
+0.00.224.225 I print_info: n_ctx_train           = 32768
+0.00.224.226 I print_info: n_embd_inp            = 3584
+0.00.224.226 I print_info: n_embd                = 3584
+0.00.224.227 I print_info: n_embd_out            = 3584
+0.00.224.228 I print_info: n_layer               = 28
+0.00.224.228 I print_info: n_layer_all           = 28
+0.00.224.233 I print_info: n_head                = 28
+0.00.224.235 I print_info: n_head_kv             = 4
+0.00.224.235 I print_info: n_rot                 = 128
+0.00.224.236 I print_info: n_swa                 = 0
+0.00.224.237 I print_info: is_swa_any            = 0
+0.00.224.237 I print_info: n_embd_head_k         = 128
+0.00.224.237 I print_info: n_embd_head_v         = 128
+0.00.224.238 I print_info: n_gqa                 = 7
+0.00.224.242 I print_info: n_embd_k_gqa          = 512
+0.00.224.244 I print_info: n_embd_v_gqa          = 512
+0.00.224.245 I print_info: f_norm_eps            = 0.0e+00
+0.00.224.245 I print_info: f_norm_rms_eps        = 1.0e-06
+0.00.224.246 I print_info: f_clamp_kqv           = 0.0e+00
+0.00.224.246 I print_info: f_max_alibi_bias      = 0.0e+00
+0.00.224.246 I print_info: f_logit_scale         = 0.0e+00
+0.00.224.247 I print_info: f_attn_scale          = 0.0e+00
+0.00.224.247 I print_info: f_attn_value_scale    = 0.0000
+0.00.224.248 I print_info: n_ff                  = 18944
+0.00.224.248 I print_info: n_expert              = 0
+0.00.224.249 I print_info: n_expert_used         = 0
+0.00.224.249 I print_info: n_expert_groups       = 0
+0.00.224.249 I print_info: n_group_used          = 0
+0.00.224.249 I print_info: causal attn           = 1
+0.00.224.251 I print_info: pooling type          = -1
+0.00.224.251 I print_info: rope type             = 2
+0.00.224.251 I print_info: rope scaling          = linear
+0.00.224.252 I print_info: freq_base_train       = 1000000.0
+0.00.224.253 I print_info: freq_scale_train      = 1
+0.00.224.253 I print_info: n_ctx_orig_yarn       = 32768
+0.00.224.253 I print_info: rope_yarn_log_mul     = 0.0000
+0.00.224.254 I print_info: rope_finetuned        = unknown
+0.00.224.254 I print_info: model type            = 7B
+0.00.224.255 I print_info: model params          = 7.62 B
+0.00.224.255 I print_info: general.name          = SWE Dev 7B
+0.00.224.258 I print_info: vocab type            = BPE
+0.00.224.259 I print_info: n_vocab               = 152064
+0.00.224.259 I print_info: n_merges              = 151387
+0.00.224.260 I print_info: BOS token             = 151643 '<|endoftext|>'
+0.00.224.260 I print_info: EOS token             = 151645 '<|im_end|>'
+0.00.224.260 I print_info: EOT token             = 151645 '<|im_end|>'
+0.00.224.260 I print_info: PAD token             = 151643 '<|endoftext|>'
+0.00.224.260 I print_info: LF token              = 198 'Ċ'
+0.00.224.261 I print_info: FIM PRE token         = 151659 '<|fim_prefix|>'
+0.00.224.261 I print_info: FIM SUF token         = 151661 '<|fim_suffix|>'
+0.00.224.261 I print_info: FIM MID token         = 151660 '<|fim_middle|>'
+0.00.224.261 I print_info: FIM PAD token         = 151662 '<|fim_pad|>'
+0.00.224.261 I print_info: FIM REP token         = 151663 '<|repo_name|>'
+0.00.224.261 I print_info: FIM SEP token         = 151664 '<|file_sep|>'
+0.00.224.262 I print_info: EOG token             = 128247 '</s>'
+0.00.224.262 I print_info: EOG token             = 151643 '<|endoftext|>'
+0.00.224.262 I print_info: EOG token             = 151645 '<|im_end|>'
+0.00.224.262 I print_info: EOG token             = 151662 '<|fim_pad|>'
+0.00.224.263 I print_info: EOG token             = 151663 '<|repo_name|>'
+0.00.224.263 I print_info: EOG token             = 151664 '<|file_sep|>'
+0.00.224.263 I print_info: max token length      = 256
+0.00.224.336 I load_tensors: loading model tensors, this can take a while... (load_mode = mmap)
+0.00.224.403 D load_tensors: layer   0 assigned to device CUDA0, is_swa = 0
+0.00.224.404 D load_tensors: layer   1 assigned to device CUDA0, is_swa = 0
+0.00.224.404 D load_tensors: layer   2 assigned to device CUDA0, is_swa = 0
+0.00.224.405 D load_tensors: layer   3 assigned to device CUDA0, is_swa = 0
+0.00.224.405 D load_tensors: layer   4 assigned to device CUDA0, is_swa = 0
+0.00.224.405 D load_tensors: layer   5 assigned to device CUDA0, is_swa = 0
+0.00.224.405 D load_tensors: layer   6 assigned to device CUDA0, is_swa = 0
+0.00.224.406 D load_tensors: layer   7 assigned to device CUDA0, is_swa = 0
+0.00.224.406 D load_tensors: layer   8 assigned to device CUDA0, is_swa = 0
+0.00.224.406 D load_tensors: layer   9 assigned to device CUDA0, is_swa = 0
+0.00.224.406 D load_tensors: layer  10 assigned to device CUDA0, is_swa = 0
+0.00.224.406 D load_tensors: layer  11 assigned to device CUDA0, is_swa = 0
+0.00.224.407 D load_tensors: layer  12 assigned to device CUDA0, is_swa = 0
+0.00.224.407 D load_tensors: layer  13 assigned to device CUDA0, is_swa = 0
+0.00.224.408 D load_tensors: layer  14 assigned to device CUDA0, is_swa = 0
+0.00.224.408 D load_tensors: layer  15 assigned to device CUDA0, is_swa = 0
+0.00.224.408 D load_tensors: layer  16 assigned to device CUDA0, is_swa = 0
+0.00.224.408 D load_tensors: layer  17 assigned to device CUDA0, is_swa = 0
+0.00.224.408 D load_tensors: layer  18 assigned to device CUDA0, is_swa = 0
+0.00.224.409 D load_tensors: layer  19 assigned to device CUDA0, is_swa = 0
+0.00.224.409 D load_tensors: layer  20 assigned to device CUDA0, is_swa = 0
+0.00.224.409 D load_tensors: layer  21 assigned to device CUDA0, is_swa = 0
+0.00.224.409 D load_tensors: layer  22 assigned to device CUDA0, is_swa = 0
+0.00.224.410 D load_tensors: layer  23 assigned to device CUDA0, is_swa = 0
+0.00.224.410 D load_tensors: layer  24 assigned to device CUDA0, is_swa = 0
+0.00.224.410 D load_tensors: layer  25 assigned to device CUDA0, is_swa = 0
+0.00.224.410 D load_tensors: layer  26 assigned to device CUDA0, is_swa = 0
+0.00.224.410 D load_tensors: layer  27 assigned to device CUDA0, is_swa = 0
+0.00.224.411 D load_tensors: layer  28 assigned to device CUDA0, is_swa = 0
+0.00.224.432 D create_tensor: loading tensor token_embd.weight
+0.00.224.460 D tensor token_embd.weight (426 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.475 D create_tensor: loading tensor output_norm.weight
+0.00.224.479 D tensor output_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.481 D create_tensor: loading tensor output.weight
+0.00.224.483 D tensor output.weight (426 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.484 D create_tensor: loading tensor output.bias
+0.00.224.486 D create_tensor: loading tensor blk.0.attn_norm.weight
+0.00.224.489 D tensor blk.0.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.491 D create_tensor: loading tensor blk.0.attn_qkv.weight
+0.00.224.493 D create_tensor: loading tensor blk.0.attn_q.weight
+0.00.224.496 D tensor blk.0.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.497 D create_tensor: loading tensor blk.0.attn_k.weight
+0.00.224.499 D tensor blk.0.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.501 D create_tensor: loading tensor blk.0.attn_v.weight
+0.00.224.503 D tensor blk.0.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.505 D create_tensor: loading tensor blk.0.attn_q.bias
+0.00.224.507 D tensor blk.0.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.508 D create_tensor: loading tensor blk.0.attn_k.bias
+0.00.224.510 D tensor blk.0.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.511 D create_tensor: loading tensor blk.0.attn_v.bias
+0.00.224.513 D tensor blk.0.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.514 D create_tensor: loading tensor blk.0.attn_output.weight
+0.00.224.517 D tensor blk.0.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.518 D create_tensor: loading tensor blk.0.ffn_norm.weight
+0.00.224.520 D tensor blk.0.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.522 D create_tensor: loading tensor blk.0.ffn_gate.weight
+0.00.224.524 D tensor blk.0.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.525 D create_tensor: loading tensor blk.0.ffn_down.weight
+0.00.224.527 D tensor blk.0.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.528 D create_tensor: loading tensor blk.0.ffn_up.weight
+0.00.224.530 D tensor blk.0.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.531 D create_tensor: loading tensor blk.1.attn_norm.weight
+0.00.224.534 D tensor blk.1.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.535 D create_tensor: loading tensor blk.1.attn_qkv.weight
+0.00.224.537 D create_tensor: loading tensor blk.1.attn_q.weight
+0.00.224.539 D tensor blk.1.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.540 D create_tensor: loading tensor blk.1.attn_k.weight
+0.00.224.542 D tensor blk.1.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.544 D create_tensor: loading tensor blk.1.attn_v.weight
+0.00.224.547 D tensor blk.1.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.548 D create_tensor: loading tensor blk.1.attn_q.bias
+0.00.224.550 D tensor blk.1.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.551 D create_tensor: loading tensor blk.1.attn_k.bias
+0.00.224.553 D tensor blk.1.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.554 D create_tensor: loading tensor blk.1.attn_v.bias
+0.00.224.556 D tensor blk.1.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.557 D create_tensor: loading tensor blk.1.attn_output.weight
+0.00.224.560 D tensor blk.1.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.560 D create_tensor: loading tensor blk.1.ffn_norm.weight
+0.00.224.563 D tensor blk.1.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.564 D create_tensor: loading tensor blk.1.ffn_gate.weight
+0.00.224.566 D tensor blk.1.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.567 D create_tensor: loading tensor blk.1.ffn_down.weight
+0.00.224.569 D tensor blk.1.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.570 D create_tensor: loading tensor blk.1.ffn_up.weight
+0.00.224.572 D tensor blk.1.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.573 D create_tensor: loading tensor blk.2.attn_norm.weight
+0.00.224.575 D tensor blk.2.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.576 D create_tensor: loading tensor blk.2.attn_qkv.weight
+0.00.224.578 D create_tensor: loading tensor blk.2.attn_q.weight
+0.00.224.580 D tensor blk.2.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.582 D create_tensor: loading tensor blk.2.attn_k.weight
+0.00.224.585 D tensor blk.2.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.585 D create_tensor: loading tensor blk.2.attn_v.weight
+0.00.224.587 D tensor blk.2.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.588 D create_tensor: loading tensor blk.2.attn_q.bias
+0.00.224.590 D tensor blk.2.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.592 D create_tensor: loading tensor blk.2.attn_k.bias
+0.00.224.594 D tensor blk.2.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.595 D create_tensor: loading tensor blk.2.attn_v.bias
+0.00.224.597 D tensor blk.2.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.597 D create_tensor: loading tensor blk.2.attn_output.weight
+0.00.224.600 D tensor blk.2.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.601 D create_tensor: loading tensor blk.2.ffn_norm.weight
+0.00.224.604 D tensor blk.2.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.605 D create_tensor: loading tensor blk.2.ffn_gate.weight
+0.00.224.607 D tensor blk.2.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.607 D create_tensor: loading tensor blk.2.ffn_down.weight
+0.00.224.610 D tensor blk.2.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.611 D create_tensor: loading tensor blk.2.ffn_up.weight
+0.00.224.613 D tensor blk.2.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.614 D create_tensor: loading tensor blk.3.attn_norm.weight
+0.00.224.616 D tensor blk.3.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.617 D create_tensor: loading tensor blk.3.attn_qkv.weight
+0.00.224.619 D create_tensor: loading tensor blk.3.attn_q.weight
+0.00.224.621 D tensor blk.3.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.622 D create_tensor: loading tensor blk.3.attn_k.weight
+0.00.224.624 D tensor blk.3.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.625 D create_tensor: loading tensor blk.3.attn_v.weight
+0.00.224.627 D tensor blk.3.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.628 D create_tensor: loading tensor blk.3.attn_q.bias
+0.00.224.630 D tensor blk.3.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.631 D create_tensor: loading tensor blk.3.attn_k.bias
+0.00.224.633 D tensor blk.3.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.634 D create_tensor: loading tensor blk.3.attn_v.bias
+0.00.224.636 D tensor blk.3.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.637 D create_tensor: loading tensor blk.3.attn_output.weight
+0.00.224.640 D tensor blk.3.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.640 D create_tensor: loading tensor blk.3.ffn_norm.weight
+0.00.224.643 D tensor blk.3.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.644 D create_tensor: loading tensor blk.3.ffn_gate.weight
+0.00.224.646 D tensor blk.3.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.647 D create_tensor: loading tensor blk.3.ffn_down.weight
+0.00.224.649 D tensor blk.3.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.650 D create_tensor: loading tensor blk.3.ffn_up.weight
+0.00.224.652 D tensor blk.3.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.653 D create_tensor: loading tensor blk.4.attn_norm.weight
+0.00.224.656 D tensor blk.4.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.656 D create_tensor: loading tensor blk.4.attn_qkv.weight
+0.00.224.658 D create_tensor: loading tensor blk.4.attn_q.weight
+0.00.224.660 D tensor blk.4.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.661 D create_tensor: loading tensor blk.4.attn_k.weight
+0.00.224.663 D tensor blk.4.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.664 D create_tensor: loading tensor blk.4.attn_v.weight
+0.00.224.666 D tensor blk.4.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.667 D create_tensor: loading tensor blk.4.attn_q.bias
+0.00.224.669 D tensor blk.4.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.669 D create_tensor: loading tensor blk.4.attn_k.bias
+0.00.224.672 D tensor blk.4.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.672 D create_tensor: loading tensor blk.4.attn_v.bias
+0.00.224.675 D tensor blk.4.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.676 D create_tensor: loading tensor blk.4.attn_output.weight
+0.00.224.678 D tensor blk.4.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.679 D create_tensor: loading tensor blk.4.ffn_norm.weight
+0.00.224.681 D tensor blk.4.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.682 D create_tensor: loading tensor blk.4.ffn_gate.weight
+0.00.224.684 D tensor blk.4.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.685 D create_tensor: loading tensor blk.4.ffn_down.weight
+0.00.224.687 D tensor blk.4.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.689 D create_tensor: loading tensor blk.4.ffn_up.weight
+0.00.224.691 D tensor blk.4.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.692 D create_tensor: loading tensor blk.5.attn_norm.weight
+0.00.224.694 D tensor blk.5.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.695 D create_tensor: loading tensor blk.5.attn_qkv.weight
+0.00.224.697 D create_tensor: loading tensor blk.5.attn_q.weight
+0.00.224.699 D tensor blk.5.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.700 D create_tensor: loading tensor blk.5.attn_k.weight
+0.00.224.702 D tensor blk.5.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.703 D create_tensor: loading tensor blk.5.attn_v.weight
+0.00.224.705 D tensor blk.5.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.707 D create_tensor: loading tensor blk.5.attn_q.bias
+0.00.224.709 D tensor blk.5.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.710 D create_tensor: loading tensor blk.5.attn_k.bias
+0.00.224.712 D tensor blk.5.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.712 D create_tensor: loading tensor blk.5.attn_v.bias
+0.00.224.715 D tensor blk.5.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.715 D create_tensor: loading tensor blk.5.attn_output.weight
+0.00.224.718 D tensor blk.5.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.718 D create_tensor: loading tensor blk.5.ffn_norm.weight
+0.00.224.721 D tensor blk.5.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.722 D create_tensor: loading tensor blk.5.ffn_gate.weight
+0.00.224.724 D tensor blk.5.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.726 D create_tensor: loading tensor blk.5.ffn_down.weight
+0.00.224.728 D tensor blk.5.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.729 D create_tensor: loading tensor blk.5.ffn_up.weight
+0.00.224.731 D tensor blk.5.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.732 D create_tensor: loading tensor blk.6.attn_norm.weight
+0.00.224.734 D tensor blk.6.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.735 D create_tensor: loading tensor blk.6.attn_qkv.weight
+0.00.224.736 D create_tensor: loading tensor blk.6.attn_q.weight
+0.00.224.738 D tensor blk.6.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.739 D create_tensor: loading tensor blk.6.attn_k.weight
+0.00.224.741 D tensor blk.6.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.742 D create_tensor: loading tensor blk.6.attn_v.weight
+0.00.224.744 D tensor blk.6.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.745 D create_tensor: loading tensor blk.6.attn_q.bias
+0.00.224.747 D tensor blk.6.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.748 D create_tensor: loading tensor blk.6.attn_k.bias
+0.00.224.750 D tensor blk.6.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.751 D create_tensor: loading tensor blk.6.attn_v.bias
+0.00.224.753 D tensor blk.6.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.753 D create_tensor: loading tensor blk.6.attn_output.weight
+0.00.224.756 D tensor blk.6.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.756 D create_tensor: loading tensor blk.6.ffn_norm.weight
+0.00.224.759 D tensor blk.6.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.760 D create_tensor: loading tensor blk.6.ffn_gate.weight
+0.00.224.762 D tensor blk.6.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.764 D create_tensor: loading tensor blk.6.ffn_down.weight
+0.00.224.766 D tensor blk.6.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.766 D create_tensor: loading tensor blk.6.ffn_up.weight
+0.00.224.769 D tensor blk.6.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.770 D create_tensor: loading tensor blk.7.attn_norm.weight
+0.00.224.772 D tensor blk.7.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.772 D create_tensor: loading tensor blk.7.attn_qkv.weight
+0.00.224.774 D create_tensor: loading tensor blk.7.attn_q.weight
+0.00.224.776 D tensor blk.7.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.777 D create_tensor: loading tensor blk.7.attn_k.weight
+0.00.224.779 D tensor blk.7.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.779 D create_tensor: loading tensor blk.7.attn_v.weight
+0.00.224.781 D tensor blk.7.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.782 D create_tensor: loading tensor blk.7.attn_q.bias
+0.00.224.784 D tensor blk.7.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.785 D create_tensor: loading tensor blk.7.attn_k.bias
+0.00.224.787 D tensor blk.7.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.787 D create_tensor: loading tensor blk.7.attn_v.bias
+0.00.224.789 D tensor blk.7.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.791 D create_tensor: loading tensor blk.7.attn_output.weight
+0.00.224.793 D tensor blk.7.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.793 D create_tensor: loading tensor blk.7.ffn_norm.weight
+0.00.224.799 D tensor blk.7.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.801 D create_tensor: loading tensor blk.7.ffn_gate.weight
+0.00.224.803 D tensor blk.7.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.804 D create_tensor: loading tensor blk.7.ffn_down.weight
+0.00.224.807 D tensor blk.7.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.807 D create_tensor: loading tensor blk.7.ffn_up.weight
+0.00.224.809 D tensor blk.7.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.810 D create_tensor: loading tensor blk.8.attn_norm.weight
+0.00.224.812 D tensor blk.8.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.813 D create_tensor: loading tensor blk.8.attn_qkv.weight
+0.00.224.815 D create_tensor: loading tensor blk.8.attn_q.weight
+0.00.224.817 D tensor blk.8.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.818 D create_tensor: loading tensor blk.8.attn_k.weight
+0.00.224.821 D tensor blk.8.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.821 D create_tensor: loading tensor blk.8.attn_v.weight
+0.00.224.823 D tensor blk.8.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.824 D create_tensor: loading tensor blk.8.attn_q.bias
+0.00.224.826 D tensor blk.8.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.827 D create_tensor: loading tensor blk.8.attn_k.bias
+0.00.224.829 D tensor blk.8.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.830 D create_tensor: loading tensor blk.8.attn_v.bias
+0.00.224.832 D tensor blk.8.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.833 D create_tensor: loading tensor blk.8.attn_output.weight
+0.00.224.835 D tensor blk.8.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.839 D create_tensor: loading tensor blk.8.ffn_norm.weight
+0.00.224.842 D tensor blk.8.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.842 D create_tensor: loading tensor blk.8.ffn_gate.weight
+0.00.224.845 D tensor blk.8.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.845 D create_tensor: loading tensor blk.8.ffn_down.weight
+0.00.224.847 D tensor blk.8.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.849 D create_tensor: loading tensor blk.8.ffn_up.weight
+0.00.224.851 D tensor blk.8.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.851 D create_tensor: loading tensor blk.9.attn_norm.weight
+0.00.224.854 D tensor blk.9.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.854 D create_tensor: loading tensor blk.9.attn_qkv.weight
+0.00.224.856 D create_tensor: loading tensor blk.9.attn_q.weight
+0.00.224.858 D tensor blk.9.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.858 D create_tensor: loading tensor blk.9.attn_k.weight
+0.00.224.861 D tensor blk.9.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.862 D create_tensor: loading tensor blk.9.attn_v.weight
+0.00.224.864 D tensor blk.9.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.864 D create_tensor: loading tensor blk.9.attn_q.bias
+0.00.224.866 D tensor blk.9.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.867 D create_tensor: loading tensor blk.9.attn_k.bias
+0.00.224.869 D tensor blk.9.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.870 D create_tensor: loading tensor blk.9.attn_v.bias
+0.00.224.872 D tensor blk.9.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.873 D create_tensor: loading tensor blk.9.attn_output.weight
+0.00.224.876 D tensor blk.9.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.876 D create_tensor: loading tensor blk.9.ffn_norm.weight
+0.00.224.879 D tensor blk.9.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.880 D create_tensor: loading tensor blk.9.ffn_gate.weight
+0.00.224.882 D tensor blk.9.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.883 D create_tensor: loading tensor blk.9.ffn_down.weight
+0.00.224.885 D tensor blk.9.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.885 D create_tensor: loading tensor blk.9.ffn_up.weight
+0.00.224.887 D tensor blk.9.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.888 D create_tensor: loading tensor blk.10.attn_norm.weight
+0.00.224.891 D tensor blk.10.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.892 D create_tensor: loading tensor blk.10.attn_qkv.weight
+0.00.224.894 D create_tensor: loading tensor blk.10.attn_q.weight
+0.00.224.896 D tensor blk.10.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.897 D create_tensor: loading tensor blk.10.attn_k.weight
+0.00.224.899 D tensor blk.10.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.900 D create_tensor: loading tensor blk.10.attn_v.weight
+0.00.224.903 D tensor blk.10.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.903 D create_tensor: loading tensor blk.10.attn_q.bias
+0.00.224.905 D tensor blk.10.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.906 D create_tensor: loading tensor blk.10.attn_k.bias
+0.00.224.908 D tensor blk.10.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.910 D create_tensor: loading tensor blk.10.attn_v.bias
+0.00.224.912 D tensor blk.10.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.913 D create_tensor: loading tensor blk.10.attn_output.weight
+0.00.224.916 D tensor blk.10.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.916 D create_tensor: loading tensor blk.10.ffn_norm.weight
+0.00.224.919 D tensor blk.10.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.919 D create_tensor: loading tensor blk.10.ffn_gate.weight
+0.00.224.922 D tensor blk.10.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.923 D create_tensor: loading tensor blk.10.ffn_down.weight
+0.00.224.925 D tensor blk.10.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.926 D create_tensor: loading tensor blk.10.ffn_up.weight
+0.00.224.928 D tensor blk.10.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.929 D create_tensor: loading tensor blk.11.attn_norm.weight
+0.00.224.931 D tensor blk.11.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.931 D create_tensor: loading tensor blk.11.attn_qkv.weight
+0.00.224.933 D create_tensor: loading tensor blk.11.attn_q.weight
+0.00.224.935 D tensor blk.11.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.936 D create_tensor: loading tensor blk.11.attn_k.weight
+0.00.224.939 D tensor blk.11.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.939 D create_tensor: loading tensor blk.11.attn_v.weight
+0.00.224.941 D tensor blk.11.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.942 D create_tensor: loading tensor blk.11.attn_q.bias
+0.00.224.944 D tensor blk.11.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.945 D create_tensor: loading tensor blk.11.attn_k.bias
+0.00.224.948 D tensor blk.11.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.949 D create_tensor: loading tensor blk.11.attn_v.bias
+0.00.224.951 D tensor blk.11.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.952 D create_tensor: loading tensor blk.11.attn_output.weight
+0.00.224.954 D tensor blk.11.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.955 D create_tensor: loading tensor blk.11.ffn_norm.weight
+0.00.224.957 D tensor blk.11.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.958 D create_tensor: loading tensor blk.11.ffn_gate.weight
+0.00.224.960 D tensor blk.11.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.961 D create_tensor: loading tensor blk.11.ffn_down.weight
+0.00.224.963 D tensor blk.11.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.964 D create_tensor: loading tensor blk.11.ffn_up.weight
+0.00.224.966 D tensor blk.11.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.967 D create_tensor: loading tensor blk.12.attn_norm.weight
+0.00.224.969 D tensor blk.12.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.970 D create_tensor: loading tensor blk.12.attn_qkv.weight
+0.00.224.972 D create_tensor: loading tensor blk.12.attn_q.weight
+0.00.224.974 D tensor blk.12.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.975 D create_tensor: loading tensor blk.12.attn_k.weight
+0.00.224.977 D tensor blk.12.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.978 D create_tensor: loading tensor blk.12.attn_v.weight
+0.00.224.981 D tensor blk.12.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.982 D create_tensor: loading tensor blk.12.attn_q.bias
+0.00.224.984 D tensor blk.12.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.985 D create_tensor: loading tensor blk.12.attn_k.bias
+0.00.224.987 D tensor blk.12.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.989 D create_tensor: loading tensor blk.12.attn_v.bias
+0.00.224.991 D tensor blk.12.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.992 D create_tensor: loading tensor blk.12.attn_output.weight
+0.00.224.994 D tensor blk.12.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.224.995 D create_tensor: loading tensor blk.12.ffn_norm.weight
+0.00.224.997 D tensor blk.12.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.224.999 D create_tensor: loading tensor blk.12.ffn_gate.weight
+0.00.225.001 D tensor blk.12.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.002 D create_tensor: loading tensor blk.12.ffn_down.weight
+0.00.225.004 D tensor blk.12.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.004 D create_tensor: loading tensor blk.12.ffn_up.weight
+0.00.225.006 D tensor blk.12.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.007 D create_tensor: loading tensor blk.13.attn_norm.weight
+0.00.225.010 D tensor blk.13.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.011 D create_tensor: loading tensor blk.13.attn_qkv.weight
+0.00.225.012 D create_tensor: loading tensor blk.13.attn_q.weight
+0.00.225.014 D tensor blk.13.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.015 D create_tensor: loading tensor blk.13.attn_k.weight
+0.00.225.017 D tensor blk.13.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.019 D create_tensor: loading tensor blk.13.attn_v.weight
+0.00.225.022 D tensor blk.13.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.023 D create_tensor: loading tensor blk.13.attn_q.bias
+0.00.225.025 D tensor blk.13.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.026 D create_tensor: loading tensor blk.13.attn_k.bias
+0.00.225.028 D tensor blk.13.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.028 D create_tensor: loading tensor blk.13.attn_v.bias
+0.00.225.031 D tensor blk.13.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.031 D create_tensor: loading tensor blk.13.attn_output.weight
+0.00.225.034 D tensor blk.13.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.035 D create_tensor: loading tensor blk.13.ffn_norm.weight
+0.00.225.037 D tensor blk.13.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.037 D create_tensor: loading tensor blk.13.ffn_gate.weight
+0.00.225.039 D tensor blk.13.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.040 D create_tensor: loading tensor blk.13.ffn_down.weight
+0.00.225.042 D tensor blk.13.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.043 D create_tensor: loading tensor blk.13.ffn_up.weight
+0.00.225.045 D tensor blk.13.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.046 D create_tensor: loading tensor blk.14.attn_norm.weight
+0.00.225.048 D tensor blk.14.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.049 D create_tensor: loading tensor blk.14.attn_qkv.weight
+0.00.225.051 D create_tensor: loading tensor blk.14.attn_q.weight
+0.00.225.053 D tensor blk.14.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.053 D create_tensor: loading tensor blk.14.attn_k.weight
+0.00.225.056 D tensor blk.14.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.057 D create_tensor: loading tensor blk.14.attn_v.weight
+0.00.225.059 D tensor blk.14.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.060 D create_tensor: loading tensor blk.14.attn_q.bias
+0.00.225.062 D tensor blk.14.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.063 D create_tensor: loading tensor blk.14.attn_k.bias
+0.00.225.065 D tensor blk.14.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.066 D create_tensor: loading tensor blk.14.attn_v.bias
+0.00.225.068 D tensor blk.14.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.069 D create_tensor: loading tensor blk.14.attn_output.weight
+0.00.225.071 D tensor blk.14.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.072 D create_tensor: loading tensor blk.14.ffn_norm.weight
+0.00.225.075 D tensor blk.14.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.076 D create_tensor: loading tensor blk.14.ffn_gate.weight
+0.00.225.078 D tensor blk.14.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.079 D create_tensor: loading tensor blk.14.ffn_down.weight
+0.00.225.082 D tensor blk.14.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.083 D create_tensor: loading tensor blk.14.ffn_up.weight
+0.00.225.085 D tensor blk.14.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.086 D create_tensor: loading tensor blk.15.attn_norm.weight
+0.00.225.088 D tensor blk.15.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.088 D create_tensor: loading tensor blk.15.attn_qkv.weight
+0.00.225.090 D create_tensor: loading tensor blk.15.attn_q.weight
+0.00.225.092 D tensor blk.15.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.093 D create_tensor: loading tensor blk.15.attn_k.weight
+0.00.225.096 D tensor blk.15.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.097 D create_tensor: loading tensor blk.15.attn_v.weight
+0.00.225.099 D tensor blk.15.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.100 D create_tensor: loading tensor blk.15.attn_q.bias
+0.00.225.102 D tensor blk.15.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.102 D create_tensor: loading tensor blk.15.attn_k.bias
+0.00.225.104 D tensor blk.15.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.105 D create_tensor: loading tensor blk.15.attn_v.bias
+0.00.225.107 D tensor blk.15.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.108 D create_tensor: loading tensor blk.15.attn_output.weight
+0.00.225.110 D tensor blk.15.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.111 D create_tensor: loading tensor blk.15.ffn_norm.weight
+0.00.225.113 D tensor blk.15.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.114 D create_tensor: loading tensor blk.15.ffn_gate.weight
+0.00.225.116 D tensor blk.15.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.117 D create_tensor: loading tensor blk.15.ffn_down.weight
+0.00.225.119 D tensor blk.15.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.119 D create_tensor: loading tensor blk.15.ffn_up.weight
+0.00.225.122 D tensor blk.15.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.122 D create_tensor: loading tensor blk.16.attn_norm.weight
+0.00.225.124 D tensor blk.16.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.126 D create_tensor: loading tensor blk.16.attn_qkv.weight
+0.00.225.127 D create_tensor: loading tensor blk.16.attn_q.weight
+0.00.225.130 D tensor blk.16.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.131 D create_tensor: loading tensor blk.16.attn_k.weight
+0.00.225.133 D tensor blk.16.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.134 D create_tensor: loading tensor blk.16.attn_v.weight
+0.00.225.136 D tensor blk.16.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.136 D create_tensor: loading tensor blk.16.attn_q.bias
+0.00.225.138 D tensor blk.16.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.139 D create_tensor: loading tensor blk.16.attn_k.bias
+0.00.225.141 D tensor blk.16.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.142 D create_tensor: loading tensor blk.16.attn_v.bias
+0.00.225.144 D tensor blk.16.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.145 D create_tensor: loading tensor blk.16.attn_output.weight
+0.00.225.147 D tensor blk.16.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.148 D create_tensor: loading tensor blk.16.ffn_norm.weight
+0.00.225.150 D tensor blk.16.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.151 D create_tensor: loading tensor blk.16.ffn_gate.weight
+0.00.225.153 D tensor blk.16.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.154 D create_tensor: loading tensor blk.16.ffn_down.weight
+0.00.225.156 D tensor blk.16.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.157 D create_tensor: loading tensor blk.16.ffn_up.weight
+0.00.225.159 D tensor blk.16.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.160 D create_tensor: loading tensor blk.17.attn_norm.weight
+0.00.225.163 D tensor blk.17.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.164 D create_tensor: loading tensor blk.17.attn_qkv.weight
+0.00.225.165 D create_tensor: loading tensor blk.17.attn_q.weight
+0.00.225.167 D tensor blk.17.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.168 D create_tensor: loading tensor blk.17.attn_k.weight
+0.00.225.170 D tensor blk.17.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.171 D create_tensor: loading tensor blk.17.attn_v.weight
+0.00.225.173 D tensor blk.17.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.173 D create_tensor: loading tensor blk.17.attn_q.bias
+0.00.225.176 D tensor blk.17.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.177 D create_tensor: loading tensor blk.17.attn_k.bias
+0.00.225.179 D tensor blk.17.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.180 D create_tensor: loading tensor blk.17.attn_v.bias
+0.00.225.182 D tensor blk.17.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.183 D create_tensor: loading tensor blk.17.attn_output.weight
+0.00.225.185 D tensor blk.17.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.186 D create_tensor: loading tensor blk.17.ffn_norm.weight
+0.00.225.188 D tensor blk.17.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.189 D create_tensor: loading tensor blk.17.ffn_gate.weight
+0.00.225.191 D tensor blk.17.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.192 D create_tensor: loading tensor blk.17.ffn_down.weight
+0.00.225.194 D tensor blk.17.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.195 D create_tensor: loading tensor blk.17.ffn_up.weight
+0.00.225.197 D tensor blk.17.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.198 D create_tensor: loading tensor blk.18.attn_norm.weight
+0.00.225.200 D tensor blk.18.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.201 D create_tensor: loading tensor blk.18.attn_qkv.weight
+0.00.225.203 D create_tensor: loading tensor blk.18.attn_q.weight
+0.00.225.205 D tensor blk.18.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.206 D create_tensor: loading tensor blk.18.attn_k.weight
+0.00.225.208 D tensor blk.18.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.208 D create_tensor: loading tensor blk.18.attn_v.weight
+0.00.225.211 D tensor blk.18.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.212 D create_tensor: loading tensor blk.18.attn_q.bias
+0.00.225.214 D tensor blk.18.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.214 D create_tensor: loading tensor blk.18.attn_k.bias
+0.00.225.216 D tensor blk.18.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.217 D create_tensor: loading tensor blk.18.attn_v.bias
+0.00.225.219 D tensor blk.18.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.220 D create_tensor: loading tensor blk.18.attn_output.weight
+0.00.225.222 D tensor blk.18.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.224 D create_tensor: loading tensor blk.18.ffn_norm.weight
+0.00.225.226 D tensor blk.18.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.226 D create_tensor: loading tensor blk.18.ffn_gate.weight
+0.00.225.229 D tensor blk.18.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.230 D create_tensor: loading tensor blk.18.ffn_down.weight
+0.00.225.233 D tensor blk.18.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.234 D create_tensor: loading tensor blk.18.ffn_up.weight
+0.00.225.236 D tensor blk.18.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.237 D create_tensor: loading tensor blk.19.attn_norm.weight
+0.00.225.239 D tensor blk.19.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.240 D create_tensor: loading tensor blk.19.attn_qkv.weight
+0.00.225.242 D create_tensor: loading tensor blk.19.attn_q.weight
+0.00.225.244 D tensor blk.19.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.245 D create_tensor: loading tensor blk.19.attn_k.weight
+0.00.225.247 D tensor blk.19.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.248 D create_tensor: loading tensor blk.19.attn_v.weight
+0.00.225.250 D tensor blk.19.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.250 D create_tensor: loading tensor blk.19.attn_q.bias
+0.00.225.253 D tensor blk.19.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.254 D create_tensor: loading tensor blk.19.attn_k.bias
+0.00.225.256 D tensor blk.19.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.257 D create_tensor: loading tensor blk.19.attn_v.bias
+0.00.225.259 D tensor blk.19.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.259 D create_tensor: loading tensor blk.19.attn_output.weight
+0.00.225.262 D tensor blk.19.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.262 D create_tensor: loading tensor blk.19.ffn_norm.weight
+0.00.225.264 D tensor blk.19.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.266 D create_tensor: loading tensor blk.19.ffn_gate.weight
+0.00.225.269 D tensor blk.19.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.270 D create_tensor: loading tensor blk.19.ffn_down.weight
+0.00.225.272 D tensor blk.19.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.273 D create_tensor: loading tensor blk.19.ffn_up.weight
+0.00.225.275 D tensor blk.19.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.276 D create_tensor: loading tensor blk.20.attn_norm.weight
+0.00.225.278 D tensor blk.20.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.279 D create_tensor: loading tensor blk.20.attn_qkv.weight
+0.00.225.280 D create_tensor: loading tensor blk.20.attn_q.weight
+0.00.225.282 D tensor blk.20.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.283 D create_tensor: loading tensor blk.20.attn_k.weight
+0.00.225.285 D tensor blk.20.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.285 D create_tensor: loading tensor blk.20.attn_v.weight
+0.00.225.288 D tensor blk.20.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.288 D create_tensor: loading tensor blk.20.attn_q.bias
+0.00.225.290 D tensor blk.20.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.291 D create_tensor: loading tensor blk.20.attn_k.bias
+0.00.225.294 D tensor blk.20.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.294 D create_tensor: loading tensor blk.20.attn_v.bias
+0.00.225.296 D tensor blk.20.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.297 D create_tensor: loading tensor blk.20.attn_output.weight
+0.00.225.299 D tensor blk.20.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.301 D create_tensor: loading tensor blk.20.ffn_norm.weight
+0.00.225.303 D tensor blk.20.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.304 D create_tensor: loading tensor blk.20.ffn_gate.weight
+0.00.225.307 D tensor blk.20.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.307 D create_tensor: loading tensor blk.20.ffn_down.weight
+0.00.225.309 D tensor blk.20.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.310 D create_tensor: loading tensor blk.20.ffn_up.weight
+0.00.225.312 D tensor blk.20.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.313 D create_tensor: loading tensor blk.21.attn_norm.weight
+0.00.225.316 D tensor blk.21.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.317 D create_tensor: loading tensor blk.21.attn_qkv.weight
+0.00.225.318 D create_tensor: loading tensor blk.21.attn_q.weight
+0.00.225.320 D tensor blk.21.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.321 D create_tensor: loading tensor blk.21.attn_k.weight
+0.00.225.323 D tensor blk.21.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.324 D create_tensor: loading tensor blk.21.attn_v.weight
+0.00.225.327 D tensor blk.21.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.327 D create_tensor: loading tensor blk.21.attn_q.bias
+0.00.225.329 D tensor blk.21.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.330 D create_tensor: loading tensor blk.21.attn_k.bias
+0.00.225.332 D tensor blk.21.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.333 D create_tensor: loading tensor blk.21.attn_v.bias
+0.00.225.335 D tensor blk.21.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.336 D create_tensor: loading tensor blk.21.attn_output.weight
+0.00.225.339 D tensor blk.21.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.340 D create_tensor: loading tensor blk.21.ffn_norm.weight
+0.00.225.342 D tensor blk.21.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.343 D create_tensor: loading tensor blk.21.ffn_gate.weight
+0.00.225.346 D tensor blk.21.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.347 D create_tensor: loading tensor blk.21.ffn_down.weight
+0.00.225.349 D tensor blk.21.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.350 D create_tensor: loading tensor blk.21.ffn_up.weight
+0.00.225.352 D tensor blk.21.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.353 D create_tensor: loading tensor blk.22.attn_norm.weight
+0.00.225.355 D tensor blk.22.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.356 D create_tensor: loading tensor blk.22.attn_qkv.weight
+0.00.225.358 D create_tensor: loading tensor blk.22.attn_q.weight
+0.00.225.360 D tensor blk.22.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.361 D create_tensor: loading tensor blk.22.attn_k.weight
+0.00.225.363 D tensor blk.22.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.364 D create_tensor: loading tensor blk.22.attn_v.weight
+0.00.225.366 D tensor blk.22.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.367 D create_tensor: loading tensor blk.22.attn_q.bias
+0.00.225.369 D tensor blk.22.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.370 D create_tensor: loading tensor blk.22.attn_k.bias
+0.00.225.373 D tensor blk.22.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.373 D create_tensor: loading tensor blk.22.attn_v.bias
+0.00.225.376 D tensor blk.22.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.377 D create_tensor: loading tensor blk.22.attn_output.weight
+0.00.225.380 D tensor blk.22.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.381 D create_tensor: loading tensor blk.22.ffn_norm.weight
+0.00.225.383 D tensor blk.22.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.384 D create_tensor: loading tensor blk.22.ffn_gate.weight
+0.00.225.386 D tensor blk.22.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.387 D create_tensor: loading tensor blk.22.ffn_down.weight
+0.00.225.389 D tensor blk.22.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.390 D create_tensor: loading tensor blk.22.ffn_up.weight
+0.00.225.392 D tensor blk.22.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.393 D create_tensor: loading tensor blk.23.attn_norm.weight
+0.00.225.396 D tensor blk.23.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.396 D create_tensor: loading tensor blk.23.attn_qkv.weight
+0.00.225.398 D create_tensor: loading tensor blk.23.attn_q.weight
+0.00.225.400 D tensor blk.23.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.401 D create_tensor: loading tensor blk.23.attn_k.weight
+0.00.225.403 D tensor blk.23.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.404 D create_tensor: loading tensor blk.23.attn_v.weight
+0.00.225.407 D tensor blk.23.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.407 D create_tensor: loading tensor blk.23.attn_q.bias
+0.00.225.409 D tensor blk.23.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.410 D create_tensor: loading tensor blk.23.attn_k.bias
+0.00.225.412 D tensor blk.23.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.414 D create_tensor: loading tensor blk.23.attn_v.bias
+0.00.225.417 D tensor blk.23.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.417 D create_tensor: loading tensor blk.23.attn_output.weight
+0.00.225.420 D tensor blk.23.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.420 D create_tensor: loading tensor blk.23.ffn_norm.weight
+0.00.225.423 D tensor blk.23.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.424 D create_tensor: loading tensor blk.23.ffn_gate.weight
+0.00.225.427 D tensor blk.23.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.427 D create_tensor: loading tensor blk.23.ffn_down.weight
+0.00.225.430 D tensor blk.23.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.431 D create_tensor: loading tensor blk.23.ffn_up.weight
+0.00.225.433 D tensor blk.23.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.434 D create_tensor: loading tensor blk.24.attn_norm.weight
+0.00.225.436 D tensor blk.24.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.436 D create_tensor: loading tensor blk.24.attn_qkv.weight
+0.00.225.438 D create_tensor: loading tensor blk.24.attn_q.weight
+0.00.225.440 D tensor blk.24.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.441 D create_tensor: loading tensor blk.24.attn_k.weight
+0.00.225.444 D tensor blk.24.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.444 D create_tensor: loading tensor blk.24.attn_v.weight
+0.00.225.447 D tensor blk.24.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.448 D create_tensor: loading tensor blk.24.attn_q.bias
+0.00.225.451 D tensor blk.24.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.452 D create_tensor: loading tensor blk.24.attn_k.bias
+0.00.225.454 D tensor blk.24.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.455 D create_tensor: loading tensor blk.24.attn_v.bias
+0.00.225.457 D tensor blk.24.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.458 D create_tensor: loading tensor blk.24.attn_output.weight
+0.00.225.461 D tensor blk.24.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.461 D create_tensor: loading tensor blk.24.ffn_norm.weight
+0.00.225.464 D tensor blk.24.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.465 D create_tensor: loading tensor blk.24.ffn_gate.weight
+0.00.225.467 D tensor blk.24.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.468 D create_tensor: loading tensor blk.24.ffn_down.weight
+0.00.225.471 D tensor blk.24.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.471 D create_tensor: loading tensor blk.24.ffn_up.weight
+0.00.225.474 D tensor blk.24.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.474 D create_tensor: loading tensor blk.25.attn_norm.weight
+0.00.225.477 D tensor blk.25.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.478 D create_tensor: loading tensor blk.25.attn_qkv.weight
+0.00.225.479 D create_tensor: loading tensor blk.25.attn_q.weight
+0.00.225.482 D tensor blk.25.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.482 D create_tensor: loading tensor blk.25.attn_k.weight
+0.00.225.485 D tensor blk.25.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.485 D create_tensor: loading tensor blk.25.attn_v.weight
+0.00.225.488 D tensor blk.25.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.489 D create_tensor: loading tensor blk.25.attn_q.bias
+0.00.225.492 D tensor blk.25.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.493 D create_tensor: loading tensor blk.25.attn_k.bias
+0.00.225.495 D tensor blk.25.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.496 D create_tensor: loading tensor blk.25.attn_v.bias
+0.00.225.498 D tensor blk.25.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.499 D create_tensor: loading tensor blk.25.attn_output.weight
+0.00.225.501 D tensor blk.25.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.502 D create_tensor: loading tensor blk.25.ffn_norm.weight
+0.00.225.505 D tensor blk.25.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.506 D create_tensor: loading tensor blk.25.ffn_gate.weight
+0.00.225.508 D tensor blk.25.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.509 D create_tensor: loading tensor blk.25.ffn_down.weight
+0.00.225.512 D tensor blk.25.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.512 D create_tensor: loading tensor blk.25.ffn_up.weight
+0.00.225.514 D tensor blk.25.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.515 D create_tensor: loading tensor blk.26.attn_norm.weight
+0.00.225.517 D tensor blk.26.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.518 D create_tensor: loading tensor blk.26.attn_qkv.weight
+0.00.225.520 D create_tensor: loading tensor blk.26.attn_q.weight
+0.00.225.522 D tensor blk.26.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.523 D create_tensor: loading tensor blk.26.attn_k.weight
+0.00.225.526 D tensor blk.26.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.527 D create_tensor: loading tensor blk.26.attn_v.weight
+0.00.225.530 D tensor blk.26.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.531 D create_tensor: loading tensor blk.26.attn_q.bias
+0.00.225.533 D tensor blk.26.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.534 D create_tensor: loading tensor blk.26.attn_k.bias
+0.00.225.536 D tensor blk.26.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.537 D create_tensor: loading tensor blk.26.attn_v.bias
+0.00.225.539 D tensor blk.26.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.540 D create_tensor: loading tensor blk.26.attn_output.weight
+0.00.225.579 D tensor blk.26.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.580 D create_tensor: loading tensor blk.26.ffn_norm.weight
+0.00.225.583 D tensor blk.26.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.584 D create_tensor: loading tensor blk.26.ffn_gate.weight
+0.00.225.587 D tensor blk.26.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.587 D create_tensor: loading tensor blk.26.ffn_down.weight
+0.00.225.590 D tensor blk.26.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.591 D create_tensor: loading tensor blk.26.ffn_up.weight
+0.00.225.594 D tensor blk.26.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.594 D create_tensor: loading tensor blk.27.attn_norm.weight
+0.00.225.597 D tensor blk.27.attn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.598 D create_tensor: loading tensor blk.27.attn_qkv.weight
+0.00.225.600 D create_tensor: loading tensor blk.27.attn_q.weight
+0.00.225.602 D tensor blk.27.attn_q.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.604 D create_tensor: loading tensor blk.27.attn_k.weight
+0.00.225.607 D tensor blk.27.attn_k.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.608 D create_tensor: loading tensor blk.27.attn_v.weight
+0.00.225.611 D tensor blk.27.attn_v.weight (1 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.612 D create_tensor: loading tensor blk.27.attn_q.bias
+0.00.225.615 D tensor blk.27.attn_q.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.615 D create_tensor: loading tensor blk.27.attn_k.bias
+0.00.225.618 D tensor blk.27.attn_k.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.619 D create_tensor: loading tensor blk.27.attn_v.bias
+0.00.225.621 D tensor blk.27.attn_v.bias (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.622 D create_tensor: loading tensor blk.27.attn_output.weight
+0.00.225.625 D tensor blk.27.attn_output.weight (10 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.626 D create_tensor: loading tensor blk.27.ffn_norm.weight
+0.00.225.629 D tensor blk.27.ffn_norm.weight (0 MiB f32) buffer type overridden to CUDA0
+0.00.225.630 D create_tensor: loading tensor blk.27.ffn_gate.weight
+0.00.225.633 D tensor blk.27.ffn_gate.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.633 D create_tensor: loading tensor blk.27.ffn_down.weight
+0.00.225.636 D tensor blk.27.ffn_down.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.637 D create_tensor: loading tensor blk.27.ffn_up.weight
+0.00.225.640 D tensor blk.27.ffn_up.weight (53 MiB q6_K) buffer type overridden to CUDA0
+0.00.225.641 D create_tensor: loading tensor blk.0.attn_q.scale
+0.00.225.642 D create_tensor: loading tensor blk.0.attn_k.scale
+0.00.225.644 D create_tensor: loading tensor blk.0.attn_v.scale
+0.00.225.645 D create_tensor: loading tensor blk.0.attn_output.scale
+0.00.225.647 D create_tensor: loading tensor blk.0.ffn_gate.scale
+0.00.225.648 D create_tensor: loading tensor blk.0.ffn_down.scale
+0.00.225.650 D create_tensor: loading tensor blk.0.ffn_up.scale
+0.00.225.651 D create_tensor: loading tensor blk.0.attn_q.input_scale
+0.00.225.653 D create_tensor: loading tensor blk.0.attn_k.input_scale
+0.00.225.654 D create_tensor: loading tensor blk.0.attn_v.input_scale
+0.00.225.655 D create_tensor: loading tensor blk.0.attn_output.input_scale
+0.00.225.657 D create_tensor: loading tensor blk.0.ffn_gate.input_scale
+0.00.225.658 D create_tensor: loading tensor blk.0.ffn_down.input_scale
+0.00.225.660 D create_tensor: loading tensor blk.0.ffn_up.input_scale
+0.00.225.661 D create_tensor: loading tensor blk.1.attn_q.scale
+0.00.225.663 D create_tensor: loading tensor blk.1.attn_k.scale
+0.00.225.664 D create_tensor: loading tensor blk.1.attn_v.scale
+0.00.225.665 D create_tensor: loading tensor blk.1.attn_output.scale
+0.00.225.667 D create_tensor: loading tensor blk.1.ffn_gate.scale
+0.00.225.668 D create_tensor: loading tensor blk.1.ffn_down.scale
+0.00.225.670 D create_tensor: loading tensor blk.1.ffn_up.scale
+0.00.225.671 D create_tensor: loading tensor blk.1.attn_q.input_scale
+0.00.225.673 D create_tensor: loading tensor blk.1.attn_k.input_scale
+0.00.225.674 D create_tensor: loading tensor blk.1.attn_v.input_scale
+0.00.225.675 D create_tensor: loading tensor blk.1.attn_output.input_scale
+0.00.225.677 D create_tensor: loading tensor blk.1.ffn_gate.input_scale
+0.00.225.678 D create_tensor: loading tensor blk.1.ffn_down.input_scale
+0.00.225.680 D create_tensor: loading tensor blk.1.ffn_up.input_scale
+0.00.225.681 D create_tensor: loading tensor blk.2.attn_q.scale
+0.00.225.682 D create_tensor: loading tensor blk.2.attn_k.scale
+0.00.225.684 D create_tensor: loading tensor blk.2.attn_v.scale
+0.00.225.686 D create_tensor: loading tensor blk.2.attn_output.scale
+0.00.225.687 D create_tensor: loading tensor blk.2.ffn_gate.scale
+0.00.225.688 D create_tensor: loading tensor blk.2.ffn_down.scale
+0.00.225.690 D create_tensor: loading tensor blk.2.ffn_up.scale
+0.00.225.691 D create_tensor: loading tensor blk.2.attn_q.input_scale
+0.00.225.692 D create_tensor: loading tensor blk.2.attn_k.input_scale
+0.00.225.694 D create_tensor: loading tensor blk.2.attn_v.input_scale
+0.00.225.695 D create_tensor: loading tensor blk.2.attn_output.input_scale
+0.00.225.697 D create_tensor: loading tensor blk.2.ffn_gate.input_scale
+0.00.225.698 D create_tensor: loading tensor blk.2.ffn_down.input_scale
+0.00.225.699 D create_tensor: loading tensor blk.2.ffn_up.input_scale
+0.00.225.701 D create_tensor: loading tensor blk.3.attn_q.scale
+0.00.225.703 D create_tensor: loading tensor blk.3.attn_k.scale
+0.00.225.704 D create_tensor: loading tensor blk.3.attn_v.scale
+0.00.225.705 D create_tensor: loading tensor blk.3.attn_output.scale
+0.00.225.707 D create_tensor: loading tensor blk.3.ffn_gate.scale
+0.00.225.708 D create_tensor: loading tensor blk.3.ffn_down.scale
+0.00.225.710 D create_tensor: loading tensor blk.3.ffn_up.scale
+0.00.225.711 D create_tensor: loading tensor blk.3.attn_q.input_scale
+0.00.225.712 D create_tensor: loading tensor blk.3.attn_k.input_scale
+0.00.225.714 D create_tensor: loading tensor blk.3.attn_v.input_scale
+0.00.225.715 D create_tensor: loading tensor blk.3.attn_output.input_scale
+0.00.225.716 D create_tensor: loading tensor blk.3.ffn_gate.input_scale
+0.00.225.717 D create_tensor: loading tensor blk.3.ffn_down.input_scale
+0.00.225.719 D create_tensor: loading tensor blk.3.ffn_up.input_scale
+0.00.225.721 D create_tensor: loading tensor blk.4.attn_q.scale
+0.00.225.722 D create_tensor: loading tensor blk.4.attn_k.scale
+0.00.225.723 D create_tensor: loading tensor blk.4.attn_v.scale
+0.00.225.724 D create_tensor: loading tensor blk.4.attn_output.scale
+0.00.225.726 D create_tensor: loading tensor blk.4.ffn_gate.scale
+0.00.225.727 D create_tensor: loading tensor blk.4.ffn_down.scale
+0.00.225.729 D create_tensor: loading tensor blk.4.ffn_up.scale
+0.00.225.730 D create_tensor: loading tensor blk.4.attn_q.input_scale
+0.00.225.731 D create_tensor: loading tensor blk.4.attn_k.input_scale
+0.00.225.733 D create_tensor: loading tensor blk.4.attn_v.input_scale
+0.00.225.735 D create_tensor: loading tensor blk.4.attn_output.input_scale
+0.00.225.736 D create_tensor: loading tensor blk.4.ffn_gate.input_scale
+0.00.225.737 D create_tensor: loading tensor blk.4.ffn_down.input_scale
+0.00.225.739 D create_tensor: loading tensor blk.4.ffn_up.input_scale
+0.00.225.740 D create_tensor: loading tensor blk.5.attn_q.scale
+0.00.225.741 D create_tensor: loading tensor blk.5.attn_k.scale
+0.00.225.743 D create_tensor: loading tensor blk.5.attn_v.scale
+0.00.225.744 D create_tensor: loading tensor blk.5.attn_output.scale
+0.00.225.746 D create_tensor: loading tensor blk.5.ffn_gate.scale
+0.00.225.747 D create_tensor: loading tensor blk.5.ffn_down.scale
+0.00.225.748 D create_tensor: loading tensor blk.5.ffn_up.scale
+0.00.225.750 D create_tensor: loading tensor blk.5.attn_q.input_scale
+0.00.225.751 D create_tensor: loading tensor blk.5.attn_k.input_scale
+0.00.225.752 D create_tensor: loading tensor blk.5.attn_v.input_scale
+0.00.225.754 D create_tensor: loading tensor blk.5.attn_output.input_scale
+0.00.225.756 D create_tensor: loading tensor blk.5.ffn_gate.input_scale
+0.00.225.757 D create_tensor: loading tensor blk.5.ffn_down.input_scale
+0.00.225.758 D create_tensor: loading tensor blk.5.ffn_up.input_scale
+0.00.225.759 D create_tensor: loading tensor blk.6.attn_q.scale
+0.00.225.761 D create_tensor: loading tensor blk.6.attn_k.scale
+0.00.225.762 D create_tensor: loading tensor blk.6.attn_v.scale
+0.00.225.764 D create_tensor: loading tensor blk.6.attn_output.scale
+0.00.225.765 D create_tensor: loading tensor blk.6.ffn_gate.scale
+0.00.225.766 D create_tensor: loading tensor blk.6.ffn_down.scale
+0.00.225.768 D create_tensor: loading tensor blk.6.ffn_up.scale
+0.00.225.769 D create_tensor: loading tensor blk.6.attn_q.input_scale
+0.00.225.770 D create_tensor: loading tensor blk.6.attn_k.input_scale
+0.00.225.772 D create_tensor: loading tensor blk.6.attn_v.input_scale
+0.00.225.773 D create_tensor: loading tensor blk.6.attn_output.input_scale
+0.00.225.775 D create_tensor: loading tensor blk.6.ffn_gate.input_scale
+0.00.225.776 D create_tensor: loading tensor blk.6.ffn_down.input_scale
+0.00.225.777 D create_tensor: loading tensor blk.6.ffn_up.input_scale
+0.00.225.779 D create_tensor: loading tensor blk.7.attn_q.scale
+0.00.225.781 D create_tensor: loading tensor blk.7.attn_k.scale
+0.00.225.782 D create_tensor: loading tensor blk.7.attn_v.scale
+0.00.225.783 D create_tensor: loading tensor blk.7.attn_output.scale
+0.00.225.784 D create_tensor: loading tensor blk.7.ffn_gate.scale
+0.00.225.786 D create_tensor: loading tensor blk.7.ffn_down.scale
+0.00.225.787 D create_tensor: loading tensor blk.7.ffn_up.scale
+0.00.225.789 D create_tensor: loading tensor blk.7.attn_q.input_scale
+0.00.225.790 D create_tensor: loading tensor blk.7.attn_k.input_scale
+0.00.225.791 D create_tensor: loading tensor blk.7.attn_v.input_scale
+0.00.225.793 D create_tensor: loading tensor blk.7.attn_output.input_scale
+0.00.225.796 D create_tensor: loading tensor blk.7.ffn_gate.input_scale
+0.00.225.797 D create_tensor: loading tensor blk.7.ffn_down.input_scale
+0.00.225.798 D create_tensor: loading tensor blk.7.ffn_up.input_scale
+0.00.225.799 D create_tensor: loading tensor blk.8.attn_q.scale
+0.00.225.801 D create_tensor: loading tensor blk.8.attn_k.scale
+0.00.225.803 D create_tensor: loading tensor blk.8.attn_v.scale
+0.00.225.804 D create_tensor: loading tensor blk.8.attn_output.scale
+0.00.225.805 D create_tensor: loading tensor blk.8.ffn_gate.scale
+0.00.225.806 D create_tensor: loading tensor blk.8.ffn_down.scale
+0.00.225.808 D create_tensor: loading tensor blk.8.ffn_up.scale
+0.00.225.810 D create_tensor: loading tensor blk.8.attn_q.input_scale
+0.00.225.811 D create_tensor: loading tensor blk.8.attn_k.input_scale
+0.00.225.812 D create_tensor: loading tensor blk.8.attn_v.input_scale
+0.00.225.814 D create_tensor: loading tensor blk.8.attn_output.input_scale
+0.00.225.815 D create_tensor: loading tensor blk.8.ffn_gate.input_scale
+0.00.225.816 D create_tensor: loading tensor blk.8.ffn_down.input_scale
+0.00.225.818 D create_tensor: loading tensor blk.8.ffn_up.input_scale
+0.00.225.819 D create_tensor: loading tensor blk.9.attn_q.scale
+0.00.225.821 D create_tensor: loading tensor blk.9.attn_k.scale
+0.00.225.822 D create_tensor: loading tensor blk.9.attn_v.scale
+0.00.225.823 D create_tensor: loading tensor blk.9.attn_output.scale
+0.00.225.825 D create_tensor: loading tensor blk.9.ffn_gate.scale
+0.00.225.826 D create_tensor: loading tensor blk.9.ffn_down.scale
+0.00.225.827 D create_tensor: loading tensor blk.9.ffn_up.scale
+0.00.225.829 D create_tensor: loading tensor blk.9.attn_q.input_scale
+0.00.225.830 D create_tensor: loading tensor blk.9.attn_k.input_scale
+0.00.225.832 D create_tensor: loading tensor blk.9.attn_v.input_scale
+0.00.225.833 D create_tensor: loading tensor blk.9.attn_output.input_scale
+0.00.225.834 D create_tensor: loading tensor blk.9.ffn_gate.input_scale
+0.00.225.835 D create_tensor: loading tensor blk.9.ffn_down.input_scale
+0.00.225.837 D create_tensor: loading tensor blk.9.ffn_up.input_scale
+0.00.225.838 D create_tensor: loading tensor blk.10.attn_q.scale
+0.00.225.839 D create_tensor: loading tensor blk.10.attn_k.scale
+0.00.225.842 D create_tensor: loading tensor blk.10.attn_v.scale
+0.00.225.843 D create_tensor: loading tensor blk.10.attn_output.scale
+0.00.225.844 D create_tensor: loading tensor blk.10.ffn_gate.scale
+0.00.225.846 D create_tensor: loading tensor blk.10.ffn_down.scale
+0.00.225.847 D create_tensor: loading tensor blk.10.ffn_up.scale
+0.00.225.849 D create_tensor: loading tensor blk.10.attn_q.input_scale
+0.00.225.850 D create_tensor: loading tensor blk.10.attn_k.input_scale
+0.00.225.851 D create_tensor: loading tensor blk.10.attn_v.input_scale
+0.00.225.853 D create_tensor: loading tensor blk.10.attn_output.input_scale
+0.00.225.854 D create_tensor: loading tensor blk.10.ffn_gate.input_scale
+0.00.225.856 D create_tensor: loading tensor blk.10.ffn_down.input_scale
+0.00.225.857 D create_tensor: loading tensor blk.10.ffn_up.input_scale
+0.00.225.859 D create_tensor: loading tensor blk.11.attn_q.scale
+0.00.225.860 D create_tensor: loading tensor blk.11.attn_k.scale
+0.00.225.861 D create_tensor: loading tensor blk.11.attn_v.scale
+0.00.225.863 D create_tensor: loading tensor blk.11.attn_output.scale
+0.00.225.864 D create_tensor: loading tensor blk.11.ffn_gate.scale
+0.00.225.866 D create_tensor: loading tensor blk.11.ffn_down.scale
+0.00.225.867 D create_tensor: loading tensor blk.11.ffn_up.scale
+0.00.225.869 D create_tensor: loading tensor blk.11.attn_q.input_scale
+0.00.225.870 D create_tensor: loading tensor blk.11.attn_k.input_scale
+0.00.225.871 D create_tensor: loading tensor blk.11.attn_v.input_scale
+0.00.225.873 D create_tensor: loading tensor blk.11.attn_output.input_scale
+0.00.225.874 D create_tensor: loading tensor blk.11.ffn_gate.input_scale
+0.00.225.876 D create_tensor: loading tensor blk.11.ffn_down.input_scale
+0.00.225.877 D create_tensor: loading tensor blk.11.ffn_up.input_scale
+0.00.225.878 D create_tensor: loading tensor blk.12.attn_q.scale
+0.00.225.880 D create_tensor: loading tensor blk.12.attn_k.scale
+0.00.225.881 D create_tensor: loading tensor blk.12.attn_v.scale
+0.00.225.882 D create_tensor: loading tensor blk.12.attn_output.scale
+0.00.225.884 D create_tensor: loading tensor blk.12.ffn_gate.scale
+0.00.225.886 D create_tensor: loading tensor blk.12.ffn_down.scale
+0.00.225.887 D create_tensor: loading tensor blk.12.ffn_up.scale
+0.00.225.888 D create_tensor: loading tensor blk.12.attn_q.input_scale
+0.00.225.890 D create_tensor: loading tensor blk.12.attn_k.input_scale
+0.00.225.892 D create_tensor: loading tensor blk.12.attn_v.input_scale
+0.00.225.893 D create_tensor: loading tensor blk.12.attn_output.input_scale
+0.00.225.895 D create_tensor: loading tensor blk.12.ffn_gate.input_scale
+0.00.225.896 D create_tensor: loading tensor blk.12.ffn_down.input_scale
+0.00.225.898 D create_tensor: loading tensor blk.12.ffn_up.input_scale
+0.00.225.899 D create_tensor: loading tensor blk.13.attn_q.scale
+0.00.225.901 D create_tensor: loading tensor blk.13.attn_k.scale
+0.00.225.902 D create_tensor: loading tensor blk.13.attn_v.scale
+0.00.225.904 D create_tensor: loading tensor blk.13.attn_output.scale
+0.00.225.906 D create_tensor: loading tensor blk.13.ffn_gate.scale
+0.00.225.907 D create_tensor: loading tensor blk.13.ffn_down.scale
+0.00.225.908 D create_tensor: loading tensor blk.13.ffn_up.scale
+0.00.225.910 D create_tensor: loading tensor blk.13.attn_q.input_scale
+0.00.225.911 D create_tensor: loading tensor blk.13.attn_k.input_scale
+0.00.225.912 D create_tensor: loading tensor blk.13.attn_v.input_scale
+0.00.225.914 D create_tensor: loading tensor blk.13.attn_output.input_scale
+0.00.225.915 D create_tensor: loading tensor blk.13.ffn_gate.input_scale
+0.00.225.917 D create_tensor: loading tensor blk.13.ffn_down.input_scale
+0.00.225.918 D create_tensor: loading tensor blk.13.ffn_up.input_scale
+0.00.225.919 D create_tensor: loading tensor blk.14.attn_q.scale
+0.00.225.921 D create_tensor: loading tensor blk.14.attn_k.scale
+0.00.225.922 D create_tensor: loading tensor blk.14.attn_v.scale
+0.00.225.924 D create_tensor: loading tensor blk.14.attn_output.scale
+0.00.225.925 D create_tensor: loading tensor blk.14.ffn_gate.scale
+0.00.225.927 D create_tensor: loading tensor blk.14.ffn_down.scale
+0.00.225.928 D create_tensor: loading tensor blk.14.ffn_up.scale
+0.00.225.929 D create_tensor: loading tensor blk.14.attn_q.input_scale
+0.00.225.931 D create_tensor: loading tensor blk.14.attn_k.input_scale
+0.00.225.932 D create_tensor: loading tensor blk.14.attn_v.input_scale
+0.00.225.933 D create_tensor: loading tensor blk.14.attn_output.input_scale
+0.00.225.935 D create_tensor: loading tensor blk.14.ffn_gate.input_scale
+0.00.225.937 D create_tensor: loading tensor blk.14.ffn_down.input_scale
+0.00.225.938 D create_tensor: loading tensor blk.14.ffn_up.input_scale
+0.00.225.939 D create_tensor: loading tensor blk.15.attn_q.scale
+0.00.225.941 D create_tensor: loading tensor blk.15.attn_k.scale
+0.00.225.942 D create_tensor: loading tensor blk.15.attn_v.scale
+0.00.225.943 D create_tensor: loading tensor blk.15.attn_output.scale
+0.00.225.945 D create_tensor: loading tensor blk.15.ffn_gate.scale
+0.00.225.946 D create_tensor: loading tensor blk.15.ffn_down.scale
+0.00.225.948 D create_tensor: loading tensor blk.15.ffn_up.scale
+0.00.225.949 D create_tensor: loading tensor blk.15.attn_q.input_scale
+0.00.225.950 D create_tensor: loading tensor blk.15.attn_k.input_scale
+0.00.225.952 D create_tensor: loading tensor blk.15.attn_v.input_scale
+0.00.225.953 D create_tensor: loading tensor blk.15.attn_output.input_scale
+0.00.225.955 D create_tensor: loading tensor blk.15.ffn_gate.input_scale
+0.00.225.956 D create_tensor: loading tensor blk.15.ffn_down.input_scale
+0.00.225.958 D create_tensor: loading tensor blk.15.ffn_up.input_scale
+0.00.225.959 D create_tensor: loading tensor blk.16.attn_q.scale
+0.00.225.960 D create_tensor: loading tensor blk.16.attn_k.scale
+0.00.225.962 D create_tensor: loading tensor blk.16.attn_v.scale
+0.00.225.963 D create_tensor: loading tensor blk.16.attn_output.scale
+0.00.225.965 D create_tensor: loading tensor blk.16.ffn_gate.scale
+0.00.225.966 D create_tensor: loading tensor blk.16.ffn_down.scale
+0.00.225.968 D create_tensor: loading tensor blk.16.ffn_up.scale
+0.00.225.969 D create_tensor: loading tensor blk.16.attn_q.input_scale
+0.00.225.971 D create_tensor: loading tensor blk.16.attn_k.input_scale
+0.00.225.972 D create_tensor: loading tensor blk.16.attn_v.input_scale
+0.00.225.973 D create_tensor: loading tensor blk.16.attn_output.input_scale
+0.00.225.975 D create_tensor: loading tensor blk.16.ffn_gate.input_scale
+0.00.225.976 D create_tensor: loading tensor blk.16.ffn_down.input_scale
+0.00.225.978 D create_tensor: loading tensor blk.16.ffn_up.input_scale
+0.00.225.980 D create_tensor: loading tensor blk.17.attn_q.scale
+0.00.225.981 D create_tensor: loading tensor blk.17.attn_k.scale
+0.00.225.982 D create_tensor: loading tensor blk.17.attn_v.scale
+0.00.225.984 D create_tensor: loading tensor blk.17.attn_output.scale
+0.00.225.985 D create_tensor: loading tensor blk.17.ffn_gate.scale
+0.00.225.987 D create_tensor: loading tensor blk.17.ffn_down.scale
+0.00.225.988 D create_tensor: loading tensor blk.17.ffn_up.scale
+0.00.225.989 D create_tensor: loading tensor blk.17.attn_q.input_scale
+0.00.225.991 D create_tensor: loading tensor blk.17.attn_k.input_scale
+0.00.225.993 D create_tensor: loading tensor blk.17.attn_v.input_scale
+0.00.225.994 D create_tensor: loading tensor blk.17.attn_output.input_scale
+0.00.225.995 D create_tensor: loading tensor blk.17.ffn_gate.input_scale
+0.00.225.997 D create_tensor: loading tensor blk.17.ffn_down.input_scale
+0.00.225.998 D create_tensor: loading tensor blk.17.ffn_up.input_scale
+0.00.225.999 D create_tensor: loading tensor blk.18.attn_q.scale
+0.00.226.001 D create_tensor: loading tensor blk.18.attn_k.scale
+0.00.226.002 D create_tensor: loading tensor blk.18.attn_v.scale
+0.00.226.004 D create_tensor: loading tensor blk.18.attn_output.scale
+0.00.226.006 D create_tensor: loading tensor blk.18.ffn_gate.scale
+0.00.226.007 D create_tensor: loading tensor blk.18.ffn_down.scale
+0.00.226.008 D create_tensor: loading tensor blk.18.ffn_up.scale
+0.00.226.010 D create_tensor: loading tensor blk.18.attn_q.input_scale
+0.00.226.011 D create_tensor: loading tensor blk.18.attn_k.input_scale
+0.00.226.013 D create_tensor: loading tensor blk.18.attn_v.input_scale
+0.00.226.015 D create_tensor: loading tensor blk.18.attn_output.input_scale
+0.00.226.016 D create_tensor: loading tensor blk.18.ffn_gate.input_scale
+0.00.226.017 D create_tensor: loading tensor blk.18.ffn_down.input_scale
+0.00.226.019 D create_tensor: loading tensor blk.18.ffn_up.input_scale
+0.00.226.020 D create_tensor: loading tensor blk.19.attn_q.scale
+0.00.226.022 D create_tensor: loading tensor blk.19.attn_k.scale
+0.00.226.024 D create_tensor: loading tensor blk.19.attn_v.scale
+0.00.226.025 D create_tensor: loading tensor blk.19.attn_output.scale
+0.00.226.027 D create_tensor: loading tensor blk.19.ffn_gate.scale
+0.00.226.028 D create_tensor: loading tensor blk.19.ffn_down.scale
+0.00.226.030 D create_tensor: loading tensor blk.19.ffn_up.scale
+0.00.226.032 D create_tensor: loading tensor blk.19.attn_q.input_scale
+0.00.226.033 D create_tensor: loading tensor blk.19.attn_k.input_scale
+0.00.226.035 D create_tensor: loading tensor blk.19.attn_v.input_scale
+0.00.226.036 D create_tensor: loading tensor blk.19.attn_output.input_scale
+0.00.226.038 D create_tensor: loading tensor blk.19.ffn_gate.input_scale
+0.00.226.039 D create_tensor: loading tensor blk.19.ffn_down.input_scale
+0.00.226.041 D create_tensor: loading tensor blk.19.ffn_up.input_scale
+0.00.226.042 D create_tensor: loading tensor blk.20.attn_q.scale
+0.00.226.044 D create_tensor: loading tensor blk.20.attn_k.scale
+0.00.226.046 D create_tensor: loading tensor blk.20.attn_v.scale
+0.00.226.047 D create_tensor: loading tensor blk.20.attn_output.scale
+0.00.226.049 D create_tensor: loading tensor blk.20.ffn_gate.scale
+0.00.226.051 D create_tensor: loading tensor blk.20.ffn_down.scale
+0.00.226.052 D create_tensor: loading tensor blk.20.ffn_up.scale
+0.00.226.053 D create_tensor: loading tensor blk.20.attn_q.input_scale
+0.00.226.055 D create_tensor: loading tensor blk.20.attn_k.input_scale
+0.00.226.056 D create_tensor: loading tensor blk.20.attn_v.input_scale
+0.00.226.058 D create_tensor: loading tensor blk.20.attn_output.input_scale
+0.00.226.060 D create_tensor: loading tensor blk.20.ffn_gate.input_scale
+0.00.226.061 D create_tensor: loading tensor blk.20.ffn_down.input_scale
+0.00.226.063 D create_tensor: loading tensor blk.20.ffn_up.input_scale
+0.00.226.064 D create_tensor: loading tensor blk.21.attn_q.scale
+0.00.226.066 D create_tensor: loading tensor blk.21.attn_k.scale
+0.00.226.068 D create_tensor: loading tensor blk.21.attn_v.scale
+0.00.226.069 D create_tensor: loading tensor blk.21.attn_output.scale
+0.00.226.071 D create_tensor: loading tensor blk.21.ffn_gate.scale
+0.00.226.072 D create_tensor: loading tensor blk.21.ffn_down.scale
+0.00.226.075 D create_tensor: loading tensor blk.21.ffn_up.scale
+0.00.226.076 D create_tensor: loading tensor blk.21.attn_q.input_scale
+0.00.226.078 D create_tensor: loading tensor blk.21.attn_k.input_scale
+0.00.226.079 D create_tensor: loading tensor blk.21.attn_v.input_scale
+0.00.226.082 D create_tensor: loading tensor blk.21.attn_output.input_scale
+0.00.226.083 D create_tensor: loading tensor blk.21.ffn_gate.input_scale
+0.00.226.085 D create_tensor: loading tensor blk.21.ffn_down.input_scale
+0.00.226.086 D create_tensor: loading tensor blk.21.ffn_up.input_scale
+0.00.226.089 D create_tensor: loading tensor blk.22.attn_q.scale
+0.00.226.090 D create_tensor: loading tensor blk.22.attn_k.scale
+0.00.226.092 D create_tensor: loading tensor blk.22.attn_v.scale
+0.00.226.093 D create_tensor: loading tensor blk.22.attn_output.scale
+0.00.226.095 D create_tensor: loading tensor blk.22.ffn_gate.scale
+0.00.226.097 D create_tensor: loading tensor blk.22.ffn_down.scale
+0.00.226.098 D create_tensor: loading tensor blk.22.ffn_up.scale
+0.00.226.100 D create_tensor: loading tensor blk.22.attn_q.input_scale
+0.00.226.101 D create_tensor: loading tensor blk.22.attn_k.input_scale
+0.00.226.104 D create_tensor: loading tensor blk.22.attn_v.input_scale
+0.00.226.105 D create_tensor: loading tensor blk.22.attn_output.input_scale
+0.00.226.107 D create_tensor: loading tensor blk.22.ffn_gate.input_scale
+0.00.226.109 D create_tensor: loading tensor blk.22.ffn_down.input_scale
+0.00.226.110 D create_tensor: loading tensor blk.22.ffn_up.input_scale
+0.00.226.112 D create_tensor: loading tensor blk.23.attn_q.scale
+0.00.226.114 D create_tensor: loading tensor blk.23.attn_k.scale
+0.00.226.116 D create_tensor: loading tensor blk.23.attn_v.scale
+0.00.226.117 D create_tensor: loading tensor blk.23.attn_output.scale
+0.00.226.119 D create_tensor: loading tensor blk.23.ffn_gate.scale
+0.00.226.120 D create_tensor: loading tensor blk.23.ffn_down.scale
+0.00.226.123 D create_tensor: loading tensor blk.23.ffn_up.scale
+0.00.226.124 D create_tensor: loading tensor blk.23.attn_q.input_scale
+0.00.226.126 D create_tensor: loading tensor blk.23.attn_k.input_scale
+0.00.226.127 D create_tensor: loading tensor blk.23.attn_v.input_scale
+0.00.226.130 D create_tensor: loading tensor blk.23.attn_output.input_scale
+0.00.226.131 D create_tensor: loading tensor blk.23.ffn_gate.input_scale
+0.00.226.133 D create_tensor: loading tensor blk.23.ffn_down.input_scale
+0.00.226.135 D create_tensor: loading tensor blk.23.ffn_up.input_scale
+0.00.226.136 D create_tensor: loading tensor blk.24.attn_q.scale
+0.00.226.138 D create_tensor: loading tensor blk.24.attn_k.scale
+0.00.226.140 D create_tensor: loading tensor blk.24.attn_v.scale
+0.00.226.141 D create_tensor: loading tensor blk.24.attn_output.scale
+0.00.226.143 D create_tensor: loading tensor blk.24.ffn_gate.scale
+0.00.226.145 D create_tensor: loading tensor blk.24.ffn_down.scale
+0.00.226.146 D create_tensor: loading tensor blk.24.ffn_up.scale
+0.00.226.148 D create_tensor: loading tensor blk.24.attn_q.input_scale
+0.00.226.150 D create_tensor: loading tensor blk.24.attn_k.input_scale
+0.00.226.152 D create_tensor: loading tensor blk.24.attn_v.input_scale
+0.00.226.153 D create_tensor: loading tensor blk.24.attn_output.input_scale
+0.00.226.155 D create_tensor: loading tensor blk.24.ffn_gate.input_scale
+0.00.226.157 D create_tensor: loading tensor blk.24.ffn_down.input_scale
+0.00.226.159 D create_tensor: loading tensor blk.24.ffn_up.input_scale
+0.00.226.160 D create_tensor: loading tensor blk.25.attn_q.scale
+0.00.226.162 D create_tensor: loading tensor blk.25.attn_k.scale
+0.00.226.164 D create_tensor: loading tensor blk.25.attn_v.scale
+0.00.226.166 D create_tensor: loading tensor blk.25.attn_output.scale
+0.00.226.167 D create_tensor: loading tensor blk.25.ffn_gate.scale
+0.00.226.170 D create_tensor: loading tensor blk.25.ffn_down.scale
+0.00.226.171 D create_tensor: loading tensor blk.25.ffn_up.scale
+0.00.226.173 D create_tensor: loading tensor blk.25.attn_q.input_scale
+0.00.226.174 D create_tensor: loading tensor blk.25.attn_k.input_scale
+0.00.226.176 D create_tensor: loading tensor blk.25.attn_v.input_scale
+0.00.226.178 D create_tensor: loading tensor blk.25.attn_output.input_scale
+0.00.226.180 D create_tensor: loading tensor blk.25.ffn_gate.input_scale
+0.00.226.182 D create_tensor: loading tensor blk.25.ffn_down.input_scale
+0.00.226.184 D create_tensor: loading tensor blk.25.ffn_up.input_scale
+0.00.226.186 D create_tensor: loading tensor blk.26.attn_q.scale
+0.00.226.187 D create_tensor: loading tensor blk.26.attn_k.scale
+0.00.226.189 D create_tensor: loading tensor blk.26.attn_v.scale
+0.00.226.191 D create_tensor: loading tensor blk.26.attn_output.scale
+0.00.226.193 D create_tensor: loading tensor blk.26.ffn_gate.scale
+0.00.226.195 D create_tensor: loading tensor blk.26.ffn_down.scale
+0.00.226.197 D create_tensor: loading tensor blk.26.ffn_up.scale
+0.00.226.199 D create_tensor: loading tensor blk.26.attn_q.input_scale
+0.00.226.201 D create_tensor: loading tensor blk.26.attn_k.input_scale
+0.00.226.202 D create_tensor: loading tensor blk.26.attn_v.input_scale
+0.00.226.205 D create_tensor: loading tensor blk.26.attn_output.input_scale
+0.00.226.206 D create_tensor: loading tensor blk.26.ffn_gate.input_scale
+0.00.226.208 D create_tensor: loading tensor blk.26.ffn_down.input_scale
+0.00.226.210 D create_tensor: loading tensor blk.26.ffn_up.input_scale
+0.00.226.212 D create_tensor: loading tensor blk.27.attn_q.scale
+0.00.226.214 D create_tensor: loading tensor blk.27.attn_k.scale
+0.00.226.216 D create_tensor: loading tensor blk.27.attn_v.scale
+0.00.226.218 D create_tensor: loading tensor blk.27.attn_output.scale
+0.00.226.220 D create_tensor: loading tensor blk.27.ffn_gate.scale
+0.00.226.222 D create_tensor: loading tensor blk.27.ffn_down.scale
+0.00.226.224 D create_tensor: loading tensor blk.27.ffn_up.scale
+0.00.226.226 D create_tensor: loading tensor blk.27.attn_q.input_scale
+0.00.226.228 D create_tensor: loading tensor blk.27.attn_k.input_scale
+0.00.226.230 D create_tensor: loading tensor blk.27.attn_v.input_scale
+0.00.226.232 D create_tensor: loading tensor blk.27.attn_output.input_scale
+0.00.226.234 D create_tensor: loading tensor blk.27.ffn_gate.input_scale
+0.00.226.236 D create_tensor: loading tensor blk.27.ffn_down.input_scale
+0.00.226.238 D create_tensor: loading tensor blk.27.ffn_up.input_scale
+0.00.226.242 D done_getting_tensors: tensor 'token_embd.weight' (q6_K) (and 0 others) cannot be used with preferred buffer type CUDA_Host, using CUDA0 instead
+0.04.809.427 I load_tensors: offloading output layer to GPU
+0.04.809.430 I load_tensors: offloading 27 repeating layers to GPU
+0.04.809.431 I load_tensors: offloaded 29/29 layers to GPU
+0.04.809.438 I load_tensors:        CUDA0 model buffer size =  5958.79 MiB
+0.09.773.390 I cmn  common_init_: added </s> logit bias = -inf
+0.09.773.554 I cmn  common_init_: added <|endoftext|> logit bias = -inf
+0.09.773.554 I cmn  common_init_: added <|im_end|> logit bias = -inf
+0.09.773.569 I cmn  common_init_: added <|fim_pad|> logit bias = -inf
+0.09.773.570 I cmn  common_init_: added <|repo_name|> logit bias = -inf
+0.09.773.570 I cmn  common_init_: added <|file_sep|> logit bias = -inf
+0.09.778.503 I llama_context: constructing llama_context
+0.09.778.819 I llama_context: n_seq_max             = 1
+0.09.778.821 I llama_context: n_ctx                 = 256
+0.09.778.821 I llama_context: n_ctx_seq             = 256
+0.09.778.821 I llama_context: n_batch               = 128
+0.09.778.821 I llama_context: n_ubatch              = 128
+0.09.778.822 I llama_context: causal_attn           = 1
+0.09.778.823 I llama_context: flash_attn            = auto
+0.09.778.823 I llama_context: kv_unified            = false
+0.09.778.825 I llama_context: freq_base             = 1000000.0
+0.09.778.826 I llama_context: freq_scale            = 1
+0.09.778.826 I llama_context: n_rs_seq              = 0
+0.09.778.835 I llama_context: n_outputs_max         = 1
+0.09.778.835 I llama_context: n_outputs_max_per_seq = 1
+0.09.778.836 I llama_context: n_ctx_seq (256) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+0.09.783.424 D set_abort_callback: call
+0.09.793.067 I llama_context:  CUDA_Host  output buffer size =     0.58 MiB
+0.09.794.211 D llama_kv_cache: layer   0: dev = CUDA0
+0.09.794.389 D llama_kv_cache: layer   1: dev = CUDA0
+0.09.794.391 D llama_kv_cache: layer   2: dev = CUDA0
+0.09.794.400 D llama_kv_cache: layer   3: dev = CUDA0
+0.09.794.401 D llama_kv_cache: layer   4: dev = CUDA0
+0.09.794.402 D llama_kv_cache: layer   5: dev = CUDA0
+0.09.794.409 D llama_kv_cache: layer   6: dev = CUDA0
+0.09.794.410 D llama_kv_cache: layer   7: dev = CUDA0
+0.09.794.411 D llama_kv_cache: layer   8: dev = CUDA0
+0.09.794.418 D llama_kv_cache: layer   9: dev = CUDA0
+0.09.794.427 D llama_kv_cache: layer  10: dev = CUDA0
+0.09.794.434 D llama_kv_cache: layer  11: dev = CUDA0
+0.09.794.435 D llama_kv_cache: layer  12: dev = CUDA0
+0.09.794.435 D llama_kv_cache: layer  13: dev = CUDA0
+0.09.794.442 D llama_kv_cache: layer  14: dev = CUDA0
+0.09.794.451 D llama_kv_cache: layer  15: dev = CUDA0
+0.09.794.453 D llama_kv_cache: layer  16: dev = CUDA0
+0.09.794.460 D llama_kv_cache: layer  17: dev = CUDA0
+0.09.794.461 D llama_kv_cache: layer  18: dev = CUDA0
+0.09.794.462 D llama_kv_cache: layer  19: dev = CUDA0
+0.09.794.468 D llama_kv_cache: layer  20: dev = CUDA0
+0.09.794.470 D llama_kv_cache: layer  21: dev = CUDA0
+0.09.794.476 D llama_kv_cache: layer  22: dev = CUDA0
+0.09.794.478 D llama_kv_cache: layer  23: dev = CUDA0
+0.09.794.478 D llama_kv_cache: layer  24: dev = CUDA0
+0.09.794.492 D llama_kv_cache: layer  25: dev = CUDA0
+0.09.794.493 D llama_kv_cache: layer  26: dev = CUDA0
+0.09.794.494 D llama_kv_cache: layer  27: dev = CUDA0
+0.09.794.797 I llama_kv_cache:      CUDA0 KV buffer size =    14.00 MiB
+0.09.795.425 I llama_kv_cache: size =   14.00 MiB (   256 cells,  28 layers,  1/1 seqs), K (f16):    7.00 MiB, V (f16):    7.00 MiB
+0.09.795.428 I llama_kv_cache: attn_rot_k = 0, n_embd_head_k_all = 128
+0.09.795.429 I llama_kv_cache: attn_rot_v = 0, n_embd_head_k_all = 128
+0.09.795.430 D llama_context: enumerating backends
+0.09.795.435 D llama_context: backend_ptrs.size() = 2
+0.09.795.437 I sched_reserve: reserving ...
+0.09.795.441 D sched_reserve: max_nodes = 2712
+0.09.795.999 D sched_reserve: reserving full memory module
+0.09.796.016 D sched_reserve: worst-case: n_tokens = 128, n_seqs = 1, n_outputs = 1
+0.09.796.021 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.802.458 I resolve_fused_ops: Flash Attention enabled
+0.09.802.467 I resolve_fused_ops: resolving fused Gated Delta Net support:
+0.09.802.469 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.802.739 I resolve_fused_ops: fused Gated Delta Net (autoregressive) enabled
+0.09.802.741 D graph_reserve: reserving a graph for ubatch with n_tokens =   16, n_seqs =  1, n_outputs =   16
+0.09.802.957 I resolve_fused_ops: fused Gated Delta Net (chunked) enabled
+0.09.802.958 I resolve_fused_ops: resolving fused Lightning Indexer support:
+0.09.802.959 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.803.166 I resolve_fused_ops: Lightning Indexer enabled
+0.09.803.167 I resolve_fused_ops: resolving fused DeepSeek V4 HC support:
+0.09.803.167 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.803.377 I resolve_fused_ops: fused DeepSeek V4 HC pre enabled
+0.09.803.378 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.803.585 I resolve_fused_ops: fused DeepSeek V4 HC comb enabled
+0.09.803.586 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.803.792 I resolve_fused_ops: fused DeepSeek V4 HC post enabled
+0.09.803.805 D graph_reserve: reserving a graph for ubatch with n_tokens =  128, n_seqs =  1, n_outputs =    1
+0.09.806.556 D graph_reserve: reserving a graph for ubatch with n_tokens =    1, n_seqs =  1, n_outputs =    1
+0.09.806.999 D graph_reserve: reserving a graph for ubatch with n_tokens =  128, n_seqs =  1, n_outputs =    1
+0.09.807.354 I sched_reserve:      CUDA0 compute buffer size =    33.07 MiB
+0.09.807.356 I sched_reserve:  CUDA_Host compute buffer size =     1.82 MiB
+0.09.807.357 I sched_reserve: graph nodes  = 958
+0.09.807.358 I sched_reserve: graph splits = 1
+0.09.807.361 I sched_reserve: reserve took 11.92 ms, sched copies = 1
+0.09.807.746 I cmn          init: llama threadpool init, n_threads = 1
+0.09.807.791 D attach_threadpool: call
+0.09.807.827 D set_adapters_lora: adapters = (nil)
+0.09.807.831 D adapters_lora_are_same: adapters = (nil)
+0.09.807.832 I cmn  common_init_: warming up the model with an empty run - please wait ... (--no-warmup to disable)
+0.10.048.146 D CUDA Graph id 22 reused
+0.10.048.149 D ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+0.10.067.843 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 256, kv_unified = 'false'
+0.10.067.857 I spec common_specu: no implementations specified for speculative decoding
+0.10.067.860 I slot   load_model: id  0 | task -1 | new slot, n_ctx = 256
+0.10.067.868 D slot        reset: id  0 | task -1 | 
+0.10.067.910 I srv    load_model: prompt cache is enabled, size limit: 8192 MiB
+0.10.067.914 I srv    load_model: use `--cache-ram 0` to disable the prompt cache
+0.10.067.914 I srv    load_model: for more info see https://github.com/ggml-org/llama.cpp/pull/16391
+0.10.067.915 I srv    load_model: context checkpoints enabled, max = 32, min spacing = 8192
+0.10.068.269 I srv          init: idle slots will be saved to prompt cache upon starting a new task
+0.10.068.271 D srv          init: __TEST_TAG_CACHE_IDLE_SLOTS_ENABLED__
+0.10.076.114 D common_chat_templates_apply_jinja: using differential autoparser
+0.10.076.395 D [1m[38;5;126m=== Starting differential analysis ===
+[0m0.10.076.396 D [1m[38;5;214mPhase 1: Reasoning analysis
+[0m0.10.077.542 D [1m[38;5;214mPhase 2: Content analysis
+[0m0.10.078.145 D [1m[38;5;214mPhase 3: Tool call analysis
+[0m0.10.079.791 D 
+--- Reasoning & Content Structure ---
+0.10.079.793 D user_msg_start: <|im_start|>user
+0.10.079.796 D assistant_msg_start: <|im_start|>assistant
+0.10.079.808 D reasoning_mode: NONE
+0.10.079.810 D reasoning_start: ''
+0.10.079.810 D reasoning_end: ''
+0.10.079.812 D content_mode: PLAIN
+0.10.079.812 D content_start: ''
+0.10.079.812 D content_end: ''
+0.10.079.813 D 
+--- Tool Call Structure ---
+0.10.079.814 D tool_mode: JSON_NATIVE
+0.10.079.814 D supports_tools: true
+0.10.079.815 D supports_parallel_calls: true
+0.10.079.816 D tool_section_start: ''
+0.10.079.816 D tool_section_end: ''
+0.10.079.817 D per_call_start: '<tool_call>
+'
+0.10.079.852 D per_call_end: '</tool_call>'
+0.10.079.854 D func_name_prefix: ''
+0.10.079.855 D func_name_suffix: ''
+0.10.079.855 D func_args_separator: ''
+0.10.079.856 D func_close: ''
+0.10.079.857 D call_id_prefix: ''
+0.10.079.857 D call_id_suffix: ''
+0.10.079.858 D call_id_pos: 'NONE'
+0.10.079.858 D args_start: ''
+0.10.079.858 D args_end: ''
+0.10.079.859 D arg_name_prefix: ''
+0.10.079.859 D arg_name_suffix: ''
+0.10.079.859 D arg_value_prefix: ''
+0.10.079.859 D arg_value_suffix: ''
+0.10.079.859 D name_field: 'name'
+0.10.079.870 D args_field: 'arguments'
+0.10.079.871 D id_field: ''
+0.10.079.871 D gen_id_field: ''
+0.10.079.872 D parameter_order: 'name, arguments'
+0.10.079.873 D [1m[38;5;126m=== Differential analysis complete ===
+[0m0.10.080.863 D common_chat_templates_apply_jinja: generated parser:
+Sequence(Literal(<|im_start|>assistant
+), Epsilon, Tag(content, Until()), End)
+
+parser generation prompt: <|im_start|>assistant
+
+0.10.080.869 I srv          init: init: chat template, example_format: '<|im_start|>system
+You are a helpful assistant<|im_end|>
+<|im_start|>user
+Hello<|im_end|>
+<|im_start|>assistant
+Hi there<|im_end|>
+<|im_start|>user
+How are you?<|im_end|>
+<|im_start|>assistant
+'
+0.10.080.886 D common_chat_templates_apply_jinja: using differential autoparser
+0.10.080.886 D [1m[38;5;126m=== Starting differential analysis ===
+[0m0.10.080.887 D [1m[38;5;214mPhase 1: Reasoning analysis
+[0m0.10.081.418 D [1m[38;5;214mPhase 2: Content analysis
+[0m0.10.081.938 D [1m[38;5;214mPhase 3: Tool call analysis
+[0m0.10.082.786 D 
+--- Reasoning & Content Structure ---
+0.10.082.788 D user_msg_start: <|im_start|>user
+0.10.082.788 D assistant_msg_start: <|im_start|>assistant
+0.10.082.802 D reasoning_mode: NONE
+0.10.082.803 D reasoning_start: ''
+0.10.082.803 D reasoning_end: ''
+0.10.082.803 D content_mode: PLAIN
+0.10.082.803 D content_start: ''
+0.10.082.804 D content_end: ''
+0.10.082.804 D 
+--- Tool Call Structure ---
+0.10.082.804 D tool_mode: JSON_NATIVE
+0.10.082.804 D supports_tools: true
+0.10.082.804 D supports_parallel_calls: true
+0.10.082.804 D tool_section_start: ''
+0.10.082.804 D tool_section_end: ''
+0.10.082.804 D per_call_start: '<tool_call>
+'
+0.10.082.804 D per_call_end: '</tool_call>'
+0.10.082.805 D func_name_prefix: ''
+0.10.082.805 D func_name_suffix: ''
+0.10.082.805 D func_args_separator: ''
+0.10.082.806 D func_close: ''
+0.10.082.806 D call_id_prefix: ''
+0.10.082.806 D call_id_suffix: ''
+0.10.082.806 D call_id_pos: 'NONE'
+0.10.082.806 D args_start: ''
+0.10.082.806 D args_end: ''
+0.10.082.806 D arg_name_prefix: ''
+0.10.082.806 D arg_name_suffix: ''
+0.10.082.807 D arg_value_prefix: ''
+0.10.082.807 D arg_value_suffix: ''
+0.10.082.807 D name_field: 'name'
+0.10.082.807 D args_field: 'arguments'
+0.10.082.807 D id_field: ''
+0.10.082.813 D gen_id_field: ''
+0.10.082.813 D parameter_order: 'name, arguments'
+0.10.082.813 D [1m[38;5;126m=== Differential analysis complete ===
+[0m0.10.082.974 D common_chat_templates_apply_jinja: generated parser:
+Sequence(Literal(<|im_start|>assistant
+), Epsilon, Tag(content, Until()), End)
+
+parser generation prompt: <|im_start|>assistant
+
+0.10.082.978 I srv          init: init: chat template, thinking = 0
+0.10.083.067 I srv  llama_server: model loaded
+0.10.083.070 I srv  llama_server: listening on http://127.0.0.1:18096
+0.10.083.171 D que    start_loop: processing new tasks
+0.10.083.174 D que    start_loop: update slots
+0.10.083.175 I srv  update_slots: all slots are idle
+0.10.083.175 D que    start_loop: waiting for new tasks
+0.10.109.529 D srv          stop: all tasks already finished, no need to cancel
+0.10.113.711 I srv  server_strea: conv_id= (empty=1)
+0.10.114.171 D srv  eval_llama_c: reasoning budget: tokens=-1, generation_prompt='', start=0 toks, end=0 seqs, forced=0 toks
+0.10.114.612 D res  add_waiting_: add task 0 to waiting list. current waiting = 0 (before add)
+0.10.114.623 D que          post: new task, id = 0/1, front = 0
+0.10.114.633 D que    start_loop: processing new tasks
+0.10.114.637 D que  process_new_: processing task, id = 0
+0.10.114.641 I slot get_availabl: id  0 | task -1 |  - skipping, slot is empty
+0.10.114.642 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.10.114.642 I srv  get_availabl: updating prompt cache
+0.10.114.648 I srv          load:  - looking for better prompt, base f_keep = -1.000, f_sim = 0.000
+0.10.115.234 I srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 256 tokens, 8589934592 est)
+0.10.115.235 I srv  get_availabl: prompt cache update took 0.59 ms
+0.10.115.246 D slot launch_slot_: id  0 | task -1 | launching slot : {"id":0,"n_ctx":256,"speculative":false,"is_processing":false}
+0.10.115.442 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.10.115.450 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.10.115.452 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.10.115.452 D que    start_loop: update slots
+0.10.115.453 D srv  update_slots: posting NEXT_RESPONSE
+0.10.115.464 D que          post: new task, id = 1, front = 0
+0.10.115.472 I slot   operator(): id  0 | task 0 | new prompt, n_ctx_slot = 256, n_keep = 0, task.n_tokens = 1
+0.10.115.476 I slot   operator(): id  0 | task 0 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.10.115.487 I slot init_sampler: id  0 | task 0 | init sampler, took 0.01 ms, tokens: text = 1, total = 1
+0.10.115.491 D slot   operator(): id  0 | task 0 | main/do_checkpoint = no, pos_min = -1, pos_max = -1
+0.10.115.495 D set_adapters_lora: adapters = (nil)
+0.10.115.495 D adapters_lora_are_same: adapters = (nil)
+0.10.115.497 D set_embeddings: value = 0
+0.10.115.499 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.115.500 D que  yield_to_que: yielding to queue
+0.10.115.512 D que  process_new_: processing task, id = 1
+0.10.115.515 D srv  process_sing: decoding, decline task, id_task = 1
+0.10.115.515 D que  process_new_: task declined, id = 1
+0.10.116.175 D ggml_backend_cuda_graph_compute: CUDA graph warmup reset
+0.10.136.288 D que  yield_to_que: done yielding to queue
+0.10.136.867 D slot process_toke: id  0 | task 0 | n_gen = 1, n_remaining = 7, next token: 48298 'ampie'
+0.10.136.871 D que    start_loop: waiting for new tasks
+0.10.136.871 D que    start_loop: processing new tasks
+0.10.136.872 D que  process_new_: processing task, id = 1
+0.10.136.873 D que    start_loop: update slots
+0.10.136.873 D srv  update_slots: posting NEXT_RESPONSE
+0.10.136.874 D que          post: new task, id = 2, front = 0
+0.10.136.876 D slot handle_last_: id  0 | task 0 | slot decode token, id=48298, n_ctx = 256, n_tokens = 1, truncated = 0
+0.10.136.879 D set_adapters_lora: adapters = (nil)
+0.10.136.880 D adapters_lora_are_same: adapters = (nil)
+0.10.136.880 D set_embeddings: value = 0
+0.10.136.880 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.136.881 D que  yield_to_que: yielding to queue
+0.10.136.893 D que  process_new_: processing task, id = 2
+0.10.136.895 D srv  process_sing: decoding, decline task, id_task = 2
+0.10.136.895 D que  process_new_: task declined, id = 2
+0.10.136.945 D CUDA Graph id 24 reused
+0.10.136.946 D ggml_backend_cuda_graph_compute: CUDA graph warmup complete
+0.10.152.357 D que  yield_to_que: done yielding to queue
+0.10.152.535 D slot process_toke: id  0 | task 0 | n_gen = 2, n_remaining = 6, next token:   271 '
+
+'
+0.10.152.536 D que    start_loop: waiting for new tasks
+0.10.152.536 D que    start_loop: processing new tasks
+0.10.152.537 D que  process_new_: processing task, id = 2
+0.10.152.538 D que    start_loop: update slots
+0.10.152.538 D srv  update_slots: posting NEXT_RESPONSE
+0.10.152.539 D que          post: new task, id = 3, front = 0
+0.10.152.540 D slot handle_last_: id  0 | task 0 | slot decode token, id=271, n_ctx = 256, n_tokens = 2, truncated = 0
+0.10.152.541 D set_adapters_lora: adapters = (nil)
+0.10.152.541 D adapters_lora_are_same: adapters = (nil)
+0.10.152.542 D set_embeddings: value = 0
+0.10.152.549 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.152.550 D que  yield_to_que: yielding to queue
+0.10.152.557 D que  process_new_: processing task, id = 3
+0.10.152.558 D srv  process_sing: decoding, decline task, id_task = 3
+0.10.152.558 D que  process_new_: task declined, id = 3
+0.10.152.601 D CUDA Graph id 24 reused
+0.10.166.009 D que  yield_to_que: done yielding to queue
+0.10.166.156 D slot process_toke: id  0 | task 0 | n_gen = 3, n_remaining = 5, next token:  9707 'Hello'
+0.10.166.158 D que    start_loop: waiting for new tasks
+0.10.166.158 D que    start_loop: processing new tasks
+0.10.166.158 D que  process_new_: processing task, id = 3
+0.10.166.159 D que    start_loop: update slots
+0.10.166.159 D srv  update_slots: posting NEXT_RESPONSE
+0.10.166.160 D que          post: new task, id = 4, front = 0
+0.10.166.161 D slot handle_last_: id  0 | task 0 | slot decode token, id=9707, n_ctx = 256, n_tokens = 3, truncated = 0
+0.10.166.170 D set_adapters_lora: adapters = (nil)
+0.10.166.171 D adapters_lora_are_same: adapters = (nil)
+0.10.166.171 D set_embeddings: value = 0
+0.10.166.171 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.166.171 D que  yield_to_que: yielding to queue
+0.10.166.180 D que  process_new_: processing task, id = 4
+0.10.166.180 D srv  process_sing: decoding, decline task, id_task = 4
+0.10.166.181 D que  process_new_: task declined, id = 4
+0.10.166.218 D CUDA Graph id 24 reused
+0.10.180.532 D que  yield_to_que: done yielding to queue
+0.10.180.786 D slot process_toke: id  0 | task 0 | n_gen = 4, n_remaining = 4, next token:     0 '!'
+0.10.180.788 D que    start_loop: waiting for new tasks
+0.10.180.788 D que    start_loop: processing new tasks
+0.10.180.789 D que  process_new_: processing task, id = 4
+0.10.180.790 D que    start_loop: update slots
+0.10.180.801 D srv  update_slots: posting NEXT_RESPONSE
+0.10.180.802 D que          post: new task, id = 5, front = 0
+0.10.180.804 D slot handle_last_: id  0 | task 0 | slot decode token, id=0, n_ctx = 256, n_tokens = 4, truncated = 0
+0.10.180.805 D set_adapters_lora: adapters = (nil)
+0.10.180.806 D adapters_lora_are_same: adapters = (nil)
+0.10.180.814 D set_embeddings: value = 0
+0.10.180.814 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.180.814 D que  yield_to_que: yielding to queue
+0.10.180.823 D que  process_new_: processing task, id = 5
+0.10.180.823 D srv  process_sing: decoding, decline task, id_task = 5
+0.10.180.823 D que  process_new_: task declined, id = 5
+0.10.180.900 D CUDA Graph id 24 reused
+0.10.194.454 D que  yield_to_que: done yielding to queue
+0.10.194.609 D slot process_toke: id  0 | task 0 | n_gen = 5, n_remaining = 3, next token:  2585 ' How'
+0.10.194.610 D que    start_loop: waiting for new tasks
+0.10.194.617 D que    start_loop: processing new tasks
+0.10.194.619 D que  process_new_: processing task, id = 5
+0.10.194.619 D que    start_loop: update slots
+0.10.194.620 D srv  update_slots: posting NEXT_RESPONSE
+0.10.194.620 D que          post: new task, id = 6, front = 0
+0.10.194.622 D slot handle_last_: id  0 | task 0 | slot decode token, id=2585, n_ctx = 256, n_tokens = 5, truncated = 0
+0.10.194.623 D set_adapters_lora: adapters = (nil)
+0.10.194.623 D adapters_lora_are_same: adapters = (nil)
+0.10.194.623 D set_embeddings: value = 0
+0.10.194.624 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.194.624 D que  yield_to_que: yielding to queue
+0.10.194.632 D que  process_new_: processing task, id = 6
+0.10.194.633 D srv  process_sing: decoding, decline task, id_task = 6
+0.10.194.633 D que  process_new_: task declined, id = 6
+0.10.194.673 D CUDA Graph id 24 reused
+0.10.208.061 D que  yield_to_que: done yielding to queue
+0.10.208.207 D slot process_toke: id  0 | task 0 | n_gen = 6, n_remaining = 2, next token:   646 ' can'
+0.10.208.209 D que    start_loop: waiting for new tasks
+0.10.208.209 D que    start_loop: processing new tasks
+0.10.208.210 D que  process_new_: processing task, id = 6
+0.10.208.210 D que    start_loop: update slots
+0.10.208.210 D srv  update_slots: posting NEXT_RESPONSE
+0.10.208.211 D que          post: new task, id = 7, front = 0
+0.10.208.212 D slot handle_last_: id  0 | task 0 | slot decode token, id=646, n_ctx = 256, n_tokens = 6, truncated = 0
+0.10.208.213 D set_adapters_lora: adapters = (nil)
+0.10.208.213 D adapters_lora_are_same: adapters = (nil)
+0.10.208.214 D set_embeddings: value = 0
+0.10.208.214 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.208.214 D que  yield_to_que: yielding to queue
+0.10.208.221 D que  process_new_: processing task, id = 7
+0.10.208.236 D srv  process_sing: decoding, decline task, id_task = 7
+0.10.208.237 D que  process_new_: task declined, id = 7
+0.10.208.261 D CUDA Graph id 24 reused
+0.10.221.604 D que  yield_to_que: done yielding to queue
+0.10.221.751 D slot process_toke: id  0 | task 0 | n_gen = 7, n_remaining = 1, next token:   358 ' I'
+0.10.221.752 D que    start_loop: waiting for new tasks
+0.10.221.752 D que    start_loop: processing new tasks
+0.10.221.753 D que  process_new_: processing task, id = 7
+0.10.221.753 D que    start_loop: update slots
+0.10.221.754 D srv  update_slots: posting NEXT_RESPONSE
+0.10.221.754 D que          post: new task, id = 8, front = 0
+0.10.221.755 D slot handle_last_: id  0 | task 0 | slot decode token, id=358, n_ctx = 256, n_tokens = 7, truncated = 0
+0.10.221.756 D set_adapters_lora: adapters = (nil)
+0.10.221.756 D adapters_lora_are_same: adapters = (nil)
+0.10.221.756 D set_embeddings: value = 0
+0.10.221.764 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.221.765 D que  yield_to_que: yielding to queue
+0.10.221.771 D que  process_new_: processing task, id = 8
+0.10.221.772 D srv  process_sing: decoding, decline task, id_task = 8
+0.10.221.772 D que  process_new_: task declined, id = 8
+0.10.221.813 D CUDA Graph id 24 reused
+0.10.235.197 D que  yield_to_que: done yielding to queue
+0.10.235.351 D slot process_toke: id  0 | task 0 | stopped by limit, n_gen = 8, n_predict = 8
+0.10.235.352 D slot process_toke: id  0 | task 0 | n_gen = 8, n_remaining = 0, next token:  7789 ' assist'
+0.10.235.358 I slot print_timing: id  0 | task 0 | prompt eval time =      21.36 ms /     1 tokens (   21.36 ms per token,    46.82 tokens per second)
+0.10.235.359 I slot print_timing: id  0 | task 0 |        eval time =      98.49 ms /     8 tokens (   14.07 ms per token,    71.07 tokens per second)
+0.10.235.360 I slot print_timing: id  0 | task 0 |       total time =     119.85 ms /     9 tokens
+0.10.235.362 I slot print_timing: id  0 | task 0 |    graphs reused =          8
+0.10.235.378 D res          send: sending result for task id = 0
+0.10.235.379 D res          send: task id = 0 pushed to result queue
+0.10.235.389 I slot      release: id  0 | task 0 | stop processing: n_tokens = 8, truncated = 0
+0.10.235.391 D slot        reset: id  0 | task 0 | 
+0.10.235.394 D que    start_loop: waiting for new tasks
+0.10.235.394 D que    start_loop: processing new tasks
+0.10.235.395 D que  process_new_: processing task, id = 8
+0.10.235.396 D que    start_loop: update slots
+0.10.235.396 I srv  update_slots: all slots are idle
+0.10.235.396 D que    start_loop: waiting for new tasks
+0.10.235.407 D No parser definition detected, assuming pure content parser.0.10.235.434 D Parsed message: {"role":"assistant","content":"ampie\n\nHello! How can I assist"}
+0.10.235.531 D srv          stop: all tasks already finished, no need to cancel
+0.10.235.536 D res  remove_waiti: remove task 0 from waiting list. current waiting = 1 (before remove)
+0.10.235.537 D srv          stop: all tasks already finished, no need to cancel
+0.10.239.814 I srv  server_strea: conv_id= (empty=1)
+0.10.239.858 D srv  eval_llama_c: reasoning budget: tokens=-1, generation_prompt='', start=0 toks, end=0 seqs, forced=0 toks
+0.10.239.889 D res  add_waiting_: add task 9 to waiting list. current waiting = 0 (before add)
+0.10.239.900 D que          post: new task, id = 9/1, front = 0
+0.10.239.908 D que    start_loop: processing new tasks
+0.10.239.911 D que  process_new_: processing task, id = 9
+0.10.239.915 I slot get_availabl: id  0 | task -1 |  - checking sim = 1.000 (1/1) > 0.100
+0.10.239.916 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.125
+0.10.239.917 I srv  get_availabl: updating prompt cache
+0.10.239.929 I srv   prompt_save:  - saving prompt with length 8, total state size = 0.438 MiB (draft: 0.000 MiB)
+0.10.240.508 I srv          load:  - looking for better prompt, base f_keep = 0.125, f_sim = 1.000
+0.10.240.510 I srv          load:    - prompt with length       8, lcp =       1, f_keep = 0.125, f_sim = 1.000
+0.10.240.512 I srv        update:  - cache state: 1 prompts, 0.438 MiB (limits: 8192.000 MiB, 256 tokens, 149538 est)
+0.10.240.514 I srv        update:    - prompt 0x55f2aa6df220:       8 tokens, checkpoints:  0,     0.438 MiB
+0.10.240.514 I srv  get_availabl: prompt cache update took 0.60 ms
+0.10.240.548 D slot launch_slot_: id  0 | task -1 | launching slot : {"id":0,"n_ctx":256,"speculative":false,"is_processing":false,"id_task":0,"n_prompt_tokens":8,"n_prompt_tokens_processed":0,"n_prompt_tokens_cache":0,"params":{"seed":1,"temperature":0.0,"dynatemp_range":0.0,"dynatemp_exponent":1.0,"top_k":40,"top_p":0.949999988079071,"min_p":0.05000000074505806,"top_n_sigma":-1.0,"xtc_probability":0.0,"xtc_threshold":0.10000000149011612,"typical_p":1.0,"repeat_last_n":64,"repeat_penalty":1.0,"presence_penalty":0.0,"frequency_penalty":0.0,"dry_multiplier":0.0,"dry_base":1.75,"dry_allowed_length":2,"dry_penalty_last_n":64,"dry_sequence_breakers":["\n",":","\"","*"],"mirostat":0,"mirostat_tau":5.0,"mirostat_eta":0.10000000149011612,"adaptive_target":-1.0,"adaptive_decay":0.8999999761581421,"stop":[],"max_tokens":8,"n_predict":8,"n_keep":0,"n_discard":0,"ignore_eos":false,"stream":false,"logit_bias":[],"n_probs":0,"min_keep":0,"grammar":"","grammar_lazy":false,"grammar_triggers":[],"preserved_tokens":[],"chat_format":"Content-only","reasoning_format":"deepseek","reasoning_in_content":false,"generation_prompt":"","samplers":["penalties","dry","top_n_sigma","top_k","typ_p","top_p","min_p","xtc","temperature"],"speculative.types":"none","timings_per_token":false,"post_sampling_probs":false,"backend_sampling":false,"lora":[]},"next_token":[{"has_next_token":false,"has_new_line":false,"n_remain":-1,"n_decoded":0}],"prompt":"Hello","generated":""}
+0.10.240.568 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.10.240.581 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.10.240.582 I slot launch_slot_: id  0 | task 9 | processing task, is_child = 0
+0.10.240.583 D que    start_loop: update slots
+0.10.240.584 D srv  update_slots: posting NEXT_RESPONSE
+0.10.240.584 D que          post: new task, id = 10, front = 0
+0.10.240.586 I slot   operator(): id  0 | task 9 | new prompt, n_ctx_slot = 256, n_keep = 0, task.n_tokens = 1
+0.10.240.587 I slot   operator(): id  0 | task 9 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.10.240.592 I slot init_sampler: id  0 | task 9 | init sampler, took 0.00 ms, tokens: text = 1, total = 1
+0.10.240.594 D slot   operator(): id  0 | task 9 | main/do_checkpoint = no, pos_min = -1, pos_max = -1
+0.10.240.595 D set_adapters_lora: adapters = (nil)
+0.10.240.595 D adapters_lora_are_same: adapters = (nil)
+0.10.240.595 D set_embeddings: value = 0
+0.10.240.596 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.240.596 D que  yield_to_que: yielding to queue
+0.10.240.602 D que  process_new_: processing task, id = 10
+0.10.240.604 D srv  process_sing: decoding, decline task, id_task = 10
+0.10.240.614 D que  process_new_: task declined, id = 10
+0.10.240.647 D CUDA Graph id 24 reused
+0.10.253.975 D que  yield_to_que: done yielding to queue
+0.10.254.175 D slot process_toke: id  0 | task 9 | n_gen = 1, n_remaining = 7, next token: 48298 'ampie'
+0.10.254.177 D que    start_loop: waiting for new tasks
+0.10.254.177 D que    start_loop: processing new tasks
+0.10.254.178 D que  process_new_: processing task, id = 10
+0.10.254.179 D que    start_loop: update slots
+0.10.254.180 D srv  update_slots: posting NEXT_RESPONSE
+0.10.254.180 D que          post: new task, id = 11, front = 0
+0.10.254.182 D slot handle_last_: id  0 | task 9 | slot decode token, id=48298, n_ctx = 256, n_tokens = 1, truncated = 0
+0.10.254.184 D set_adapters_lora: adapters = (nil)
+0.10.254.184 D adapters_lora_are_same: adapters = (nil)
+0.10.254.186 D set_embeddings: value = 0
+0.10.254.186 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.254.197 D que  yield_to_que: yielding to queue
+0.10.254.205 D que  process_new_: processing task, id = 11
+0.10.254.206 D srv  process_sing: decoding, decline task, id_task = 11
+0.10.254.206 D que  process_new_: task declined, id = 11
+0.10.254.250 D CUDA Graph id 24 reused
+0.10.267.582 D que  yield_to_que: done yielding to queue
+0.10.267.706 D slot process_toke: id  0 | task 9 | n_gen = 2, n_remaining = 6, next token:   271 '
+
+'
+0.10.267.708 D que    start_loop: waiting for new tasks
+0.10.267.708 D que    start_loop: processing new tasks
+0.10.267.709 D que  process_new_: processing task, id = 11
+0.10.267.709 D que    start_loop: update slots
+0.10.267.709 D srv  update_slots: posting NEXT_RESPONSE
+0.10.267.710 D que          post: new task, id = 12, front = 0
+0.10.267.711 D slot handle_last_: id  0 | task 9 | slot decode token, id=271, n_ctx = 256, n_tokens = 2, truncated = 0
+0.10.267.712 D set_adapters_lora: adapters = (nil)
+0.10.267.721 D adapters_lora_are_same: adapters = (nil)
+0.10.267.722 D set_embeddings: value = 0
+0.10.267.722 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.267.722 D que  yield_to_que: yielding to queue
+0.10.267.728 D que  process_new_: processing task, id = 12
+0.10.267.728 D srv  process_sing: decoding, decline task, id_task = 12
+0.10.267.729 D que  process_new_: task declined, id = 12
+0.10.267.769 D CUDA Graph id 24 reused
+0.10.281.099 D que  yield_to_que: done yielding to queue
+0.10.281.223 D slot process_toke: id  0 | task 9 | n_gen = 3, n_remaining = 5, next token:  9707 'Hello'
+0.10.281.225 D que    start_loop: waiting for new tasks
+0.10.281.225 D que    start_loop: processing new tasks
+0.10.281.225 D que  process_new_: processing task, id = 12
+0.10.281.226 D que    start_loop: update slots
+0.10.281.226 D srv  update_slots: posting NEXT_RESPONSE
+0.10.281.235 D que          post: new task, id = 13, front = 0
+0.10.281.237 D slot handle_last_: id  0 | task 9 | slot decode token, id=9707, n_ctx = 256, n_tokens = 3, truncated = 0
+0.10.281.238 D set_adapters_lora: adapters = (nil)
+0.10.281.239 D adapters_lora_are_same: adapters = (nil)
+0.10.281.239 D set_embeddings: value = 0
+0.10.281.239 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.281.239 D que  yield_to_que: yielding to queue
+0.10.281.245 D que  process_new_: processing task, id = 13
+0.10.281.246 D srv  process_sing: decoding, decline task, id_task = 13
+0.10.281.246 D que  process_new_: task declined, id = 13
+0.10.281.284 D CUDA Graph id 24 reused
+0.10.295.604 D que  yield_to_que: done yielding to queue
+0.10.295.952 D slot process_toke: id  0 | task 9 | n_gen = 4, n_remaining = 4, next token:     0 '!'
+0.10.295.954 D que    start_loop: waiting for new tasks
+0.10.295.954 D que    start_loop: processing new tasks
+0.10.295.967 D que  process_new_: processing task, id = 13
+0.10.295.969 D que    start_loop: update slots
+0.10.295.970 D srv  update_slots: posting NEXT_RESPONSE
+0.10.295.970 D que          post: new task, id = 14, front = 0
+0.10.295.973 D slot handle_last_: id  0 | task 9 | slot decode token, id=0, n_ctx = 256, n_tokens = 4, truncated = 0
+0.10.295.975 D set_adapters_lora: adapters = (nil)
+0.10.295.975 D adapters_lora_are_same: adapters = (nil)
+0.10.295.975 D set_embeddings: value = 0
+0.10.295.975 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.295.976 D que  yield_to_que: yielding to queue
+0.10.295.983 D que  process_new_: processing task, id = 14
+0.10.295.984 D srv  process_sing: decoding, decline task, id_task = 14
+0.10.295.985 D que  process_new_: task declined, id = 14
+0.10.296.083 D CUDA Graph id 24 reused
+0.10.310.101 D que  yield_to_que: done yielding to queue
+0.10.310.793 D slot process_toke: id  0 | task 9 | n_gen = 5, n_remaining = 3, next token:  2585 ' How'
+0.10.310.799 D que    start_loop: waiting for new tasks
+0.10.310.799 D que    start_loop: processing new tasks
+0.10.310.803 D que  process_new_: processing task, id = 14
+0.10.310.805 D que    start_loop: update slots
+0.10.310.807 D srv  update_slots: posting NEXT_RESPONSE
+0.10.310.809 D que          post: new task, id = 15, front = 0
+0.10.310.814 D slot handle_last_: id  0 | task 9 | slot decode token, id=2585, n_ctx = 256, n_tokens = 5, truncated = 0
+0.10.310.820 D set_adapters_lora: adapters = (nil)
+0.10.310.821 D adapters_lora_are_same: adapters = (nil)
+0.10.310.822 D set_embeddings: value = 0
+0.10.310.822 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.310.823 D que  yield_to_que: yielding to queue
+0.10.310.837 D que  process_new_: processing task, id = 15
+0.10.310.841 D srv  process_sing: decoding, decline task, id_task = 15
+0.10.310.843 D que  process_new_: task declined, id = 15
+0.10.311.188 D CUDA Graph id 24 reused
+0.10.324.707 D que  yield_to_que: done yielding to queue
+0.10.325.054 D slot process_toke: id  0 | task 9 | n_gen = 6, n_remaining = 2, next token:   646 ' can'
+0.10.325.056 D que    start_loop: waiting for new tasks
+0.10.325.057 D que    start_loop: processing new tasks
+0.10.325.058 D que  process_new_: processing task, id = 15
+0.10.325.059 D que    start_loop: update slots
+0.10.325.060 D srv  update_slots: posting NEXT_RESPONSE
+0.10.325.061 D que          post: new task, id = 16, front = 0
+0.10.325.065 D slot handle_last_: id  0 | task 9 | slot decode token, id=646, n_ctx = 256, n_tokens = 6, truncated = 0
+0.10.325.069 D set_adapters_lora: adapters = (nil)
+0.10.325.069 D adapters_lora_are_same: adapters = (nil)
+0.10.325.070 D set_embeddings: value = 0
+0.10.325.070 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.325.071 D que  yield_to_que: yielding to queue
+0.10.325.081 D que  process_new_: processing task, id = 16
+0.10.325.084 D srv  process_sing: decoding, decline task, id_task = 16
+0.10.325.084 D que  process_new_: task declined, id = 16
+0.10.325.175 D CUDA Graph id 24 reused
+0.10.338.537 D que  yield_to_que: done yielding to queue
+0.10.338.942 D slot process_toke: id  0 | task 9 | n_gen = 7, n_remaining = 1, next token:   358 ' I'
+0.10.338.945 D que    start_loop: waiting for new tasks
+0.10.338.945 D que    start_loop: processing new tasks
+0.10.338.948 D que  process_new_: processing task, id = 16
+0.10.338.950 D que    start_loop: update slots
+0.10.338.951 D srv  update_slots: posting NEXT_RESPONSE
+0.10.338.952 D que          post: new task, id = 17, front = 0
+0.10.338.956 D slot handle_last_: id  0 | task 9 | slot decode token, id=358, n_ctx = 256, n_tokens = 7, truncated = 0
+0.10.338.960 D set_adapters_lora: adapters = (nil)
+0.10.338.962 D adapters_lora_are_same: adapters = (nil)
+0.10.338.963 D set_embeddings: value = 0
+0.10.338.963 D srv        decode: n_batch (effective) = 128, off = 0
+0.10.338.963 D que  yield_to_que: yielding to queue
+0.10.338.974 D que  process_new_: processing task, id = 17
+0.10.338.977 D srv  process_sing: decoding, decline task, id_task = 17
+0.10.338.977 D que  process_new_: task declined, id = 17
+0.10.339.072 D CUDA Graph id 24 reused
+0.10.352.420 D que  yield_to_que: done yielding to queue
+0.10.352.849 D slot process_toke: id  0 | task 9 | stopped by limit, n_gen = 8, n_predict = 8
+0.10.352.851 D slot process_toke: id  0 | task 9 | n_gen = 8, n_remaining = 0, next token:  7789 ' assist'
+0.10.352.855 I slot print_timing: id  0 | task 9 | prompt eval time =      13.59 ms /     1 tokens (   13.59 ms per token,    73.60 tokens per second)
+0.10.352.857 I slot print_timing: id  0 | task 9 |        eval time =      98.67 ms /     8 tokens (   14.10 ms per token,    70.95 tokens per second)
+0.10.352.857 I slot print_timing: id  0 | task 9 |       total time =     112.25 ms /     9 tokens
+0.10.352.865 I slot print_timing: id  0 | task 9 |    graphs reused =         16
+0.10.352.877 D res          send: sending result for task id = 9
+0.10.352.878 D res          send: task id = 9 pushed to result queue
+0.10.352.881 I slot      release: id  0 | task 9 | stop processing: n_tokens = 8, truncated = 0
+0.10.352.881 D slot        reset: id  0 | task 9 | 
+0.10.352.887 D que    start_loop: waiting for new tasks
+0.10.352.890 D que    start_loop: processing new tasks
+0.10.352.892 D que  process_new_: processing task, id = 17
+0.10.352.894 D que    start_loop: update slots
+0.10.352.895 I srv  update_slots: all slots are idle
+0.10.352.896 D que    start_loop: waiting for new tasks
+0.10.352.907 D No parser definition detected, assuming pure content parser.0.10.352.943 D Parsed message: {"role":"assistant","content":"ampie\n\nHello! How can I assist"}
+0.10.353.020 D srv          stop: all tasks already finished, no need to cancel
+0.10.353.029 D res  remove_waiti: remove task 9 from waiting list. current waiting = 1 (before remove)
+0.10.353.030 D srv          stop: all tasks already finished, no need to cancel
+0.10.354.670 D que    start_loop: processing new tasks
+0.10.354.672 D que  process_new_: terminate
+0.10.354.700 I srv    operator(): operator(): cleaning up before exit...
+0.10.355.448 I common_memory_breakdown_print: | memory breakdown [MiB]  | total   free    self   model   context   compute    unaccounted |
+0.10.355.450 I common_memory_breakdown_print: |   - CUDA0 (RTX 4070 Ti) | 11933 = 3540 + (6005 =  5958 +      14 +      33) +        2387 |
+0.10.355.451 I common_memory_breakdown_print: |   - Host                |                    1 =     0 +       0 +       1                |
+0.10.355.517 I srv       destroy: vulkan workload lease teardown: held=no
+0.10.355.544 D ~llama_context:      CUDA0 compute buffer size is  33.0656 MiB, matches expectation of  33.0656 MiB
+0.10.355.545 D ~llama_context:  CUDA_Host compute buffer size is   1.8155 MiB, matches expectation of   1.8155 MiB

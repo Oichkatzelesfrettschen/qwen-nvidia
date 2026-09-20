@@ -1,0 +1,212 @@
+0.00.016.043 I cmn  common_param: common_params_print_info: build 1935 (f280b2698) with GNU 15.3.0 for Linux x86_64
+0.00.016.045 I cmn  common_param: common_params_print_info: verbosity = 10 (adjust with the `-lv N` CLI arg)
+0.00.016.045 I cmn  common_param: device_info:
+0.00.081.320 I cmn  common_param:   - CUDA0   : NVIDIA GeForce RTX 4070 Ti (11933 MiB, 9581 MiB free)
+0.00.081.325 I cmn  common_param:   - CPU     : AMD Ryzen 5 5600X3D 6-Core Processor (15875 MiB, 15875 MiB free)
+0.00.081.362 I cmn  common_param: system_info: n_threads = 1 (n_threads_batch = 1) / 12 | CUDA : ARCHS = 890 | USE_GRAPHS = 1 | FA_ALL_QUANTS = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.00.081.385 I srv          init: running without SSL
+0.00.081.427 I srv          init: using 11 threads for HTTP server
+0.00.081.428 I srv          init: The UI is disabled
+0.00.081.429 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.081.476 W srv  llama_server: -----------------
+0.00.081.477 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.081.477 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.081.478 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.081.478 W srv  llama_server: -----------------
+0.00.081.492 I srv         start: binding port with default address family
+0.00.082.625 I srv    load_model: loading model '$HOME/models/Hammer2.1-3b-GGUF/Hammer2.1-3b.f16.gguf'
+0.00.082.625 I srv    load_model: local path '$HOME/models/Hammer2.1-3b-GGUF/Hammer2.1-3b.f16.gguf'
+0.00.102.459 I llama_model_loader: loaded meta data with 49 key-value pairs and 434 tensors from $HOME/models/Hammer2.1-3b-GGUF/Hammer2.1-3b.f16.gguf (version GGUF V3 (latest))
+0.00.102.472 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+0.00.102.480 I llama_model_loader: - kv   0:                       general.architecture str              = qwen2
+0.00.102.481 I llama_model_loader: - kv   1:                               general.type str              = model
+0.00.102.481 I llama_model_loader: - kv   2:                               general.name str              = Hammer2.1 3b
+0.00.102.482 I llama_model_loader: - kv   3:                           general.basename str              = Hammer2.1
+0.00.102.482 I llama_model_loader: - kv   4:                         general.size_label str              = 3B
+0.00.102.482 I llama_model_loader: - kv   5:                            general.license str              = other
+0.00.102.483 I llama_model_loader: - kv   6:                       general.license.name str              = qwen-research
+0.00.102.484 I llama_model_loader: - kv   7:                       general.license.link str              = https://huggingface.co/MadeAgents/Ham...
+0.00.102.486 I llama_model_loader: - kv   8:                   general.base_model.count u32              = 1
+0.00.102.486 I llama_model_loader: - kv   9:                  general.base_model.0.name str              = Qwen2.5 Coder 3B Instruct
+0.00.102.486 I llama_model_loader: - kv  10:          general.base_model.0.organization str              = Qwen
+0.00.102.487 I llama_model_loader: - kv  11:              general.base_model.0.repo_url str              = https://huggingface.co/Qwen/Qwen2.5-C...
+0.00.102.487 I llama_model_loader: - kv  12:                      general.dataset.count u32              = 2
+0.00.102.488 I llama_model_loader: - kv  13:                     general.dataset.0.name str              = Xlam Function Calling 60k
+0.00.102.488 I llama_model_loader: - kv  14:             general.dataset.0.organization str              = Salesforce
+0.00.102.489 I llama_model_loader: - kv  15:                 general.dataset.0.repo_url str              = https://huggingface.co/Salesforce/xla...
+0.00.102.489 I llama_model_loader: - kv  16:                     general.dataset.1.name str              = Xlam Irrelevance 7.5k
+0.00.102.489 I llama_model_loader: - kv  17:             general.dataset.1.organization str              = MadeAgents
+0.00.102.490 I llama_model_loader: - kv  18:                 general.dataset.1.repo_url str              = https://huggingface.co/MadeAgents/xla...
+0.00.102.490 I llama_model_loader: - kv  19:                          qwen2.block_count u32              = 36
+0.00.102.491 I llama_model_loader: - kv  20:                       qwen2.context_length u32              = 32768
+0.00.102.491 I llama_model_loader: - kv  21:                     qwen2.embedding_length u32              = 2048
+0.00.102.491 I llama_model_loader: - kv  22:                  qwen2.feed_forward_length u32              = 11008
+0.00.102.492 I llama_model_loader: - kv  23:                 qwen2.attention.head_count u32              = 16
+0.00.102.492 I llama_model_loader: - kv  24:              qwen2.attention.head_count_kv u32              = 2
+0.00.102.498 I llama_model_loader: - kv  25:                       qwen2.rope.freq_base f32              = 1000000.000000
+0.00.102.498 I llama_model_loader: - kv  26:     qwen2.attention.layer_norm_rms_epsilon f32              = 0.000001
+0.00.102.499 I llama_model_loader: - kv  27:                    qwen2.rope.scaling.type str              = yarn
+0.00.102.499 I llama_model_loader: - kv  28:                  qwen2.rope.scaling.factor f32              = 4.000000
+0.00.102.500 I llama_model_loader: - kv  29: qwen2.rope.scaling.original_context_length u32              = 32768
+0.00.102.500 I llama_model_loader: - kv  30:                       tokenizer.ggml.model str              = gpt2
+0.00.102.500 I llama_model_loader: - kv  31:                         tokenizer.ggml.pre str              = qwen2
+0.00.113.750 I llama_model_loader: - kv  32:                      tokenizer.ggml.tokens arr[str,151665]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+0.00.117.025 I llama_model_loader: - kv  33:                  tokenizer.ggml.token_type arr[i32,151665]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+0.00.128.033 I llama_model_loader: - kv  34:                      tokenizer.ggml.merges arr[str,151387]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+0.00.128.035 I llama_model_loader: - kv  35:                tokenizer.ggml.eos_token_id u32              = 151645
+0.00.128.035 I llama_model_loader: - kv  36:            tokenizer.ggml.padding_token_id u32              = 151643
+0.00.128.036 I llama_model_loader: - kv  37:                tokenizer.ggml.bos_token_id u32              = 151643
+0.00.128.036 I llama_model_loader: - kv  38:               tokenizer.ggml.add_bos_token bool             = false
+0.00.128.037 I llama_model_loader: - kv  39:                    tokenizer.chat_template str              = {%- set system_message = 'You are a h...
+0.00.128.038 I llama_model_loader: - kv  40:               general.quantization_version u32              = 2
+0.00.128.038 I llama_model_loader: - kv  41:                          general.file_type u32              = 1
+0.00.128.038 I llama_model_loader: - kv  42:                                general.url str              = https://huggingface.co/mradermacher/H...
+0.00.128.039 I llama_model_loader: - kv  43:              mradermacher.quantize_version str              = 2
+0.00.128.039 I llama_model_loader: - kv  44:                  mradermacher.quantized_by str              = mradermacher
+0.00.128.039 I llama_model_loader: - kv  45:                  mradermacher.quantized_at str              = 2025-02-13T03:54:29+01:00
+0.00.128.040 I llama_model_loader: - kv  46:                  mradermacher.quantized_on str              = marco
+0.00.128.040 I llama_model_loader: - kv  47:                         general.source.url str              = https://huggingface.co/MadeAgents/Ham...
+0.00.128.040 I llama_model_loader: - kv  48:                  mradermacher.convert_type str              = hf
+0.00.128.042 I llama_model_loader: - type  f32:  181 tensors
+0.00.128.043 I llama_model_loader: - type  f16:  253 tensors
+0.00.128.044 I print_info: file format = GGUF V3 (latest)
+0.00.128.045 I print_info: file type   = F16
+0.00.128.046 I print_info: file size   = 5.75 GiB (16.00 BPW) 
+0.00.128.109 I llama_prepare_model_devices: using device CUDA0 (NVIDIA GeForce RTX 4070 Ti) (0000:0b:00.0) - 9581 MiB free
+0.00.169.444 D init_tokenizer: initializing tokenizer for type 2
+0.00.177.615 I load: 0 unused tokens
+0.00.177.618 D load: control token: 151660 '<|fim_middle|>' is not marked as EOG
+0.00.177.619 D load: control token: 151659 '<|fim_prefix|>' is not marked as EOG
+0.00.177.619 D load: control token: 151653 '<|vision_end|>' is not marked as EOG
+0.00.177.619 D load: control token: 151648 '<|box_start|>' is not marked as EOG
+0.00.177.620 D load: control token: 151646 '<|object_ref_start|>' is not marked as EOG
+0.00.177.707 D load: control token: 151649 '<|box_end|>' is not marked as EOG
+0.00.178.255 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.00.178.652 D load: control token: 151655 '<|image_pad|>' is not marked as EOG
+0.00.178.753 D load: control token: 151651 '<|quad_end|>' is not marked as EOG
+0.00.180.062 D load: control token: 151647 '<|object_ref_end|>' is not marked as EOG
+0.00.181.677 D load: control token: 151652 '<|vision_start|>' is not marked as EOG
+0.00.183.498 D load: control token: 151654 '<|vision_pad|>' is not marked as EOG
+0.00.185.064 D load: control token: 151656 '<|video_pad|>' is not marked as EOG
+0.00.185.312 D load: control token: 151644 '<|im_start|>' is not marked as EOG
+0.00.185.816 D load: control token: 151661 '<|fim_suffix|>' is not marked as EOG
+0.00.186.239 D load: control token: 151650 '<|quad_start|>' is not marked as EOG
+0.00.188.958 I load: printing all EOG tokens:
+0.00.188.960 I load:   - 128247 ('</s>')
+0.00.188.960 I load:   - 151643 ('<|endoftext|>')
+0.00.188.960 I load:   - 151645 ('<|im_end|>')
+0.00.188.961 I load:   - 151662 ('<|fim_pad|>')
+0.00.188.961 I load:   - 151663 ('<|repo_name|>')
+0.00.188.961 I load:   - 151664 ('<|file_sep|>')
+0.00.189.106 I load: special tokens cache size = 23
+0.00.218.935 I load: token to piece cache size = 0.9310 MB
+0.00.218.944 I print_info: arch                  = qwen2
+0.00.218.944 I print_info: vocab_only            = 0
+0.00.218.945 I print_info: no_alloc              = 0
+0.00.218.945 I print_info: n_ctx_train           = 32768
+0.00.218.946 I print_info: n_embd_inp            = 2048
+0.00.218.946 I print_info: n_embd                = 2048
+0.00.218.947 I print_info: n_embd_out            = 2048
+0.00.218.947 I print_info: n_layer               = 36
+0.00.218.948 I print_info: n_layer_all           = 36
+0.00.218.951 I print_info: n_head                = 16
+0.00.218.953 I print_info: n_head_kv             = 2
+0.00.218.953 I print_info: n_rot                 = 128
+0.00.218.954 I print_info: n_swa                 = 0
+0.00.218.955 I print_info: is_swa_any            = 0
+0.00.218.955 I print_info: n_embd_head_k         = 128
+0.00.218.955 I print_info: n_embd_head_v         = 128
+0.00.218.957 I print_info: n_gqa                 = 8
+0.00.218.960 I print_info: n_embd_k_gqa          = 256
+0.00.218.962 I print_info: n_embd_v_gqa          = 256
+0.00.218.963 I print_info: f_norm_eps            = 0.0e+00
+0.00.218.964 I print_info: f_norm_rms_eps        = 1.0e-06
+0.00.218.964 I print_info: f_clamp_kqv           = 0.0e+00
+0.00.218.965 I print_info: f_max_alibi_bias      = 0.0e+00
+0.00.218.965 I print_info: f_logit_scale         = 0.0e+00
+0.00.218.965 I print_info: f_attn_scale          = 0.0e+00
+0.00.218.965 I print_info: f_attn_value_scale    = 0.0000
+0.00.218.967 I print_info: n_ff                  = 11008
+0.00.218.967 I print_info: n_expert              = 0
+0.00.218.967 I print_info: n_expert_used         = 0
+0.00.218.967 I print_info: n_expert_groups       = 0
+0.00.218.967 I print_info: n_group_used          = 0
+0.00.218.968 I print_info: causal attn           = 1
+0.00.218.968 I print_info: pooling type          = -1
+0.00.218.968 I print_info: rope type             = 2
+0.00.218.968 I print_info: rope scaling          = yarn
+0.00.218.969 I print_info: freq_base_train       = 1000000.0
+0.00.218.970 I print_info: freq_scale_train      = 0.25
+0.00.218.970 I print_info: n_ctx_orig_yarn       = 32768
+0.00.218.970 I print_info: rope_yarn_log_mul     = 0.0000
+0.00.218.970 I print_info: rope_finetuned        = unknown
+0.00.218.971 I print_info: model type            = 3B
+0.00.218.972 I print_info: model params          = 3.09 B
+0.00.218.972 I print_info: general.name          = Hammer2.1 3b
+0.00.218.975 I print_info: vocab type            = BPE
+0.00.218.976 I print_info: n_vocab               = 151665
+0.00.218.976 I print_info: n_merges              = 151387
+0.00.218.976 I print_info: BOS token             = 151643 '<|endoftext|>'
+0.00.218.976 I print_info: EOS token             = 151645 '<|im_end|>'
+0.00.218.976 I print_info: EOT token             = 151645 '<|im_end|>'
+0.00.218.977 I print_info: PAD token             = 151643 '<|endoftext|>'
+0.00.218.977 I print_info: LF token              = 198 'Ċ'
+0.00.218.977 I print_info: FIM PRE token         = 151659 '<|fim_prefix|>'
+0.00.218.977 I print_info: FIM SUF token         = 151661 '<|fim_suffix|>'
+0.00.218.977 I print_info: FIM MID token         = 151660 '<|fim_middle|>'
+0.00.218.978 I print_info: FIM PAD token         = 151662 '<|fim_pad|>'
+0.00.218.978 I print_info: FIM REP token         = 151663 '<|repo_name|>'
+0.00.218.978 I print_info: FIM SEP token         = 151664 '<|file_sep|>'
+0.00.218.978 I print_info: EOG token             = 128247 '</s>'
+0.00.218.978 I print_info: EOG token             = 151643 '<|endoftext|>'
+0.00.218.979 I print_info: EOG token             = 151645 '<|im_end|>'
+0.00.218.979 I print_info: EOG token             = 151662 '<|fim_pad|>'
+0.00.218.979 I print_info: EOG token             = 151663 '<|repo_name|>'
+0.00.218.979 I print_info: EOG token             = 151664 '<|file_sep|>'
+0.00.218.979 I print_info: max token length      = 256
+0.00.219.041 I load_tensors: loading model tensors, this can take a while... (load_mode = mmap)
+0.00.219.108 D load_tensors: layer   0 assigned to device CUDA0, is_swa = 0
+0.00.219.109 D load_tensors: layer   1 assigned to device CUDA0, is_swa = 0
+0.00.219.109 D load_tensors: layer   2 assigned to device CUDA0, is_swa = 0
+0.00.219.110 D load_tensors: layer   3 assigned to device CUDA0, is_swa = 0
+0.00.219.110 D load_tensors: layer   4 assigned to device CUDA0, is_swa = 0
+0.00.219.110 D load_tensors: layer   5 assigned to device CUDA0, is_swa = 0
+0.00.219.110 D load_tensors: layer   6 assigned to device CUDA0, is_swa = 0
+0.00.219.110 D load_tensors: layer   7 assigned to device CUDA0, is_swa = 0
+0.00.219.111 D load_tensors: layer   8 assigned to device CUDA0, is_swa = 0
+0.00.219.111 D load_tensors: layer   9 assigned to device CUDA0, is_swa = 0
+0.00.219.112 D load_tensors: layer  10 assigned to device CUDA0, is_swa = 0
+0.00.219.112 D load_tensors: layer  11 assigned to device CUDA0, is_swa = 0
+0.00.219.112 D load_tensors: layer  12 assigned to device CUDA0, is_swa = 0
+0.00.219.112 D load_tensors: layer  13 assigned to device CUDA0, is_swa = 0
+0.00.219.112 D load_tensors: layer  14 assigned to device CUDA0, is_swa = 0
+0.00.219.113 D load_tensors: layer  15 assigned to device CUDA0, is_swa = 0
+0.00.219.113 D load_tensors: layer  16 assigned to device CUDA0, is_swa = 0
+0.00.219.113 D load_tensors: layer  17 assigned to device CUDA0, is_swa = 0
+0.00.219.113 D load_tensors: layer  18 assigned to device CUDA0, is_swa = 0
+0.00.219.114 D load_tensors: layer  19 assigned to device CUDA0, is_swa = 0
+0.00.219.114 D load_tensors: layer  20 assigned to device CUDA0, is_swa = 0
+0.00.219.114 D load_tensors: layer  21 assigned to device CUDA0, is_swa = 0
+0.00.219.114 D load_tensors: layer  22 assigned to device CUDA0, is_swa = 0
+0.00.219.115 D load_tensors: layer  23 assigned to device CUDA0, is_swa = 0
+0.00.219.115 D load_tensors: layer  24 assigned to device CUDA0, is_swa = 0
+0.00.219.115 D load_tensors: layer  25 assigned to device CUDA0, is_swa = 0
+0.00.219.115 D load_tensors: layer  26 assigned to device CUDA0, is_swa = 0
+0.00.219.115 D load_tensors: layer  27 assigned to device CUDA0, is_swa = 0
+0.00.219.116 D load_tensors: layer  28 assigned to device CUDA0, is_swa = 0
+0.00.219.116 D load_tensors: layer  29 assigned to device CUDA0, is_swa = 0
+0.00.219.116 D load_tensors: layer  30 assigned to device CUDA0, is_swa = 0
+0.00.219.116 D load_tensors: layer  31 assigned to device CUDA0, is_swa = 0
+0.00.219.117 D load_tensors: layer  32 assigned to device CUDA0, is_swa = 0
+0.00.219.117 D load_tensors: layer  33 assigned to device CUDA0, is_swa = 0
+0.00.219.117 D load_tensors: layer  34 assigned to device CUDA0, is_swa = 0
+0.00.219.117 D load_tensors: layer  35 assigned to device CUDA0, is_swa = 0
+0.00.219.117 D load_tensors: layer  36 assigned to device CUDA0, is_swa = 0
+0.00.219.143 D create_tensor: loading tensor token_embd.weight
+0.00.228.739 E llama_model_load: error loading model: tensor token_embd.weight selected CPU buffer CPU while LLAMA_NO_CPU_FALLBACK is enabled
+0.00.228.742 E llama_model_load_from_file_impl: failed to load model
+0.00.228.744 E cmn  common_init_: failed to load model '$HOME/models/Hammer2.1-3b-GGUF/Hammer2.1-3b.f16.gguf'
+0.00.228.747 E srv    load_model: failed to load model, '$HOME/models/Hammer2.1-3b-GGUF/Hammer2.1-3b.f16.gguf'
+0.00.228.748 I srv    operator(): operator(): cleaning up before exit...
+0.00.229.009 E srv  llama_server: exiting due to model loading error
+0.00.229.031 I srv       destroy: vulkan workload lease teardown: held=no

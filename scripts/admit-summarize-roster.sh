@@ -20,6 +20,8 @@
 #                                three DiscoBSD files
 #   QWEN_ROSTER_MAX_TOKENS       the reply cap, default 32768, the value the
 #                                installed graft sends
+#   QWEN_CHAT_REASONING_BUDGET   the thought budget each launch binds, default
+#                                8192
 #   QWEN_ROSTER_REQUEST_TIMEOUT  seconds curl waits for one answer, default 660
 #   QWEN_SERVER_PORT             the served listener, default 8080
 #   QWEN_WEBUI_STATE_DIRECTORY   holds api.key, default $HOME/qwen-webui-state
@@ -43,6 +45,9 @@ Q=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 D=${QWEN_SUMMARIZE_SOURCE:?QWEN_SUMMARIZE_SOURCE names the source tree the probe files are read from}
 OUT=$1
 cap=${QWEN_ROSTER_MAX_TOKENS:-32768}
+# The thought budget the launch binds, 8192 where the caller names none, so a
+# replay of the first roster keeps its setting and a screen can bound it.
+reasoning_budget=${QWEN_CHAT_REASONING_BUDGET:-8192}
 request_timeout=${QWEN_ROSTER_REQUEST_TIMEOUT:-660}
 server_port=${QWEN_SERVER_PORT:-8080}
 state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-webui-state"}
@@ -90,7 +95,7 @@ printf '%s\n' "$eligible" | while IFS="$TAB" read -r id ceil file; do
     [ -n "$id" ] || continue
     ctx=$ceil; [ "$ctx" -gt 32768 ] && ctx=32768
     "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
-    if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=8192 QWEN_CONTEXT_SIZE=$ctx \
+    if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=$reasoning_budget QWEN_CONTEXT_SIZE=$ctx \
         QWEN_MODEL_PATH=$HOME/models/$file "$Q/scripts/qwen-launch.sh" default >"$OUT.$id.launch" 2>&1; then
         printf '%s\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\tlaunch_failed\n' "$id" >>"$OUT"; continue
     fi

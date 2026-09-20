@@ -718,6 +718,12 @@ if [ "$ready_for_monitor" -ne 1 ]; then
     exit 1
 fi
 
+# The desktop-coexistence probe, which measures the compositor's own device
+# through Vulkan and so belongs to the desktop rather than to serving: this
+# host serves on CUDA and builds llama.cpp with GGML_VULKAN off, so a missing
+# probe leaves graphics latency unmeasured rather than refusing the session.
+# QWEN_LATENCY_MODE=terminate names a run that wants the measurement, and
+# refuses without it.
 latency_probe=${QWEN_VULKAN_LATENCY_PROBE:-"$script_directory/../build/vulkan-graphics-service-probe"}
 # The probe watches the compositor's own frame-completion fences against a
 # 20,000 us deadline sampled every 16 ms; it measures whatever yielding the
@@ -735,58 +741,66 @@ case $latency_probe_mode in
         exit 2
         ;;
 esac
+graphics_latency_measured=yes
 if [ ! -x "$latency_probe" ]; then
-    printf 'state=failed reason=graphics_latency_probe_unavailable path=%s utc=%s\n' \
-        "$latency_probe" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
-    exit 1
+    if [ "$latency_probe_mode" = terminate ]; then
+        printf 'state=failed reason=graphics_latency_probe_unavailable path=%s utc=%s\n' \
+            "$latency_probe" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+        exit 1
+    fi
+    graphics_latency_measured=no
+    printf 'graphics_latency=unmeasured probe=%s utc=%s\n' "$latency_probe" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$graphics_latency_log"
 fi
 
-: >"$graphics_latency_log"
-(
-    unset AMD_PRIORITY DISPLAY WAYLAND_DISPLAY
-    # The probe measures the compositor's own device, so it names an ICD rather
-    # than accepting whichever the loader enumerates first. QWEN_GRAPHICS_ICD
-    # wins where the caller sets it, the installed NVIDIA and AMD files follow
-    # in that order, and a host carrying neither leaves the loader to enumerate.
-    graphics_icd=${QWEN_GRAPHICS_ICD:-}
-    if [ -z "$graphics_icd" ]; then
-        for icd_candidate in /usr/share/vulkan/icd.d/nvidia_icd.json \
-                             /usr/share/vulkan/icd.d/radeon_icd.x86_64.json; do
-            if [ -r "$icd_candidate" ]; then
-                graphics_icd=$icd_candidate
-                break
-            fi
-        done
-    fi
-    if [ -n "$graphics_icd" ]; then
-        export VK_DRIVER_FILES=$graphics_icd
-        export VK_ICD_FILENAMES=$graphics_icd
-    fi
-    exec ionice -c 3 "$latency_probe" \
-        --log "$graphics_latency_log" --watch-pid "$server_pid" \
-        --interval-ms 16 --deadline-us 20000 $latency_probe_mode_argument
-) 9>&- &
-latency_watchdog_pid=$!
-latency_watchdog_start_time=$(sed 's/^.*) //' "/proc/$latency_watchdog_pid/stat" | awk '{ print $20 }')
+if [ "$graphics_latency_measured" = yes ]; then
+    : >"$graphics_latency_log"
+    (
+        unset AMD_PRIORITY DISPLAY WAYLAND_DISPLAY
+        # The probe measures the compositor's own device, so it names an ICD rather
+        # than accepting whichever the loader enumerates first. QWEN_GRAPHICS_ICD
+        # wins where the caller sets it, the installed NVIDIA and AMD files follow
+        # in that order, and a host carrying neither leaves the loader to enumerate.
+        graphics_icd=${QWEN_GRAPHICS_ICD:-}
+        if [ -z "$graphics_icd" ]; then
+            for icd_candidate in /usr/share/vulkan/icd.d/nvidia_icd.json \
+                                 /usr/share/vulkan/icd.d/radeon_icd.x86_64.json; do
+                if [ -r "$icd_candidate" ]; then
+                    graphics_icd=$icd_candidate
+                    break
+                fi
+            done
+        fi
+        if [ -n "$graphics_icd" ]; then
+            export VK_DRIVER_FILES=$graphics_icd
+            export VK_ICD_FILENAMES=$graphics_icd
+        fi
+        exec ionice -c 3 "$latency_probe" \
+            --log "$graphics_latency_log" --watch-pid "$server_pid" \
+            --interval-ms 16 --deadline-us 20000 $latency_probe_mode_argument
+    ) 9>&- &
+    latency_watchdog_pid=$!
+    latency_watchdog_start_time=$(sed 's/^.*) //' "/proc/$latency_watchdog_pid/stat" | awk '{ print $20 }')
 
-latency_ready=0
-attempt=0
-while [ "$attempt" -lt 100 ]; do
-    require_broker_running
-    if grep -F 'probe_start ' "$graphics_latency_log" >/dev/null 2>&1; then
-        latency_ready=1
-        break
+    latency_ready=0
+    attempt=0
+    while [ "$attempt" -lt 100 ]; do
+        require_broker_running
+        if grep -F 'probe_start ' "$graphics_latency_log" >/dev/null 2>&1; then
+            latency_ready=1
+            break
+        fi
+        if ! kill -0 "$latency_watchdog_pid" 2>/dev/null; then
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.1
+    done
+    if [ "$latency_ready" -ne 1 ]; then
+        printf 'state=failed reason=graphics_latency_probe_not_ready utc=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+        exit 1
     fi
-    if ! kill -0 "$latency_watchdog_pid" 2>/dev/null; then
-        break
-    fi
-    attempt=$((attempt + 1))
-    sleep 0.1
-done
-if [ "$latency_ready" -ne 1 ]; then
-    printf 'state=failed reason=graphics_latency_probe_not_ready utc=%s\n' \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
-    exit 1
 fi
 
 "$script_directory/watch-qwen-kernel-hazards.sh" \
@@ -815,7 +829,7 @@ if [ "$kernel_watch_ready" -ne 1 ]; then
 fi
 
 "$script_directory/monitor-qwen-runtime.sh" "$server_pid" "$telemetry_log" \
-    "$runtime_profile" "$latency_watchdog_pid" \
+    "$runtime_profile" "${latency_watchdog_pid:-0}" \
     "$kernel_hazard_watchdog_pid" 9>&- &
 monitor_pid=$!
 monitor_start_time=$(sed 's/^.*) //' "/proc/$monitor_pid/stat" | awk '{ print $20 }')
@@ -923,7 +937,8 @@ while process_running "$server_pid"; do
         supervised_component=monitor
         break
     fi
-    if ! process_running "$latency_watchdog_pid"; then
+    if [ "$graphics_latency_measured" = yes ] &&
+        ! process_running "$latency_watchdog_pid"; then
         supervised_component=latency_watchdog
         break
     fi
@@ -971,8 +986,12 @@ wait "$server_pid"
 server_status=$?
 wait "$monitor_pid"
 monitor_status=$?
-wait "$latency_watchdog_pid"
-latency_status=$?
+if [ -n "$latency_watchdog_pid" ]; then
+    wait "$latency_watchdog_pid"
+    latency_status=$?
+else
+    latency_status=0
+fi
 wait "$kernel_hazard_watchdog_pid"
 kernel_hazard_status=$?
 broker_status=0
