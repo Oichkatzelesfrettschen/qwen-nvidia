@@ -1,0 +1,10 @@
+
+In the provided source the function brk can be forced to refuse a growth request for the process’s data segment in three distinct ways.  
+
+1. **Negative size request** – when the new size (`newsize`) is negative, the code sets `newsize` to 0, which is a condition that blocks growth.  
+
+2. **Swap‑room ceiling violation** – if the sum of the process’s current size (`u.u_tsize`), the requested new size (`newsize`) and the stack size (`u.u_ssize`) exceeds the swap‑room ceiling (`swapram_ceiling(u.u_procp)`), the kernel returns an error.  
+
+3. **Maximum memory limit violation** – if the same size sum exceeds the global memory limit (`MAXMEM`), the kernel also refuses the request.  
+
+The kernel’s `sbrk` function returns a value that the caller can use to determine whether the break failed; when the kernel refuses, it stores the error code in `u.u_error` and returns `NULL` (i.e., `(void*) -1`). No other identifiers are involved in these decisions.

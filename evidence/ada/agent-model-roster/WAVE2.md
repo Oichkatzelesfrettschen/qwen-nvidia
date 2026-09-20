@@ -1,5 +1,5 @@
-# Wave two: four checkpoints fetched, four quarantined, and the cheap
-# predictor that saw it coming
+# Wave two: four checkpoints fetched, two blocked by a build limit the
+# rebuild removed, and the cheap predictor that saw the rest coming
 
 Four candidates entered on 2026-09-19 after the header audit:
 LFM2.5-8B-A1B at Q4_K_M, the mixture-of-experts Liquid with about one
@@ -77,19 +77,23 @@ wrong with the artifact: both serve normally when launched by hand without
 the override, and the graph they build under it is larger than the default
 lane was sized for.
 
-`patches/llama-sched-graph-budget.patch` raises the default lane to 32,
-which is what upstream already gives the architectures it found needed it,
-and registers as a candidate in `verify-llama-patch-series.sh` where it
-applies cleanly against the reduced production series. It costs host-side
-graph metadata. It takes effect through a rebuild and a fresh CUDA
-admission, the same transaction the compute-lease rename waits on, so
-these two rows stay quarantined on a build limit rather than on a defect.
+`patches/llama-sched-graph-budget.patch` raises the multiplier to 32 for
+`phi3` and `lfm2moe`. The rebuild it needed has happened, both rows load
+under the unchanged placement, and the quarantine is lifted:
+`evidence/ada/agent-model-roster/WAVE2-REBUILD.md` carries the recovery.
 
-That is also the disappointment of the wave. The mixture-of-experts row
-was the architectural bet: eight billion parameters with about one billion
-active, and the only one of the four whose template renders a `tool_calls`
-branch. It is the one candidate that might have answered both the speed
-and the accuracy question at once, and this appliance cannot run it.
+The first version of that patch raised the default lane for every
+architecture, which is the change this diagnosis points at and is wrong.
+`max_nodes` sizes the scheduler hash set cleared on every graph build, once
+per decoded token, so the blanket form cost `qwen3-4b-instruct-2507` 22
+percent of its wall time. The rebuild record carries the three-way
+measurement that rejected it.
+
+The mixture-of-experts row was the architectural bet: eight billion
+parameters with about one billion active, and the only one of the four
+whose template renders a `tool_calls` branch. It serves now, and it still
+never completes a tool call, which the rebuild record measures at a
+2048-token cap.
 
 ### Two run and produce nothing graft can record
 
@@ -108,12 +112,13 @@ like.
 
 A GGUF whose chat template renders no `tool_calls` branch has now failed
 to complete a tool call in every case measured: `hammer21-3b`,
-`lfm25-350m-qad`, `lfm25-12b-instruct` and `smollm3-3b`. The header read
-that establishes it costs a range request and no download.
+`lfm25-350m-qad`, `lfm25-12b-instruct`, `smollm3-3b` and, once the rebuild
+let it serve, `phi4-mini`. The header read that establishes it costs a
+range request and no download.
 
-The converse does not hold. `swe-dev-7b` and `oxcoder-9b` both render the
-branch and both failed the probe, so the template is necessary and not
-sufficient. As a filter it is still worth running first: it rejected three
+The converse does not hold. `swe-dev-7b`, `oxcoder-9b` and `lfm25-8b-a1b`
+all render the branch and all failed the probe, so the template is
+necessary and not sufficient. As a filter it is still worth running first: it rejected three
 of this wave's four before any bytes moved, and would have rejected the
 350M before the whole line of work that followed it.
 

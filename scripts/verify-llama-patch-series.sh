@@ -29,9 +29,19 @@ git -C "$temporary_directory/llama.cpp" checkout --quiet --detach \
 # contains. llama-no-cpu-fallback rejects host placement in generic model
 # loading and graph scheduling rather than in a backend, so it stays, and
 # the three digests below are byte-identical under the reduced stack.
+# llama-sched-graph-budget joins the series as the other half of that
+# refusal: no-cpu-fallback turns a host placement into an error, and the
+# graph budget decides whether the appliance's --override-tensor '.*=CUDA0'
+# reaches a served model or aborts inside the scheduler. It raises the
+# nodes-per-tensor multiplier for the two architectures measured to abort
+# and leaves every other one at eight, because the budget sizes a hash set
+# cleared once per decoded token. It applies after no-cpu-fallback because
+# both rewrite src/llama-context.cpp, and it is the only member whose
+# digest moved when it joined.
 for patch_name in \
     llama-no-cpu-fallback.patch \
-    llama-router-tools-proxy.patch; do
+    llama-router-tools-proxy.patch \
+    llama-sched-graph-budget.patch; do
     git -C "$temporary_directory/llama.cpp" apply --check \
         "$patch_directory/$patch_name"
     git -C "$temporary_directory/llama.cpp" apply \
@@ -51,7 +61,7 @@ verify_source() {
     printf 'patch_replay_match=%s sha256=%s\n' "$relative_path" "$actual_sha256"
 }
 
-verify_source ecc818cdce4a7265f6f932962c325a582f42b91cb2661916fa28b5a79a49d1ad \
+verify_source b7156f38267cceb19583b736dc1ac3a92f8d95ed11a517f0b5bb3868a9e01252 \
     src/llama-context.cpp
 verify_source d0d6c8725891ac4baf68fd947ab4be75cc93ba37b1e988ca1c556881a49d0abc \
     src/llama-model-loader.cpp
@@ -65,9 +75,6 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # sums it compares against stay byte-identical whether the stage runs or not.
 # QWEN_LLAMA_CANDIDATE_PATCHES=1 arms it; the printed post-apply digest is what
 # a promotion would move into verify_source once its evidence lane closes.
-# llama-sched-graph-budget rewrites one expression in
-# llama_context::graph_max_nodes and takes the first position, since no
-# other candidate writes llama-context.cpp.
 # The order is the apply order: llama-server-vulkan-workload-lease encodes
 # post-series offsets in tools/server/server-context.cpp, which no earlier
 # candidate touches, so the two stay independent while the list stays ordered.
@@ -75,7 +82,7 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # ggml-cuda.cu and a proc-address entry at its registry, regions no other
 # candidate writes, and takes the last position because the diagnostic stage
 # below cuts its ggml-cuda.cu hunks against the tree this stage produces.
-candidate_patch_names="llama-sched-graph-budget.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
+candidate_patch_names="llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # The list lost its ggml-vulkan.cpp line with the backend that patch wrote.
 # mmq.cuh belongs in the list exactly while a candidate rewrites it, and no

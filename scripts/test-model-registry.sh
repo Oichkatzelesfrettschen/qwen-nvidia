@@ -789,6 +789,41 @@ else
     report tuple_evidence_reads_the_projector_summary rejected
 fi
 
+# Every quarantine check above reads a fixture, so the vocabulary gate has
+# never been pointed at the file the appliance loads. One committed row whose
+# failure_class sits outside the vocabulary makes the whole quarantine read
+# invalid, and qwen-webui-session.sh reports that as
+# state=failed reason=server_policy_not_active, which stops every launch
+# including the rows the bad row says nothing about. This reads the committed
+# file, then the same file with one class rewritten, so the gate is calibrated
+# on an input it must accept and an input it must refuse.
+committed_quarantine=${QWEN_QUARANTINE_REGISTRY:-$script_directory/quarantine.tsv}
+set +e
+QWEN_QUARANTINE_REGISTRY=$committed_quarantine \
+    "$reader" quarantine-rows >"$work_directory/committed-quarantine.out" \
+    2>"$work_directory/committed-quarantine.err"
+committed_quarantine_status=$?
+set -e
+fabricated_class_quarantine=$work_directory/fabricated-class-quarantine.tsv
+awk -F'\t' -v OFS='\t' '
+    /^#/ || /^[[:space:]]*$/ { print; next }
+    !rewritten { $4 = "not-a-failure-class"; rewritten = 1 }
+    { print }' "$committed_quarantine" >"$fabricated_class_quarantine"
+set +e
+QWEN_QUARANTINE_REGISTRY=$fabricated_class_quarantine \
+    "$reader" quarantine-rows >"$work_directory/fabricated-class.out" \
+    2>"$work_directory/fabricated-class.err"
+fabricated_class_status=$?
+set -e
+if [ "$committed_quarantine_status" -eq 0 ] &&
+   [ "$fabricated_class_status" -ne 0 ] &&
+   grep -F 'outside the vocabulary' \
+       "$work_directory/fabricated-class.err" >/dev/null; then
+    report committed_quarantine_carries_only_vocabulary_classes accepted
+else
+    report committed_quarantine_carries_only_vocabulary_classes rejected
+fi
+
 if [ "$failures" -eq 0 ]; then
     printf 'model_registry=accepted\n'
     exit 0

@@ -93,21 +93,24 @@ coding-agent roster `oxcoder-9b`, `ornith15-9b`, `qwable-9b-fable5`,
 `qwen3-4b-instruct-2507`, `klear-agentforge-8b`, `hammer21-3b`,
 `granite40-micro`, `swe-dev-7b` and `swe-agent-lm-7b`, and the second
 wave `lfm25-8b-a1b`, `lfm25-12b-instruct`, `smollm3-3b` and `phi4-mini`,
-which the quarantine above also holds, admitted in
-`evidence/ada/agent-model-roster/` as standalone launch subjects for the
-summarize roster. Each holds that policy until a router transition of its
-own is measured, because three of them are Q6_K 9B artifacts whose tensor
-sets alone exceed the device pairwise. The active model quarantine set in
-`scripts/quarantine.tsv` consists of `ministral3-3b`, `lfm25-8b-a1b`,
-`phi4-mini`, `lfm25-12b-instruct` and `smollm3-3b`. The last four entered
-with the coding-agent screens: `lfm25-8b-a1b` and `phi4-mini` abort under
-the appliance's full tensor override because
-`llama_context::graph_max_nodes` gives their architectures eight nodes per
-tensor where the served `qwen35` gets thirty-two, which
-`patches/llama-sched-graph-budget.patch` addresses pending a rebuild;
-`lfm25-12b-instruct` and `smollm3-3b` render no `tool_calls` branch and
-complete no forced tool call, so they produce no graph input.
-`evidence/quarantine/` carries a record for each.
+admitted in `evidence/ada/agent-model-roster/` as standalone launch
+subjects for the summarize roster. Each holds that policy until a router
+transition of its own is measured, because three of them are Q6_K 9B
+artifacts whose tensor sets alone exceed the device pairwise. The active
+model quarantine set in `scripts/quarantine.tsv` consists of
+`ministral3-3b`.
+`lfm25-8b-a1b` and `phi4-mini` aborted under the appliance's full tensor
+override because `llama_context::graph_max_nodes` gave their architectures
+eight nodes per tensor where the served `qwen35` gets thirty-two;
+`patches/llama-sched-graph-budget.patch` raises the multiplier for those
+two architectures, the build that carries it serves both rows, and the
+quarantine is lifted. `lfm25-12b-instruct` and `smollm3-3b` render no
+`tool_calls` branch and complete no forced tool call, so they produce no
+graph input, which is a template property carrying no device observation:
+their exclusion is the registry tier and `standalone-only`, the way
+`hammer21-3b`'s is. `evidence/quarantine/` carries a record for each of
+the four and `evidence/ada/agent-model-roster/WAVE2-REBUILD.md` carries
+the rebuild.
 
 ## Measured baseline
 

@@ -1,8 +1,8 @@
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 1c75bc54d..9c4932abd 100644
+index 1c75bc54d..219bb9573 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -2346,7 +2346,20 @@ uint32_t llama_context::graph_max_nodes(uint32_t n_tokens) const {
+@@ -2346,7 +2346,26 @@ uint32_t llama_context::graph_max_nodes(uint32_t n_tokens) const {
          model.arch == LLM_ARCH_MINIMAX_M3) {
          res = std::max<uint32_t>(n_tokens * 40, 32u * model.n_tensors());
      } else {
@@ -11,16 +11,22 @@ index 1c75bc54d..9c4932abd 100644
 +        // --override-tensor materializes one buffer per tensor, and the
 +        // splits that produces push the graph past a budget sized for
 +        // ordinary mixed placement: ggml_backend_sched_split_graph then
-+        // overruns its hash set and ggml_hash_find aborts on
-+        // ggml-impl.h's "fatal error" rather than reporting a size. The
-+        // architectures listed above already carry 32 for their own
-+        // reasons; the default carries it too, because the cost is graph
-+        // metadata on the host and the failure it removes is an abort
-+        // during warmup with no diagnostic. Measured on an RTX 4070 Ti
-+        // under --override-tensor '.*=CUDA0': phi3 at 196 tensors and
-+        // lfm2moe at 256 abort at 8, granite at 362 and smollm3 at 326
-+        // do not.
-+        res = std::max<uint32_t>(1024u, 32u*model.n_tensors());
++        // overruns its hash set and ggml_hash_find aborts on ggml-impl.h's
++        // GGML_ABORT("fatal error") rather than reporting a size. The two
++        // architectures below are the ones measured to overrun at eight,
++        // on an RTX 4070 Ti under --override-tensor '.*=CUDA0': phi3 at
++        // 196 tensors and lfm2moe at 256 abort, while granite at 362 and
++        // smollm3 at 326 load. The multiplier stays per architecture
++        // rather than becoming the default because max_nodes sizes the
++        // scheduler hash set that split_graph clears on every graph build,
++        // once per decoded token: raising the default to 32 costs
++        // Qwen3-4B-Instruct-2507 22 percent of its wall time on a
++        // three-file summarize screen, 13.60 s against 11.16 s, measured
++        // A/B on one machine state. Another architecture joins the list
++        // when it is measured to abort, not when it is suspected to.
++        const uint32_t nodes_per_tensor =
++            (model.arch == LLM_ARCH_PHI3 || model.arch == LLM_ARCH_LFM2MOE) ? 32u : 8u;
++        res = std::max<uint32_t>(1024u, nodes_per_tensor*model.n_tensors());
          for (const auto & lora : model.loras) {
              res += lora->get_n_nodes();
          }

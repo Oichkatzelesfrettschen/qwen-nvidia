@@ -1,0 +1,139 @@
+===== sys/arch/rp2040/dev/flash_swap.c =====
+/*
+ * Program one ascending piece of an erase-aligned raw swap image.
+ *
+ * The first nonempty piece starts at an erase-sector boundary. Later pieces
+ * start at program-page boundaries in the same image and arrive in ascending
+ * address order. A sector is therefore erased exactly when a piece first
+ * reaches its boundary. A short final program page is padded with erased
+ * bytes; the next piece starts beyond that page.
+ *
+ * Keeping the geometry loop separate from the flash driver lets the host test
+ * run the production algorithm against a NOR model that rejects 0-to-1 bit
+ * transitions, unaligned calls, duplicate erases, and overlapping images.
+ */
+
+#include <sys/types.h>
+
+#include <rp2040/dev/flash.h>
+#include <rp2040/dev/flash_swap.h>
+
+int
+flash_swap_append(const struct flash_swap_ops *ops, unsigned int offset,
+    const unsigned char *source, unsigned int length, unsigned char *scratch)
+{
+	unsigned int chunk, index;
+
+	if ((offset & (FLASH_PROG_BYTES - 1)) != 0)
+		return -1;
+
+	while (length != 0) {
+		if ((offset & (FLASH_SECTOR_BYTES - 1)) == 0 &&
+		    ops->erase(offset, FLASH_SECTOR_BYTES) != 0)
+			return -1;
+
+		chunk = length;
+		if (chunk > FLASH_PROG_BYTES)
+			chunk = FLASH_PROG_BYTES;
+		if (chunk == FLASH_PROG_BYTES) {
+			if (ops->program(offset, source, FLASH_PROG_BYTES) != 0)
+				return -1;
+		} else {
+			for (index = 0; index < FLASH_PROG_BYTES; index++)
+				scratch[index] = 0xff;
+			for (index = 0; index < chunk; index++)
+				scratch[index] = source[index];
+			if (ops->program(offset, scratch, FLASH_PROG_BYTES) != 0)
+				return -1;
+		}
+		offset += FLASH_PROG_BYTES;
+		source += chunk;
+		length -= chunk;
+	}
+	return 0;
+}
+
+/*
+ * Rewrite an arbitrary program-page-aligned range through a spare sector.
+ * The copy makes every untouched page available after the destination erase,
+ * so temporary swap devices retain ordinary block-rewrite semantics without
+ * a full erase sector in SRAM.
+ */
+int
+flash_swap_rewrite(const struct flash_swap_ops *ops, unsigned int offset,
+    const unsigned char *source, unsigned int length,
+    unsigned int spare_sector, unsigned char *scratch)
+{
+	unsigned int chunk, destination_sector, page, page_offset;
+
+	if ((offset & (FLASH_PROG_BYTES - 1)) != 0 ||
+	    (length & (FLASH_PROG_BYTES - 1)) != 0 ||
+	    (spare_sector & (FLASH_SECTOR_BYTES - 1)) != 0 ||
+	    offset + length < offset)
+		return -1;
+
+	while (length != 0) {
+		destination_sector = offset & ~(FLASH_SECTOR_BYTES - 1);
+		if (destination_sector == spare_sector)
+			return -1;
+		chunk = FLASH_SECTOR_BYTES - (offset - destination_sector);
+		if (chunk > length)
+			chunk = length;
+
+		if (ops->erase(spare_sector, FLASH_SECTOR_BYTES) != 0)
+			return -1;
+		for (page = 0; page < FLASH_SECTOR_BYTES;
+		    page += FLASH_PROG_BYTES) {
+			if (ops->read(destination_sector + page, scratch,
+			    FLASH_PROG_BYTES) != 0 ||
+			    ops->program(spare_sector + page, scratch,
+			    FLASH_PROG_BYTES) != 0)
+				return -1;
+		}
+		if (ops->erase(destination_sector, FLASH_SECTOR_BYTES) != 0)
+			return -1;
+
+		for (page = 0; page < FLASH_SECTOR_BYTES;
+		    page += FLASH_PROG_BYTES) {
+			page_offset = destination_sector + page;
+			if (page_offset >= offset &&
+			    page_offset < offset + chunk) {
+				if (ops->program(page_offset,
+				    source + page_offset - offset,
+				    FLASH_PROG_BYTES) != 0)
+					return -1;
+			} else {
+				if (ops->read(spare_sector + page, scratch,
+				    FLASH_PROG_BYTES) != 0 ||
+				    ops->program(page_offset, scratch,
+				    FLASH_PROG_BYTES) != 0)
+					return -1;
+			}
+		}
+		offset += chunk;
+		source += chunk;
+		length -= chunk;
+	}
+	return 0;
+}
+
+===== sys/arch/rp2040/dev/flash_swap.h =====
+/*
+ * Raw swap programming at the RP2040 flash erase/program geometries.
+ */
+#ifndef _RP2040_DEV_FLASH_SWAP_H_
+#define _RP2040_DEV_FLASH_SWAP_H_
+
+struct flash_swap_ops {
+	int	(*read)(unsigned int, unsigned char *, unsigned int);
+	int	(*erase)(unsigned int, unsigned int);
+	int	(*program)(unsigned int, const unsigned char *, unsigned int);
+};
+
+int flash_swap_append(const struct flash_swap_ops *, unsigned int,
+    const unsigned char *, unsigned int, unsigned char *);
+int flash_swap_rewrite(const struct flash_swap_ops *, unsigned int,
+    const unsigned char *, unsigned int, unsigned int, unsigned char *);
+
+#endif /* !_RP2040_DEV_FLASH_SWAP_H_ */
+

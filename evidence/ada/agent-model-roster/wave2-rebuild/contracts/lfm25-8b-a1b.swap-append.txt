@@ -1,0 +1,2 @@
+
+The function flash_swap_append first verifies that the address offset is not straddling a program‑page boundary, that the length of the block is not straddling a program‑page boundary, that the spare_sector parameter is itself aligned to a sector boundary, and that length is greater than zero. Consequently, its callers must guarantee that they never invoke flash_swap_append with an offset that is mis‑aligned, with a length that is mis‑aligned, with a spare_sector that is mis‑aligned, or with a zero length.
