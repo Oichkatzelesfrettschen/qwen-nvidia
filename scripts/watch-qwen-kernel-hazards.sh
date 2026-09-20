@@ -5,6 +5,7 @@ if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
     printf 'usage: %s SERVER_PID HAZARD_LOG [TEST_INPUT]\n' "$0" >&2
     exit 2
 fi
+taskset -pc 1 $$ >/dev/null
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 server_pid=$1
@@ -35,8 +36,6 @@ if [ "$guard_nice" != 0 ]; then
         "$guard_nice" >&2
     exit 2
 fi
-taskset -pc 1 $$ >/dev/null
-ionice -c 3 -p $$
 guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status)
 
 # The signatures cover both backends because one tree serves on CUDA and falls

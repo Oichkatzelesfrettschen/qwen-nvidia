@@ -6,10 +6,6 @@ set -eu
 # 0.778 GiB, so 1.451 GiB predicts a rate at the 9 tok/s admission floor rather
 # than clearly above or below it.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

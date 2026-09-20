@@ -7,10 +7,6 @@ set -eu
 # 3.630 GiB against the Q4_K_M rung's 1.222 GiB sets the streaming ratio the
 # representation gate tests.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

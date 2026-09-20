@@ -7,10 +7,6 @@ set -eu
 # language model reads nothing. At 0.583 GB it is 80% of the language model it
 # serves, so the pair costs 1.314 GB on disk against the model card's 1.6B.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

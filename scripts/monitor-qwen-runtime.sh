@@ -6,6 +6,7 @@ if [ "$#" -ne 5 ]; then
         "$0" >&2
     exit 2
 fi
+taskset -pc 1 $$ >/dev/null
 
 server_pid=$1
 telemetry_log=$2
@@ -75,8 +76,6 @@ if [ "$guard_nice" != 0 ]; then
         "$guard_nice" >&2
     exit 2
 fi
-taskset -pc 1 $$ >/dev/null
-ionice -c 3 -p $$
 guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status)
 
 sample_seconds=1

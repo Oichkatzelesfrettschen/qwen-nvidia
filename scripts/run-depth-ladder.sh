@@ -17,6 +17,7 @@ if [ "$#" -lt 6 ]; then
         "$0" >&2
     exit 2
 fi
+taskset -pc 1 $$ >/dev/null
 
 profile=$1
 model_path=$2
@@ -38,8 +39,6 @@ if ! renice -n 0 -p $$ >/dev/null 2>&1; then
         "$initial_guard_nice" >&2
     exit 2
 fi
-taskset -pc 1 $$ >/dev/null
-ionice -c 3 -p $$
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)

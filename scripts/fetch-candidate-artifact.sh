@@ -19,9 +19,6 @@ set -eu
 # A retained file is re-verified rather than re-fetched, against the publisher
 # where an oid exists and against the digest recorded earlier where none does.
 
-renice -n 19 -p $$ >/dev/null 2>&1 || true
-ionice -c 3 -p $$ >/dev/null 2>&1 || true
-
 if [ "$#" -ne 4 ]; then
     printf 'usage: %s REPOSITORY REVISION ARTIFACT_NAME DESTINATION_DIRECTORY\n' "$0" >&2
     printf 'writes DESTINATION_DIRECTORY/ARTIFACT_NAME and its observed digest\n' >&2

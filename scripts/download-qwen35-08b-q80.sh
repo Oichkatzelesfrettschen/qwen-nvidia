@@ -7,10 +7,6 @@ set -eu
 # groups by bulk format on this device, Q4_K and Q6_K near 8.1 GB/s against Q5_K
 # near 5.9, and Q8_0 sits in neither group yet.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

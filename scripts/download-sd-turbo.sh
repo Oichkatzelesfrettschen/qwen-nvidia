@@ -10,10 +10,6 @@ set -eu
 # field, which reads empty for this repository; the full text is
 # LICENSE.md at the pinned revision.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

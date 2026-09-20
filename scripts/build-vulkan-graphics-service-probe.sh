@@ -6,8 +6,6 @@ if [ "$#" -gt 1 ]; then
     exit 2
 fi
 
-ionice -c 3 -p $$
-
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 output_path=${1:-"$script_directory/../build/vulkan-graphics-service-probe"}
 

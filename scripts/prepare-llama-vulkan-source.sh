@@ -6,8 +6,6 @@ if [ "$#" -gt 2 ]; then
     exit 2
 fi
 
-ionice -c 3 -p $$
-
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 base_source=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}

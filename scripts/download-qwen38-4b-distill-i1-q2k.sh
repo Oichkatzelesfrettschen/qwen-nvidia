@@ -9,10 +9,6 @@ set -eu
 # The file lands in its own directory, which leaves it text-only under the
 # projector pairing rule in scripts/select-projector.sh.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

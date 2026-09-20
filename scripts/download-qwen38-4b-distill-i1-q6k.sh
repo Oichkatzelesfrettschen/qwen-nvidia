@@ -7,10 +7,6 @@ set -eu
 # decodes slower and unpacking cost predicts it decodes faster; the two
 # predictions differ by about 40% and do not overlap.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

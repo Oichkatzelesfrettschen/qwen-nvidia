@@ -1,10 +1,6 @@
 #!/bin/sh
 set -eu
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 # The projector must come from the same repository revision as the language
 # GGUF. A projector converted from a different checkpoint produces embeddings
 # the language model was never trained against, and the failure is silent: the
