@@ -33,9 +33,12 @@ def node(nid, span, signature="void f(void)", kind="function", path="a.c"):
             "span": span, "signature": signature}
 
 
-def reply(entries):
-    return {"choices": [{"message": {"tool_calls": [{"function": {
-        "name": "record_symbols",
+def reply(entries, name="record_symbols", finish="tool_calls"):
+    """A served reply: a completed call to the named tool. The nominal fixture
+    carries `finish_reason`, so a case turning it into `length` tests the
+    truncation rule rather than the absence of the field."""
+    return {"choices": [{"finish_reason": finish, "message": {"tool_calls": [{"function": {
+        "name": name,
         "arguments": json.dumps({"symbols": entries})}}]}}]}
 
 
@@ -43,14 +46,15 @@ def entry(nid, summary="What it is for.", start=0, end=0):
     return {"id": nid, "summary": summary, "crux_start": start, "crux_end": end}
 
 
-def run(name, rows, sent, want_outcome, **want_fields):
+def run(name, rows, sent, want_outcome, tool="record_symbols", finish="tool_calls",
+        status="200", **want_fields):
     """`sent` is the reply's entry list; `want_fields` names graded columns,
     one of which is `entries`, so the two cannot share a parameter name."""
     with tempfile.TemporaryDirectory() as tmp:
         answer = os.path.join(tmp, "answer.json")
         with open(answer, "w", encoding="utf-8") as handle:
-            json.dump(reply(sent), handle)
-        line = CONTRACT.check(answer, rows, "m", "a.c", "1", "200")
+            json.dump(reply(sent, tool, finish), handle)
+        line = CONTRACT.check(answer, rows, "m", "a.c", "1", status)
     got = dict(zip(CONTRACT.COLUMNS, line.split("\t")))
     problems = []
     if got["outcome"] != want_outcome:
@@ -151,17 +155,43 @@ def main():
     run("string_span_fails", two,
         [entry("a.c#f", start="11", end="12"), one_each[1]], "fail", crux_bad=1)
 
-    # An ungradeable reference decides nothing either way.
+    # An ungradeable reference withholds containment and decides nothing.
     ungradeable = targets_from([node("a.c#d", "L5-L5", "d(struct proc *p)")])
     run("ungradeable_span_not_counted_bad", ungradeable,
         [entry("a.c#d", start=5, end=9)], "pass", crux_ungradeable=1, crux_bad=0,
         crux_in_range=0)
+    run("absent_span_on_ungradeable_counts_zero", ungradeable,
+        [entry("a.c#d", start=0, end=0)], "pass", crux_zero=1, crux_ungradeable=0)
+
+    # graft normalizes a non-string summary to "" and then rejects it, so a
+    # gate reading str(value) would pass what graft leaves pending.
+    run("numeric_summary_is_blank", two,
+        [{"id": "a.c#f", "summary": 7, "crux_start": 11, "crux_end": 12}, one_each[1]],
+        "fail", summary_blank=1)
+    run("null_summary_is_blank", two,
+        [{"id": "a.c#f", "summary": None, "crux_start": 11, "crux_end": 12}, one_each[1]],
+        "fail", summary_blank=1)
+
+    # An interval that could not be right against any symbol is malformed
+    # whatever the reference is worth.
+    run("inverted_span_on_ungradeable_is_bad", ungradeable,
+        [entry("a.c#d", start=9, end=5)], "fail", crux_bad=1, crux_ungradeable=0)
+    run("negative_span_on_ungradeable_is_bad", ungradeable,
+        [entry("a.c#d", start=-3, end=-1)], "fail", crux_bad=1, crux_ungradeable=0)
+    run("half_zero_span_is_bad", two,
+        [entry("a.c#f", start=0, end=12), one_each[1]], "fail", crux_bad=1)
 
     print("transport")
+    run("truncated_completion_refused", two, one_each, "truncated", finish="length")
+    run("non_200_with_a_valid_body_refused", two, one_each, "http_500", status="500")
+    run("wrong_tool_refused", two, one_each, "wrong_tool", tool="record_probe")
+    run("stop_finish_accepted", two, one_each, "pass", finish="stop")
+
     with tempfile.TemporaryDirectory() as tmp:
         answer = os.path.join(tmp, "answer.json")
         with open(answer, "w", encoding="utf-8") as handle:
-            json.dump({"choices": [{"message": {"content": "here you go"}}]}, handle)
+            json.dump({"choices": [{"finish_reason": "stop",
+                                    "message": {"content": "here you go"}}]}, handle)
         got = CONTRACT.check(answer, two, "m", "a.c", "1", "200").split("\t")
         report("no_tool_call_reported", [] if got[-1] == "no_call" else [got[-1]])
         with open(answer, "w", encoding="utf-8") as handle:

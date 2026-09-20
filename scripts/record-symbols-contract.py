@@ -29,6 +29,14 @@ graded against the reference before it is graded against the model:
 Neither class can grade a crux: the first rejects every span inside the real
 body and the second accepts a span inside a different function. Both are
 reported as `crux_ungradeable` rather than folded into the pass or the fail.
+
+Both tests are suspicion, not proof, and they are written to withhold judgment
+rather than to convict. A one-line function body is legal C and a nested or
+inner definition legitimately sits inside an enclosing span, so either test
+can withhold a reference that was correct. Withholding costs a span that would
+have graded; the converse would charge the extractor's error to a model. The
+pair is calibrated against this C corpus and carries no claim about another
+language's extractor.
 """
 
 import json
@@ -36,6 +44,7 @@ import re
 import sys
 
 SPAN = re.compile(r"^L(\d+)-L(\d+)$")
+TOOL_NAME = "record_symbols"
 MAX_CODE_CHARS = 18_000
 
 COLUMNS = (
@@ -180,7 +189,7 @@ def build_request(source_path, rel, rows, cap):
             {
                 "type": "function",
                 "function": {
-                    "name": "record_symbols",
+                    "name": TOOL_NAME,
                     "description": "Record one entry per target definition.",
                     "parameters": schema,
                 },
@@ -190,9 +199,50 @@ def build_request(source_path, rel, rows, cap):
     }
 
 
+def summary_text(entry):
+    """The summary graft would keep. crux.js normalizes a non-string summary to
+    the empty string before enrich.js rejects it on `!r.summary.trim()`, so a
+    numeric or null summary is blank at graft's boundary. A gate reading
+    `str(value)` instead would accept `summary: 7` here and watch graft leave
+    the node pending, which is the same disagreement between two acceptance
+    rules that leaves an id retired from the retry and then discarded."""
+    value = entry.get("summary")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def span_shape(a, b):
+    """Classify a returned interval by its own form, before any reference.
+
+    bool is an int in Python, so a boolean line number passes a naive numeric
+    test. `0/0` is the documented absence of a focal span. Every other pair has
+    to be whole, positive and ordered; that judgment needs no target range, so
+    a reference the extractor got wrong withholds containment alone and does
+    not excuse an interval that could not be right against any symbol.
+    """
+    whole = all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer()
+        for v in (a, b)
+    )
+    if not whole:
+        return "malformed"
+    a, b = int(a), int(b)
+    if a == 0 and b == 0:
+        return "absent"
+    if a < 1 or b < a:
+        return "malformed"
+    return "present"
+
+
 def check(answer_path, rows, model, rel, wall, status):
     """Grade one reply. A duplicate id is a failure rather than a silent
-    overwrite, because one entry per id is the contract under test."""
+    overwrite, because one entry per id is the contract under test.
+
+    Transport, completion and tool identity are read before the arguments,
+    because a body that parses is not by itself a served answer: a non-200
+    carrying a plausible object, a generation stopped at the token cap, and a
+    different function whose arguments happen to hold a `symbols` list each
+    produce entries this would otherwise grade as a model's reply.
+    """
     want = {r["id"]: r for r in rows}
     if len(want) != len(rows):
         raise SystemExit(f"invalid target set: {len(rows)} rows, {len(want)} ids")
@@ -200,18 +250,30 @@ def check(answer_path, rows, model, rel, wall, status):
     def line(*field):
         return "\t".join(str(x) for x in (model, rel, len(rows), wall) + field)
 
+    def refused(called, outcome):
+        return line(called, "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", outcome)
+
     try:
-        message = json.load(open(answer_path, encoding="utf-8"))["choices"][0]["message"]
+        choice = json.load(open(answer_path, encoding="utf-8"))["choices"][0]
+        message = choice["message"]
     except Exception:
-        return line("-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", f"http_{status}")
+        return refused("-", f"http_{status}")
+    if str(status) != "200":
+        return refused("-", f"http_{status}")
+    # A reply cut off at the token cap is graft's `truncated` miss class, and
+    # the entries before the cut are not a complete answer to the request.
+    if choice.get("finish_reason") == "length":
+        return refused("-", "truncated")
     calls = message.get("tool_calls") or []
     if not calls:
         return line("no", 0, 0, len(rows), 0, 0, 0, 0, 0, 0, 0, "no_call")
+    if (calls[0].get("function") or {}).get("name") != TOOL_NAME:
+        return refused("yes", "wrong_tool")
     try:
         symbols = json.loads(calls[0]["function"]["arguments"])["symbols"]
         assert isinstance(symbols, list)
     except Exception:
-        return line("yes", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "arguments_unparsed")
+        return refused("yes", "arguments_unparsed")
 
     entries = [s for s in symbols if isinstance(s, dict)]
     seen = [s.get("id") for s in entries]
@@ -219,9 +281,7 @@ def check(answer_path, rows, model, rel, wall, status):
     invented = sorted({i for i in seen if i not in want})
     missing = sorted(set(want) - set(seen))
     duplicate = sorted({i for i in seen if seen.count(i) > 1 and i in want})
-    blank = sum(
-        1 for s in entries if s.get("id") in want and not str(s.get("summary") or "").strip()
-    )
+    blank = sum(1 for s in entries if s.get("id") in want and not summary_text(s))
 
     in_range = zero = bad = ungradeable = 0
     for s in entries:
@@ -229,14 +289,10 @@ def check(answer_path, rows, model, rel, wall, status):
         if row is None:
             continue
         a, b = s.get("crux_start"), s.get("crux_end")
-        # bool is an int in Python; a boolean line number is malformed input.
-        numeric = all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer()
-            for v in (a, b)
-        )
-        if not numeric:
+        shape = span_shape(a, b)
+        if shape == "malformed":
             bad += 1
-        elif int(a) == 0 and int(b) == 0:
+        elif shape == "absent":
             zero += 1
         elif not row["gradeable"]:
             ungradeable += 1

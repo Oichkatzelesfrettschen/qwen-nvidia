@@ -2621,7 +2621,15 @@ return type sits above it and a definition running past its closing brace over
 the symbols after it, and neither can decide a span. `record-symbols-contract.py`
 reads targets as graft's own node ids, which keep each occurrence distinct,
 reports an unusable reference as `crux_ungradeable` rather than as a failure,
-and rejects the blank summary that `enrich.js` rejects; the six span errors
+and rejects the blank summary that `enrich.js` rejects -- `summary_text` reads a
+non-string summary as blank because `crux.js` normalizes it to the empty string
+before `enrich.js` rejects it, so the two boundaries cannot disagree about the
+same entry. It reads transport, completion and tool identity before the
+arguments, because a non-200 carrying a plausible object, a generation stopped
+at the token cap, and a different function whose arguments hold a `symbols`
+list each yield entries a gate would otherwise grade as a model's reply, and it
+judges an interval's own form before any reference, so a withheld span still
+has to be whole, positive and ordered. The six span errors
 published in `evidence/ada/graft-deep-pilot/README.md` did not survive it, and
 `symbols-regraded.tsv` stands beside `symbols.tsv` rather than replacing it.
 This gate shipped uncalibrated, which is how it published a model result it had
