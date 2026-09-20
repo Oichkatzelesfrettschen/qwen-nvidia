@@ -1,6 +1,4 @@
-    source_repository=qwen-apu
-    source_commit=55d8c73268d8c6496e77baaad732e1aea7a6183b
-    evidence_class=prior-host
+    evidence_class=off-device
     performance_authority=none
     current_defaults_authority=none
 
@@ -18,21 +16,18 @@ part of what the retained findings below explain.
 ## What this directory is
 
 Every measurement under `evidence/` in this tree that predates the RTX 4070 Ti
-retarget was taken on that Raven2 host. About 1300 raw files carry those
-measurements at full detail, and they are deleted from this repository because
-the authoritative copies remain in `qwen-apu` at the commit named above. This
-directory is what survives the deletion: one README stating what the prior
+retarget was taken on that Raven2 host. The roughly 1300 raw files carrying
+those measurements at full detail are not part of this repository. This
+directory is what this tree keeps of them: one README stating what the earlier
 host was and why its findings still matter, and one table of the individual
 conclusions worth carrying forward.
 
-Every row in `comparative-findings.tsv` is prior-host evidence. It sets no
+Every row in `comparative-findings.tsv` is off-device evidence. It sets no
 default on the RTX 4070 Ti, it enters no prediction band here, and no script
 in `scripts/` reads it. A default in this tree changes only when a measurement
-under `evidence/ada/` moves it, per `CLAUDE.md`. The complete raw records --
-logs, kernel traces, per-arm clock samples, and the narrative evidence files
-this table summarizes -- remain in `qwen-apu` at commit
-`55d8c73268d8c6496e77baaad732e1aea7a6183b`, reachable from this tree as the
-`apu` Git remote.
+under `evidence/ada/` moves it, per `CLAUDE.md`. The table is the whole of the
+claim; the logs, kernel traces, per-arm clock samples, and narrative files it
+summarizes are not carried here and cannot be cited from here.
 
 ## Why the conclusions are still worth carrying
 

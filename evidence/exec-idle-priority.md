@@ -51,7 +51,7 @@ execs, measured at a 1.2 ms median over twenty runs on an idle host. The
 loadavg 4.9 to 7.0 figure that the retired DPM-force harness's own
 nice-19-versus-nice-0 arms ran under is measured on the prior host, retained as
 `evidence/legacy/raven2/comparative-findings.tsv` finding
-`nice19-no-directional-cost`; the raw record stays in the qwen-apu repository.
+`nice19-no-directional-cost`; the raw record is not carried in this tree.
 The read-back returns the moment 19 appears, so the number decides only how
 slow a wrapper is called a refusal.
 

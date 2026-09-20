@@ -8,10 +8,8 @@ workstation is the whole system: the Git checkout and the runtime share the
 host, and `scripts/` holds the scripts the appliance runs from that same
 checkout.
 
-This repository is derived from the `qwen-apu` appliance tree, which serves a
-different device over a different driver. Its measurements are authoritative
-only in that tree; `docs/APU_UPSTREAM.md` states the relationship and what the
-isolation pass left unported, and `evidence/legacy/raven2/` retains the
+Measurements taken on another device, over another driver, are not
+authoritative here; `evidence/legacy/raven2/` retains the
 conclusions that still bear on a decision here.
 
 ## Backend
@@ -125,10 +123,10 @@ Paired forward/reverse mean, `evidence/ada/baseline-sweep-02/`, through
 | Qwen3.8-9B distill Q4_K_M | 4410.81 | 67.91 |
 
 These four rows are the only current-host throughput figures this file
-carries. Every performance number taken before this host belongs to the
-`qwen-apu` upstream tree, with the conclusions that still bear on a decision
-here retained under `evidence/legacy/raven2/`; `docs/APU_UPSTREAM.md` states
-the evidence-class rule that keeps those numbers out of a CUDA prediction.
+carries. Every performance number taken before this host was measured on other
+hardware, with the conclusions that still bear on a decision here retained
+under `evidence/legacy/raven2/`. An off-device number never enters a CUDA
+prediction.
 
 ## Kernel crossover calibration
 

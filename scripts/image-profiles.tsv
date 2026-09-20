@@ -52,13 +52,12 @@
 #
 # --- Legacy provenance: the prior Vulkan/APU admission campaign ---
 #
-# Every measured claim below was established on the prior qwen-apu host --
-# an AMD Athlon Silver 3050U iGPU sharing one DDR4 controller between compute
-# and system memory -- before the RTX 4070 Ti retarget. Commit 9c5142f, the
-# prior-host isolation that established the NVIDIA authority checks, deleted the raw records from this tree along with the rest of that host's
-# roughly 1300 evidence files; the authoritative copies remain in `qwen-apu`
-# at commit 55d8c73268d8c6496e77baaad732e1aea7a6183b, reachable from this tree
-# as the `apu-upstream` remote, per evidence/legacy/raven2/README.md.
+# Every measured claim below was established on an AMD Athlon Silver 3050U
+# iGPU sharing one DDR4 controller between compute and system memory, before
+# the RTX 4070 Ti retarget. Commit 9c5142f, the isolation that established the
+# NVIDIA authority checks, removed that host's roughly 1300 raw evidence files
+# from this tree; evidence/legacy/raven2/README.md states what survives of it.
+# No row here is authoritative on CUDA until it is re-measured on this device.
 #
 # Which placement arm wins was measured there, not here: every tested hybrid
 # placement lost to full Vulkan because the text encoder on the CPU and the

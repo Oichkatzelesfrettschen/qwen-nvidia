@@ -54,7 +54,7 @@ response -- every row above is allocated and health-checked rather than
 filled-depth validated. None fills the cache and decodes from it, so
 `validated_filled_depth` stays `-` on every row and the registry's two claims
 stay two claims. The depth campaign that would move that field needs a CUDA
-depth prober, which `docs/APU_UPSTREAM.md` records as absent.
+depth prober, which this tree does not carry.
 
 The native ceiling is read rather than assumed: the GGUF header of each
 uncensored row reports `qwen35.context_length` of 262144, and the six

@@ -66,7 +66,7 @@ fi
 install_parent=$(dirname "$install_root")
 if id "$service_user" >/dev/null 2>&1 &&
         ! sudo -n -u "$service_user" test -x "$install_parent" 2>/dev/null; then
-    printf 'user %s cannot traverse %s; choose an install root the service user can read, such as /opt/searxng-qwen-apu\n' \
+    printf 'user %s cannot traverse %s; choose an install root the service user can read, such as /opt/searxng-qwen-nvidia\n' \
         "$service_user" "$install_parent" >&2
     exit 2
 fi

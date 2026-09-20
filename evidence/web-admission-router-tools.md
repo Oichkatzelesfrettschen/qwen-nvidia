@@ -3,7 +3,7 @@
 This record is the prior host's run of `scripts/admit-web-router-fake.sh`
 against a Vulkan build. Every build identity, timing, and device-observed
 result that run produced belongs to that host and is not restated here as a
-claim about this device; the prior host's raw records live in the qwen-apu
+claim about this device; the earlier host's raw records are not carried in this
 repository. `scripts/admit-web-router-fake.sh`, `patches/llama-router-tools-proxy.patch`,
 `scripts/web-profiles.tsv`, and `webui/index.html` are unchanged mechanism this
 tree still ships, so the source-level claims below -- what the patch

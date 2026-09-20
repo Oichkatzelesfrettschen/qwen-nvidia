@@ -51,12 +51,10 @@ compositor holding about 2.5 GiB of the 12 GiB carve-out and issuing graphics
 work at rest, which is a covariate of every recorded rate rather than a
 condition to exclude.
 
-This repository derives from the `qwen-apu` appliance tree. Its history begins
-at a parentless commit whose tree equals `qwen-apu` commit
-`55d8c73268d8c6496e77baaad732e1aea7a6183b`. The prior host's evidence carries
-authority only inside `qwen-apu`; here it is retained as prior-host comparison
-under `evidence/legacy/raven2/`. `docs/APU_UPSTREAM.md` states the
-relationship and lists the capabilities that carry no CUDA counterpart yet.
+This repository's history begins at a parentless commit. Measurements taken on
+another device, over another driver, carry no authority here; the ones that
+still bear on a decision are retained under `evidence/legacy/raven2/` and are
+labeled there as off-device comparison.
 
 ## Hardware sets every ceiling in this repository
 
@@ -617,11 +615,10 @@ covariate this host carries and a prior host did not.
 span figures as comparison alone.
 
 A default here changes when a measurement on this host moves it, and
-`evidence/ada/` holds those measurements. A device-derived verdict from
-`qwen-apu` -- a kernel-ring hazard, a quarantine row, a bandwidth-bound
-K-quant ladder -- carries no authority on this device until it is re-measured
-here; `evidence/legacy/raven2/` retains those verdicts as prior-host
-comparison.
+`evidence/ada/` holds those measurements. A verdict derived on another device
+-- a kernel-ring hazard, a quarantine row, a bandwidth-bound K-quant ladder --
+carries no authority on this one until it is re-measured here;
+`evidence/legacy/raven2/` retains those verdicts as off-device comparison.
 
 The registry rather than a constant sets the admitted depth.
 `scripts/models.tsv` carries `context_default`, `context_ceiling`, and
