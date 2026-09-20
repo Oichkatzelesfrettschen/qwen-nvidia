@@ -16,7 +16,7 @@ prediction registered with the observation that would refute it.
 ## The milestone and the state machine
 
 One approved 512x512 image is generated locally by a pinned native Vulkan
-runtime, its provenance is retained, it appears in the qwen-apu fallback Web UI,
+runtime, its provenance is retained, it appears in the fallback Web UI,
 and the ordinary LLM router comes back cleanly afterwards. The later shape is
 bounded generation, a vision review of the result, and at most two approved
 corrections.

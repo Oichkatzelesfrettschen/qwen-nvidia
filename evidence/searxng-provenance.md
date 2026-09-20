@@ -12,7 +12,7 @@ assumed or predicted value.
 upstream:            https://github.com/searxng/searxng.git
 pinned commit:        a30b2d47492ab46ae82ce25ee62a31626565cf67
 commit read date:     2026-08-28 (searxng/searxng carries no tags at that date)
-install root:         /opt/searxng-qwen-apu (world-readable; the searxng
+install root:         /opt/searxng-qwen-nvidia (world-readable; the searxng
                       user's searxng-src stage refuses a source under a
                       0750 home directory)
 installer log sha256: 2cece232571116ebd70736fd3e38e44f14769f33059474feed31bb080f217d44

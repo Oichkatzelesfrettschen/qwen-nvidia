@@ -17,10 +17,9 @@ and the qwen-nvidia pin. The global fast-math flags, strip workaround, and
 performance prose carry no current reproducer or measurement tuple.
 
 Platform-specific llama.cpp patches and replay evidence belong to the
-repository that owns the matching backend: qwen-nvidia owns CUDA and NVIDIA
-work, while qwen-apu owns Vulkan work. Useful SM89 targeting is
-therefore carried by qwen-nvidia rather than by the AUR package or qwen-apu,
-and is already implemented through `scripts/build-llama-cuda.sh`.
+repository that owns the matching backend, and this one owns CUDA and NVIDIA
+work. Useful SM89 targeting is therefore carried here rather than by the AUR
+package, and is already implemented through `scripts/build-llama-cuda.sh`.
 `evidence/ada/cuda-ptx-code-selection-compiler-falsification.md` records why
 the serving closure uses `89-real`, while `evidence/ada/cuda-runtime-levers.md`
 keeps dispatch claims tied to measured binaries and controls. Those records do

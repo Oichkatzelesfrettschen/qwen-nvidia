@@ -14,14 +14,14 @@
 | Stale local AUR llama.cpp-cuda flags | superseded retain | private raw diff under `.local-artifacts/`; compact negative admission under `evidence/ada/aur-llama-cpp-cuda-stale-flags/` | base and fetched-origin commits, file and raw-diff digests, private-manifest digest, and `scripts/check-aur-llama-cpp-cuda-retention.py` |
 | Historical AD104 trace-only binary closure | raw exact-target evidence | ignored `.local-artifacts/retained-closures/` with public digests under `evidence/ada/ad104-dispatch-telemetry-source-retention/` | private SHA-256 manifest and relocation receipt |
 | Fallback Web UI | adapted source asset | ordinary Git under `webui/` | qwen-lab 1.5.0 source plus this repository's policy tests |
-| Prior-host evidence conclusions | retained comparative summary | ordinary Git under `evidence/legacy/raven2/` | raw originals in the `qwen-apu` repository at the commit `README.md` names |
+| Off-device evidence conclusions | retained comparative summary | ordinary Git under `evidence/legacy/raven2/` | the summary stands alone; the raw records are not carried here |
 | Generated image artifacts | raw exact-target evidence, one binary per admission, when produced | ordinary Git under `evidence/image-appliance/` | `evidence/SHA256SUMS`, and the profile, seed, and runtime the provenance record beside it names |
 
 Platform-specific llama.cpp patches, replay inputs, and measurements stay in
-the repository that owns their backend and hardware boundary. qwen-nvidia owns
-CUDA and NVIDIA variants; qwen-apu separately owns Vulkan variants.
-An AUR checkout or another packaging tree may supply upstream comparison
-material, but it does not own either repository's local patch lineage.
+the repository that owns their backend and hardware boundary. This repository
+owns the CUDA and NVIDIA variants and carries no other backend. An AUR
+checkout or another packaging tree may supply upstream comparison material,
+but it does not own this repository's local patch lineage.
 
 `scripts/refresh-evidence-manifest.sh` regenerates `evidence/SHA256SUMS` from
 the tracked `benchmarks/` and `evidence/` trees, and `--check` exits non-zero
@@ -31,11 +31,11 @@ The Git copies replace the private hostname with `qwen-laptop`, the
 machine-local home prefix with `$HOME`, the harness output directory a run
 wrote under with `$SCRATCH`, and network MAC addresses with `<mac>`.
 
-`evidence/legacy/raven2/` retains one README stating what the prior host was
-and one table of individual conclusions worth carrying forward from it. About
-1,300 raw files carrying full prior-host measurement detail are deleted from
-this repository, because their authoritative copies remain in `qwen-apu` at
-the commit `evidence/legacy/raven2/README.md` names. No script under
+`evidence/legacy/raven2/` retains one README stating what the earlier host
+was and one table of individual conclusions worth carrying forward from it.
+The roughly 1,300 raw files carrying that host's full measurement detail are
+not part of this repository; the retained table is the whole of what this tree
+claims from them. No script under
 `scripts/` reads `evidence/legacy/raven2/comparative-findings.tsv`, and no row
 in it sets a default in this tree; a default here changes only when a
 measurement under `evidence/ada/` moves it.

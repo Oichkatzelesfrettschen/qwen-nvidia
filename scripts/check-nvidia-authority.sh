@@ -42,7 +42,7 @@ report() {
 # other machine's results as history, which is the one place those terms belong.
 is_legacy_path() {
     case $1 in
-        evidence/legacy/* | docs/APU_UPSTREAM.md | evidence/quarantine/*) return 0 ;;
+        evidence/legacy/* | evidence/quarantine/*) return 0 ;;
         # The gate states the terms it refuses, so it matches itself.
         scripts/check-nvidia-authority.sh) return 0 ;;
         *) return 1 ;;

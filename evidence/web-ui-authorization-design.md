@@ -83,10 +83,10 @@ stating that the search did not run.
 ## Scope cut: the UI source lives outside this tree
 
 The change is unimplemented here. `scripts/build-llama-ui.sh` reads the front end
-from `${QWEN_UI_SOURCE:-src/llama.cpp-qwen-apu/tools/ui}` on the appliance and
+from `${QWEN_UI_SOURCE:-src/llama.cpp-qwen-nvidia/tools/ui}` on the appliance and
 rsyncs the built `dist/` back, and this repository holds no `src/` directory and
 no vendored copy of that source. The files that would change are
-`src/llama.cpp-qwen-apu/tools/ui/` on the appliance, which reaches a clone of
+`src/llama.cpp-qwen-nvidia/tools/ui/` on the appliance, which reaches a clone of
 this repository through a patch under `patches/` the way the four Vulkan
 patches do.
 

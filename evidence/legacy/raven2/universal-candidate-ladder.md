@@ -110,8 +110,7 @@ only the first.
 
 One sweep holds all seven servable checkpoints, because the same checkpoint
 under identical flags spans up to 30.6% on this machine across sweeps and a
-comparison is only readable within one. The prior host's bandwidth ladder,
-`remote/run-bandwidth-ladder.sh` in `qwen-apu`, runs a forward pass over the
+comparison is only readable within one. That host's bandwidth ladder runs a forward pass over the
 model order and a reverse pass over it, so every
 checkpoint takes an early slot and a late one, at `nice 19` with idle I/O and
 the priority read back from `/proc` rather than restated. `QWEN_BENCH_PREFILL`

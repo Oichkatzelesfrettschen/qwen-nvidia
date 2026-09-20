@@ -48,7 +48,7 @@ photo_sha256=d1ba1b26171856c6e6ad953aab5625d86c94196bc64e92de47c2c50710e0c0bc
 # thumbnail width outside its published bucket list, so the width above is one
 # of those buckets and the agent carries a descriptive token beside the Mozilla
 # prefix. No personal identifier goes in the header.
-user_agent='Mozilla/5.0 (X11; Linux x86_64) qwen-apu-vision-fixture/1.0'
+user_agent='Mozilla/5.0 (X11; Linux x86_64) qwen-nvidia-vision-fixture/1.0'
 
 verify() {
     [ -f "$1" ] || return 1
