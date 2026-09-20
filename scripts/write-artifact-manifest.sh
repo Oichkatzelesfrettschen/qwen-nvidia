@@ -50,7 +50,6 @@ configuration_field() {
 }
 commit=$(configuration_field actual_commit)
 source_diff=$(configuration_field source_diff_sha256)
-vulkan=$(configuration_field vulkan)
 [ -n "$commit" ] || { printf 'build-configuration.tsv names no actual_commit\n' >&2; exit 1; }
 # The empty tree's diff hashes to e3b0c442..., so any other digest records
 # a worktree that differed from the commit when the build ran.
@@ -58,10 +57,10 @@ case $source_diff in
     e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855) worktree=clean ;;
     *) worktree=dirty ;;
 esac
-case $vulkan in
-    ON) fallback_backend=Vulkan0 ;;
-    *) fallback_backend=none ;;
-esac
+# This tree configures GGML_VULKAN=OFF and LLAMA_NO_CPU_FALLBACK, so a
+# served artifact has one backend and nothing to fall back to. The field
+# stays in the manifest as the statement that there is none.
+fallback_backend=none
 
 temporary_manifest=$(mktemp "${TMPDIR:-/tmp}/artifact-manifest.XXXXXX")
 trap 'rm -f "$temporary_manifest"' EXIT INT TERM

@@ -115,7 +115,6 @@ scripts/test-qwen-launch-router-preflight.sh
 scripts/test-qwen-capacity-policy.sh
 scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh
-scripts/test-prepare-llama-vulkan-source.sh
 scripts/test-qwen-session-signals.sh
 scripts/test-qwen-retire-server-child.sh
 scripts/test-drain-integration-mutations.sh

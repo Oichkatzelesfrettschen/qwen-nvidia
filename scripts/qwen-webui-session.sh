@@ -71,8 +71,6 @@ status_file=$state_directory/session.status
 api_key_file=$state_directory/api.key
 monitor_pid=""
 monitor_start_time=""
-latency_watchdog_pid=""
-latency_watchdog_start_time=""
 kernel_hazard_watchdog_pid=""
 kernel_hazard_watchdog_start_time=""
 server_pid=""
@@ -227,7 +225,6 @@ cleanup() {
         fi
     }
     stop_owned_child "$monitor_pid" monitor "$monitor_start_time"
-    stop_owned_child "$latency_watchdog_pid" latency_watchdog "$latency_watchdog_start_time"
     stop_owned_child "$kernel_hazard_watchdog_pid" kernel_hazard_watchdog "$kernel_hazard_watchdog_start_time"
     # The broker removes its per-launch session secret while unwinding from
     # SIGTERM, so it is signalled and waited for rather than left to the
@@ -718,90 +715,13 @@ if [ "$ready_for_monitor" -ne 1 ]; then
     exit 1
 fi
 
-# The desktop-coexistence probe, which measures the compositor's own device
-# through Vulkan and so belongs to the desktop rather than to serving: this
-# host serves on CUDA and builds llama.cpp with GGML_VULKAN off, so a missing
-# probe leaves graphics latency unmeasured rather than refusing the session.
-# QWEN_LATENCY_MODE=terminate names a run that wants the measurement, and
-# refuses without it.
-latency_probe=${QWEN_VULKAN_LATENCY_PROBE:-"$script_directory/../build/vulkan-graphics-service-probe"}
-# The probe watches the compositor's own frame-completion fences against a
-# 20,000 us deadline sampled every 16 ms; it measures whatever yielding the
-# scheduling policy actually produces rather than enforcing one itself.
-# `terminate` ends any sustained session that breaches the deadline and is
-# retained only for deliberately strict runs; `observe` counts the same
-# breaches, leaves them in the log, and lets the session serve.
-latency_probe_mode=${QWEN_LATENCY_MODE:-observe}
-case $latency_probe_mode in
-    terminate) latency_probe_mode_argument='' ;;
-    observe) latency_probe_mode_argument='--observe' ;;
-    *)
-        printf 'QWEN_LATENCY_MODE must be terminate or observe: %s\n' \
-            "$latency_probe_mode" >&2
-        exit 2
-        ;;
-esac
-graphics_latency_measured=yes
-if [ ! -x "$latency_probe" ]; then
-    if [ "$latency_probe_mode" = terminate ]; then
-        printf 'state=failed reason=graphics_latency_probe_unavailable path=%s utc=%s\n' \
-            "$latency_probe" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
-        exit 1
-    fi
-    graphics_latency_measured=no
-    printf 'graphics_latency=unmeasured probe=%s utc=%s\n' "$latency_probe" \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$graphics_latency_log"
-fi
-
-if [ "$graphics_latency_measured" = yes ]; then
-    : >"$graphics_latency_log"
-    (
-        unset AMD_PRIORITY DISPLAY WAYLAND_DISPLAY
-        # The probe measures the compositor's own device, so it names an ICD rather
-        # than accepting whichever the loader enumerates first. QWEN_GRAPHICS_ICD
-        # wins where the caller sets it, the installed NVIDIA and AMD files follow
-        # in that order, and a host carrying neither leaves the loader to enumerate.
-        graphics_icd=${QWEN_GRAPHICS_ICD:-}
-        if [ -z "$graphics_icd" ]; then
-            for icd_candidate in /usr/share/vulkan/icd.d/nvidia_icd.json \
-                                 /usr/share/vulkan/icd.d/radeon_icd.x86_64.json; do
-                if [ -r "$icd_candidate" ]; then
-                    graphics_icd=$icd_candidate
-                    break
-                fi
-            done
-        fi
-        if [ -n "$graphics_icd" ]; then
-            export VK_DRIVER_FILES=$graphics_icd
-            export VK_ICD_FILENAMES=$graphics_icd
-        fi
-        exec ionice -c 3 "$latency_probe" \
-            --log "$graphics_latency_log" --watch-pid "$server_pid" \
-            --interval-ms 16 --deadline-us 20000 $latency_probe_mode_argument
-    ) 9>&- &
-    latency_watchdog_pid=$!
-    latency_watchdog_start_time=$(sed 's/^.*) //' "/proc/$latency_watchdog_pid/stat" | awk '{ print $20 }')
-
-    latency_ready=0
-    attempt=0
-    while [ "$attempt" -lt 100 ]; do
-        require_broker_running
-        if grep -F 'probe_start ' "$graphics_latency_log" >/dev/null 2>&1; then
-            latency_ready=1
-            break
-        fi
-        if ! kill -0 "$latency_watchdog_pid" 2>/dev/null; then
-            break
-        fi
-        attempt=$((attempt + 1))
-        sleep 0.1
-    done
-    if [ "$latency_ready" -ne 1 ]; then
-        printf 'state=failed reason=graphics_latency_probe_not_ready utc=%s\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
-        exit 1
-    fi
-fi
+# This tree serves on CUDA and measures no desktop responsiveness: the
+# graphics-latency probe measured the compositor's own device through Vulkan
+# and left with that backend. The absence is recorded rather than replaced,
+# because GPU busy, a CUDA event duration, and the absence of a probe crash
+# each measure something else.
+printf 'graphics_latency=not_measured utc=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$graphics_latency_log"
 
 "$script_directory/watch-qwen-kernel-hazards.sh" \
     "$server_pid" "$kernel_hazard_log" 9>&- &
@@ -829,7 +749,7 @@ if [ "$kernel_watch_ready" -ne 1 ]; then
 fi
 
 "$script_directory/monitor-qwen-runtime.sh" "$server_pid" "$telemetry_log" \
-    "$runtime_profile" "${latency_watchdog_pid:-0}" \
+    "$runtime_profile" 0 \
     "$kernel_hazard_watchdog_pid" 9>&- &
 monitor_pid=$!
 monitor_start_time=$(sed 's/^.*) //' "/proc/$monitor_pid/stat" | awk '{ print $20 }')
@@ -857,10 +777,10 @@ if [ -n "$geometry_service_pid" ]; then
     broker_status_field="$broker_status_field geometry_service_pid=$geometry_service_pid"
 fi
 printf 'state=running session_pid=%s session_start_time=%s server_pid=%s server_start_time=%s monitor_pid=%s monitor_start_time=%s latency_watchdog_pid=%s latency_watchdog_start_time=%s kernel_hazard_watchdog_pid=%s kernel_hazard_watchdog_start_time=%s%s profile=%s host=%s port=%s context=%s latency_mode=%s utc=%s\n' \
-    "$$" "$session_start_time" "$server_pid" "$server_start_time" "$monitor_pid" "$monitor_start_time" "$latency_watchdog_pid" "$latency_watchdog_start_time" \
+    "$$" "$session_start_time" "$server_pid" "$server_start_time" "$monitor_pid" "$monitor_start_time" 0 0 \
     "$kernel_hazard_watchdog_pid" "$kernel_hazard_watchdog_start_time" "$broker_status_field" "$runtime_profile" \
     "${QWEN_BIND_HOST:-127.0.0.1}" "$server_port" "$context_size" \
-    "$latency_probe_mode" \
+    not_measured \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
 # The owner claim is recorded on its own line so an admission harness has status
 # proof to wait on: it launches the session, waits for this line, and drives its
@@ -937,11 +857,6 @@ while process_running "$server_pid"; do
         supervised_component=monitor
         break
     fi
-    if [ "$graphics_latency_measured" = yes ] &&
-        ! process_running "$latency_watchdog_pid"; then
-        supervised_component=latency_watchdog
-        break
-    fi
     if ! process_running "$kernel_hazard_watchdog_pid"; then
         supervised_component=kernel_hazard_watchdog
         break
@@ -966,7 +881,6 @@ if [ "$supervised_component" != server ]; then
     broker_status=0
     case $supervised_component in
         monitor) monitor_status=1 ;;
-        latency_watchdog) latency_status=1 ;;
         kernel_hazard_watchdog) kernel_hazard_status=1 ;;
         authorization_broker) broker_status=1 ;;
     esac
@@ -976,7 +890,7 @@ if [ "$supervised_component" != server ]; then
         "$runtime_profile" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
     exit 1
 fi
-for supervised_pid in "$server_pid" "$monitor_pid" "$latency_watchdog_pid" \
+for supervised_pid in "$server_pid" "$monitor_pid" \
         "$kernel_hazard_watchdog_pid" "$broker_pid"; do
     [ -n "$supervised_pid" ] || continue
     kill "$supervised_pid" 2>/dev/null || true
@@ -986,12 +900,7 @@ wait "$server_pid"
 server_status=$?
 wait "$monitor_pid"
 monitor_status=$?
-if [ -n "$latency_watchdog_pid" ]; then
-    wait "$latency_watchdog_pid"
-    latency_status=$?
-else
-    latency_status=0
-fi
+latency_status=0
 wait "$kernel_hazard_watchdog_pid"
 kernel_hazard_status=$?
 broker_status=0
@@ -1002,7 +911,6 @@ fi
 set -e
 server_pid=""
 monitor_pid=""
-latency_watchdog_pid=""
 kernel_hazard_watchdog_pid=""
 broker_pid=""
 session_status=$server_status

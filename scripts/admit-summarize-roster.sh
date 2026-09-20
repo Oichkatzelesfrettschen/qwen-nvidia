@@ -22,6 +22,8 @@
 #                                installed graft sends
 #   QWEN_CHAT_REASONING_BUDGET   the thought budget each launch binds, default
 #                                8192
+#   QWEN_ROSTER_CONTEXT          cap on the depth each launch allocates,
+#                                default 32768
 #   QWEN_ROSTER_REQUEST_TIMEOUT  seconds curl waits for one answer, default 660
 #   QWEN_SERVER_PORT             the served listener, default 8080
 #   QWEN_WEBUI_STATE_DIRECTORY   holds api.key, default $HOME/qwen-webui-state
@@ -48,6 +50,12 @@ cap=${QWEN_ROSTER_MAX_TOKENS:-32768}
 # The thought budget the launch binds, 8192 where the caller names none, so a
 # replay of the first roster keeps its setting and a screen can bound it.
 reasoning_budget=${QWEN_CHAT_REASONING_BUDGET:-8192}
+# The depth each launch allocates, capped at the row's ceiling. The default
+# is the ceiling itself, which is what the first roster measured; a screen
+# names the depth its largest probe file needs instead, because the KV
+# allocation a launch reserves is paid on every row whether the requests
+# reach it or not.
+context_cap=${QWEN_ROSTER_CONTEXT:-32768}
 request_timeout=${QWEN_ROSTER_REQUEST_TIMEOUT:-660}
 server_port=${QWEN_SERVER_PORT:-8080}
 state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-webui-state"}
@@ -93,7 +101,7 @@ trap 'exit 143' TERM
 printf 'model\tfile\tprompt_tokens\tcompletion_tokens\tfinish\treasoning_chars\tcontent_chars\tcontext_boundary\twall_ms\ttool_call\thttp_status\toutcome\n' >"$OUT"
 printf '%s\n' "$eligible" | while IFS="$TAB" read -r id ceil file; do
     [ -n "$id" ] || continue
-    ctx=$ceil; [ "$ctx" -gt 32768 ] && ctx=32768
+    ctx=$ceil; [ "$ctx" -gt "$context_cap" ] && ctx=$context_cap
     "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
     if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=$reasoning_budget QWEN_CONTEXT_SIZE=$ctx \
         QWEN_MODEL_PATH=$HOME/models/$file "$Q/scripts/qwen-launch.sh" default >"$OUT.$id.launch" 2>&1; then

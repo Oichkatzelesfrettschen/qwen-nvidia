@@ -64,9 +64,9 @@ AMD Ryzen 5 5600X3D, six Zen 3 cores at 3.3 GHz with twelve threads and 96 MiB
 of L3, 31 GiB of DDR4, and one NVIDIA GeForce RTX 4070 Ti: AD104, compute
 capability 8.9, 12282 MiB of GDDR6X on a 192-bit bus, driver 610.57.04 with
 CUDA 13.3. `scripts/build-llama-cuda.sh` builds the CUDA closure the appliance
-serves; `QWEN_BUILD_VULKAN=ON` adds the Vulkan backend to a diagnostic closure
-alone, on which `llama-bench --device` selects between the two and two rows
-differ by the backend alone. That script executes no artifact it built and
+serves, and it is the only closure: it configures `GGML_VULKAN=OFF` and
+refuses `QWEN_BUILD_VULKAN` with status 2 rather than reading a request for
+the retired backend as a CUDA experiment. That script executes no artifact it built and
 ends on `runtime_execution=not_run reason=build_only`, because llama-bench calls
 `ggml_backend_load_all()` ahead of parsing argv and a closing `--version` print
 therefore opened a CUDA context inside a compile; case 30 of
@@ -92,15 +92,17 @@ Automatic Vulkan fallback     refused
 `qwen-webui-control.sh`, `run-depth-ladder.sh`, and `probe-filled-depth.sh`
 refuse `vulkan` with status 2 ahead of any launch; `promote-llama-build.sh`
 refuses a build carrying `libggml-vulkan.so`, so the promoted closure
-enumerates CUDA0 alone and `scripts/serving-closures.tsv` names the
-dual-backend closure `572951d25562` by the `diagnostic` role, run by hand for
-a diagnostic question and a dependency of no CUDA work. The retired Vulkan
-scripts, patches, and ledger rows stay in the tree as history or as hand-run
-diagnostics, and `scripts/vulkan-runtime-env.sh` says so in its header. The
-graphics-latency probe is the one named Vulkan exception: it measures desktop
-responsiveness on the graphics queue and stays until a replacement measures
-the same property. The workstation's Vulkan libraries and its compositor are
-outside this contract. That inverts the APU tree, where Vulkan was the only
+enumerates CUDA0 alone. `scripts/serving-closures.tsv` keeps the
+dual-backend closure `572951d25562` as a historical identity; nothing
+builds, launches, or admits it. There is no Vulkan exception. The backend
+patches, the source preparation, and the graphics-latency probe are gone
+from the tree rather than retained as hand-run diagnostics: a session that
+takes no desktop-responsiveness measurement records
+`graphics_latency=not_measured` and does not substitute GPU busy, a CUDA
+event duration, or the absence of a probe crash for it. A disable flag or a
+rejection assertion naming the retired backend is enforcement, not support.
+The workstation's own Vulkan libraries and its compositor are outside this
+contract, and no host driver is removed by it. That inverts the APU tree, where Vulkan was the only
 accelerated path the device offered, and it changes which ceiling binds:
 device memory rather than memory bandwidth. A 12 GiB carve-out with 2.5 GiB
 already resident holds one 9B Q4_K_M
