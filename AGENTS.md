@@ -2138,6 +2138,7 @@ scripts/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
 scripts/admit-candidate-static.py REPO REV      # a header over a range read
 scripts/admit-graft-deep.sh OUT                 # graft's own --deep pass per checkpoint, one sparse worktree each
 scripts/graft-deep-evidence.py GRAPH_DIR        # completion and crux placement in one graph
+scripts/admit-crux-collector.sh OUT             # graft's crux retry policy crossed with two checkpoints
 scripts/record-symbols-contract.py CMD ...      # graft's record_symbols request and its grading, by node id
 scripts/regrade-record-symbols-wire.py DIR      # the retained wire replies read per occurrence
 scripts/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
@@ -2606,6 +2607,19 @@ the host to halve its prefill, and `qwen3-4b-instruct-2507` was predicted to
 drop fewer of graft's symbol records than the thinking distill because its
 template spends none of the reply cap on a thought block, where it left 41 of
 243 symbols pending and the distill left none.
+
+A defect in the source is not yet a defect in the run. `collectFileCrux` in
+graft's `dist/graph/enrich.js` stores a returned record on its id alone and
+computes the next attempt from what it has stored, while enrichment rejects the
+same record for the blank summary the collector kept, so an id returned blank
+retires itself from a retry that would repair it. Crossing both 4B checkpoints
+with a corrected collector over one fixed pair of files moved nothing: the same
+records ready, the same pending, the same request count, wall times within 0.15
+percent. The failure that was supposed to exercise it, `empty-parsed`, leaves
+the collector's map empty and the retry therefore runs anyway; the defect needs
+one reply carrying both summarized and blank ids, which neither checkpoint
+produced. `evidence/ada/crux-collector-retry/` records the falsification and the
+condition still unexercised.
 
 A gate grades its reference before it grades a model. `admit-record-symbols.sh`
 built its expected set as a dictionary keyed on the bare symbol name, so a file

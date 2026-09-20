@@ -1,0 +1,17 @@
+--- $HOME/.local/lib/graft-collector-fix/dist/graph/enrich.js.orig	2026-09-20 14:27:58.525850386 -0700
++++ $HOME/.local/lib/graft-collector-fix/dist/graph/enrich.js	2026-09-20 14:27:58.545136328 -0700
+@@ -200,8 +200,13 @@
+     for (let attempt = 0; attempt < 2 && missing.length > 0; attempt++) {
+         try {
+             const list = await summarizer.describeFile({ path, source, nodes: missing });
++            // A record is accepted only when it carries the summary enrich
++            // requires, because the retry set is computed from this map: an id
++            // stored on its arrival alone retires itself from the second
++            // attempt and is then discarded by the `!r.summary.trim()` test in
++            // applyFileCrux, spending one of the two attempts on nothing.
+             for (const r of list)
+-                if (!results.has(r.id))
++                if (r && typeof r.summary === "string" && r.summary.trim() && !results.has(r.id))
+                     results.set(r.id, r);
+             missing = refs.filter((r) => !results.has(r.id));
+         }

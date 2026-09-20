@@ -1,0 +1,465 @@
+device_name=NVIDIA GeForce RTX 4070 Ti
+device_total_bytes=12878610432
+device_used_bytes=2413821952
+device_available_bytes=10464788480
+model_bytes=4280405600
+mem_available_bytes=8581664768
+required_host_bytes=4294967296
+required_device_bytes=4831838208
+device_margin_bytes=805306368
+required_device_with_margin_bytes=5637144576
+swap_used_bytes=6284673024
+host_memory_headroom=ample surplus_bytes=4286697472
+device_budget_headroom=ample surplus_bytes=4827643904
+model_memory_preflight=observe
+depth_validation admitted=16384 validated=none geometry=2048/512
+runtime_environment backend=cuda wrapper=cuda-runtime-env.sh profile=default
+gpu_compute_lease path=$HOME/qwen-webui-state/vulkan-workload.lock legacy_name=QWEN_VULKAN_WORKLOAD_LOCK
+roster_cache path=$HOME/qwen-webui-state/router-model-cache entries=0
+0.00.020.611 I cmn  common_param: common_params_print_info: build 1935 (f280b2698) with GNU 15.3.0 for Linux x86_64
+0.00.020.613 I cmn  common_param: common_params_print_info: verbosity = 4 (adjust with the `-lv N` CLI arg)
+0.00.020.614 I cmn  common_param: device_info:
+0.00.114.190 I cmn  common_param:   - CUDA0   : NVIDIA GeForce RTX 4070 Ti (11933 MiB, 9433 MiB free)
+0.00.114.195 I cmn  common_param:   - CPU     : AMD Ryzen 5 5600X3D 6-Core Processor (15875 MiB, 15875 MiB free)
+0.00.114.237 I cmn  common_param: system_info: n_threads = 6 (n_threads_batch = 6) / 12 | CUDA : ARCHS = 890 | USE_GRAPHS = 1 | FA_ALL_QUANTS = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.00.114.262 I srv          init: running without SSL
+0.00.114.308 I srv          init: using 11 threads for HTTP server
+0.00.114.384 I srv         start: binding port with default address family
+0.00.115.531 I srv  workload_lea: vulkan workload lease armed: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.00.115.540 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0 bound=deadline
+0.00.115.580 I srv    load_model: loading model '$HOME/models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q8_0.gguf'
+0.00.115.581 I srv    load_model: local path '$HOME/models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q8_0.gguf'
+0.00.141.740 I llama_model_loader: loaded meta data with 42 key-value pairs and 398 tensors from $HOME/models/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q8_0.gguf (version GGUF V3 (latest))
+0.00.141.755 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+0.00.141.764 I llama_model_loader: - kv   0:                       general.architecture str              = qwen3
+0.00.141.765 I llama_model_loader: - kv   1:                               general.type str              = model
+0.00.141.766 I llama_model_loader: - kv   2:                               general.name str              = Qwen3-4B-Instruct-2507
+0.00.141.766 I llama_model_loader: - kv   3:                            general.version str              = 2507
+0.00.141.767 I llama_model_loader: - kv   4:                           general.finetune str              = Instruct
+0.00.141.767 I llama_model_loader: - kv   5:                           general.basename str              = Qwen3-4B-Instruct-2507
+0.00.141.768 I llama_model_loader: - kv   6:                       general.quantized_by str              = Unsloth
+0.00.141.768 I llama_model_loader: - kv   7:                         general.size_label str              = 4B
+0.00.141.768 I llama_model_loader: - kv   8:                            general.license str              = apache-2.0
+0.00.141.769 I llama_model_loader: - kv   9:                       general.license.link str              = https://huggingface.co/Qwen/Qwen3-4B-...
+0.00.141.770 I llama_model_loader: - kv  10:                           general.repo_url str              = https://huggingface.co/unsloth
+0.00.141.771 I llama_model_loader: - kv  11:                   general.base_model.count u32              = 1
+0.00.141.771 I llama_model_loader: - kv  12:                  general.base_model.0.name str              = Qwen3 4B Instruct 2507
+0.00.141.772 I llama_model_loader: - kv  13:               general.base_model.0.version str              = 2507
+0.00.141.772 I llama_model_loader: - kv  14:          general.base_model.0.organization str              = Qwen
+0.00.141.773 I llama_model_loader: - kv  15:              general.base_model.0.repo_url str              = https://huggingface.co/Qwen/Qwen3-4B-...
+0.00.141.785 I llama_model_loader: - kv  16:                               general.tags arr[str,2]       = ["unsloth", "text-generation"]
+0.00.141.785 I llama_model_loader: - kv  17:                          qwen3.block_count u32              = 36
+0.00.141.785 I llama_model_loader: - kv  18:                       qwen3.context_length u32              = 262144
+0.00.141.786 I llama_model_loader: - kv  19:                     qwen3.embedding_length u32              = 2560
+0.00.141.786 I llama_model_loader: - kv  20:                  qwen3.feed_forward_length u32              = 9728
+0.00.141.786 I llama_model_loader: - kv  21:                 qwen3.attention.head_count u32              = 32
+0.00.141.787 I llama_model_loader: - kv  22:              qwen3.attention.head_count_kv u32              = 8
+0.00.141.794 I llama_model_loader: - kv  23:                       qwen3.rope.freq_base f32              = 5000000.000000
+0.00.141.795 I llama_model_loader: - kv  24:     qwen3.attention.layer_norm_rms_epsilon f32              = 0.000001
+0.00.141.795 I llama_model_loader: - kv  25:                 qwen3.attention.key_length u32              = 128
+0.00.141.796 I llama_model_loader: - kv  26:               qwen3.attention.value_length u32              = 128
+0.00.141.796 I llama_model_loader: - kv  27:                       tokenizer.ggml.model str              = gpt2
+0.00.141.796 I llama_model_loader: - kv  28:                         tokenizer.ggml.pre str              = qwen2
+0.00.153.114 I llama_model_loader: - kv  29:                      tokenizer.ggml.tokens arr[str,151936]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+0.00.157.027 I llama_model_loader: - kv  30:                  tokenizer.ggml.token_type arr[i32,151936]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+0.00.168.076 I llama_model_loader: - kv  31:                      tokenizer.ggml.merges arr[str,151387]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+0.00.168.078 I llama_model_loader: - kv  32:                tokenizer.ggml.eos_token_id u32              = 151645
+0.00.168.078 I llama_model_loader: - kv  33:            tokenizer.ggml.padding_token_id u32              = 151654
+0.00.168.079 I llama_model_loader: - kv  34:               tokenizer.ggml.add_bos_token bool             = false
+0.00.168.080 I llama_model_loader: - kv  35:                    tokenizer.chat_template str              = {%- if tools %}\n    {{- '<|im_start|>...
+0.00.168.081 I llama_model_loader: - kv  36:               general.quantization_version u32              = 2
+0.00.168.081 I llama_model_loader: - kv  37:                          general.file_type u32              = 7
+0.00.168.082 I llama_model_loader: - kv  38:                      quantize.imatrix.file str              = Qwen3-4B-Instruct-2507-GGUF/imatrix_u...
+0.00.168.082 I llama_model_loader: - kv  39:                   quantize.imatrix.dataset str              = unsloth_calibration_Qwen3-4B-Instruct...
+0.00.168.083 I llama_model_loader: - kv  40:             quantize.imatrix.entries_count u32              = 252
+0.00.168.083 I llama_model_loader: - kv  41:              quantize.imatrix.chunks_count u32              = 79
+0.00.168.085 I llama_model_loader: - type  f32:  145 tensors
+0.00.168.085 I llama_model_loader: - type q8_0:  253 tensors
+0.00.168.087 I print_info: file format = GGUF V3 (latest)
+0.00.168.088 I print_info: file type   = Q8_0
+0.00.168.089 I print_info: file size   = 3.98 GiB (8.50 BPW) 
+0.00.168.156 I llama_prepare_model_devices: using device CUDA0 (NVIDIA GeForce RTX 4070 Ti) (0000:0b:00.0) - 9433 MiB free
+0.00.218.532 I load: 0 unused tokens
+0.00.219.177 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.00.229.806 I load: printing all EOG tokens:
+0.00.229.808 I load:   - 128247 ('</s>')
+0.00.229.808 I load:   - 151643 ('<|endoftext|>')
+0.00.229.808 I load:   - 151645 ('<|im_end|>')
+0.00.229.809 I load:   - 151662 ('<|fim_pad|>')
+0.00.229.809 I load:   - 151663 ('<|repo_name|>')
+0.00.229.809 I load:   - 151664 ('<|file_sep|>')
+0.00.229.954 I load: special tokens cache size = 27
+0.00.260.890 I load: token to piece cache size = 0.9311 MB
+0.00.260.899 I print_info: arch                  = qwen3
+0.00.260.899 I print_info: vocab_only            = 0
+0.00.260.900 I print_info: no_alloc              = 0
+0.00.260.900 I print_info: n_ctx_train           = 262144
+0.00.260.901 I print_info: n_embd_inp            = 2560
+0.00.260.901 I print_info: n_embd                = 2560
+0.00.260.902 I print_info: n_embd_out            = 2560
+0.00.260.903 I print_info: n_layer               = 36
+0.00.260.903 I print_info: n_layer_all           = 36
+0.00.260.909 I print_info: n_head                = 32
+0.00.260.910 I print_info: n_head_kv             = 8
+0.00.260.910 I print_info: n_rot                 = 128
+0.00.260.911 I print_info: n_swa                 = 0
+0.00.260.912 I print_info: is_swa_any            = 0
+0.00.260.912 I print_info: n_embd_head_k         = 128
+0.00.260.913 I print_info: n_embd_head_v         = 128
+0.00.260.914 I print_info: n_gqa                 = 4
+0.00.260.917 I print_info: n_embd_k_gqa          = 1024
+0.00.260.920 I print_info: n_embd_v_gqa          = 1024
+0.00.260.920 I print_info: f_norm_eps            = 0.0e+00
+0.00.260.921 I print_info: f_norm_rms_eps        = 1.0e-06
+0.00.260.921 I print_info: f_clamp_kqv           = 0.0e+00
+0.00.260.922 I print_info: f_max_alibi_bias      = 0.0e+00
+0.00.260.922 I print_info: f_logit_scale         = 0.0e+00
+0.00.260.923 I print_info: f_attn_scale          = 0.0e+00
+0.00.260.923 I print_info: f_attn_value_scale    = 0.0000
+0.00.260.925 I print_info: n_ff                  = 9728
+0.00.260.925 I print_info: n_expert              = 0
+0.00.260.925 I print_info: n_expert_used         = 0
+0.00.260.925 I print_info: n_expert_groups       = 0
+0.00.260.925 I print_info: n_group_used          = 0
+0.00.260.925 I print_info: causal attn           = 1
+0.00.260.926 I print_info: pooling type          = -1
+0.00.260.926 I print_info: rope type             = 2
+0.00.260.926 I print_info: rope scaling          = linear
+0.00.260.927 I print_info: freq_base_train       = 5000000.0
+0.00.260.927 I print_info: freq_scale_train      = 1
+0.00.260.927 I print_info: n_ctx_orig_yarn       = 262144
+0.00.260.928 I print_info: rope_yarn_log_mul     = 0.0000
+0.00.260.928 I print_info: rope_finetuned        = unknown
+0.00.260.930 I print_info: model type            = 4B
+0.00.260.931 I print_info: model params          = 4.02 B
+0.00.260.931 I print_info: general.name          = Qwen3-4B-Instruct-2507
+0.00.260.934 I print_info: vocab type            = BPE
+0.00.260.934 I print_info: n_vocab               = 151936
+0.00.260.935 I print_info: n_merges              = 151387
+0.00.260.935 I print_info: BOS token             = 11 ','
+0.00.260.935 I print_info: EOS token             = 151645 '<|im_end|>'
+0.00.260.935 I print_info: EOT token             = 151645 '<|im_end|>'
+0.00.260.936 I print_info: PAD token             = 151654 '<|vision_pad|>'
+0.00.260.936 I print_info: LF token              = 198 'Ċ'
+0.00.260.936 I print_info: FIM PRE token         = 151659 '<|fim_prefix|>'
+0.00.260.936 I print_info: FIM SUF token         = 151661 '<|fim_suffix|>'
+0.00.260.937 I print_info: FIM MID token         = 151660 '<|fim_middle|>'
+0.00.260.937 I print_info: FIM PAD token         = 151662 '<|fim_pad|>'
+0.00.260.937 I print_info: FIM REP token         = 151663 '<|repo_name|>'
+0.00.260.937 I print_info: FIM SEP token         = 151664 '<|file_sep|>'
+0.00.260.937 I print_info: EOG token             = 128247 '</s>'
+0.00.260.938 I print_info: EOG token             = 151643 '<|endoftext|>'
+0.00.260.938 I print_info: EOG token             = 151645 '<|im_end|>'
+0.00.260.938 I print_info: EOG token             = 151662 '<|fim_pad|>'
+0.00.260.938 I print_info: EOG token             = 151663 '<|repo_name|>'
+0.00.260.938 I print_info: EOG token             = 151664 '<|file_sep|>'
+0.00.260.939 I print_info: max token length      = 256
+0.00.260.999 I load_tensors: loading model tensors, this can take a while... (load_mode = mmap)
+0.08.439.316 I load_tensors: offloading output layer to GPU
+0.08.439.320 I load_tensors: offloading 35 repeating layers to GPU
+0.08.439.320 I load_tensors: offloaded 37/37 layers to GPU
+0.08.439.341 I load_tensors:        CUDA0 model buffer size =  4076.43 MiB
+0.14.174.744 I cmn  common_init_: added </s> logit bias = -inf
+0.14.174.902 I cmn  common_init_: added <|endoftext|> logit bias = -inf
+0.14.174.903 I cmn  common_init_: added <|im_end|> logit bias = -inf
+0.14.174.911 I cmn  common_init_: added <|fim_pad|> logit bias = -inf
+0.14.174.911 I cmn  common_init_: added <|repo_name|> logit bias = -inf
+0.14.174.912 I cmn  common_init_: added <|file_sep|> logit bias = -inf
+0.14.179.655 I llama_context: constructing llama_context
+0.14.179.676 I llama_context: n_seq_max             = 1
+0.14.179.677 I llama_context: n_ctx                 = 16384
+0.14.179.677 I llama_context: n_ctx_seq             = 16384
+0.14.179.677 I llama_context: n_batch               = 2048
+0.14.179.677 I llama_context: n_ubatch              = 512
+0.14.179.678 I llama_context: causal_attn           = 1
+0.14.179.679 I llama_context: flash_attn            = enabled
+0.14.179.679 I llama_context: kv_unified            = false
+0.14.179.687 I llama_context: freq_base             = 5000000.0
+0.14.179.688 I llama_context: freq_scale            = 1
+0.14.179.688 I llama_context: n_rs_seq              = 0
+0.14.179.688 I llama_context: n_outputs_max         = 1
+0.14.179.688 I llama_context: n_outputs_max_per_seq = 1
+0.14.179.688 I llama_context: n_ctx_seq (16384) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+0.14.199.837 I llama_context:  CUDA_Host  output buffer size =     0.58 MiB
+0.14.201.393 I llama_kv_cache:      CUDA0 KV buffer size =   936.00 MiB
+0.14.259.369 I llama_kv_cache: size =  936.00 MiB ( 16384 cells,  36 layers,  1/1 seqs), K (q8_0):  612.00 MiB, V (q4_0):  324.00 MiB
+0.14.259.372 I llama_kv_cache: attn_rot_k = 1, n_embd_head_k_all = 128
+0.14.259.372 I llama_kv_cache: attn_rot_v = 1, n_embd_head_k_all = 128
+0.14.259.439 I sched_reserve: reserving ...
+0.14.261.320 I resolve_fused_ops: resolving fused Gated Delta Net support:
+0.14.266.728 I resolve_fused_ops: fused Gated Delta Net (autoregressive) enabled
+0.14.267.144 I resolve_fused_ops: fused Gated Delta Net (chunked) enabled
+0.14.267.152 I resolve_fused_ops: resolving fused Lightning Indexer support:
+0.14.267.519 I resolve_fused_ops: Lightning Indexer enabled
+0.14.267.520 I resolve_fused_ops: resolving fused DeepSeek V4 HC support:
+0.14.267.999 I resolve_fused_ops: fused DeepSeek V4 HC pre enabled
+0.14.268.453 I resolve_fused_ops: fused DeepSeek V4 HC comb enabled
+0.14.268.822 I resolve_fused_ops: fused DeepSeek V4 HC post enabled
+0.14.277.273 I sched_reserve:      CUDA0 compute buffer size =   106.09 MiB
+0.14.277.276 I sched_reserve:  CUDA_Host compute buffer size =    21.09 MiB
+0.14.277.277 I sched_reserve: graph nodes  = 1698
+0.14.277.277 I sched_reserve: graph splits = 1
+0.14.277.278 I sched_reserve: reserve took 17.84 ms, sched copies = 1
+0.14.277.444 I cmn          init: llama threadpool init, n_threads = 6
+0.14.277.478 I cmn  common_init_: warming up the model with an empty run - please wait ... (--no-warmup to disable)
+0.14.683.999 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 16384, kv_unified = 'false'
+0.14.684.018 I spec common_specu: no implementations specified for speculative decoding
+0.14.684.036 I slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384
+0.14.684.118 I srv    load_model: prompt cache is disabled - use `--cache-ram N` to enable it
+0.14.684.119 I srv    load_model: for more info see https://github.com/ggml-org/llama.cpp/pull/16391
+0.14.684.119 I srv    load_model: context checkpoints disabled
+0.14.684.268 W srv          init: --cache-idle-slots requires --cache-ram, disabling
+0.14.702.382 I srv          init: init: chat template, example_format: '<|im_start|>system
+You are a helpful assistant<|im_end|>
+<|im_start|>user
+Hello<|im_end|>
+<|im_start|>assistant
+Hi there<|im_end|>
+<|im_start|>user
+How are you?<|im_end|>
+<|im_start|>assistant
+'
+0.14.706.546 I srv          init: init: chat template, thinking = 1
+0.14.706.961 I srv  llama_server: model loaded
+0.14.706.984 I srv  llama_server: listening on http://127.0.0.1:8080
+0.14.706.985 W srv  llama_server: NOTICE: server default port will be changed to :9931 in a future release
+0.14.706.985 W srv  llama_server:         ref: https://github.com/ggml-org/llama.cpp/pull/26508
+0.14.709.241 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.14.709.242 I srv  update_slots: all slots are idle
+0.14.882.534 I srv  server_strea: conv_id= (empty=1)
+0.14.894.273 I srv    operator(): chat format: peg-native
+0.14.895.152 I slot get_availabl: id  0 | task -1 |  - skipping, slot is empty
+0.14.895.154 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.14.895.640 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.14.895.653 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.14.895.655 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.14.895.661 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+0.14.895.673 I slot   operator(): id  0 | task 0 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 149
+0.14.895.679 I slot   operator(): id  0 | task 0 | cached n_tokens = 0, memory_seq_rm [0, end)
+0.14.895.721 I slot init_sampler: id  0 | task 0 | init sampler, took 0.02 ms, tokens: text = 149, total = 149
+0.15.144.536 I slot print_timing: id  0 | task 0 | prompt eval time =      43.96 ms /   149 tokens (    0.30 ms per token,  3389.52 tokens per second)
+0.15.144.552 I slot print_timing: id  0 | task 0 |        eval time =     204.90 ms /    19 tokens (   11.38 ms per token,    87.85 tokens per second)
+0.15.144.553 I slot print_timing: id  0 | task 0 |       total time =     248.85 ms /   168 tokens
+0.15.144.556 I slot print_timing: id  0 | task 0 |    graphs reused =         18
+0.15.145.307 I slot      release: id  0 | task 0 | stop processing: n_tokens = 167, truncated = 0
+0.15.145.321 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.15.145.331 I srv  update_slots: all slots are idle
+0.15.799.114 I srv  server_strea: conv_id= (empty=1)
+0.15.799.273 I srv  server_strea: conv_id= (empty=1)
+0.15.824.788 I srv    operator(): chat format: peg-native
+0.15.824.907 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.001 (3/2997) > 0.100
+0.15.824.908 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 144210138738
+0.15.824.964 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.15.824.969 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.15.824.970 I slot launch_slot_: id  0 | task 20 | processing task, is_child = 0
+0.15.824.974 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+0.15.824.978 I slot   operator(): id  0 | task 20 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 2997
+0.15.824.982 I slot   operator(): id  0 | task 20 | cached n_tokens = 3, memory_seq_rm [3, end)
+0.15.826.375 I srv    operator(): chat format: peg-native
+0.15.998.182 I slot get_availabl: id  0 | task 20 |  - skipping, is_processing = 1
+0.15.998.191 I slot   operator(): id  0 | task 20 | cached n_tokens = 2051, memory_seq_rm [2051, end)
+0.15.998.526 I slot init_sampler: id  0 | task 20 | init sampler, took 0.29 ms, tokens: text = 2997, total = 2997
+0.19.153.353 I slot print_timing: id  0 | task 20 | n_gen =    253, tg =  84.00 t/s, tg_3s =  84.33 t/s
+0.20.381.313 I slot print_timing: id  0 | task 20 | prompt eval time =     328.20 ms /  2994 tokens (    0.11 ms per token,  9122.49 tokens per second)
+0.20.381.317 I slot print_timing: id  0 | task 20 |        eval time =    4228.13 ms /   356 tokens (   11.91 ms per token,    83.96 tokens per second)
+0.20.381.317 I slot print_timing: id  0 | task 20 |       total time =    4556.33 ms /  3350 tokens
+0.20.381.318 I slot print_timing: id  0 | task 20 |    graphs reused =        370
+0.20.384.431 I slot      release: id  0 | task 20 | stop processing: n_tokens = 3352, truncated = 0
+0.20.384.457 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.023 (152/6701) > 0.100
+0.20.384.459 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 144215377861
+0.20.384.518 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.20.384.522 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.20.384.524 I slot launch_slot_: id  0 | task 22 | processing task, is_child = 0
+0.20.384.528 I slot   operator(): id  0 | task 22 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 6701
+0.20.384.530 I slot   operator(): id  0 | task 22 | cached n_tokens = 152, memory_seq_rm [152, end)
+0.20.558.518 I slot   operator(): id  0 | task 22 | cached n_tokens = 2200, memory_seq_rm [2200, end)
+0.20.801.397 I slot   operator(): id  0 | task 22 | cached n_tokens = 4248, memory_seq_rm [4248, end)
+0.21.071.798 I slot   operator(): id  0 | task 22 | cached n_tokens = 6296, memory_seq_rm [6296, end)
+0.21.072.480 I slot init_sampler: id  0 | task 22 | init sampler, took 0.66 ms, tokens: text = 6701, total = 6701
+0.24.192.275 I slot print_timing: id  0 | task 22 | n_gen =    234, tg =  77.63 t/s, tg_3s =  77.96 t/s
+0.25.412.385 I slot print_timing: id  0 | task 22 | prompt eval time =     806.36 ms /  6549 tokens (    0.12 ms per token,  8121.67 tokens per second)
+0.25.412.388 I slot print_timing: id  0 | task 22 |        eval time =    4221.49 ms /   328 tokens (   12.91 ms per token,    77.46 tokens per second)
+0.25.412.389 I slot print_timing: id  0 | task 22 |       total time =    5027.85 ms /  6877 tokens
+0.25.412.389 I slot print_timing: id  0 | task 22 |    graphs reused =        695
+0.25.414.184 I slot      release: id  0 | task 22 | stop processing: n_tokens = 7028, truncated = 0
+0.25.414.200 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.25.414.203 I srv  update_slots: all slots are idle
+0.25.441.276 I srv  server_strea: conv_id= (empty=1)
+0.25.447.555 I srv    operator(): chat format: peg-native
+0.25.447.958 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.002 (4/1658) > 0.100
+0.25.447.960 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 144220407614
+0.25.448.115 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.25.448.120 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.25.448.122 I slot launch_slot_: id  0 | task 710 | processing task, is_child = 0
+0.25.448.126 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+0.25.448.130 I slot   operator(): id  0 | task 710 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 1658
+0.25.448.133 I slot   operator(): id  0 | task 710 | cached n_tokens = 4, memory_seq_rm [4, end)
+0.25.448.893 I slot init_sampler: id  0 | task 710 | init sampler, took 0.16 ms, tokens: text = 1658, total = 1658
+0.28.634.095 I slot print_timing: id  0 | task 710 | n_gen =    263, tg =  87.26 t/s, tg_3s =  87.59 t/s
+0.31.645.314 I slot print_timing: id  0 | task 710 | n_gen =    523, tg =  86.80 t/s, tg_3s =  86.34 t/s
+0.34.648.610 I slot print_timing: id  0 | task 710 | n_gen =    781, tg =  86.50 t/s, tg_3s =  85.91 t/s
+0.37.658.038 I slot print_timing: id  0 | task 710 | n_gen =   1037, tg =  86.14 t/s, tg_3s =  85.07 t/s
+0.40.666.331 I slot print_timing: id  0 | task 710 | n_gen =   1292, tg =  85.87 t/s, tg_3s =  84.77 t/s
+0.43.673.900 I slot print_timing: id  0 | task 710 | n_gen =   1545, tg =  85.58 t/s, tg_3s =  84.12 t/s
+0.46.678.949 I slot print_timing: id  0 | task 710 | n_gen =   1796, tg =  85.28 t/s, tg_3s =  83.53 t/s
+0.49.683.908 I slot print_timing: id  0 | task 710 | n_gen =   2046, tg =  85.02 t/s, tg_3s =  83.20 t/s
+0.52.685.719 I slot print_timing: id  0 | task 710 | n_gen =   2295, tg =  84.79 t/s, tg_3s =  82.95 t/s
+0.53.711.570 I slot print_timing: id  0 | task 710 | prompt eval time =     183.33 ms /  1654 tokens (    0.11 ms per token,  9022.18 tokens per second)
+0.53.711.576 I slot print_timing: id  0 | task 710 |        eval time =   28080.11 ms /  2380 tokens (   11.80 ms per token,    84.72 tokens per second)
+0.53.711.576 I slot print_timing: id  0 | task 710 |       total time =   28263.43 ms /  4034 tokens
+0.53.711.577 I slot print_timing: id  0 | task 710 |    graphs reused =       3064
+0.53.712.126 I slot      release: id  0 | task 710 | stop processing: n_tokens = 4037, truncated = 0
+0.53.712.148 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.53.712.150 I srv  update_slots: all slots are idle
+0.53.801.889 I srv  server_strea: conv_id= (empty=1)
+0.53.808.652 I srv    operator(): chat format: peg-native
+0.53.809.070 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.001 (4/4454) > 0.100
+0.53.809.073 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 144248705556
+0.53.809.260 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+0.53.809.268 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+0.53.809.269 I slot launch_slot_: id  0 | task 3091 | processing task, is_child = 0
+0.53.809.287 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+0.53.809.295 I slot   operator(): id  0 | task 3091 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 4454
+0.53.809.299 I slot   operator(): id  0 | task 3091 | cached n_tokens = 4, memory_seq_rm [4, end)
+0.53.982.713 I slot   operator(): id  0 | task 3091 | cached n_tokens = 2052, memory_seq_rm [2052, end)
+0.54.222.105 I slot   operator(): id  0 | task 3091 | cached n_tokens = 4100, memory_seq_rm [4100, end)
+0.54.222.576 I slot init_sampler: id  0 | task 3091 | init sampler, took 0.43 ms, tokens: text = 4454, total = 4454
+0.57.331.921 I slot print_timing: id  0 | task 3091 | n_gen =    246, tg =  81.43 t/s, tg_3s =  81.76 t/s
+1.00.333.335 I slot print_timing: id  0 | task 3091 | n_gen =    489, tg =  81.20 t/s, tg_3s =  80.96 t/s
+1.01.127.966 I slot print_timing: id  0 | task 3091 | prompt eval time =     513.85 ms /  4450 tokens (    0.12 ms per token,  8660.10 tokens per second)
+1.01.127.970 I slot print_timing: id  0 | task 3091 |        eval time =    6804.81 ms /   553 tokens (   12.33 ms per token,    81.12 tokens per second)
+1.01.127.970 I slot print_timing: id  0 | task 3091 |       total time =    7318.67 ms /  5003 tokens
+1.01.127.971 I slot print_timing: id  0 | task 3091 |    graphs reused =       3613
+1.01.128.252 I slot      release: id  0 | task 3091 | stop processing: n_tokens = 5006, truncated = 0
+1.01.128.312 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+1.01.128.314 I srv  update_slots: all slots are idle
+1.01.137.346 I srv  server_strea: conv_id= (empty=1)
+1.01.142.131 I srv    operator(): chat format: peg-native
+1.01.142.520 I slot get_availabl: id  0 | task -1 |  - checking sim = 1.000 (4454/4454) > 0.100
+1.01.142.523 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.890
+1.01.142.692 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+1.01.142.698 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+1.01.142.699 I slot launch_slot_: id  0 | task 3647 | processing task, is_child = 0
+1.01.142.703 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+1.01.142.706 I slot   operator(): id  0 | task 3647 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 4454
+1.01.142.710 W slot   operator(): id  0 | task 3647 | need to evaluate at least 1 token for each active slot (n_past = 4454, task.n_tokens() = 4454)
+1.01.142.711 W slot   operator(): id  0 | task 3647 | n_past was set to 4453
+1.01.142.711 I slot   operator(): id  0 | task 3647 | cached n_tokens = 4453, memory_seq_rm [4453, end)
+1.01.143.278 I slot init_sampler: id  0 | task 3647 | init sampler, took 0.46 ms, tokens: text = 4454, total = 4454
+1.04.156.975 I slot print_timing: id  0 | task 3647 | n_gen =    245, tg =  81.33 t/s, tg_3s =  81.66 t/s
+1.07.158.058 I slot print_timing: id  0 | task 3647 | n_gen =    488, tg =  81.15 t/s, tg_3s =  80.97 t/s
+1.08.064.803 I slot print_timing: id  0 | task 3647 | prompt eval time =      13.97 ms /     1 tokens (   13.97 ms per token,    71.56 tokens per second)
+1.08.064.806 I slot print_timing: id  0 | task 3647 |        eval time =    6908.11 ms /   561 tokens (   12.34 ms per token,    81.06 tokens per second)
+1.08.064.807 I slot print_timing: id  0 | task 3647 |       total time =    6922.08 ms /   562 tokens
+1.08.064.808 I slot print_timing: id  0 | task 3647 |    graphs reused =       4171
+1.08.064.969 I slot      release: id  0 | task 3647 | stop processing: n_tokens = 5014, truncated = 0
+1.08.065.000 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+1.08.065.001 I srv  update_slots: all slots are idle
+1.08.073.281 I srv  server_strea: conv_id= (empty=1)
+1.08.081.362 I srv    operator(): chat format: peg-native
+1.08.081.780 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.062 (534/8614) > 0.100
+1.08.081.782 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = 144263058399
+1.08.081.952 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+1.08.081.957 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+1.08.081.959 I slot launch_slot_: id  0 | task 4209 | processing task, is_child = 0
+1.08.081.962 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+1.08.081.973 I slot   operator(): id  0 | task 4209 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 8614
+1.08.081.976 I slot   operator(): id  0 | task 4209 | cached n_tokens = 534, memory_seq_rm [534, end)
+1.08.262.732 I slot   operator(): id  0 | task 4209 | cached n_tokens = 2582, memory_seq_rm [2582, end)
+1.08.510.145 I slot   operator(): id  0 | task 4209 | cached n_tokens = 4630, memory_seq_rm [4630, end)
+1.08.792.834 I slot   operator(): id  0 | task 4209 | cached n_tokens = 6678, memory_seq_rm [6678, end)
+1.08.793.708 I slot init_sampler: id  0 | task 4209 | init sampler, took 0.84 ms, tokens: text = 8614, total = 8614
+1.12.165.546 I slot print_timing: id  0 | task 4209 | n_gen =    225, tg =  74.40 t/s, tg_3s =  74.74 t/s
+1.15.175.421 I slot print_timing: id  0 | task 4209 | n_gen =    448, tg =  74.25 t/s, tg_3s =  74.09 t/s
+1.18.182.995 I slot print_timing: id  0 | task 4209 | n_gen =    670, tg =  74.10 t/s, tg_3s =  73.81 t/s
+1.21.193.728 I slot print_timing: id  0 | task 4209 | n_gen =    891, tg =  73.93 t/s, tg_3s =  73.40 t/s
+1.24.196.008 I slot print_timing: id  0 | task 4209 | n_gen =   1112, tg =  73.86 t/s, tg_3s =  73.61 t/s
+1.27.200.656 I slot print_timing: id  0 | task 4209 | n_gen =   1331, tg =  73.70 t/s, tg_3s =  72.89 t/s
+1.30.212.011 I slot print_timing: id  0 | task 4209 | n_gen =   1550, tg =  73.56 t/s, tg_3s =  72.72 t/s
+1.33.215.942 I slot print_timing: id  0 | task 4209 | n_gen =   1767, tg =  73.40 t/s, tg_3s =  72.24 t/s
+1.36.225.650 I slot print_timing: id  0 | task 4209 | n_gen =   1984, tg =  73.25 t/s, tg_3s =  72.10 t/s
+1.39.230.176 I slot print_timing: id  0 | task 4209 | n_gen =   2200, tg =  73.12 t/s, tg_3s =  71.89 t/s
+1.42.242.750 I slot print_timing: id  0 | task 4209 | n_gen =   2415, tg =  72.96 t/s, tg_3s =  71.37 t/s
+1.45.252.550 I slot print_timing: id  0 | task 4209 | n_gen =   2630, tg =  72.83 t/s, tg_3s =  71.43 t/s
+1.48.263.496 I slot print_timing: id  0 | task 4209 | n_gen =   2843, tg =  72.67 t/s, tg_3s =  70.74 t/s
+1.51.272.834 I slot print_timing: id  0 | task 4209 | n_gen =   3055, tg =  72.51 t/s, tg_3s =  70.45 t/s
+1.54.277.471 I slot print_timing: id  0 | task 4209 | n_gen =   3266, tg =  72.36 t/s, tg_3s =  70.22 t/s
+1.57.285.114 I slot print_timing: id  0 | task 4209 | n_gen =   3476, tg =  72.20 t/s, tg_3s =  69.82 t/s
+2.00.286.869 I slot print_timing: id  0 | task 4209 | n_gen =   3685, tg =  72.05 t/s, tg_3s =  69.63 t/s
+2.00.823.549 I slot print_timing: id  0 | task 4209 | prompt eval time =    1072.96 ms /  8080 tokens (    0.13 ms per token,  7530.58 tokens per second)
+2.00.823.552 I slot print_timing: id  0 | task 4209 |        eval time =   51668.62 ms /  3722 tokens (   13.89 ms per token,    72.02 tokens per second)
+2.00.823.553 I slot print_timing: id  0 | task 4209 |       total time =   52741.58 ms / 11802 tokens
+2.00.823.553 I slot print_timing: id  0 | task 4209 |    graphs reused =       7876
+2.00.823.890 I slot      release: id  0 | task 4209 | stop processing: n_tokens = 12335, truncated = 0
+2.00.823.928 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+2.00.823.929 I srv  update_slots: all slots are idle
+2.00.832.360 I srv  server_strea: conv_id= (empty=1)
+2.00.840.333 I srv    operator(): chat format: peg-native
+2.00.840.754 I slot get_availabl: id  0 | task -1 |  - checking sim = 1.000 (8614/8614) > 0.100
+2.00.840.757 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 1.000 (> 0.100 thold), f_keep = 0.698
+2.00.840.932 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+2.00.840.937 I slot launch_slot_: id  0 | task -1 | sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+2.00.840.939 I slot launch_slot_: id  0 | task 7935 | processing task, is_child = 0
+2.00.840.943 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0
+2.00.840.946 I slot   operator(): id  0 | task 7935 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 8614
+2.00.840.951 W slot   operator(): id  0 | task 7935 | need to evaluate at least 1 token for each active slot (n_past = 8614, task.n_tokens() = 8614)
+2.00.840.952 W slot   operator(): id  0 | task 7935 | n_past was set to 8613
+2.00.840.953 I slot   operator(): id  0 | task 7935 | cached n_tokens = 8613, memory_seq_rm [8613, end)
+2.00.842.375 I slot init_sampler: id  0 | task 7935 | init sampler, took 0.87 ms, tokens: text = 8614, total = 8614
+2.03.866.202 I slot print_timing: id  0 | task 7935 | n_gen =    225, tg =  74.43 t/s, tg_3s =  74.77 t/s
+2.06.870.373 I slot print_timing: id  0 | task 7935 | n_gen =    448, tg =  74.33 t/s, tg_3s =  74.23 t/s
+2.09.870.413 I slot print_timing: id  0 | task 7935 | n_gen =    669, tg =  74.11 t/s, tg_3s =  73.67 t/s
+2.12.881.533 I slot print_timing: id  0 | task 7935 | n_gen =    891, tg =  74.01 t/s, tg_3s =  73.73 t/s
+2.15.884.247 I slot print_timing: id  0 | task 7935 | n_gen =   1111, tg =  73.87 t/s, tg_3s =  73.27 t/s
+2.18.884.772 I slot print_timing: id  0 | task 7935 | n_gen =   1330, tg =  73.72 t/s, tg_3s =  72.99 t/s
+2.21.898.308 I slot print_timing: id  0 | task 7935 | n_gen =   1543, tg =  73.28 t/s, tg_3s =  70.68 t/s
+2.24.908.830 I slot print_timing: id  0 | task 7935 | n_gen =   1760, tg =  73.13 t/s, tg_3s =  72.08 t/s
+2.27.920.941 I slot print_timing: id  0 | task 7935 | n_gen =   1977, tg =  73.01 t/s, tg_3s =  72.04 t/s
+2.30.927.199 I slot print_timing: id  0 | task 7935 | n_gen =   2192, tg =  72.86 t/s, tg_3s =  71.52 t/s
+2.33.933.930 I slot print_timing: id  0 | task 7935 | n_gen =   2407, tg =  72.74 t/s, tg_3s =  71.51 t/s
+2.36.844.716 I slot print_timing: id  0 | task 7935 | prompt eval time =      15.90 ms /     1 tokens (   15.90 ms per token,    62.89 tokens per second)
+2.36.844.720 I slot print_timing: id  0 | task 7935 |        eval time =   35987.86 ms /  2615 tokens (   13.77 ms per token,    72.64 tokens per second)
+2.36.844.721 I slot print_timing: id  0 | task 7935 |       total time =   36003.76 ms /  2616 tokens
+2.36.844.722 I slot print_timing: id  0 | task 7935 |    graphs reused =      10480
+2.36.845.173 I slot      release: id  0 | task 7935 | stop processing: n_tokens = 11228, truncated = 0
+2.36.845.259 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
+2.36.845.262 I srv  update_slots: all slots are idle
+2.37.047.426 I srv    operator(): operator(): cleaning up before exit...
+2.37.048.922 I common_memory_breakdown_print: | memory breakdown [MiB]  | total   free    self   model   context   compute    unaccounted |
+2.37.048.925 I common_memory_breakdown_print: |   - CUDA0 (RTX 4070 Ti) | 11933 = 4273 + (5118 =  4076 +     936 +     106) +        2541 |
+2.37.048.925 I common_memory_breakdown_print: |   - Host                |                   21 =     0 +       0 +      21                |
+2.37.049.029 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0 bound=deadline
+2.37.049.033 I srv       destroy: vulkan workload lease teardown: held=yes
+2.37.099.304 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
