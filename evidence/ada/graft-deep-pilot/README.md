@@ -9,6 +9,15 @@ The candidate is better at exactly one thing the distill fails outright: the
 concept map, where the distill returned 18 nodes joined by no links at all and
 the 2507 returned 15 nodes and 25 links.
 
+Three of this document's first claims did not survive review and are corrected
+below, each beside the reading it replaces: the wire run's span-fidelity
+failure on swapram.c was the harness grading a collapsed reference and not a
+model result; the recovery of mpu.c rested on a checker that never read a
+summary and now rests on the retained reply; and the enforcement counts were
+read off appliance logs that open mid-line. The completion and wall-time
+results above are unaffected, because they come from the graph each arm wrote
+rather than from the replica gate.
+
 That falsifies the prediction this pilot was built to test. The 2507 was the
 roster review's candidate on the argument that an instruct template spends
 none of graft's reply budget on a thought block, so it should drop fewer
@@ -23,8 +32,17 @@ served closure `192d0663a533`, which carries
 turns that into the named-function `tool_choice` object, and the closure
 resolves the object to the named tool under `required`. Neither arm printed
 graft's `did not honor tool_choice` warning and neither server log carries
-`Wrong type supplied for parameter 'tool_choice'`, so every request either
-arm made was enforced as sent.
+`Wrong type supplied for parameter 'tool_choice'`.
+
+Those two counts are weaker than they read. The harness took a byte offset on
+the appliance log before the launch and sliced from it afterwards, and the
+launch truncates that log in place, so the slice starts wherever the previous
+arm's length fell inside the new file. Every retained log here opens mid-line:
+`qwen38-4b-distill.server.log` at `= 0.000, xtc_threshold`, the 2507's at
+` task, is_child = 0`, its telemetry at `ib=8277804`. The lines before those
+points were written and are not retained, so the arms printed no warning in
+the portion held rather than none at all. `admit-graft-deep.sh` now moves the
+log aside before the launch and keeps the whole of the file the arm writes.
 
 `pilot-inputs.tsv` carries the run's identity: source commit
 `0c85040e3bda01913d687fca538b3fa49f6af82b`, the cone paths
@@ -62,8 +80,14 @@ of the 41 pending symbols and mpu.c the other 5.
 
 The replica request does not reproduce either failure. `admit-record-symbols.sh`
 sends the same file under the same line numbering with the same target list
-and the same 8192-token cap, and the 2507 answers mpu.c with 5 exact entries
-(`record-symbols-wire/symbols.tsv`). What differs is graft's own system prompt
+and the same 8192-token cap, and the 2507 answers mpu.c with 5 entries whose
+summaries are present and non-empty
+(`record-symbols-wire/qwen3-4b-instruct-2507.mpu.c.symbols.json`). The TSV
+alone did not establish that: the checker decided `pass` on ids, counts and
+line ranges and never read the `summary` field, so it could have passed a
+reply carrying the blank entries graft rejects. The raw reply is retained
+because the claim rests on it and not on the verdict. What differs is graft's
+own system prompt
 and its target lines, which carry each symbol's signature. The failure
 therefore belongs to graft's phrasing of the request rather than to the file
 or to the checkpoint's ability to answer one.
@@ -105,13 +129,39 @@ checkpoints pass four and fail the same one:
 | flash_swap.c | 2 | pass | pass |
 | exec_hsaout.c | 6 | pass | pass |
 | uart.c | 19 | pass | pass |
-| swapram.c | 34 | fail: 36 entries, 4 spans outside range | fail: 36 entries, 2 spans outside range |
+| swapram.c | 36 | pass | pass |
 | mpu.c | 5 | pass | pass |
 
-Neither model invented an id and neither dropped one. Both returned 36 entries
-for 34 targets, which is the same id twice, and both placed spans outside the
-symbol they name. The failure is the largest request in the set for both
-checkpoints, which places it on the request shape rather than on either model.
+`symbols-regraded.tsv` carries that reading and `symbols.tsv` the one this
+document first published, which was `fail` on swapram.c for both checkpoints
+at 36 entries against 34 targets, with four spans out of range for the distill
+and two for the 2507. Every one of those six was the harness grading its own
+reference.
+
+The request listed 36 target rows and the checker built its expected set as a
+dictionary keyed on the bare symbol name. swapram.c names `sr_poke` twice, a
+prototype at L72 and its definition at L782-L787, and `sr_offset_t` twice,
+two typedefs under opposite preprocessor branches. The later row of each pair
+overwrote the earlier, so 36 rows became 34 keys: a reply carrying exactly one
+entry per requested row was counted as four entries too many, and the
+surviving row's range graded the occurrence it had replaced. Both models
+returned `sr_poke` with the crux L72-L72, correct for the prototype they were
+asked about and out of range against the definition they were graded against.
+
+The remaining two, both the distill's, are graft's own extraction. Its generic
+C tier reports `swapram_codec_acquire` as L167-L167 and `sr_slot` as L243-L243
+where the definitions span L166-L173 and L242-L250, because a return type on
+its own line leaves the name line standing for the whole definition. A span
+inside the real body cannot be inside a one-line reference. The same tier gives
+`swapram_evacuate` L612-L854 where the function ends at L703, covering ten
+later node starts, so a crux inside a different function would have passed.
+`record-symbols-contract.py` reports all three as `crux_ungradeable`.
+
+Regraded with every occurrence kept and those three references withdrawn, both
+checkpoints return one entry per row with no invention, no drop, no duplicate,
+no blank summary and no span outside the symbol it names, on all five files.
+The wire run separates neither checkpoint from the other. It was never a model
+result.
 
 ## Source accuracy
 
@@ -181,9 +231,20 @@ enough for the concept map to matter, or under a client that batches targets
 differently. The concept-map split is one observation each way and rests on a
 single synthesize call per arm.
 
-Two defects it does name belong to the request rather than to either model.
-The largest file in the set breaks the one-entry-per-id rule for both
-checkpoints, so a target list that graft splits by count would test the models
-rather than the cap. And graft's crux prompt loses two files for the 2507 that
-the replica request recovers, so the prompt is worth a diff before the next
-checkpoint is judged on it.
+One defect it does name belongs to graft rather than to either model: the
+crux prompt loses two files for the 2507 that the replica request recovers, so
+the prompt is worth a diff before the next checkpoint is judged on it. The
+claim that the largest file breaks the one-entry-per-id rule for both
+checkpoints is withdrawn above; neither checkpoint broke it.
+
+`collectFileCrux` in `dist/graph/enrich.js` bears on why the 2507 left 41
+symbols pending. It admits a returned entry on its id alone,
+`if (!results.has(r.id)) results.set(r.id, r)`, then computes the next
+attempt's work as `refs.filter((r) => !results.has(r.id))`. Enrichment applies
+a stricter rule to the same record, `if (!r || !r.summary.trim())`, and leaves
+the node pending. An id returned with a blank summary is therefore present
+enough to retire itself from the retry and unusable enough to be rejected
+afterwards, so the second of the two attempts never runs for it. Whether that
+accounts for the 41 is not settled here: it predicts that a checkpoint losing
+a file to `empty-parsed` gets one attempt rather than two, which a run with
+the collector's acceptance narrowed to non-blank summaries would decide.

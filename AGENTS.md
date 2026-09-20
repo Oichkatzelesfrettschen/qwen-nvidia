@@ -2141,6 +2141,8 @@ scripts/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
 scripts/admit-candidate-static.py REPO REV      # a header over a range read
 scripts/admit-graft-deep.sh OUT                 # graft's own --deep pass per checkpoint, one sparse worktree each
 scripts/graft-deep-evidence.py GRAPH_DIR        # completion and crux placement in one graph
+scripts/record-symbols-contract.py CMD ...      # graft's record_symbols request and its grading, by node id
+scripts/regrade-record-symbols-wire.py DIR      # the retained wire replies read per occurrence
 scripts/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
 scripts/prepare-provenance-manifest.sh WORK [OUT_TSV]
                                                 # materialize every historical patch set and emit a runnable manifest
@@ -2360,6 +2362,7 @@ python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
 scripts/test-graft-consumer-env.sh
 python3 scripts/test-graft-deep-evidence.py
+python3 scripts/test-record-symbols-contract.py
 scripts/test-write-artifact-manifest.sh
 scripts/test-coding-principal-path.sh       # appliance host role alone
 scripts/test-admit-coding-chain.sh
@@ -2606,6 +2609,31 @@ the host to halve its prefill, and `qwen3-4b-instruct-2507` was predicted to
 drop fewer of graft's symbol records than the thinking distill because its
 template spends none of the reply cap on a thought block, where it left 41 of
 243 symbols pending and the distill left none.
+
+A gate grades its reference before it grades a model. `admit-record-symbols.sh`
+built its expected set as a dictionary keyed on the bare symbol name, so a file
+naming a prototype and its definition alike requested more target rows than it
+graded: both 4B checkpoints returned exactly one entry per requested row and
+were recorded as overproducing, and the surviving row's line range graded the
+occurrence it had overwritten as a span error. graft's generic C tier supplies
+two further bad references, a definition truncated to its name line where the
+return type sits above it and a definition running past its closing brace over
+the symbols after it, and neither can decide a span. `record-symbols-contract.py`
+reads targets as graft's own node ids, which keep each occurrence distinct,
+reports an unusable reference as `crux_ungradeable` rather than as a failure,
+and rejects the blank summary that `enrich.js` rejects; the six span errors
+published in `evidence/ada/graft-deep-pilot/README.md` did not survive it, and
+`symbols-regraded.tsv` stands beside `symbols.tsv` rather than replacing it.
+This gate shipped uncalibrated, which is how it published a model result it had
+manufactured; `test-record-symbols-contract.py` is the calibration it owed.
+
+A byte offset taken before a launch does not bound the log that launch writes.
+The appliance truncates `server.log` and `telemetry.log` in place, so a slice
+taken from the previous arm's length opens in the middle of the new arm's log
+the moment it grows past that length, and every arm retained under PR #79 opens
+mid-line. Counting zero warnings in such a slice establishes nothing about the
+lines it drops. `admit-graft-deep.sh` moves each log aside before the launch and
+keeps the whole of what the arm writes.
 
 A measurement taken over a terminated server measures the host.
 `monitor-qwen-runtime.sh` ends a server that reads more than 64 MiB of swap in
