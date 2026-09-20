@@ -111,6 +111,7 @@ scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh
 scripts/test-probe-depth-projector.sh
 scripts/test-promote-llama-build.sh
+scripts/test-router-serving-evidence.sh
 scripts/test-qwen-launch-router-preflight.sh
 scripts/test-qwen-capacity-policy.sh
 scripts/test-web-presets.sh

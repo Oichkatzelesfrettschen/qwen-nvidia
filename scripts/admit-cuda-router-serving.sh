@@ -74,12 +74,20 @@ record() {
 }
 
 appliance_started=0
+# qwen-teardown.sh exits with the residue it found, and that status is the
+# teardown evidence: a stop that reported incomplete once entered the summary
+# as accepted because the status was dropped here.
+teardown_status=untried
 teardown_appliance() {
     [ "$appliance_started" -eq 1 ] || return 0
-    QWEN_WEBUI_STATE_DIRECTORY=$state_directory QWEN_SERVER_PORT=$server_port \
-        "$script_directory/qwen-teardown.sh" \
-        >"$output_directory/teardown.log" 2>&1 || true
     appliance_started=0
+    if QWEN_WEBUI_STATE_DIRECTORY=$state_directory QWEN_SERVER_PORT=$server_port \
+        "$script_directory/qwen-teardown.sh" \
+        >"$output_directory/teardown.log" 2>&1; then
+        teardown_status=0
+    else
+        teardown_status=$?
+    fi
 }
 trap 'teardown_appliance' EXIT
 trap 'teardown_appliance; exit 130' INT
@@ -169,7 +177,32 @@ if command -v nvidia-smi >/dev/null 2>&1; then
 fi
 
 teardown_appliance
-record teardown accepted "$(tail -1 "$output_directory/teardown.log" 2>/dev/null || echo 'no output')"
+teardown_last_line=$(tail -1 "$output_directory/teardown.log" 2>/dev/null || echo 'no output')
+# Two claims, two rows. `teardown` is the machine's state, which
+# qwen-teardown.sh proves by survivor checks. `teardown_exclusion` is whether
+# the retiring process held the compute lease through its destroy, which a
+# router parent never does: its children take the lease, so the parent's
+# destroy reads held=no and the proof is the llama-router-orderly-retirement
+# lane. Where that lane is off, the row is skipped by name rather than read
+# as a failure of the teardown or passed as one of its successes.
+case $teardown_status in
+    0)
+        record teardown accepted "$teardown_last_line"
+        record teardown_exclusion accepted 'session retirement read teardown_exclusion=orderly'
+        ;;
+    4)
+        record teardown accepted "$teardown_last_line"
+        if [ "${QWEN_ROUTER_ORDERLY_RETIREMENT:-0}" = 1 ]; then
+            record teardown_exclusion failed 'orderly router retirement was enabled and the exclusion stayed unproven'
+        else
+            record teardown_exclusion skipped 'router children hold the compute lease and the parent destroy reads held=no; the proof is the llama-router-orderly-retirement.patch lane, QWEN_ROUTER_ORDERLY_RETIREMENT=0 here'
+        fi
+        ;;
+    *)
+        record teardown failed "status=$teardown_status $teardown_last_line"
+        record teardown_exclusion failed 'the teardown left residue'
+        ;;
+esac
 
 # Each child prints its memory breakdown while unwinding rather than while
 # loading, so the device the children allocated on is read after the teardown
@@ -178,21 +211,26 @@ record teardown accepted "$(tail -1 "$output_directory/teardown.log" 2>/dev/null
 # there names an available backend rather than an allocation. The two lines that
 # state where the weights went are the placement line each child prints while
 # loading and the breakdown it prints while unwinding.
+# Every line is kept rather than a tail, because the placement helper
+# attributes a line to a child by its pid prefix and the second child's line
+# is the one a tail drops first.
 device_lines=$(tail -c "+$((server_log_offset + 1))" "$server_log" |
-    grep -aE 'using device (CUDA|Vulkan)[0-9]|common_memory_breakdown_print:.*\((CUDA|Vulkan)[0-9]?' |
-    tail -8 || true)
+    grep -aE 'using device (CUDA|Vulkan)[0-9]|common_memory_breakdown_print:.*\((CUDA|Vulkan)[0-9]?' || true)
 printf '%s\n' "$device_lines" >"$output_directory/device-lines.txt"
-if printf '%s\n' "$device_lines" | grep -qE 'using device Vulkan0|\(Vulkan0 '; then
-    record serving_device rejected 'a child allocated on Vulkan0'
-elif printf '%s\n' "$device_lines" | grep -qE 'using device CUDA0|\(CUDA0 '; then
-    record serving_device accepted 'children allocated on CUDA0'
-else
-    record serving_device unobserved 'the server log names no device buffer'
-fi
+placement=$("$script_directory/router-serving-evidence.sh" placement \
+    "$output_directory/device-lines.txt" 2)
+record "$(printf '%s' "$placement" | cut -f1)" \
+    "$(printf '%s' "$placement" | cut -f2)" \
+    "$(printf '%s' "$placement" | cut -f3)"
 
-rejected=$(awk -F'\t' 'NR > 1 && ($2 == "rejected" || $2 == "failed" || $2 == "timeout")' \
-    "$summary" | wc -l)
-printf 'cuda_router_serving=%s checks=%s rejected=%s summary=%s\n' \
-    "$([ "$rejected" -eq 0 ] && echo accepted || echo rejected)" \
-    "$(($(wc -l <"$summary") - 1))" "$rejected" "$summary"
-[ "$rejected" -eq 0 ]
+# The verdict admits the accepting vocabulary alone, so a check that was not
+# observed, not completed, or not attempted rejects the admission the same as
+# one that failed: an admission is evidence of what it observed.
+if verdict_line=$("$script_directory/router-serving-evidence.sh" verdict "$summary"); then
+    verdict=accepted
+else
+    verdict=rejected
+fi
+printf 'cuda_router_serving=%s checks=%s %s summary=%s\n' \
+    "$verdict" "$(($(wc -l <"$summary") - 1))" "$verdict_line" "$summary"
+[ "$verdict" = accepted ]

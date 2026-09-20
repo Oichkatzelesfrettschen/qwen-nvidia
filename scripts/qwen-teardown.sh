@@ -4,7 +4,8 @@ set -eu
 # Stop the Web UI and prove nothing survived. The exit status reports the
 # machine's state rather than the attempt: a surviving process, tmux session,
 # or listener fails the script so a caller cannot mistake a partial stop for a
-# clean one.
+# clean one. Exit 0 is torn down with the orderly exclusion proven, 4 torn
+# down with that proof absent, 1 residue.
 
 if [ "$#" -ne 0 ]; then
     printf 'usage: %s\n' "$0" >&2
@@ -293,7 +294,16 @@ stop_sidecar physics "$physics_service_pid" "$physics_service_start_time"
 stop_sidecar geometry "$geometry_service_pid" "$geometry_service_start_time"
 
 residue=$snapshot_residue
-if [ "$control_status" -ne 0 ]; then
+# Control exits 4 where the session retired on its own with the orderly
+# exclusion unproven, which is what a router stop reads on a series without
+# llama-router-orderly-retirement.patch. That is a claim about the proof, and
+# the survivor checks below decide the machine's state on their own, so it is
+# carried to the exit status apart from residue rather than folded into it.
+exclusion_unproven=0
+if [ "$control_status" -eq 4 ]; then
+    printf 'session control stop completed with the orderly exclusion unproven\n' >&2
+    exclusion_unproven=1
+elif [ "$control_status" -ne 0 ]; then
     printf 'session control stop failed: status=%s\n' "$control_status" >&2
     residue=1
 fi
@@ -325,10 +335,14 @@ if command -v ss >/dev/null 2>&1 && \
 fi
 
 rm -f "$state_directory/server.pid"
-if [ "$residue" -eq 0 ]; then
-    printf 'torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port %s free\n' \
-        "$server_port"
-else
+if [ "$residue" -ne 0 ]; then
     printf 'teardown incomplete\n' >&2
+    exit 1
 fi
-exit "$residue"
+printf 'torn down: no server, tmux session, probe, approval broker, image, physics, or geometry service, or router snapshot; port %s free\n' \
+    "$server_port"
+if [ "$exclusion_unproven" -ne 0 ]; then
+    printf 'orderly exclusion unproven\n' >&2
+    exit 4
+fi
+exit 0
