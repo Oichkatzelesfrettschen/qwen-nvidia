@@ -2139,6 +2139,8 @@ scripts/reasoning-span-probe.sh OUTPUT_JSON     # against a live server
 scripts/summarize-probe.sh ~/qwen-webui-state/graphics-latency.log
 scripts/gguf-tensor-census.py MODEL [MODEL...]   # what a Q4_K_M file holds
 scripts/admit-candidate-static.py REPO REV      # a header over a range read
+scripts/admit-graft-deep.sh OUT                 # graft's own --deep pass per checkpoint, one sparse worktree each
+scripts/graft-deep-evidence.py GRAPH_DIR        # completion and crux placement in one graph
 scripts/hash-load-closure.sh EXECUTABLE [OUT]    # identity of every loaded object
 scripts/prepare-provenance-manifest.sh WORK [OUT_TSV]
                                                 # materialize every historical patch set and emit a runnable manifest
@@ -2357,6 +2359,7 @@ python3 scripts/test-coding-agent-service.py
 python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
 scripts/test-graft-consumer-env.sh
+python3 scripts/test-graft-deep-evidence.py
 scripts/test-write-artifact-manifest.sh
 scripts/test-coding-principal-path.sh       # appliance host role alone
 scripts/test-admit-coding-chain.sh
@@ -2597,9 +2600,25 @@ changes when a measurement moves. State the falsification criterion before
 running a probe; when a result deviates from prediction, the deviation is the
 finding, and the evidence file records it as such. Several results in this
 tree exist because a stated hypothesis failed: programmatic dependent launch
-was predicted to move decode and moved 0.2% against a 0.3% span, and `-ngl 99`
+was predicted to move decode and moved 0.2% against a 0.3% span, `-ngl 99`
 alone was predicted to place the whole 9B on CUDA0 and instead left enough on
-the host to halve its prefill.
+the host to halve its prefill, and `qwen3-4b-instruct-2507` was predicted to
+drop fewer of graft's symbol records than the thinking distill because its
+template spends none of the reply cap on a thought block, where it left 41 of
+243 symbols pending and the distill left none.
+
+A measurement taken over a terminated server measures the host.
+`monitor-qwen-runtime.sh` ends a server that reads more than 64 MiB of swap in
+one sample while `mem_available` sits under `QWEN_SWAPIN_HEADROOM_KIB`, and
+this host swaps to zram at priority 100, so a desktop page-in storm reaches
+that rate while the server holds none of it. The client reports the SIGKILL as
+a transport error and a reader takes it for a model that cannot answer.
+`evidence/ada/graft-deep-pilot/guard-terminated-run/` holds the pair of arms
+that ended that way beside the telemetry naming the reason, and
+`admit-graft-deep.sh` slices that telemetry per arm and writes the verdict
+`void` wherever it carries an abort line. A run that needs the band moved moves
+the knob and leaves `minimum_mem_available_kib` alone, because that reserve
+ends a server on its own.
 
 A claim that an intervention removed something requires a positive control of
 the same shape, unless a retained observation already establishes the thing
