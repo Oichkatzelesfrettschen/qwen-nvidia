@@ -22,7 +22,7 @@ requires before it reports `completed` at all.
 
 import json
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_LINE_BYTES = 65536
 ACTIONS = ("physics_simulate_rigid", "status")
 STATUSES = ("accepted", "completed", "refused", "failed")
@@ -46,12 +46,19 @@ AUTHORIZATION_CHARACTER_CAP = 4096
 STATUS_REQUEST_KEYS = {"protocol", "action", "request_id"}
 REPLY_KEYS = {"protocol", "request_id", "status", "profile_id", "result", "error", "reason"}
 RESULT_KEYS = {
-    "bodies", "joints", "contacts", "steps", "timestep_s", "wall_ms",
-    "simulate_ms", "gpu", "runtime_sha256", "scene_sha256",
+    "bodies", "joints", "contacts", "solver", "broadphase", "steps",
+    "timestep_s", "wall_ms", "simulate_ms", "gpu", "runtime_sha256",
+    "scene_sha256",
 }
 BODY_KEYS = {"id", "position", "orientation", "linear_velocity", "angular_velocity", "sleeping"}
 JOINT_KEYS = {"id", "body0", "body1", "twist_rad", "swing_y_rad", "swing_z_rad", "broken"}
-CONTACT_KEYS = {"pairs", "touching"}
+# Each group carries the counters of one simulation stage, so a reader cannot
+# take a solver or broad-phase count for a contact count. Version 1 reported
+# nbActiveConstraints as contacts.pairs and a sum of broad-phase adds and
+# constraints as contacts.touching, and neither measured a contact.
+CONTACT_KEYS = {"pairs", "touching", "cache_hits"}
+SOLVER_KEYS = {"active_constraints"}
+BROADPHASE_KEYS = {"adds", "removes"}
 
 
 class ProtocolError(ValueError):
@@ -155,12 +162,20 @@ def validate_result(result):
             _number(joint[axis], axis)
         if not isinstance(joint["broken"], bool):
             raise ProtocolError("broken is not a boolean")
+    for name, keys in (("contacts", CONTACT_KEYS), ("solver", SOLVER_KEYS),
+                       ("broadphase", BROADPHASE_KEYS)):
+        group = result[name]
+        if not isinstance(group, dict) or set(group) != keys:
+            raise ProtocolError("%s keys differ from the schema" % name)
+        for key in keys:
+            value = group[key]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ProtocolError("%s.%s is not a non-negative integer" % (name, key))
     contacts = result["contacts"]
-    if not isinstance(contacts, dict) or set(contacts) != CONTACT_KEYS:
-        raise ProtocolError("contacts keys differ from the schema")
-    for key in CONTACT_KEYS:
-        if isinstance(contacts[key], bool) or not isinstance(contacts[key], int) or contacts[key] < 0:
-            raise ProtocolError("contacts.%s is not a non-negative integer" % key)
+    if contacts["touching"] > contacts["pairs"]:
+        raise ProtocolError("contacts.touching exceeds contacts.pairs")
+    if contacts["cache_hits"] > contacts["pairs"]:
+        raise ProtocolError("contacts.cache_hits exceeds contacts.pairs")
     steps = result["steps"]
     if isinstance(steps, bool) or not isinstance(steps, int) or not MIN_STEPS <= steps <= MAX_STEPS:
         raise ProtocolError("result steps is outside [%d, %d]" % (MIN_STEPS, MAX_STEPS))

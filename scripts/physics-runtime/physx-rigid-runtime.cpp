@@ -46,14 +46,14 @@ struct CountingErrorCallback : public PxErrorCallback {
 
 struct Body {
     std::string id;
-    PxRigidDynamic* actor;
+    PxRigidDynamic* actor = nullptr;
 };
 
 struct Joint {
     std::string id;
     std::string body0;
     std::string body1;
-    PxD6Joint* joint;
+    PxD6Joint* joint = nullptr;
 };
 
 void fail(const char* reason) {
@@ -68,9 +68,11 @@ void fail(const char* reason) {
 void build_d6_chain(PxPhysics& physics, PxScene& scene, PxMaterial& material,
                     std::vector<Body>& bodies, std::vector<Joint>& joints) {
     PxRigidStatic* ground = PxCreatePlane(physics, PxPlane(0, 1, 0, 0), material);
+    if (!ground) fail("ground_create_failed");
     scene.addActor(*ground);
     PxRigidStatic* anchor = PxCreateStatic(physics, PxTransform(PxVec3(0.0f, 6.0f, 0.0f)),
                                            PxBoxGeometry(0.25f, 0.25f, 0.25f), material);
+    if (!anchor) fail("anchor_create_failed");
     scene.addActor(*anchor);
     const float half = 0.5f;
     const float spacing = 1.2f;
@@ -79,6 +81,7 @@ void build_d6_chain(PxPhysics& physics, PxScene& scene, PxMaterial& material,
         const PxVec3 position(spacing * (index + 1), 6.0f, 0.0f);
         PxRigidDynamic* box = PxCreateDynamic(physics, PxTransform(position),
                                               PxBoxGeometry(half, half, half), material, 1.0f);
+        if (!box) fail("body_create_failed");
         box->setSleepThreshold(0.0f);
         scene.addActor(*box);
         Body body;
@@ -88,6 +91,7 @@ void build_d6_chain(PxPhysics& physics, PxScene& scene, PxMaterial& material,
         const PxTransform frame0(PxVec3(index == 0 ? 0.25f : half + 0.1f, 0.0f, 0.0f));
         const PxTransform frame1(PxVec3(-half - 0.1f, 0.0f, 0.0f));
         PxD6Joint* d6 = PxD6JointCreate(physics, previous, frame0, box, frame1);
+        if (!d6) fail("joint_create_failed");
         d6->setMotion(PxD6Axis::eX, PxD6Motion::eLOCKED);
         d6->setMotion(PxD6Axis::eY, PxD6Motion::eLOCKED);
         d6->setMotion(PxD6Axis::eZ, PxD6Motion::eLOCKED);
@@ -201,12 +205,22 @@ int main(int argc, char** argv) {
         out += ",\"broken\":" + std::string(flags.isSet(PxConstraintFlag::eBROKEN) ? "true" : "false") + "}";
     }
     out += "]";
-    // The contact summary counts actor pairs that report touching through the
-    // simulation statistics rather than a contact callback.
+    // A contact exists at the narrow phase, and PxSimulationStatistics names the
+    // counters that measure it: nbDiscreteContactPairsTotal is the non-CCD pairs
+    // reaching narrow phase and nbDiscreteContactPairsWithContacts the subset
+    // generating at least one contact. nbActiveConstraints counts solver
+    // constraints, which every joint contributes whether or not a body touches
+    // anything, and the broad phase counts insertions and removals of bounds, so
+    // neither answers how many pairs touch. Each counter is reported under the
+    // stage it belongs to.
     PxSimulationStatistics statistics;
     scene->getSimulationStatistics(statistics);
-    out += ",\"contacts\":{\"pairs\":" + std::to_string(statistics.nbActiveConstraints);
-    out += ",\"touching\":" + std::to_string(statistics.getNbBroadPhaseAdds() + statistics.nbActiveConstraints) + "}";
+    out += ",\"contacts\":{\"pairs\":" + std::to_string(statistics.nbDiscreteContactPairsTotal);
+    out += ",\"touching\":" + std::to_string(statistics.nbDiscreteContactPairsWithContacts);
+    out += ",\"cache_hits\":" + std::to_string(statistics.nbDiscreteContactPairsWithCacheHits) + "}";
+    out += ",\"solver\":{\"active_constraints\":" + std::to_string(statistics.nbActiveConstraints) + "}";
+    out += ",\"broadphase\":{\"adds\":" + std::to_string(statistics.getNbBroadPhaseAdds());
+    out += ",\"removes\":" + std::to_string(statistics.getNbBroadPhaseRemoves()) + "}";
     out += ",\"steps\":" + std::to_string(steps);
     out += ",\"timestep_s\":" + number(timestep);
     const double simulate_ms = std::chrono::duration<double, std::milli>(simulate_end - simulate_start).count();

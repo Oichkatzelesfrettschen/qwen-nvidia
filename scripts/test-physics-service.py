@@ -98,7 +98,7 @@ class Harness:
 
 
 def request(profile="physics-d6-test", steps=60, **extra):
-    message = {"protocol": 1, "action": "physics_simulate_rigid", "request_id": "r-%d" % int(time.time() * 1000),
+    message = {"protocol": protocol.PROTOCOL_VERSION, "action": "physics_simulate_rigid", "request_id": "r-%d" % int(time.time() * 1000),
                "profile_id": profile, "steps": steps}
     message.update(extra)
     return message
@@ -147,7 +147,7 @@ def main():
             reply = harness.exchange(request(scene="evil"))
             check(reply["status"] == "refused" and reply.get("reason") == "invalid_argument",
                   "an unknown key is refused")
-            reply = harness.exchange({"protocol": 1, "action": "status", "request_id": "s1"})
+            reply = harness.exchange({"protocol": protocol.PROTOCOL_VERSION, "action": "status", "request_id": "s1"})
             check(reply["status"] == "accepted" and reply.get("reason") == "idle", "status reads idle")
 
             lease = os.open(str(state / "vulkan-workload.lock"), os.O_RDWR | os.O_CREAT)
@@ -165,7 +165,9 @@ def main():
                                           ("crash", "runtime_failed", "a crashing runtime fails"),
                                           ("prose", "runtime_failed", "a runtime printing prose fails"),
                                           ("flood", "runtime_failed", "a runtime flooding stdout is ended and fails"),
-                                          ("hang", "runtime_timeout", "a hanging runtime times out")):
+                                          ("hang", "runtime_timeout", "a hanging runtime times out"),
+                                          ("contacts", "runtime_failed",
+                                           "a runtime reporting more touching pairs than narrow-phase pairs fails")):
             harness = Harness(state, mode=mode)
             try:
                 reply = harness.exchange(request())
@@ -237,7 +239,7 @@ def main():
         identity = "%d:%d" % (lease_file.stat().st_dev, lease_file.stat().st_ino)
         harness = Harness(state, environment={"QWEN_GPU_COMPUTE_LEASE_IDENTITY": identity})
         try:
-            reply = harness.exchange({"protocol": 1, "action": "status", "request_id": "s2"})
+            reply = harness.exchange({"protocol": protocol.PROTOCOL_VERSION, "action": "status", "request_id": "s2"})
             check(reply["status"] == "accepted", "a launch with the matching lease identity serves")
         finally:
             harness.stop()
