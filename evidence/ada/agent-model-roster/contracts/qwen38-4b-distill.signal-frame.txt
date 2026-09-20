@@ -1,0 +1,3 @@
+The signal frame is placed at `sfp` (saved frame pointer), which is 32 bytes above the frame written by the exception return. The exception return pops an eight-word frame (r0-r3, r12, lr, pc, xPSR) from the PSP and writes it at `sfp`. The signal frame is carved from the space above `sfp`, with a four-word gap to ensure proper alignment.
+
+The `STKALIGN` bit (xPSR bit 9) is cleared before the handler runs because if it were set, the exception return would add four to `sp` (ARMv6-M ARM B1.5.8), causing the handler to start on a misaligned stack. Since `sigreturn` restores `sc_psr`, the interrupted context gets its own adjustment back.

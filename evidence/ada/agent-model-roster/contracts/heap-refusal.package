@@ -1,0 +1,114 @@
+===== sys/kern/kern_mman.c =====
+/*
+ * Copyright (c) 1986 Regents of the University of California.
+ * All rights reserved.  The Berkeley software License Agreement
+ * specifies the terms and conditions for redistribution.
+ */
+#include <sys/param.h>
+#include <sys/user.h>
+#include <sys/proc.h>
+#include <sys/vm.h>
+#include <sys/systm.h>
+#ifdef SWAPRAM
+#include <machine/swapram.h>
+#endif
+
+void
+brk()
+{
+    struct a {
+        int naddr;
+    };
+    register int newsize, d;
+
+    /* set newsize to new data size */
+    newsize = ((struct a*)u.u_arg)->naddr - u.u_procp->p_daddr;
+    if (newsize < 0)
+        newsize = 0;
+#ifdef SWAPRAM
+    /*
+     * A large process may grow to its ceiling; a small one cannot ask
+     * for LARGE here, because its stack already sits under the window
+     * and the bonus lies above that stack.
+     */
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+#else
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+#endif
+        u.u_error = ENOMEM;
+        return;
+    }
+    /*
+     * The stack has grown down to p_saddr and grows further as the
+     * process runs; data that reaches it is data the stack will
+     * overwrite. u_ssize alone does not see that: it is the stack's
+     * size so far, not where it ends.
+     */
+    if (u.u_procp->p_daddr + newsize > u.u_procp->p_saddr) {
+        u.u_error = ENOMEM;
+        return;
+    }
+
+    u.u_procp->p_dsize = newsize;
+
+    /* set d to (new - old) */
+    d = newsize - u.u_dsize;
+//printf ("brk: new size %u bytes, incremented by %d\n", newsize, d);
+    if (d > 0)
+        bzero ((void*) (u.u_procp->p_daddr + u.u_dsize), d);
+    u.u_dsize = newsize;
+    u.u_rval = u.u_procp->p_daddr + u.u_dsize;
+}
+
+===== lib/libc/arm/sys/sbrk.c =====
+/*
+ * Copyright (c) 1987 Regents of the University of California.
+ * All rights reserved.  The Berkeley software License Agreement
+ * specifies the terms and conditions for redistribution.
+ */
+#include <stdint.h>
+#include <unistd.h>
+
+extern char _end[];
+const char *_curbrk = _end;
+
+/*
+ * sbrk() answers a refused extension with (void *)-1 and the errno _brk()
+ * stored, which is what malloc() tests for. The kernel's brk() refuses a
+ * request past the process ceiling or into the stack with ENOMEM
+ * (sys/kern/kern_mman.c), and a version that returned the old break on
+ * that path told malloc() the arena had grown when it had not, so the
+ * allocator carved blocks out of memory the process did not own.
+ */
+void *
+sbrk (incr)
+	int incr;
+{
+	void *oldbrk = (void*) _curbrk;
+
+	if (incr != 0) {
+		/* calculate and pass break address */
+		const void *addr = _curbrk + incr;
+		if (_brk (addr) == -1)
+			return (void*) -1;
+		/* add increment to curbrk */
+		_curbrk = addr;
+	}
+	/* return old break address */
+	return oldbrk;
+}
+
+void *
+brk (addr)
+	const void *addr;
+{
+	int ret;
+
+	if (addr < (void*) _end)	/* break request too low? */
+		addr = _end;		/* yes, knock the request up to _end */
+	ret = _brk (addr);		/* ask for break */
+	if (ret != -1)
+		_curbrk = addr;		/* and remember it if it succeeded */
+	return (void*) (intptr_t) ret;
+}
+

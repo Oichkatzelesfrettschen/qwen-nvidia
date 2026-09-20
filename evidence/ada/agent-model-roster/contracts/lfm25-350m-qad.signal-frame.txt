@@ -1,0 +1,7 @@
+The `sendsig` function places the signal frame relative to the exception return by first writing the kernel's `sfp` (signal frame) to the `sfp` structure, which is then used to set the frame's alignment. The frame's alignment is determined by the saved context, which is calculated from the `sfp` structure. This ensures the frame is correctly aligned with the exception return's context.
+
+The `sigsreturn` function clears a bit of the saved `xPSR` before the handler runs. This is done by setting the `sfp` structure's `ss_flags` to `~XPSR_STKALIGN`, which disables the `xPSR` bit in the signal frame. This prevents the exception from adding four to the stack, as the `xPSR` bit is typically used for stack alignment.
+
+The handler then clears the saved context by setting the `tf_sp` structure's `sc_mask` to `~sigcantmask`. This ensures the handler operates on a misaligned stack, as the `tf_sp` structure's `sc_mask` is used to control the stack alignment.
+
+Together, these steps ensure that the signal frame is correctly aligned with the exception return's context and that the handler operates on a clean, unaligned stack.

@@ -1,0 +1,42 @@
+In the provided source code, there are **two separate conditions** that can make `brk` refuse to grow the data segment:
+
+---
+
+1. **Memory limit exceeded (process ceiling or MAXMEM)**  
+   This happens when the total memory requested (data size + text size + stack size) exceeds the maximum allowed memory for the process.  
+   - In `kern_mman.c`, this is checked with:  
+     ```c
+     if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+     ```
+     (on systems with `SWAPRAM`, or)  
+     ```c
+     if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+     ```
+   - If this condition is true, `brk` sets `u.u_error = ENOMEM` and **returns without changing anything**.  
+   - In the `sbrk` function, if `_brk(addr)` returns `-1` due to this (or any other reason), `sbrk` returns `(void*) -1`.
+
+2. **Growing data segment into the stack**  
+   This happens when the new data segment would extend past the stack segment.  
+   - Checked in `kern_mman.c` with:  
+     ```c
+     if (u.u_procp->p_daddr + newsize > u.u_procp->p_saddr)
+     ```
+   - If this condition is true, `brk` sets `u.u_error = ENOMEM` and **returns without changing anything**.  
+   - In `sbrk`, if `_brk(addr)` returns `-1` due to this, `sbrk` returns `(void*) -1`.
+
+---
+
+### What does `sbrk` return and leave unchanged when the kernel refuses?
+
+- When the kernel refuses the request (i.e., `_brk(addr)` returns `-1`), `sbrk` returns `(void*) -1`.  
+- The value of `_curbrk` (the current break pointer) is **left unchanged** — it does not get updated to the new address.
+
+---
+
+### Summary in plain prose:
+
+There are two conditions that make `brk` refuse to grow the data segment:  
+- The process would exceed its memory limit (either `swapram_ceiling` or `MAXMEM`).  
+- The data segment would overlap with the stack (grow into the stack).  
+
+When either condition occurs, the kernel returns an error (`ENOMEM`), and `sbrk` responds by returning `(void*) -1`. In that case, the variable `_curbrk` remains unchanged — it does not move to the new address.

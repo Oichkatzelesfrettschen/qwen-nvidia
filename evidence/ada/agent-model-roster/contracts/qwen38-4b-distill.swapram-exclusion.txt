@@ -1,0 +1,3 @@
+When the RAM tier accepts a swapout, the process does not get the actual memory addresses (p->p_daddr, p->p_saddr, p->p_addr) that it would have received from a flash swapout. Instead, those addresses are set to zero (a[0], a[1], a[2] are zero on the RAM tier).
+
+swapin still reads from the executable (via `exec_text_restore`) for the text area, regardless of whether the process is on the RAM tier or the flash tier.

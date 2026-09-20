@@ -1,0 +1,5 @@
+`flash_swap_append` checks that `offset` is aligned to a program page boundary before erasing or programming. Specifically, it verifies `offset & (FLASH_PROG_BYTES - 1) == 0` at the start of the function.
+
+Before erasing, it checks that `offset` is aligned to a sector boundary (`offset & (FLASH_SECTOR_BYTES - 1) == 0`).
+
+The caller must guarantee that `offset` is aligned to a program page boundary, since `flash_swap_append` performs this check itself.

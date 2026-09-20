@@ -1,0 +1,3 @@
+The bit that decides whether the USB controller or the processor owns a bulk endpoint buffer is **`USB_BUF_CTRL_AVAIL`**.
+
+When the driver finds a bulk OUT buffer with that bit clear (meaning the controller owns it), it checks whether the buffer has no pending transaction (no `USB_BUFF_STATUS` bit set). If so, it **re-arms the bulk OUT buffer** with the current `data_out_pid` toggle value, using `usb_buf_arm()` to set the buffer's control word. This allows the controller to accept the next OUT token and prevents the host from reporting a write timeout (EIO).

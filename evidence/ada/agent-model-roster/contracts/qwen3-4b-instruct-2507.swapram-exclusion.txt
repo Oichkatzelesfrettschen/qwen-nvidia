@@ -1,0 +1,14 @@
+When the RAM tier accepts a swapout, the process **does not get a swapmap block** (i.e., it does not get a block allocated in the swapmap pool). This is because the RAM tier handles the swap data entirely in memory and does not use the swapmap for tracking or managing swap blocks.
+
+In contrast, a flash swapout would have written data to the swap device (or flash storage) using swapmap blocks, which are managed via the `swapmap` pool.
+
+Additionally, **swapin still reads the clean text from the executable** — specifically, it calls `exec_text_restore(p, (caddr_t)daddr, tsize)` to restore the text segment from the executable file, not from the swap pool.
+
+So, the identifiers from the source that answer the question are:
+
+- **swapmap**  
+- **exec_text_restore**  
+
+Thus, the answer in plain prose is:
+
+When the RAM tier accepts a swapout, the process does not get a swapmap block. Swapin still reads the clean text from the executable.

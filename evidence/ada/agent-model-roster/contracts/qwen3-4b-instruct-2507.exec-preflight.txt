@@ -1,0 +1,19 @@
+The function `exec_hsaout_check` verifies the executable and commits the process in the following order:
+
+1. It first checks the file's header to ensure it is a valid packed a.out executable by verifying the magic number (`OMAGIC`) and the `EX_HSPACK` flag. If not, it returns `ENOEXEC`.
+
+2. It then reads and validates the packed header (`hsx_headers`), ensuring the container's structure is correct and matches the expected size.
+
+3. It performs a layout check (`aout_layout_check`) to confirm the executable fits within the user memory space, using the raw header data.
+
+4. It acquires an exclusive lock on the file (`exec_text_hold`) to prevent other processes from accessing or modifying it during loading.
+
+5. It preflights both streams (text and data) by expanding them into a temporary buffer (using `hsx_load_buf`) and comparing the resulting lengths and CRCs against what the header promised. If either stream fails, it returns `EFTYPE` and releases the file lock.
+
+6. After successful preflight, it saves the command-line arguments (`exec_save_args`), sets up the memory layout for the process, and establishes the process's memory mappings (`exec_estab`).
+
+7. It then **commits** the process by releasing the old image (`exec_text_release`), which removes the original file from the process's view. The process now has a reference to the new image via `p_tip`.
+
+8. Finally, it performs a **second expansion** of both streams into the actual user memory space (using `hsx_load_buf` again). If this second expansion fails — that is, if the length or CRC does not match what was promised in the header — the function detects the mismatch, prints a diagnostic message (`"pid %d: packed executable changed between passes"`), sends a `SIGKILL` signal to the process, and returns `EFTYPE`.
+
+Thus, the process is committed only after both the preflight and the second expansion succeed. If the second expansion disagrees with the header, the process is killed immediately with `SIGKILL`.
