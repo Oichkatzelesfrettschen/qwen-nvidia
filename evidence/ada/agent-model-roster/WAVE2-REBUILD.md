@@ -15,12 +15,12 @@ budget, and the scheduler's hash set overruns with no size reported.
 series, and both rows load and warm up under the unchanged placement on
 `qwen-cuda-1f88e8fca5ef`.
 
-## The first version of the patch cost 22 percent
+## The first version of the patch read as a 22 percent cost, once
 
-The patch first raised the default lane for every architecture. That is the
-change the diagnosis pointed at, and it is wrong, because `max_nodes` sizes
-the scheduler hash set that `ggml_backend_sched_split_graph` clears on every
-graph build -- once per decoded token. Quadrupling it quadruples that work.
+The patch first raised the default lane for every architecture, and the
+screen measured that against the incumbent build. The cost is real in the
+server's own timings and its mechanism is open; the section after the table
+records what has been ruled out.
 
 Three readings per arm of the three-file summarize screen at
 `max_tokens 2048`, one machine state, teardown between every launch:
@@ -31,11 +31,70 @@ Three readings per arm of the three-file summarize screen at
 | qwen-cuda-efa48befa03b | 32 for every architecture | 13802, 13206, 13601 | 13278 |
 | qwen-cuda-1f88e8fca5ef | 32 for phi3 and lfm2moe | 11455, 11430, 11156 | 13143, 12493 |
 
-The split is the finding and it falsifies nothing else: `qwen3` sits in the
-default lane, so the blanket change moved it and cost 2.4 s on three files;
-`qwen35` was already in the 32 lane, so the same binary left the incumbent
-where it was. The narrow patch returns `qwen3-4b-instruct-2507` to its
-retained 11.492 s baseline and keeps both recovered rows.
+Read alone, the split looked like the finding: `qwen3` sits in the default
+lane and `qwen35` in the 32 lane, so a budget cost would move the first and
+leave the second. The next section is what happened when that reading was
+tested.
+
+## Where the cost is not
+
+The server's `timings` split the three-file total into prompt and
+generation. Every arm generated the same 797 tokens over the same 11191
+prompt tokens at temperature 0, so the split is per-token cost and nothing
+else:
+
+| build | prompt_ms | predicted_ms | ms per generated token |
+| --- | ---: | ---: | ---: |
+| 15bc632adf7f, upstream budget | 1387, 1350, 1423 | 9611, 9668, 10219 | 12.3 |
+| efa48befa03b, 32 everywhere | 1581, 1624 | 11418, 11777 | 14.5 |
+| 1f88e8fca5ef, 32 for two | 1362, 1384, 1351 | 9899, 9880, 9659 | 12.3 |
+
+The first account of the mechanism, that `max_nodes` sizes the scheduler
+hash set `ggml_backend_sched_reset` clears once per token, fails arithmetic.
+`Qwen3-4B-Instruct-2507` carries 398 tensors: 3184 nodes in the default lane
+sizes the set at 4099 slots, 12736 in the 32 lane at 16411, and
+`ggml_backend_sched_reset` clears 4 bytes of backend id plus 8 bytes of copy
+pointer per slot per backend, two backends and one copy here, so the blanket
+lane clears 328 KB per reset against 82 KB. The 246 KB difference is tens of
+microseconds against the 2.3 ms per token measured, and
+`llama_context::process_ubatch` reuses the previous graph when the ubatch
+shape repeats (`gf_res_prev->can_reuse`), skipping the reset for most
+generated tokens in the first place.
+
+`llama-bench` on the two builds, alternated in one machine state, records no
+difference under any configuration the appliance's placement suggests:
+
+| configuration | efa48befa03b tg128 t/s | 1f88e8fca5ef tg128 t/s |
+| --- | ---: | ---: |
+| `-ngl 99`, empty context | 96.84, 97.02 | 97.08, 97.03 |
+| `-ot '.*=CUDA0'`, empty context | 97.05, 97.05 | 97.04, 97.00 |
+| `-ot '.*=CUDA0' -d 3584 -ctk q8_0 -ctv q4_0 -fa 1` | 85.65, 85.65 | 85.67, 85.60 |
+| `-d 3584 -ctk q8_0 -ctv q4_0 -fa 1` | 85.62 | 85.66 |
+
+So the per-token cost the server records under the blanket budget does not
+appear in a single-sequence decode through the same libraries under the
+same placement, cache types and depth. The screen itself, rerun with the two
+builds interleaved (`QWEN_LLAMA_SERVER` naming each, teardown between every
+launch, one machine state), settles it:
+
+| reading | efa48befa03b predicted_ms | 1f88e8fca5ef predicted_ms |
+| --- | ---: | ---: |
+| 1 | 11083 | 11670 |
+| 2 | 11155 | 11184 |
+| 3 | 11037 | 11657 |
+
+The blanket build is no slower than the narrow one, and both sit above the
+original readings of either, so the 2.4 s was the machine state of the two
+blanket readings and not the budget. The incumbent control, one reading,
+did not have the power to say so. The narrow patch stays on the grounds it
+was rewritten under -- an architecture joins the list when it is measured
+to abort -- and on no measured cost.
+
+An occupancy-aware scheduler reset, clearing the slots a graph touched
+rather than the set's capacity, is bounded by the same arithmetic: it
+recovers at most the bytes it skips, microseconds per reset here, against a
+cost that the interleaved screen says is zero. It is not a candidate on this
+evidence.
 
 ## What the two recovered rows do once they serve
 
@@ -103,8 +162,12 @@ is the `source_diff_sha256` its own `build-configuration.tsv` records, so the
 bundle is that build's input bit for bit.
 
 `qwen-cuda-efa48befa03b` carries the blanket budget and is retained as the
-measurement that rejected it. `qwen-cuda-1f88e8fca5ef` is promoted: CUDA
-enabled, Vulkan disabled, no `libggml-vulkan.so` in the closure, strict CUDA0
-placement and the projector admission both passed.
+measurement that rejected it. `qwen-cuda-1f88e8fca5ef` carries the narrow
+budget and passed the strict CUDA0 placement and the projector admission,
+and both of these trees took the builder's bare default of
+`QWEN_CUDA_ARCHITECTURES=89`, which emits 187 compute_89 PTX images beside
+the cubins; `../cuda-architecture-89-vs-89-real.md` takes that apart. Neither
+is served: the closure `scripts/serving-closures.tsv` names as promoted is
+built at `89-real` and carries the same narrow patch.
 
 Recorded 2026-09-20.

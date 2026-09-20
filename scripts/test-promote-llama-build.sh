@@ -96,6 +96,16 @@ write_manifest() {
 }
 write_manifest
 
+# The configuration record names the arm the closure was built at, and the
+# promoter holds it against the serving ledger's promoted row.
+write_configuration() {
+    {
+        printf 'configuration_schema\t2\n'
+        printf 'arch\t%s\n' "$1"
+    } >"$build_directory/build-configuration.tsv"
+}
+write_configuration 89-real
+
 promotion_model=$work_directory/text-model.gguf
 vision_directory=$work_directory/vision-model
 promotion_vision_model=$vision_directory/vision-model.gguf
@@ -123,6 +133,45 @@ case $promotion_status:$promotion_output in
        printf '%s\n' "$promotion_output" >&2 ;;
 esac
 
+# A closure built at the builder's default arm carries PTX the ledger says a
+# served closure lacks, and is refused by name unless the caller names that
+# arm on purpose; a closure with no configuration record cannot say which it
+# is and is refused ahead of every device smoke.
+write_configuration 89
+set +e
+default_arm_output=$("$promoter" "$preset" "$work_directory" 2>&1)
+default_arm_status=$?
+set -e
+case $default_arm_status:$default_arm_output in
+    1:*'build architecture 89 is not the serving arm 89-real'*)
+        report default_arm_rejected accepted ;;
+    *) report default_arm_rejected rejected
+       printf '%s\n' "$default_arm_output" >&2 ;;
+esac
+set +e
+named_arm_output=$(QWEN_PROMOTION_ARCHITECTURE=89 "$promoter" "$preset" "$work_directory" 2>&1)
+named_arm_status=$?
+set -e
+case $named_arm_status:$named_arm_output in
+    0:*strict_cuda=passed*) report named_arm_promotes accepted ;;
+    *) report named_arm_promotes rejected
+       printf '%s\n' "$named_arm_output" >&2 ;;
+esac
+# That second promotion retained a previous target the rollback checks below
+# expect to be absent.
+rm -f "$work_directory/build-appliance-previous"
+rm "$build_directory/build-configuration.tsv"
+set +e
+unrecorded_arm_output=$("$promoter" "$preset" "$work_directory" 2>&1)
+unrecorded_arm_status=$?
+set -e
+case $unrecorded_arm_status:$unrecorded_arm_output in
+    1:*'no build configuration record'*) report unrecorded_arm_rejected accepted ;;
+    *) report unrecorded_arm_rejected rejected
+       printf '%s\n' "$unrecorded_arm_output" >&2 ;;
+esac
+write_configuration 89-real
+
 # A closure carrying libggml-vulkan.so enumerates Vulkan0 beside CUDA0 for the
 # same card, and that enumeration is what once placed a router child on
 # Vulkan0, so promotion refuses the dual-backend build ahead of every smoke.
@@ -146,6 +195,7 @@ esac
 failing_closure_tools=$work_directory/failing-closure-tools
 mkdir -p "$failing_closure_tools"
 cp "$promoter" "$failing_closure_tools/promote-llama-build.sh"
+cp "$script_directory/serving-closures.tsv" "$failing_closure_tools/serving-closures.tsv"
 cat >"$failing_closure_tools/hash-load-closure.sh" <<'CLOSURE'
 #!/bin/sh
 printf 'role\tbasename\tbytes\tsha256\n'
@@ -333,6 +383,7 @@ printf 'fixture backend, second arm\n' >"$second_build_directory/bin/libggml-cud
             "$(sha256sum "$object_path" | cut -d ' ' -f 1)"
     done
 } >"$second_build_directory/artifact-manifest.tsv"
+cp "$build_directory/build-configuration.tsv" "$second_build_directory/build-configuration.tsv"
 
 set +e
 "$promoter" "$second_preset" "$work_directory" >/dev/null 2>&1

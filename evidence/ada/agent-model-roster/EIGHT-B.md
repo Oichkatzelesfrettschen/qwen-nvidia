@@ -52,10 +52,21 @@ prose answer it was recorded as, not a better one. Only `phi4-mini` and
 `hammer21-3b`, whose templates declare no tool input, are unchanged by the
 constraint.
 
-Both harnesses now send a string, and
-`scripts/test-fixtures/fake-chat-tools-server.py` models the server's own
-handling, so a probe that regresses to the object form fails the fixture
-rather than reading voluntary calls as forced ones.
+Both harnesses now send a string. The consumer that matters sends the
+object: graft 0.18.0's OpenAI adapter (`dist/ai/llm/openai.js`) builds
+`{"type":"function","function":{"name":...}}` for every `responseFormat` of
+kind `tool` and falls back to `"required"` only when the server answers an
+HTTP 400 naming `tool_choice`, which this server never did -- it answered
+200 and the warning. Captured through the installed adapter against a
+recording endpoint, the wire body carries exactly that object with one tool
+offered. Graft then recovers the payload from prose content when the call
+is missing (`recoverToolArgsFromContent`), so its runs never showed the
+loss. The served closure therefore resolves the object form itself:
+`patches/llama-server-tool-choice-object.patch` narrows the tool list to
+the named function and forces it under `"required"`, which is what the
+grammar enforces, and refuses a name the request offers no tool for with a
+400. `scripts/test-fixtures/fake-chat-tools-server.py` models that served
+handling.
 
 ## What llama.cpp actually decides
 
@@ -71,21 +82,27 @@ server reaches ordinary content parsing without ever arriving at the
 diagnostic. Reading which parser was built, rather than which error was not
 logged, needs a record the server does not yet emit here.
 
-The gate chain is therefore three checks, in order, and the first two cost
-no device time:
+The gate chain is therefore two checks, in order, and the first costs no
+device time:
 
 1. the GGUF header's `tools` and `tool_calls` flags, which
    `admit-candidate-static.py` reads over a range request;
-2. the auto-parser's classification, which the server log reports by that
-   ERROR or by its absence;
-3. a reply cap above the reasoning preamble.
+2. a forced probe under `"tool_choice":"required"` with a cap above the
+   reasoning preamble, whose `finish_reason` separates a call, a call cut
+   off, and prose.
+
+The auto-parser's classification is not a third check, because the server
+does not report it: the ERROR above is a positive record of one failure and
+its absence is silence.
 
 ## klear-agentforge-8b measured
 
 It is a Qwen3-8B fine-tune: `qwen3`, 36 blocks, 399 tensors, 32 heads over
-8 KV heads at 128, 65536 context, 6.27 GiB at Q6_K. At 399 tensors its graph
-budget is 3192 nodes, above the 2608 that already loads, so it is clear of
-the abort that held the wave-two rows.
+8 KV heads at 128, 65536 context, 6.27 GiB at Q6_K. At 399 tensors its
+default-lane budget is 3192 nodes, a number that predicts nothing about the
+abort, as the `llama` rows below say; it is clear of the abort because it
+loaded and warmed up under the appliance placement, which is the measurement
+that settles it.
 
 | gate | result |
 | --- | --- |

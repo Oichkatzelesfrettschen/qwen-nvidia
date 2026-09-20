@@ -41,7 +41,8 @@ git -C "$temporary_directory/llama.cpp" checkout --quiet --detach \
 for patch_name in \
     llama-no-cpu-fallback.patch \
     llama-router-tools-proxy.patch \
-    llama-sched-graph-budget.patch; do
+    llama-sched-graph-budget.patch \
+    llama-server-tool-choice-object.patch; do
     git -C "$temporary_directory/llama.cpp" apply --check \
         "$patch_directory/$patch_name"
     git -C "$temporary_directory/llama.cpp" apply \
@@ -67,6 +68,8 @@ verify_source d0d6c8725891ac4baf68fd947ab4be75cc93ba37b1e988ca1c556881a49d0abc \
     src/llama-model-loader.cpp
 verify_source d2d5cb43a83c6b2b459b85f2df181a3d976efcaef351e5cbc6b418ba839390e3 \
     tools/server/server.cpp
+verify_source 84392b14fe03f70a1ccbca09edfa14451ef1a7c1368f853ae644f02da8970158 \
+    tools/server/server-common.cpp
 printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 
 # A candidate patch is a backport under measurement rather than a member of the

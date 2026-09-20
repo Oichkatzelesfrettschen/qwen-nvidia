@@ -1,0 +1,49 @@
+diff --git a/tools/server/server-common.cpp b/tools/server/server-common.cpp
+index 4f5b8202a..5b30c753a 100644
+--- a/tools/server/server-common.cpp
++++ b/tools/server/server-common.cpp
+@@ -1135,7 +1135,43 @@ json oaicompat_chat_params_parse(
+     auto tools = json_value(body, "tools", json());
+     auto has_tools = tools.is_array() && !tools.empty();
+     auto stream = json_value(body, "stream", false);
+-    auto tool_choice = json_value(body, "tool_choice", std::string("auto"));
++    // The OpenAI named-function form, {"type":"function","function":{"name":N}},
++    // reaches this endpoint from clients that force one tool per request. Read
++    // through json_value<std::string> it raises a type error the helper catches
++    // and answers with "auto", so a client's "call N" arrives as "call anything
++    // or nothing" and the only trace is a warning. The named form is the tool
++    // list narrowed to N under "required", which is what the grammar built below
++    // enforces, so it is resolved to exactly that; a name the request offers no
++    // tool for is refused rather than loosened.
++    std::string tool_choice;
++    if (body.contains("tool_choice") && body.at("tool_choice").is_object()) {
++        const json & choice = body.at("tool_choice");
++        const std::string choice_type = json_value(choice, "type", std::string());
++        std::string choice_name;
++        if (choice.contains("function") && choice.at("function").is_object()) {
++            choice_name = json_value(choice.at("function"), "name", std::string());
++        }
++        if (choice_type != "function" || choice_name.empty()) {
++            throw std::invalid_argument("tool_choice object must carry type \"function\" and function.name");
++        }
++        json named_tools = json::array();
++        if (tools.is_array()) {
++            for (const auto & tool : tools) {
++                if (tool.is_object() && tool.contains("function") && tool.at("function").is_object() &&
++                        json_value(tool.at("function"), "name", std::string()) == choice_name) {
++                    named_tools.push_back(tool);
++                }
++            }
++        }
++        if (named_tools.empty()) {
++            throw std::invalid_argument("tool_choice names a function the request offers no tool for: " + choice_name);
++        }
++        tools       = named_tools;
++        has_tools   = true;
++        tool_choice = "required";
++    } else {
++        tool_choice = json_value(body, "tool_choice", std::string("auto"));
++    }
+ 
+     if (!opt.use_jinja) {
+         if (has_tools) {

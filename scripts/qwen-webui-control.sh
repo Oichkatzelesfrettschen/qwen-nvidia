@@ -326,6 +326,27 @@ case $action in
             "session_retirement=completed session_pid=$recorded_session_pid session_start_time=$recorded_session_start barrier_identity="*) ;;
             *) terminal_retirement=invalid ;;
         esac
+        # The drain controller exits 4 where the transition completed and the
+        # exclusion stayed unproven, and the session records that status
+        # verbatim. A router parent never holds the compute lease its children
+        # take, so its destroy step reads held=no, which is the reading every
+        # router stop produces on a series without
+        # llama-router-orderly-retirement.patch. That is a stop that completed
+        # without its proof, distinct from a drain or destroy that failed, and
+        # it exits 4 so a caller can tell the two apart.
+        unproven_retirement=$(grep '^session_retirement=' \
+            "$state_directory/session-drain.record" 2>/dev/null | tail -n 1 || true)
+        case $unproven_retirement in
+            "session_retirement=failed status=4 session_pid=$recorded_session_pid session_start_time=$recorded_session_start barrier_identity="*) ;;
+            *) unproven_retirement='' ;;
+        esac
+        if [ "$forced_session_stop" -eq 0 ] && [ -n "$recorded_session_pid" ] &&
+           [ -n "$unproven_retirement" ]; then
+            printf 'session stopped; orderly exclusion unproven: %s\n' \
+                "$(grep -o 'teardown_exclusion=[^ ]* .*teardown_reading=[^ ]*' \
+                    "$state_directory/session-drain.record" 2>/dev/null | tail -n 1 || true)" >&2
+            exit 4
+        fi
         if [ "$forced_session_stop" -ne 0 ] || [ "$terminal_retirement" = invalid ] || [ -z "$recorded_session_pid" ] ||
            ! grep -q 'teardown_exclusion=orderly' "$state_directory/session-drain.record" 2>/dev/null; then
             printf 'session stop lacks positive orderly retirement evidence\n' >&2

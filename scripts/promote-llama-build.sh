@@ -91,6 +91,38 @@ if [ "$manifest_preset" != "$preset" ]; then
     exit 1
 fi
 
+# The architecture is read off the build's own configuration record and held
+# against the arm the serving ledger's promoted row names. The builder
+# defaults to 89, which emits compute_89 PTX beside the SM89 cubins, and the
+# serving arm is 89-real, which emits the cubins alone; two closures were
+# promoted at the default before this check existed, and each was a valid
+# binary whose payload the ledger's ptx_images column said a served closure
+# lacks (evidence/ada/cuda-architecture-89-vs-89-real.md). Naming another arm
+# is a decision, so QWEN_PROMOTION_ARCHITECTURE carries it explicitly.
+configuration_path=$build_directory/build-configuration.tsv
+if [ ! -r "$configuration_path" ]; then
+    printf 'preset has no build configuration record: %s\n' "$configuration_path" >&2
+    exit 1
+fi
+build_architecture=$(awk -F'\t' '$1 == "arch" { print $2; exit }' "$configuration_path")
+ledger_path=$script_directory/serving-closures.tsv
+if [ ! -r "$ledger_path" ]; then
+    printf 'serving ledger is unreadable: %s\n' "$ledger_path" >&2
+    exit 1
+fi
+ledger_architecture=$(grep -v '^#' "$ledger_path" |
+    awk -F'\t' '$1 == "promoted" { print $5; exit }')
+serving_architecture=${QWEN_PROMOTION_ARCHITECTURE:-$ledger_architecture}
+if [ -z "$build_architecture" ]; then
+    printf 'build configuration records no arch: %s\n' "$configuration_path" >&2
+    exit 1
+fi
+if [ "$build_architecture" != "$serving_architecture" ]; then
+    printf 'build architecture %s is not the serving arm %s; QWEN_PROMOTION_ARCHITECTURE names another arm on purpose: %s\n' \
+        "$build_architecture" "$serving_architecture" "$build_directory" >&2
+    exit 1
+fi
+
 # Every hashed object in the manifest must still hash to what the build recorded,
 # so a rebuild of one dependency under a promoted tree is caught here rather than
 # in a serving difference nobody attributes. hash-load-closure.sh writes

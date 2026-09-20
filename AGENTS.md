@@ -1666,7 +1666,22 @@ placement line and memory breakdown each child prints, records how many
 children were resident together, and tears the appliance down. The retained run
 in `evidence/ada/cuda-router-serving/` carries nine checks with none rejected,
 both the 2B distill and the 0.8B answering from CUDA0 with both resident at
-5307 MiB of device memory.
+5307 MiB of device memory. `scripts/router-serving-evidence.sh` holds the two
+verdicts the admission reads off its own evidence: a placement is attributed
+to a child by the pid prefix on its log line, so two children asked for need
+two pids naming CUDA0 and one reads `incomplete`; and the summary accepts
+only rows whose result is `accepted`, `observed`, or a `skipped` that states
+its reason, so a teardown that returned residue or a log that named no
+device rejects the admission rather than passing as an absence of rejection.
+The teardown is two rows: `teardown` is the machine's state, which
+`qwen-teardown.sh` proves by survivor checks and reports as exit 0 or 4, and
+`teardown_exclusion` is whether the retiring process held the compute lease
+through its destroy. A router parent never does -- its children take the
+lease, so its destroy reads `held=no` and `qwen-webui-control.sh stop` exits
+4 -- and the proof for router children is the
+`llama-router-orderly-retirement.patch` lane, so the admission records that
+row `skipped` by name while `QWEN_ROUTER_ORDERLY_RETIREMENT=0`.
+`scripts/test-router-serving-evidence.sh` calibrates both verdicts.
 
 Four properties of the chain surprise a reader who meets one file alone.
 
@@ -2351,6 +2366,7 @@ scripts/test-projector-fetch-dispatch.sh
 scripts/test-projector-pairing.sh
 scripts/test-probe-depth-projector.sh
 scripts/test-promote-llama-build.sh
+scripts/test-router-serving-evidence.sh
 scripts/test-qwen-launch-router-preflight.sh
 scripts/test-qwen-capacity-policy.sh
 scripts/test-web-presets.sh
