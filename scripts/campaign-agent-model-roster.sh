@@ -163,7 +163,7 @@ for id in $NEW; do
         verdict=fail
     fi
     if $SUDO -n dmesg --time-format=iso --since "$since" >"$RUN/strict/$id/kernel-ring.log" 2>/dev/null; then
-        ring=read
+        ring='read'
     else
         ring=unverified
     fi

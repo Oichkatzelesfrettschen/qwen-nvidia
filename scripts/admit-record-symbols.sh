@@ -73,7 +73,7 @@ body = {"model": "qwen-nvidia", "temperature": 0, "max_tokens": int(cap),
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "tools": [{"type": "function", "function": {"name": "record_symbols",
                    "description": "Record one entry per target definition.", "parameters": schema}}],
-        "tool_choice": {"type": "function", "function": {"name": "record_symbols"}}}
+        "tool_choice": "required"}
 json.dump(body, open(out_path, "w"))
 PY
 done

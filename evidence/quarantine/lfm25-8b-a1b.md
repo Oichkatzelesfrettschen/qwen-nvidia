@@ -21,10 +21,11 @@ lfm2moe and phi3 alone, and the row loads and warms up under the unchanged
 placement on the build that carries it. The device failure is resolved, so
 the row leaves quarantine and returns to tier candidate.
 
-It does call a tool. The broad screen recorded otherwise because its
-forced record_probe request caps the reply at 128 tokens and this row
-reasons before it calls, so the budget ran out before the call; at 512 it
-completes record_probe(ok=true). It still drops every target on the
+It does call a tool. The broad screen recorded otherwise for two reasons
+that compounded: the probe capped the reply at 128 tokens and this row
+reasons before it calls, and the probe sent tool_choice as an object the
+server rejects back to "auto", so nothing was forced either. At 512 tokens
+it completes record_probe(ok=true). It still drops every target on the
 record_symbols contract at a 2048-token cap, which is a separate and harder
 request. evidence/ada/agent-model-roster/EIGHT-B.md carries both.
 

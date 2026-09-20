@@ -50,8 +50,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.mode == "http_error":
             self._send(500, {"error": {"message": "slot unavailable", "tool_calls": []}})
             return
+        # tools/server/server-common.cpp reads tool_choice through
+        # json_value(body, "tool_choice", std::string("auto")), which catches
+        # the type error an object raises and returns "auto". A caller sending
+        # the OpenAI named-function object therefore forces nothing, and the
+        # model answers or does not on its own. The fixture models that, so a
+        # probe that regresses to the object form fails here rather than in a
+        # campaign that reads voluntary calls as forced ones.
+        forced = isinstance(request.get("tool_choice"), str) and \
+            request.get("tool_choice") in ("required", "any")
         finish = "stop"
-        if self.mode == "jinja" and request.get("tools"):
+        if self.mode == "jinja" and request.get("tools") and forced:
             message = call("record_probe", "{\"ok\":true}")
         elif self.mode == "wrong_function":
             message = call("record_graph", "{\"ok\":true}")

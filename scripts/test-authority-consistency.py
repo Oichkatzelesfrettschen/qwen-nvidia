@@ -9,6 +9,25 @@ import shutil
 import tempfile
 import subprocess
 
+def closure_digests(repo_root):
+    """The digest each role carries, read from the ledger under test.
+
+    Pinning a digest here makes a mutation a no-op the day a promotion moves
+    it, and a no-op mutation reports the checker as failing to reject what it
+    was never shown. The roles are stable; the digests are not, so the roles
+    are what this file names.
+    """
+    ledger = pathlib.Path(repo_root) / "scripts" / "serving-closures.tsv"
+    digests = {}
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        fields = line.split("\t")
+        if len(fields) > 1:
+            digests.setdefault(fields[0], fields[1])
+    return digests
+
+
 def run_checker(target_repo):
     checker_path = pathlib.Path(__file__).parent / "check-authority-consistency.py"
     res = subprocess.run(
@@ -53,6 +72,10 @@ def restore_fixture(fixture_path):
 
 def main():
     repo_root = pathlib.Path(__file__).parent.parent.resolve()
+    roles = closure_digests(repo_root)
+    promoted_digest = roles["promoted"]
+    rollback_digest = roles["rollback"]
+    diagnostic_digest = roles["diagnostic"]
     failures = 0
 
     fixture_directory = tempfile.TemporaryDirectory(prefix="test_auth_consist_")
@@ -91,14 +114,14 @@ def main():
     def mut_stale_promotion(tmp_path):
         readme = tmp_path / "README.md"
         text = readme.read_text(encoding="utf-8")
-        text = text.replace("15bc632adf7f", "000000000000")
+        text = text.replace(promoted_digest, "000000000000")
         readme.write_text(text, encoding="utf-8")
 
     test_case("stale_production_promotion_reference_fails", mut_stale_promotion, expect_pass=False)
 
     # 3. Missing referenced promotion evidence fails
     def mut_missing_evidence(tmp_path):
-        ev_dir = tmp_path / "evidence" / "ada" / "promotion-15bc632adf7f"
+        ev_dir = tmp_path / "evidence" / "ada" / f"promotion-{promoted_digest}"
         if ev_dir.exists():
             shutil.rmtree(ev_dir)
 
@@ -265,13 +288,15 @@ def main():
     test_case("removed_task_tracker_fails_closed", mut_remove_task_tracker, expect_pass=False)
 
     # 15. The served-closure statement is role-qualified: relabeling the
-    # rollback digest as the served closure fails even though 15bc632adf7f
+    # rollback digest as the served closure fails even though the promoted
+    # digest
     # remains present elsewhere in README.md.
     def mut_relabel_served_closure(tmp_path):
         readme = tmp_path / "README.md"
         text = readme.read_text(encoding="utf-8")
-        text = text.replace("served closure is configuration `15bc632adf7f`",
-                            "served closure is configuration `88681bf4d161`")
+        text = text.replace(
+            f"served closure is configuration `{promoted_digest}`",
+            f"served closure is configuration `{rollback_digest}`")
         readme.write_text(text, encoding="utf-8")
 
     test_case("relabeled_served_closure_fails", mut_relabel_served_closure, expect_pass=False)
@@ -407,8 +432,8 @@ def main():
     def mut_rollback_under_served_role(root):
         readme = root / "README.md"
         readme.write_text(readme.read_text().replace(
-            "served closure is configuration `15bc632adf7f`",
-            "served closure is configuration `88681bf4d161`"))
+            f"served closure is configuration `{promoted_digest}`",
+            f"served closure is configuration `{rollback_digest}`"))
     test_case("rollback_digest_under_served_role_fails",
               mut_rollback_under_served_role, expect_pass=False,
               expect_error="served-closure statement names")
@@ -438,7 +463,7 @@ def main():
 
     # The promotion summary states an outcome rather than merely existing.
     def mut_malformed_serving_summary(root):
-        path = (root / "evidence" / "ada" / "promotion-15bc632adf7f"
+        path = (root / "evidence" / "ada" / f"promotion-{promoted_digest}"
                 / "serving-summary.tsv")
         path.write_text("check\tresult\tdetail\nlaunch\taccepted\tx\n")
     test_case("incomplete_serving_summary_fails",
@@ -446,7 +471,7 @@ def main():
               expect_error="omits required checks")
 
     def mut_serving_summary_wrong_device(root):
-        path = (root / "evidence" / "ada" / "promotion-15bc632adf7f"
+        path = (root / "evidence" / "ada" / f"promotion-{promoted_digest}"
                 / "serving-summary.tsv")
         text = path.read_text().replace("CUDA0", "Vulkan0")
         path.write_text(text)
@@ -493,7 +518,7 @@ def main():
     def mut_closure_evidence_missing(root):
         path = root / "scripts" / "serving-closures.tsv"
         path.write_text(path.read_text().replace(
-            "evidence/ada/promotion-572951d25562",
+            f"evidence/ada/promotion-{diagnostic_digest}",
             "evidence/ada/promotion-absent"))
     test_case("closure_ledger_with_unreadable_evidence_fails",
               mut_closure_evidence_missing, expect_pass=False,
@@ -534,9 +559,9 @@ def main():
     def mut_swapped_role_digests(root):
         path = root / "README.md"
         text = path.read_text(encoding="utf-8")
-        text = (text.replace("88681bf4d161", "\0")
-                    .replace("572951d25562", "88681bf4d161")
-                    .replace("\0", "572951d25562"))
+        text = (text.replace(rollback_digest, "\0")
+                    .replace(diagnostic_digest, rollback_digest)
+                    .replace("\0", diagnostic_digest))
         path.write_text(text, encoding="utf-8")
     test_case("swapped_rollback_and_diagnostic_roles_fails",
               mut_swapped_role_digests, expect_pass=False,

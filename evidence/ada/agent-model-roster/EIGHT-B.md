@@ -17,6 +17,46 @@ and nothing for the other five.
 message, because a reply cut off mid-call is no evidence the model cannot
 make one.
 
+## No request in this campaign forced anything
+
+The probe sent `tool_choice` as the OpenAI named-function object.
+`tools/server/server-common.cpp` reads that field through
+`json_value(body, "tool_choice", std::string("auto"))`, which catches the
+type error an object raises and returns `"auto"`. Every server log captured
+here carries the warning it emits doing so:
+
+```text
+Wrong type supplied for parameter 'tool_choice', using default value:
+[json.exception.type_error.302] type must be string, but is object
+```
+
+So the column this campaign called `tool_call` records what each model did
+when offered a tool, not what it did when required to use one. Re-probed
+with `"tool_choice":"required"` against the same five rows that had answered
+in prose:
+
+| row | required | auto |
+| --- | --- | --- |
+| oxcoder-9b | records the call | no call |
+| swe-dev-7b | runs past 8192 tokens, 40981 chars, no call | no call |
+| swe-agent-lm-7b | runs past 8192 tokens, no answer in 600 s | no call |
+| phi4-mini | no call | no call |
+| hammer21-3b | no call | no call |
+
+`oxcoder-9b` was never refusing; it was never asked. The two SWE rows change
+behavior under the constraint and then fail to terminate: raising the cap to
+8192 buys `swe-dev-7b` forty thousand characters of prose and no call, and
+`swe-agent-lm-7b` no answer at all inside ten minutes. That is a third
+outcome the campaign had no column for, and it is a worse failure than the
+prose answer it was recorded as, not a better one. Only `phi4-mini` and
+`hammer21-3b`, whose templates declare no tool input, are unchanged by the
+constraint.
+
+Both harnesses now send a string, and
+`scripts/test-fixtures/fake-chat-tools-server.py` models the server's own
+handling, so a probe that regresses to the object form fails the fixture
+rather than reading voluntary calls as forced ones.
+
 ## What llama.cpp actually decides
 
 b1935 derives the tool-call parser from the template rather than matching a
@@ -24,10 +64,12 @@ model name. `common/chat-auto-parser-generator.cpp` classifies a template
 into `JSON_NATIVE`, `TAG_WITH_JSON` or `TAG_WITH_TAGGED`; failing that it
 logs `Template seems to support tool calls, but failed to determine tool
 format` and installs an epsilon parser, so the model answers in prose and
-nothing reports a fault. That line appeared in none of the seven server logs
-captured here, so no row in this roster fails at classification. The five
-prose rows fail earlier: their packaged templates declare no tool input, so
-no parser is attempted.
+nothing reports a fault. That line appears in none of the seven server logs
+captured here. Its absence rules out that one failure and establishes nothing
+positive: parser construction is conditional on detected capability, so the
+server reaches ordinary content parsing without ever arriving at the
+diagnostic. Reading which parser was built, rather than which error was not
+logged, needs a record the server does not yet emit here.
 
 The gate chain is therefore three checks, in order, and the first two cost
 no device time:
@@ -53,7 +95,16 @@ the abort that held the wave-two rows.
 | record_symbols at 2048 | 2/3, one file cut off |
 | record_symbols at 6144 | 3/3, every id exact, every crux in range, nothing invented |
 
-It is the cleanest recorder measured. It is also the slowest usable row:
+That is the strongest structured-output result measured, with one scope
+limit worth stating: `admit-record-symbols.sh` takes its target ids by
+parsing symbol names out of `graft skeleton`'s human-readable output, so
+"every id exact" means the model returned the labels the request supplied,
+not that it matched graft's persistent graph ids. Binding the gate to the
+wiring checkpoint's own nodes, and dropping targets whose skeleton span is
+known wrong, is what would let this rank models against each other rather
+than establish that each one copies its input faithfully.
+
+It is also the slowest usable row:
 2.9 times the incumbent per file, and 73 s for the three symbol files. Its
 contract score sits below `phi4-mini` at 5/6 and `qwen3-4b-instruct-2507` at
 6/6, both of which run at about a third of its wall time.
@@ -81,12 +132,17 @@ accepts no `tools` input, so it cannot be given a tool either. The distill
 that does qualify is `DeepSeek-R1-0528-Qwen3-8B`, which is a Qwen3-8B.
 
 Every `llama` row sits at 292 tensors, which is 2336 nodes in the default
-graph lane. `lfm2moe` aborted at 2048 and `smollm3` loads at 2608, so 2336
-falls inside the interval the measurements do not resolve: a Llama 8B under
-`--override-tensor '.*=CUDA0'` may abort exactly the way the wave-two rows
-did. The fix would be one more enum in the list
-`patches/llama-sched-graph-budget.patch` already carries, at the cost of a
-rebuild. The `qwen3` rows at 399 tensors carry no such risk.
+graph lane, and that number predicts nothing. The budget is a capacity
+heuristic over tensor count; what has to fit is the entry count the scheduler
+actually reaches, which depends on the architecture's graph shape, the
+placement, the copies and the outputs. `lfm2moe` failing at 2048 and
+`smollm3` loading at 2608 are two different architectures reaching different
+demands, not two samples of one threshold, so no interval between them is
+resolved and none of these rows inherits a verdict from them. Every `llama`
+row here is unmeasured under `--override-tensor '.*=CUDA0'`, and the way to
+settle one is to run it. An architecture joins the list
+`patches/llama-sched-graph-budget.patch` carries when it is measured to
+abort, which is the rule that patch's own comment states.
 
 Device budget at Q6_K with q8_0 KV, on 11.99 GiB with the desktop holding
 about 2.3: a 36-block Qwen3-8B spends 78,336 bytes per token of cache, so

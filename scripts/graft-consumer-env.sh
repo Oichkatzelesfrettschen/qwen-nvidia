@@ -68,6 +68,16 @@ header_file=$(mktemp "${TMPDIR:-/tmp}/graft-consumer-env.XXXXXX")
 printf 'header = "Authorization: Bearer %s"\n' "$(tr -d '\n' <"$api_key_file")" \
     >"$header_file"
 
+# tool_choice is a string because that is the only shape the server reads.
+# tools/server/server-common.cpp takes it through
+# json_value(body, "tool_choice", std::string("auto")), which catches the type
+# error an object raises and returns "auto"; the OpenAI named-function object
+# this probe used to send forced nothing, and every server log of that campaign
+# carries `Wrong type supplied for parameter 'tool_choice'`. oxcoder-9b records
+# a call under "required" and none under "auto"
+# (evidence/ada/agent-model-roster/tool-choice-required/), so the object form
+# read a voluntary call as a forced one and a declined one as an inability.
+#
 # The cap covers a reasoning preamble, because a model that thinks before it
 # calls spends the budget on tokens the call never reaches. At 128 this probe
 # cut off lfm25-8b-a1b and klear-agentforge-8b and recorded both as unable to
@@ -87,7 +97,7 @@ probe_body='{"model":"'$served_model'","temperature":0,"max_tokens":'$probe_max_
 "tools":[{"type":"function","function":{"name":"record_probe",
 "description":"Record the probe.","parameters":{"type":"object",
 "properties":{"ok":{"type":"boolean"}},"required":["ok"]}}}],
-"tool_choice":{"type":"function","function":{"name":"record_probe"}},
+"tool_choice":"required",
 "messages":[{"role":"user","content":"Record ok as true."}]}'
 
 probe_answer_file=$(mktemp "${TMPDIR:-/tmp}/graft-consumer-env.XXXXXX")

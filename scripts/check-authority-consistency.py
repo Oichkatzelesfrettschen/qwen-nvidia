@@ -463,6 +463,17 @@ def main():
                     "evict-first roster without naming the compact-pair "
                     "mode the two-child figure applies to")
 
+    elif "QWEN_ROUTER_MAX=1" in readme_text:
+        # The comparison runs the other way too. README documents the
+        # one-child constraint because some row demands it, so a registry
+        # that carries no evict-first row leaves that paragraph describing a
+        # roster the tree no longer has. Without this the checker accepts a
+        # tree whose every evict-first row was flipped to lru, which is the
+        # mutation test-authority-consistency.py applies.
+        report_error("README.md documents the QWEN_ROUTER_MAX=1 constraint "
+                     "an evict-first roster requires, and scripts/models.tsv "
+                     "carries no evict-first row")
+
     evict_evidence = repo_root / "evidence" / "ada" / "evict-first-9b-readmission"
     if not (evict_evidence / "README.md").exists():
         report_error("Missing readmission evidence under "

@@ -32,7 +32,7 @@ set -eu
 usage() {
     printf 'usage: %s OUTPUT_DIRECTORY [MODEL_ID MODEL_ID]\n' "$0" >&2
     printf '  QWEN_SERVER_PORT     listener, default 8080\n' >&2
-    printf '  QWEN_ROUTER_MAX      resident children, default 2\n' >&2
+    printf '  QWEN_ROUTER_MAX      resident children; the default is 1 where the\n                       registry carries an evict-first row, else 2\n' >&2
     printf '  QWEN_ROUTER_PRESETS  preset file, default the state directory copy\n' >&2
     exit 2
 }
@@ -46,7 +46,17 @@ second_model=${3:-qwen35-08b}
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-webui-state"}
 server_port=${QWEN_SERVER_PORT:-8080}
-router_max=${QWEN_ROUTER_MAX:-2}
+# A roster holding an evict-first row serves one child at a time, which
+# qwen-capacity-policy.sh enforces when it validates the preset tuples and
+# README states as the router construction constraint. Hard-coding two made
+# this admission refuse its own launch against a registry that carries such a
+# row, so the default is derived from the registry rather than asserted here.
+router_default=2
+if grep -v '^#' "$script_directory/models.tsv" |
+    awk -F'\t' '$26 == "evict-first" { found = 1 } END { exit !found }'; then
+    router_default=1
+fi
+router_max=${QWEN_ROUTER_MAX:-$router_default}
 endpoint=http://127.0.0.1:$server_port
 readiness_seconds=${QWEN_ADMISSION_READINESS_SECONDS:-300}
 
