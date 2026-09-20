@@ -1,0 +1,1 @@
+The process checks the executable by first verifying the header length and CRC. If those match, it proceeds to validate the layout and CRC. If the layout or CRC doesn't match, it returns EFTYPE. If everything matches, it commits the process and then expands it again. If the second expansion fails, it kills the process with SIGKILL.

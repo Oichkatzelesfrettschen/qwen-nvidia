@@ -1,0 +1,1 @@
+The `sendsig` function allocates a signal frame and sets up the context. It checks if the stack is on the stack and adjusts the stack pointer if needed. It then clears a bit of the xPSR before the handler runs because the handler expects a specific context. This ensures the handler gets the correct stack state and registers.

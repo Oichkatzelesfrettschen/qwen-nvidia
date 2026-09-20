@@ -1,0 +1,10 @@
+
+</think>
+
+The `flash_swap_append` function checks the following before erasing or programming:
+
+1. **Alignment to Erase Sector Boundary**: It verifies that the `offset` is aligned to an erase sector boundary by checking `(offset & (FLASH_PROG_BYTES - 1)) == 0`. If not, it returns `-1`.
+
+2. **Sector Erase Check**: If the `offset` is aligned to a sector boundary, it calls `ops->erase(offset, FLASH_SECTOR_BYTES)` to ensure the sector is erased. If the erase fails, it returns `-1`.
+
+**Callers must guarantee** that the `offset` is aligned to an erase sector boundary. The function does not check whether the `offset` is aligned to a program page boundary (FLASH_PROG_BYTES), which is handled by the `flash_swap_rewrite` function. The callers are responsible for ensuring the offset meets the erase sector alignment requirement.

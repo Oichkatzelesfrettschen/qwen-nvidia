@@ -65,6 +65,9 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # sums it compares against stay byte-identical whether the stage runs or not.
 # QWEN_LLAMA_CANDIDATE_PATCHES=1 arms it; the printed post-apply digest is what
 # a promotion would move into verify_source once its evidence lane closes.
+# llama-sched-graph-budget rewrites one expression in
+# llama_context::graph_max_nodes and takes the first position, since no
+# other candidate writes llama-context.cpp.
 # The order is the apply order: llama-server-vulkan-workload-lease encodes
 # post-series offsets in tools/server/server-context.cpp, which no earlier
 # candidate touches, so the two stay independent while the list stays ordered.
@@ -72,7 +75,7 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # ggml-cuda.cu and a proc-address entry at its registry, regions no other
 # candidate writes, and takes the last position because the diagnostic stage
 # below cuts its ggml-cuda.cu hunks against the tree this stage produces.
-candidate_patch_names="llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
+candidate_patch_names="llama-sched-graph-budget.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
 # The list lost its ggml-vulkan.cpp line with the backend that patch wrote.
 # mmq.cuh belongs in the list exactly while a candidate rewrites it, and no

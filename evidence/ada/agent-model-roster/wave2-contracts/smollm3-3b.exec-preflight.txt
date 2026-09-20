@@ -1,0 +1,27 @@
+
+
+The `exec_hsaout_check` function verifies the executable in the following order and terminates the process if the second expansion fails:
+
+1. **Header Validation**:  
+   - Checks the magic and flag of the executable to confirm it is a packed a.out (EX_HSPACK).  
+   - Reads the `struct hsx` from the executable and validates the headers (size and CRCs for text and data streams).  
+   - If any header validation fails, it returns `EFTYPE` (exec error type), terminating the process.
+
+2. **Layout Check**:  
+   - Validates the raw layout of the executable, including the text and data sections, and the entry point.  
+   - If the layout check fails (e.g., incorrect size or invalid entry point), it returns an error (e.g., `ENOMEM` or `EFTYPE`), terminating the process.
+
+3. **Process Commit**:  
+   - Releases the text reference in the process's `p_tip` field.  
+   - Increments the inode's `i_count` to mark the process as committed.  
+   - Sets the process's `p_tip` to the new text size (same as the raw layout's text size).  
+   - If the commit fails, the process is terminated, but the above steps are already completed.
+
+4. **Second Expansion and Verification**:  
+   - Loads the text and data streams into the user window (a buffer cache block).  
+   - Compares the loaded lengths and CRCs with the header's expectations.  
+   - If the second expansion fails (e.g., mismatched length or CRC), the process is killed with `SIGKILL`, terminating it immediately.  
+   - If successful, the process is fully committed and execution proceeds.
+
+**Termination on Failure**:  
+If the second expansion (loading the streams into the user window) fails, the process is killed with `SIGKILL` before any of its bytes can run. This ensures the process is terminated immediately, even if it was committed earlier. The failure is detected during the second expansion, which is the final step before execution begins.

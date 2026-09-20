@@ -1,0 +1,258 @@
+===== sys/arch/rp2040/rp2040/exec_hsaout.c =====
+/*
+ * Loader for packed a.out executables, sys/exec_hsaout.h. The checker
+ * recognizes its format by the EX_HSPACK flag alone; from then on every
+ * failure is EFTYPE, a verdict the exec dispatcher passes through, so a
+ * damaged container is never handed to the next format. It preflights
+ * both streams into a discard buffer while the old image is intact,
+ * commits the process only once the lengths and CRCs have been
+ * reproduced, and then expands again into the user window, where a
+ * second mismatch kills the process before any of its bytes run.
+ */
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/map.h>
+#include <sys/inode.h>
+#include <sys/user.h>
+#include <sys/proc.h>
+#include <sys/buf.h>
+#include <sys/namei.h>
+#include <sys/fs.h>
+#include <sys/mount.h>
+#include <sys/file.h>
+#include <sys/resource.h>
+#include <sys/exec.h>
+#include <sys/exec_hsaout.h>
+#include <sys/dir.h>
+#include <sys/uio.h>
+#include <sys/signal.h>
+#include <machine/hsx_decoder.h>
+#include <machine/debug.h>
+#ifdef SWAPRAM
+#include <machine/swapram.h>
+#endif
+
+_Static_assert (HSX_WORK_SIZE <= MAXBSIZE,
+    "the decoder work area must fit one buffer cache block");
+#ifdef SWAPRAM
+_Static_assert (sizeof (struct hsx_work) <= SWAPRAM_CODEC_WORK_BYTES,
+    "the packed-text decoder must fit the shared codec workspace");
+#endif
+
+/* Read len packed bytes at off from the executable; short is an error. */
+static int
+hsx_fill (void *ctx, unsigned off, void *buf, unsigned len)
+{
+    int resid = 0, error;
+
+    error = rdwri (UIO_READ, (struct inode *) ctx, (caddr_t) buf, (int) len,
+        (off_t) off, IO_UNIT, &resid);
+    return (error != 0 || resid != 0) ? -1 : 0;
+}
+
+/*
+ * Expand one stream from the executable into dst (null discards) and
+ * compare its length and CRC with what the header promised, using the
+ * caller's decoder work area.
+ */
+static int
+hsx_load (struct hsx_work *w, struct inode *ip, unsigned off, unsigned clen,
+    caddr_t dst, unsigned rlen, unsigned want)
+{
+    unsigned crc = 0;
+    int r;
+
+    r = hsx_expand (w, hsx_fill, ip, off, clen, (unsigned char *) dst, rlen,
+        &crc);
+    return (r == 0 && crc == want) ? 0 : -1;
+}
+
+/*
+ * exec runs in a process and its rdwri sleeps, which can schedule another
+ * exec; each therefore expands into a buffer cache block it holds for the
+ * call, so two concurrent execs never share decoder state. The block is
+ * freed on every path out of exec_hsaout_check.
+ */
+static int
+hsx_load_buf (struct buf *bp, struct inode *ip, unsigned off, unsigned clen,
+    caddr_t dst, unsigned rlen, unsigned want)
+{
+    return hsx_load ((struct hsx_work *) bp->b_addr, ip, off, clen, dst,
+        rlen, want);
+}
+
+/* Read struct hsx from behind struct exec and validate both headers. */
+static int
+hsx_headers (struct inode *ip, const struct exec *e, struct hsx *x)
+{
+    int resid = 0;
+
+    if (rdwri (UIO_READ, ip, (caddr_t) x, sizeof *x,
+        (off_t) sizeof (struct exec), IO_UNIT, &resid) != 0 || resid != 0)
+        return HSX_BADSIZE;
+    return hsx_check (e, x, (unsigned long) ip->i_size);
+}
+
+int
+exec_hsaout_check (struct exec_params *epp)
+{
+    struct proc *p = u.u_procp;
+    struct exec raw;
+    struct hsx x;
+    struct buf *bp;
+    unsigned toff, doff;
+    int error, thumb;
+
+    if (epp->hdr_len < (int) sizeof (struct exec))
+        return ENOEXEC;
+    if (N_GETMAGIC (epp->hdr.aout) != OMAGIC ||
+        N_GETFLAG (epp->hdr.aout) != EX_HSPACK)
+        return ENOEXEC;         /* another format's file */
+
+    /*
+     * Recognized. The headers, then the raw layout with the flag masked:
+     * the raw check's file size test is skipped because the container is
+     * shorter than its image, and hsx_check has already demanded the
+     * exact packed size.
+     */
+    if (hsx_headers (epp->ip, &epp->hdr.aout, &x) != HSX_OK) {
+        DEBUG ("\texec_hsaout_check(): bad container header\n");
+        return EFTYPE;
+    }
+    raw = epp->hdr.aout;
+    N_SETMAGIC (raw, OMAGIC, MID_ZERO, 0);
+#if defined(__thumb__) || defined(__thumb2__)
+    thumb = 1;
+#else
+    thumb = 0;
+#endif
+    error = aout_layout_check (&raw, (unsigned) __user_data_start,
+        (unsigned) USER_WINDOW_MAX,
+        (unsigned long) sizeof (struct exec) + raw.a_text + raw.a_data,
+        thumb);
+    if (error != AOUT_OK) {
+        DEBUG ("\texec_hsaout_check(): layout check %d\n", error);
+        return error == AOUT_TOOBIG ? ENOMEM : EFTYPE;
+    }
+
+    /*
+     * Nobody writes the file from here on: the exclusion outlives this
+     * call through p_tip once the process commits, and every rejection
+     * below releases it.
+     */
+    if ((error = exec_text_hold (epp->ip)) != 0)
+        return error;
+
+    /*
+     * Preflight: both streams reproduced into the discard buffer. The
+     * buffer cache block holds the decoder from here until this call
+     * returns.
+     */
+    bp = geteblk ();
+    toff = (unsigned) HSX_HDRSIZE;
+    doff = toff + x.x_ctext;
+    if (hsx_load_buf (bp, epp->ip, toff, x.x_ctext, NULL, raw.a_text,
+        x.x_textcrc) != 0 ||
+        hsx_load_buf (bp, epp->ip, doff, x.x_cdata, NULL, raw.a_data,
+        x.x_datacrc) != 0) {
+        DEBUG ("\texec_hsaout_check(): preflight failed\n");
+        brelse (bp);
+        exec_text_unhold (epp->ip);
+        return EFTYPE;
+    }
+
+    if ((error = exec_save_args (epp)) != 0) {
+        brelse (bp);
+        exec_text_unhold (epp->ip);
+        return error;
+    }
+
+    /* The same single-segment layout as a raw OMAGIC image. */
+    epp->text.vaddr = epp->heap.vaddr = NO_ADDR;
+    epp->text.len = epp->heap.len = 0;
+    epp->data.vaddr = (caddr_t) __user_data_start;
+    epp->data.len = raw.a_text + raw.a_data;
+    epp->bss.vaddr = epp->data.vaddr + epp->data.len;
+    epp->bss.len = raw.a_bss;
+    epp->heap.vaddr = epp->bss.vaddr + epp->bss.len;
+    epp->heap.len = 0;
+    epp->stack.len = SSIZE + roundup (epp->argbc + epp->envbc, NBPW) +
+        (epp->argc + epp->envc + 4) * NBPW;
+    epp->stack.vaddr = (caddr_t) USER_TOP (p) - epp->stack.len;
+
+    if ((error = exec_estab (epp)) != 0) {
+        brelse (bp);
+        exec_text_unhold (epp->ip);
+        return error;
+    }
+
+    /*
+     * Committed: the old image is gone. The executable is retained as
+     * p_tip before the second pass so a failure here leaves the process
+     * with its text reference and the exclusion in place for exit to
+     * release; SIGKILL keeps the half-written window from ever running.
+     */
+    exec_text_release (p, epp->ip);
+    epp->ip->i_count++;
+    p->p_tip = epp->ip;
+    p->p_tsize = raw.a_text;
+
+    if (hsx_load_buf (bp, epp->ip, toff, x.x_ctext, epp->data.vaddr,
+        raw.a_text, x.x_textcrc) != 0 ||
+        hsx_load_buf (bp, epp->ip, doff, x.x_cdata,
+        epp->data.vaddr + raw.a_text, raw.a_data, x.x_datacrc) != 0) {
+        brelse (bp);
+        printf ("pid %d: packed executable changed between passes\n",
+            p->p_pid);
+        psignal (p, SIGKILL);
+        return EFTYPE;
+    }
+    brelse (bp);
+
+    exec_clear (epp);
+    exec_setupstack (raw.a_entry, epp);
+    return 0;
+}
+
+/*
+ * The clean text for swapin: expand the text stream of the executable
+ * behind e, which the caller has read and holds locked, into dst. len is
+ * the text size the process was loaded with, and the header must still
+ * agree with it.
+ */
+int
+exec_hsaout_text (struct inode *ip, const struct exec *e, char *dst,
+    unsigned len)
+{
+    struct hsx_work *swapwork;
+    int result;
+
+    /*
+     * swapin runs in the swapper, proc 0, whose getnewbuf would sleep on
+     * a scarce buffer and stall the mechanism that frees memory. The
+     * swapper is the only caller and never re-enters. A SwapRAM kernel uses
+     * the owner-checked codec workspace because packed-text restoration and
+     * SwapRAM expansion are consecutive stages of the same swapin. A swapout
+     * scheduled while rdwri sleeps observes the packed-text owner and uses
+     * flash until restoration releases the workspace.
+     */
+#ifndef SWAPRAM
+    static struct hsx_work private_swapwork;
+#endif
+    struct hsx x;
+
+    if (hsx_headers (ip, e, &x) != HSX_OK || e->a_text != len)
+        return -1;
+#ifdef SWAPRAM
+    swapwork = swapram_codec_acquire (SWAPRAM_CODEC_PACKED_TEXT);
+#else
+    swapwork = &private_swapwork;
+#endif
+    result = hsx_load (swapwork, ip, (unsigned) HSX_HDRSIZE, x.x_ctext,
+        dst, len, x.x_textcrc);
+#ifdef SWAPRAM
+    swapram_codec_release (SWAPRAM_CODEC_PACKED_TEXT);
+#endif
+    return result;
+}
+
