@@ -1,0 +1,11 @@
+model	file	targets	wall_ms	called	entries	id_exact	id_missing	id_invented	crux_in_range	crux_zero	crux_bad	outcome
+lfm25-350m-qad	sys/arch/rp2040/dev/flash_swap.c	2	389	no	0	0	2	0	0	0	0	no_call
+lfm25-350m-qad	sys/kern/kern_mman.c	2	46	no	0	0	2	0	0	0	0	no_call
+lfm25-350m-qad	sys/arch/rp2040/rp2040/sig_machdep.c	3	285	no	0	0	3	0	0	0	0	no_call
+qwen3-4b-instruct-2507	sys/arch/rp2040/dev/flash_swap.c	2	1811	yes	2	2	0	0	2	0	0	pass
+qwen3-4b-instruct-2507	sys/kern/kern_mman.c	2	1493	yes	2	2	0	0	1	0	1	fail
+qwen3-4b-instruct-2507	sys/arch/rp2040/rp2040/sig_machdep.c	3	2572	yes	3	3	0	0	2	1	0	pass
+qwen38-4b-distill	sys/arch/rp2040/dev/flash_swap.c	2	3006	yes	2	2	0	0	2	0	0	pass
+qwen38-4b-distill	sys/kern/kern_mman.c	2	2780	yes	2	2	0	0	2	0	0	pass
+qwen38-4b-distill	sys/arch/rp2040/rp2040/sig_machdep.c	3	4450	yes	3	3	0	0	3	0	0	pass
+symbols_done

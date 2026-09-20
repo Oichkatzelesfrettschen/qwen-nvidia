@@ -34,12 +34,14 @@ of them stopping on all three files.
 
 ## Rows that run to the cap
 
-Fourteen rows never stop on at least one file: `lfm25-vl-450m`,
+Fourteen rows run to the cap on at least one file, which is a statement
+about those files and not about the row in general: `lfm25-vl-450m`,
 `qwen35-08b-unsloth-unc`, `lfm25-vl-16b`, `minicpm5-1b`,
 `qwen35-2b-hauhau`, `qwen35-2b`, `qwen35-08b-f16`, `qwen38-2b-distill`,
 `qwen35-2b-heretic`, `qwen35-08b`, `minicpm5-1b-fable5-v2`,
 `qwen38-2b-uncensored`, `qwen35-4b-base` and `oxcoder-9b`. `qwen35-08b`
-and `minicpm5-1b-fable5-v2` cap on all three. That is the same shape the
+and `minicpm5-1b-fable5-v2` cap on all three, and are the only two rows
+the screen never saw stop. That is the same shape the
 first roster recorded at a 32768 cap: the answer runs until the budget
 ends rather than until the summary does, and a smaller cap bounds the cost
 without fixing the behavior.
@@ -56,10 +58,11 @@ request shape.
 
 Four other rows also beat the incumbent while completing the tool call:
 `qwen38-4b-i1-q2k` at 2.5 s per file, `qwenseer-2b` at 2.7 and
-`qwen3-4b-instruct-2507` at 3.6. Two rows are faster still but answer the
-forced tool call in prose, so they cannot drive a pass that records
-through `record_graph` or `record_symbols`: `lfm25-12b-thinking` and
-`minicpm-v-46` at 1.5 s per file each.
+`qwen3-4b-instruct-2507` at 3.6. Two rows sit between the Liquid row and those four but answer the forced
+tool call in prose, so they cannot drive a pass that records through
+`record_graph` or `record_symbols`: `lfm25-12b-thinking` and
+`minicpm-v-46` at 1.5 s per file each, which is slower than the Liquid
+row's 0.58 and faster than everything below it.
 
 A thought block is the clearest cost in the table. Every row above four
 seconds per file that passes the tool probe spends 1687 to 6421 characters
