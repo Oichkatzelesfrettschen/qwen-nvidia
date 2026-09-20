@@ -69,6 +69,29 @@ LEASE_WAIT_INTERRUPTED = "vulkan workload lease wait ended without the lease:"
 LEASE_ACQUIRED = "vulkan workload lease acquired:"
 
 
+def read_response(connection):
+    """Read one HTTP response whole, to the close an HTTP/1.0 request forces.
+
+    BaseHTTPRequestHandler writes its header block and its body separately,
+    and the body is the half carrying the status a health probe reads. A
+    single recv returns the headers alone whenever the two reach the peer in
+    separate segments, which is the ordinary case: Nagle holds the small
+    second write until the first is acknowledged. Testing that one read for
+    the body then fails on every retry alike, because the split repeats, and
+    the caller reports a server that is listening and answering correctly as
+    one that never served.
+    """
+    payload = b""
+    while True:
+        try:
+            chunk = connection.recv(4096)
+        except OSError:
+            return payload
+        if not chunk:
+            return payload
+        payload += chunk
+
+
 def free_port():
     probe = socket.socket()
     probe.bind(("127.0.0.1", 0))
@@ -163,7 +186,7 @@ class ClientAttachmentTest(unittest.TestCase):
                 continue
             try:
                 probe.sendall(b"GET /health HTTP/1.0\r\n\r\n")
-                if b"ok" in probe.recv(4096):
+                if b"ok" in read_response(probe):
                     return
             except OSError:
                 pass
@@ -268,11 +291,12 @@ class ClientAttachmentTest(unittest.TestCase):
         self.hold_the_lease()
         self.post_completion()
         self.await_log(LEASE_WAITING, "the acquire its request is waiting in")
+        # The negative arm reads the whole of whatever arrives inside the
+        # bound, because a single recv can return the header block alone: an
+        # answer that regressed into existence would be read as the silence
+        # this asserts, and the arm would pass on the fault it guards.
         self.client.settimeout(0.5)
-        try:
-            answered_under_a_holder = b'"content"' in self.client.recv(4096)
-        except OSError:
-            answered_under_a_holder = False
+        answered_under_a_holder = b'"content"' in read_response(self.client)
         self.assertTrue(answered_without_a_holder)
         self.assertFalse(answered_under_a_holder)
 

@@ -96,17 +96,24 @@ scrub_home() {
     sed -e "s|$OUT_ABSOLUTE|\$OUTPUT_DIRECTORY|g" -e "s|${HOME:?}|\$HOME|g"
 }
 now_ms() { "$PYTHON" -c 'import time; print(time.monotonic_ns()//1000000)'; }
-offset_of() { [ -r "$1" ] && wc -c <"$1" || printf '0\n'; }
-slice_from() {
-    # A log shorter than the offset measured against it is a new file, because
-    # the launch truncates what the previous arm wrote; its slice starts at the
-    # head rather than past the whole of it.
+# The launch truncates the appliance logs in place, so a byte offset taken
+# before it addresses the middle of what the next arm writes the moment that
+# arm grows past the previous arm's length. Moving the file aside instead
+# makes the arm's log the whole file, which is the only form in which a count
+# of zero warnings means the arm printed none: a slice that opens mid-line
+# carries no evidence about the lines before it.
+# The retired copy stays in the state directory under a fixed name, so an arm
+# that exits before its teardown leaves no file behind in the evidence tree and
+# the next arm overwrites it rather than accumulating one per row.
+retire_log() {
+    [ -e "$1" ] || return 0
+    mv -- "$1" "$2"
+}
+scrub_to() {
     if [ -r "$1" ]; then
-        size=$(wc -c <"$1")
-        [ "$size" -ge "$2" ] || set -- "$1" 0 "$3"
-        tail -c "+$(($2 + 1))" "$1" | scrub_home >"$3"
+        scrub_home <"$1" >"$2"
     else
-        : >"$3"
+        : >"$2"
     fi
 }
 
@@ -157,26 +164,26 @@ for id in $IDS; do
     }
 
     "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
-    log_offset=$(offset_of "$STATE/server.log")
-    telemetry_offset=$(offset_of "$STATE/telemetry.log")
+    retire_log "$STATE/server.log" "$STATE/server.log.previous"
+    retire_log "$STATE/telemetry.log" "$STATE/telemetry.log.previous"
 
     if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET="$BUDGET" \
         QWEN_CONTEXT_SIZE="$CONTEXT" QWEN_MODEL_PATH=$HOME/models/$model_file \
         "$Q/scripts/qwen-launch.sh" default >"$OUT/$id.launch" 2>&1; then
-        slice_from "$OUT/$id.launch" 0 "$OUT/$id.launch.scrubbed"
+        scrub_to "$OUT/$id.launch" "$OUT/$id.launch.scrubbed"
         mv "$OUT/$id.launch.scrubbed" "$OUT/$id.launch"
         printf '%s\tlaunch_failed\t%s\tnone\trejected\n' "$id" "$EMPTY" \
             >>"$OUT/pilot.tsv"
         continue
     fi
-    slice_from "$OUT/$id.launch" 0 "$OUT/$id.launch.scrubbed"
+    scrub_to "$OUT/$id.launch" "$OUT/$id.launch.scrubbed"
     mv "$OUT/$id.launch.scrubbed" "$OUT/$id.launch"
 
     # The consumer environment refuses a listener that answers a forced tool
     # call without a call, so an arm that reaches the deep pass has already
     # produced one completed record_probe under the served closure.
     if ! consumer_env=$("$Q/scripts/graft-consumer-env.sh" 2>"$OUT/$id.probe"); then
-        slice_from "$OUT/$id.probe" 0 "$OUT/$id.probe.scrubbed"
+        scrub_to "$OUT/$id.probe" "$OUT/$id.probe.scrubbed"
         mv "$OUT/$id.probe.scrubbed" "$OUT/$id.probe"
         printf '%s\tprobe_refused\t%s\tnone\trejected\n' "$id" "$EMPTY" \
             >>"$OUT/pilot.tsv"
@@ -194,13 +201,12 @@ for id in $IDS; do
         deep_status=$?
     fi
     wall_ms=$(( $(now_ms) - started ))
-    slice_from "$OUT/$id.deep.log" 0 "$OUT/$id.deep.log.scrubbed"
+    scrub_to "$OUT/$id.deep.log" "$OUT/$id.deep.log.scrubbed"
     mv "$OUT/$id.deep.log.scrubbed" "$OUT/$id.deep.log"
 
     "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
-    slice_from "$STATE/server.log" "$log_offset" "$OUT/$id.server.log"
-    slice_from "$STATE/telemetry.log" "$telemetry_offset" \
-        "$OUT/$id.telemetry.log"
+    scrub_to "$STATE/server.log" "$OUT/$id.server.log"
+    scrub_to "$STATE/telemetry.log" "$OUT/$id.telemetry.log"
 
     # warnToolChoiceIgnored is the only line graft prints when a reply carries
     # neither a tool call nor recoverable content, and the server prints the
