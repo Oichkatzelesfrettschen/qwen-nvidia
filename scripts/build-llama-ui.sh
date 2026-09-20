@@ -3,11 +3,12 @@ set -eu
 
 # Build the llama.cpp SvelteKit front end and deploy it as static files.
 #
-# The build needs Node, npm, and roughly a thousand packages; the laptop has
-# none of them and should not. This runs on a workstation, pulls the UI sources
-# out of the pinned checkout so the front end matches the server that serves it,
-# and copies only the built output across. The laptop gains no toolchain and
-# starts no second process: llama-server serves the directory through --path.
+# The build needs Node, npm, and roughly a thousand packages, which the serving
+# host carries none of and should not. This runs where the toolchain is, pulls
+# the UI sources out of the pinned checkout so the front end matches the server
+# that serves it, and copies only the built output across. The serving host
+# gains no toolchain and starts no second process: llama-server serves the
+# directory through --path.
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     printf 'usage: %s SSH_TARGET [REMOTE_STATIC_DIRECTORY]\n' "$0" >&2
@@ -15,7 +16,7 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
 fi
 
 ssh_target=$1
-remote_static_directory=${2:-qwen-laptop-setup/webui-llama-ui}
+remote_static_directory=${2:-qwen-nvidia-setup/webui-llama-ui}
 source_directory=${QWEN_UI_SOURCE:-src/llama.cpp-qwen-nvidia/tools/ui}
 work_directory=$(mktemp -d)
 

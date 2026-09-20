@@ -84,12 +84,12 @@ sanitize_pattern() {
 sanitize_temporary_pattern=$(sanitize_pattern "$temporary_directory")
 sanitize_home_pattern=$(sanitize_pattern "$HOME")
 sanitize_host_pattern=$(sanitize_pattern \
-    "$(hostname 2>/dev/null || printf 'qwen-laptop')")
+    "$(hostname 2>/dev/null || printf 'qwen-host')")
 
 sanitize_text() {
     sed -e "s#$sanitize_temporary_pattern#\$STALL_TMPDIR#g" \
         -e "s#$sanitize_home_pattern#\$HOME#g" \
-        -e "s#$sanitize_host_pattern#qwen-laptop#g" \
+        -e "s#$sanitize_host_pattern#qwen-host#g" \
         -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g' \
         -e 's#\(cuda_client pid=[0-9]* name=[^ ]*\) .* \(used=\)#\1 argv=<elided> \2#' \
         -e 's#cgroup=[^ ]*#cgroup=<elided>#g'

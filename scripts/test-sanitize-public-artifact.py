@@ -25,7 +25,15 @@ class PublicationTest(unittest.TestCase):
             self.assertEqual(PUBLICATION.sanitize(source), "$HOME" + separator + "result")
 
     def test_public_placeholders_and_relative_fixture_paths_survive(self):
-        text = "$HOME/work $SCRATCH/log $work_directory/home/file hostname=qwen-laptop"
+        text = "$HOME/work $SCRATCH/log $work_directory/home/file hostname=qwen-host"
+        self.assertEqual(PUBLICATION.sanitize(text), text)
+
+    def test_the_retained_identity_of_earlier_evidence_still_passes(self):
+        # Evidence published before this tree named its own host was scrubbed to
+        # qwen-laptop. Redacting it now would rewrite an artifact already
+        # carried, so the identity stays accepted while new artifacts scrub to
+        # qwen-host.
+        text = "hostname=qwen-laptop"
         self.assertEqual(PUBLICATION.sanitize(text), text)
 
     def test_identity_fields_are_redacted_in_json_and_assignments(self):

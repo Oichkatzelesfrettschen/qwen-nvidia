@@ -11,7 +11,7 @@ set -eu
 # Start the guarded Web UI and return only once it answers HTTP. The service
 # exists for as long as this script's session lives in tmux and no longer: no
 # unit file, no crontab entry, and no login hook starts it, so a reboot leaves
-# the laptop with nothing listening until someone runs this again.
+# the host with nothing listening until someone runs this again.
 
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [default|no-graphs|no-fusion|pdl|unified]\n' "$0" >&2

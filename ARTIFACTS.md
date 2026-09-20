@@ -27,7 +27,7 @@ but it does not own this repository's local patch lineage.
 the tracked `benchmarks/` and `evidence/` trees, and `--check` exits non-zero
 on drift. A surface it omits is retained without a replay authority.
 
-The Git copies replace the private hostname with `qwen-laptop`, the
+The Git copies replace the private hostname with `qwen-host`, the
 machine-local home prefix with `$HOME`, the harness output directory a run
 wrote under with `$SCRATCH`, and network MAC addresses with `<mac>`.
 
@@ -80,7 +80,8 @@ Create a publication copy with
 stage the accepted evidence, and refresh `evidence/SHA256SUMS`. The source stays
 intact and an existing destination is refused. Sanitization replaces Unix and
 Windows home prefixes with `$HOME` and labeled username/hostname values with
-`redacted`; `qwen-laptop` and explicit unavailable values stay intact.
+`redacted`; `qwen-host`, the retained `qwen-laptop` that earlier evidence was
+scrubbed to, and explicit unavailable values stay intact.
 Binary inputs require a text export instead of byte rewriting. The CI check
 scans embedded ASCII identifiers in tracked binary files too, and reports
 filenames rather than leaking a rejected value into the public job log.

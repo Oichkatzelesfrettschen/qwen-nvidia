@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Installs SearXNG natively on the laptop from a pinned upstream commit and
+# Installs SearXNG natively on this host from a pinned upstream commit and
 # proves the loopback instance the checked-in settings file describes. The
 # native installer is utils/searxng.sh from the pinned tree; its own "install
 # all" is interactive (wait_key, ask_yn) and composes three stages this
@@ -148,7 +148,7 @@ run_install_stage pyenv
 # interactively against an existing file and then seds a fresh
 # ultrasecretkey in place with openssl rand. This script installs the
 # checked-in file whole instead, so the same qwen-named categories reach the
-# laptop that a reviewer reads in Git, and performs the same substitution by
+# host that a reviewer reads in Git, and performs the same substitution by
 # hand so the placeholder never survives into the running instance.
 printf 'installing settings file: %s\n' "$settings_path"
 sudo -H mkdir -p "$(dirname "$settings_path")"

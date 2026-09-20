@@ -7,9 +7,8 @@ set -eu
 # of system RAM: NVML reports total and used bytes over
 # `nvidia-smi --query-gpu=memory.total,memory.used`, and what is free for a
 # model is the difference less the margin a compositor and a driver context
-# need beyond the arithmetic. That inverts the APU arithmetic this file carried,
-# where the Vulkan heap and MemAvailable named the same memory and charging both
-# counted the weights twice.
+# need beyond the arithmetic. Device memory and MemAvailable name different
+# memory here, so each is charged once against its own budget.
 #
 # The host side charges the mapping rather than the weights. A discrete load
 # streams the file into device memory through a mapping whose pages are
@@ -18,11 +17,10 @@ set -eu
 # model.
 #
 # These figures are reported and never withheld from a launch. A prediction that
-# a model will not fit is a prediction, and the APU's version of this file was
-# wrong in exactly that way: it refused a 9B on arithmetic that charged the
-# weights twice, and the refusal read as a hardware limit rather than as the
-# bug it was. The load itself is the honest test, and a load that fails says so
-# at once and says why. A caller that needs a gate reads
+# a model will not fit is a prediction, and arithmetic that charges the weights
+# to two budgets refuses a model the device would have held, with the refusal
+# reading as a hardware limit rather than as the error it is. The load itself is
+# the honest test, and a load that fails says so at once and says why. A caller that needs a gate reads
 # `device_budget_headroom` and makes the refusal its own.
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then

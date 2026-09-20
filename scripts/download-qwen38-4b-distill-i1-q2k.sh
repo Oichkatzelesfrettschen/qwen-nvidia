@@ -2,7 +2,7 @@
 set -eu
 
 # The lowest published quantization of the balanced-text checkpoint, fetched to
-# test whether fewer streamed bytes convert to proportional decode on this APU.
+# test whether fewer streamed bytes convert to proportional decode on this device.
 # The imatrix build is chosen over the static one because the two differ by 256
 # bytes of metadata and share a tensor mixture, so the rate they measure is the
 # same while the calibrated build removes one explanation for a quality failure.
