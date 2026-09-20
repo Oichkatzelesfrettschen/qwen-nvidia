@@ -50,15 +50,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.mode == "http_error":
             self._send(500, {"error": {"message": "slot unavailable", "tool_calls": []}})
             return
-        # tools/server/server-common.cpp reads tool_choice through
+        # tools/server/server-common.cpp under
+        # patches/llama-server-tool-choice-object.patch forces a call for the
+        # strings "required" and "any" and for the OpenAI named-function
+        # object when the name is among the tools offered; a name the request
+        # offers no tool for is a 400. Upstream reads the object through
         # json_value(body, "tool_choice", std::string("auto")), which catches
-        # the type error an object raises and returns "auto". A caller sending
-        # the OpenAI named-function object therefore forces nothing, and the
-        # model answers or does not on its own. The fixture models that, so a
-        # probe that regresses to the object form fails here rather than in a
-        # campaign that reads voluntary calls as forced ones.
-        forced = isinstance(request.get("tool_choice"), str) and \
-            request.get("tool_choice") in ("required", "any")
+        # the type error and answers "auto", so the served handling is the
+        # patch's and the fixture models the served handling.
+        choice = request.get("tool_choice")
+        offered = [tool.get("function", {}).get("name")
+                   for tool in request.get("tools") or []]
+        forced = isinstance(choice, str) and choice in ("required", "any")
+        if isinstance(choice, dict):
+            named = choice.get("function", {}).get("name")
+            if choice.get("type") != "function" or not named or named not in offered:
+                self._send(400, {"error": {"message":
+                           "tool_choice names a function the request offers no tool for"}})
+                return
+            forced = True
         finish = "stop"
         if self.mode == "jinja" and request.get("tools") and forced:
             message = call("record_probe", "{\"ok\":true}")

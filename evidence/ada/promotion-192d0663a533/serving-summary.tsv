@@ -1,0 +1,11 @@
+check	result	detail
+launch	accepted	router_max=1
+health	accepted	waited=0s
+roster	accepted	ids=26
+reply_qwen38-2b-distill	accepted	served=qwen38-2b-distill tokens=3 reply=Oslo
+reply_qwen35-08b	accepted	served=qwen35-08b tokens=3 reply=Oslo
+resident_children	observed	1:qwen35-08b
+device_memory	observed	used_mib=4083
+teardown	accepted	orderly exclusion unproven
+teardown_exclusion	skipped	router children hold the compute lease and the parent destroy reads held=no; the proof is the llama-router-orderly-retirement.patch lane, QWEN_ROUTER_ORDERLY_RETIREMENT=0 here
+serving_device	accepted	2 children allocated on CUDA0

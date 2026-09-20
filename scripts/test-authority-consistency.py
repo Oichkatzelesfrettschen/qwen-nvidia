@@ -470,6 +470,31 @@ def main():
               mut_malformed_serving_summary, expect_pass=False,
               expect_error="omits required checks")
 
+    # The teardown's exclusion row is required, and a skip carries its reason.
+    def mut_serving_summary_drops_exclusion(root):
+        path = (root / "evidence" / "ada" / f"promotion-{promoted_digest}"
+                / "serving-summary.tsv")
+        lines = [line for line in path.read_text().splitlines()
+                 if not line.startswith("teardown_exclusion\t")]
+        path.write_text("\n".join(lines) + "\n")
+    test_case("serving_summary_without_exclusion_row_fails",
+              mut_serving_summary_drops_exclusion, expect_pass=False,
+              expect_error="omits required checks: teardown_exclusion")
+
+    def mut_serving_summary_unexplained_skip(root):
+        path = (root / "evidence" / "ada" / f"promotion-{promoted_digest}"
+                / "serving-summary.tsv")
+        lines = []
+        for line in path.read_text().splitlines():
+            parts = line.split("\t")
+            if parts[0] == "teardown_exclusion":
+                parts = [parts[0], "skipped", ""]
+            lines.append("\t".join(parts))
+        path.write_text("\n".join(lines) + "\n")
+    test_case("serving_summary_unexplained_skip_fails",
+              mut_serving_summary_unexplained_skip, expect_pass=False,
+              expect_error="skipped without a stated reason")
+
     def mut_serving_summary_wrong_device(root):
         path = (root / "evidence" / "ada" / f"promotion-{promoted_digest}"
                 / "serving-summary.tsv")

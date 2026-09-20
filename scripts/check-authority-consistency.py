@@ -34,7 +34,8 @@ AUTHORITATIVE_BACKEND = "cuda"
 # rather than assumed.
 SERVING_SUMMARY_HEADER = ["check", "result", "detail"]
 SERVING_SUMMARY_REQUIRED_CHECKS = {
-    "launch", "health", "roster", "teardown", "serving_device",
+    "launch", "health", "roster", "teardown", "teardown_exclusion",
+    "serving_device",
 }
 SERVING_SUMMARY_RESULTS = {"accepted", "observed", "skipped"}
 
@@ -195,6 +196,13 @@ def check_serving_summary(path, report_error):
     missing = sorted(SERVING_SUMMARY_REQUIRED_CHECKS - set(seen))
     if missing:
         report_error(f"{path} omits required checks: {', '.join(missing)}")
+    # A skip states its reason or it is a check that did not run and said
+    # nothing, which the vocabulary exists to refuse.
+    for _, parts in rows[1:]:
+        if len(parts) >= 2 and parts[1] == "skipped" and \
+                (len(parts) < 3 or not parts[2].strip()):
+            report_error(f"{path} check '{parts[0]}' is skipped without a "
+                         "stated reason")
     for name in ("launch", "health", "roster", "teardown", "serving_device"):
         lnum = seen.get(name)
         if lnum is None:
