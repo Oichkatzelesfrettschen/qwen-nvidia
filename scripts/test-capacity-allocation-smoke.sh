@@ -14,10 +14,6 @@ required_vulkan_mib=$4
 server_port=$5
 server_log=$6
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 temporary_directory=$(mktemp -d)
 server_pid=""

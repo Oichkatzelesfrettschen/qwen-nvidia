@@ -1,0 +1,45 @@
+started tmux_socket=qwen-runtime tmux_session=qwen-webui profile=default host=127.0.0.1 port=8080 context=16384 latency_mode=observe model=$HOME/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf server=$HOME/src/llama.cpp-qwen-nvidia/build-appliance-current/bin/llama-server
+speculation spec_type=off draft_n_max=default draft_p_min=default draft_backend_sampling=0 backend_sampling=0
+cache cache_type_k=registry cache_type_v=registry flash_attention=registry override_context_ceiling=registry
+session reported failure
+state=failed reason=server_policy_not_active utc=2026-09-20T04:51:34Z
+Downloading 19.45 K separate debug info for /usr/lib/libpthread.so.0...
+Downloading 26.93 M separate debug info for /usr/lib/libstdc++.so.6...
+Downloading 3.10 M separate debug info for /usr/lib/libm.so.6...
+Downloading 893.64 K separate debug info for /usr/lib/libgcc_s.so.1...
+Downloading 1.67 M separate debug info for /usr/lib/libgomp.so.1...
+Downloading 18.70 K separate debug info for /usr/lib/libdl.so.2...
+Downloading 24.94 K separate debug info for /usr/lib/librt.so.1...
+Downloading 1.34 M separate debug info for /usr/lib/libz.so.1...
+Downloading 626.57 K separate debug info for /usr/lib/libbrotlienc.so.1...
+Downloading 63.95 K separate debug info for /usr/lib/libbrotlidec.so.1...
+Downloading 6.19 M separate debug info for /usr/lib/libzstd.so.1...
+Downloading 11.63 K separate debug info for /usr/lib/libbrotlicommon.so.1...
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+0x00007f9560cb5b82 in __syscall_cancel_arch () from /usr/lib/libc.so.6
+#0  0x00007f9560cb5b82 in __syscall_cancel_arch () from /usr/lib/libc.so.6
+Downloading 3.37 K source file /usr/src/debug/glibc/glibc/posix/../sysdeps/unix/sysv/linux/sysdep-cancel.h...
+#1  0x00007f9560d30868 in internal_syscall_cancel (a1=<optimized out>, a2=<optimized out>, a3=<optimized out>, a4=<optimized out>, a5=0, a6=0, nr=61) at ../sysdeps/unix/sysv/linux/sysdep-cancel.h:53
+53	  result = __syscall_cancel_arch (&pd->cancelhandling, nr, a1, a2, a3, a4, a5,
+#2  syscall_cancel (a1=<optimized out>, a2=<optimized out>, a3=<optimized out>, a4=<optimized out>, a5=0, a6=0, nr=61) at ../sysdeps/unix/sysv/linux/sysdep-cancel.h:79
+79	  long int r = internal_syscall_cancel (a1, a2, a3, a4, a5, a6,
+#3  __GI___wait4 (pid=<optimized out>, stat_loc=<optimized out>, options=<optimized out>, usage=<optimized out>) at ../sysdeps/unix/sysv/linux/wait4.c:30
+30	  return SYSCALL_CANCEL (wait4, pid, stat_loc, options, usage);
+#4  0x00007f956c5443fb in ggml_print_backtrace () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libggml-base.so.0
+#5  0x00007f956c544560 in ggml_abort () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libggml-base.so.0
+#6  0x00007f956c560610 in ggml_backend_sched_split_graph () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libggml-base.so.0
+#7  0x00007f956c561cf5 in ggml_backend_sched_alloc_graph () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libggml-base.so.0
+#8  0x00007f956bcf7394 in llama_context::process_ubatch(llama_ubatch const&, llm_graph_type, llama_memory_context_i*, ggml_status&) () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama.so.0
+#9  0x00007f956bcfe4e8 in llama_context::decode(llama_batch const&) () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama.so.0
+#10 0x00007f956bcffb8e in llama_decode () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama.so.0
+#11 0x00007f956c2054c8 in common_init_from_params(common_params&, bool) () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama-common.so.0
+#12 0x00007f956c7794ad in server_context_impl::load_model(common_params&) () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama-server-impl.so
+#13 0x00007f956c6ca67f in llama_server(common_params&, int, char**) () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama-server-impl.so
+#14 0x00007f956c6cca00 in llama_server(int, char**) () from $HOME/src/llama.cpp-qwen-nvidia/build-qwen-cuda-15bc632adf7f/bin/libllama-server-impl.so
+#15 0x00007f9560c27d0e in __libc_start_call_main (main=main@entry=0x55be8685c040 <main>, argc=argc@entry=53, argv=argv@entry=0x7ffd00de9b48) at ../sysdeps/nptl/libc_start_call_main.h:59
+59	      result = main (argc, argv, __environ MAIN_AUXVEC_PARAM);
+#16 0x00007f9560c27e4b in __libc_start_main_impl (main=0x55be8685c040 <main>, argc=53, argv=0x7ffd00de9b48, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=0x7ffd00de9b38) at ../csu/libc-start.c:372
+372	  strong_alias (__libc_start_main_impl, __libc_start_main_alias_2)	\
+#17 0x000055be8685c075 in _start ()
+[Inferior 1 (process 4129680) detached]

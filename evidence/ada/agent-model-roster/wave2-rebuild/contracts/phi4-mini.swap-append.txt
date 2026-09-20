@@ -1,0 +1,11 @@
+The `flash_swap_append` function checks two conditions before it erases or programs a sector:
+
+1. It checks if the `offset` is aligned to a program page boundary by ensuring that `offset & (FLASH_PROG_BYTES - 1)` equals 0. This means that the starting address of the data to be written must be a multiple of `FLASH_PROG_BYTES`.
+
+2. It checks if the starting address of the data to be written is at an erase-sector boundary by ensuring that `offset & (FLASH_SECTOR_BYTES - 1)` equals 0. This means that the starting address must be a multiple of `FLASH_SECTOR_BYTES`.
+
+The callers of `flash_swap_append` must guarantee that the following conditions are met:
+
+1. The `offset` is aligned to a program page boundary, as checked by the first condition in the function.
+
+2. The starting address of the data to be written is at an erase-sector boundary, as checked by the second condition in the function.

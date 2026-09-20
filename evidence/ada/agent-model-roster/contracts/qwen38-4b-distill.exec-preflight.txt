@@ -1,0 +1,13 @@
+The verification and commitment order in `exec_hsaout_check` is:
+
+1. **Header verification** via `hsx_headers()` — reads and validates the `struct hsx` header.
+2. **Layout check** via `aout_layout_check()` — verifies the raw executable layout.
+3. **Text hold** via `exec_text_hold()` — reserves the text segment.
+4. **Preflight** — both streams are expanded into the discard buffer and compared against their CRCs.
+5. **Save args** via `exec_save_args()`.
+6. **Setup** — segment addresses and sizes are assigned.
+7. **Establish** via `exec_estab()` — the process is established.
+8. **Commit** — the old image is released via `exec_text_release()`, the inode count is incremented, and `p_tip` is set.
+9. **Second expansion** — both streams are expanded into the user window and compared against their CRCs.
+
+If the second expansion disagrees with the header, the process is killed with `SIGKILL` and `EFTYPE` is returned.

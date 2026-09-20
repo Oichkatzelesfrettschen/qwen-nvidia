@@ -1,0 +1,97 @@
+<think>Okay, let's tackle this question. The user is asking about the conditions that can make the brk function refuse to grow the data segment, how many there are, what each one is, and what sbrk returns and leaves unchanged when the kernel refuses.
+
+First, I need to look at the provided source code. There's kern_mman.c and lib/libc/arm/sys/sbrk.c. Let me go through each part.
+
+Starting with kern_mman.c, the brk() function. The comments and code mention a few conditions. The first condition is checking if the new size plus tsize and ssize exceeds MAXMEM or swapram_ceiling. Wait, there's a#ifdef SWAPRAM block. So depending on whether SWAPRAM is defined, there are two different checks. But the user is asking for the conditions that make brk refuse. So in the code, there's a check against MAXMEM (if SWAPRAM isn't defined) or swapram_ceiling if it is. Also, another condition where the stack address (p_saddr) is less than the new data address plus the newsize. Wait, the code says: if u.u_procp->p_daddr + newsize > u.u_procp->p_saddr, then return ENOMEM.
+
+So let's count the conditions. The first check is in the if statement that has two branches based on SWAPRAM. But maybe the user wants to count each condition as separate, even if they are under a preprocessor directive. Wait, the question says "separate conditions", so perhaps the two checks (MAXMEM vs swapram_ceiling) are considered separate, but maybe they are part of the same condition. Hmm.
+
+Wait, looking at the code:
+
+if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+} else {
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+    }
+}
+
+Wait, no, the code structure is:
+
+if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+} else {
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+    }
+}
+
+Wait, actually, looking at the code:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }
+    else if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+        u.u_error = ENOMEM;
+        return;
+    }
+
+Wait, no, the original code as given:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+        u.u_error = ENOMEM;
+        return;
+    }
+
+Wait, no, looking at the provided code:
+
+The code has:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+        return;
+    }
+
+Wait, no, the exact code from the user's input:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+        u.u_error = ENOMEM;
+        return;
+    }
+
+Wait, no, looking at the user's provided kern_mman.c:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+        u.u_error = ENOMEM;
+        return;
+    }
+
+Wait, no, the user's code shows:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }
+    if (u.u_tsize + newsize + u.u_ssize > MAXMEM) {
+        u.u_error = ENOMEM;
+        return;
+    }
+
+Wait, no, looking at the exact text:
+
+    if (u.u_tsize + newsize + u.u_ssize > swapram_ceiling (u.u_procp)) {
+        u.u_error = ENOMEM;
+        return;
+    }

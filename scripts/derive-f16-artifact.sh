@@ -16,9 +16,6 @@ set -eu
 # a stale, truncated, or hand-converted file under the artifact name would
 # otherwise be served and benchmarked on its existence alone.
 
-renice -n 19 -p $$ >/dev/null 2>&1 || true
-ionice -c 3 -p $$ >/dev/null 2>&1 || true
-
 if [ "$#" -ne 3 ] && [ "$#" -ne 4 ]; then
     printf 'usage: %s FETCH_SCRIPT SOURCE_NAME ARTIFACT_NAME [DESTINATION_DIRECTORY]\n' "$0" >&2
     printf 'environment: QWEN_LLAMA_QUANTIZE QWEN_QUANTIZE_THREADS GGUF_PY_PATH\n' >&2

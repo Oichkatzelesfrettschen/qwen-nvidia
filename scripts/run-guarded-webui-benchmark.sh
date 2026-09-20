@@ -13,6 +13,7 @@ if [ "$#" -ne 7 ]; then
         "$0" >&2
     exit 2
 fi
+taskset -pc 1 $$ >/dev/null
 
 initial_guard_nice=$(ps -o ni= -p $$ | tr -d ' ')
 if ! renice -n 0 -p $$ >/dev/null 2>&1; then
@@ -26,8 +27,6 @@ if [ "$guard_nice" != 0 ]; then
         "$guard_nice" >&2
     exit 2
 fi
-taskset -pc 1 $$ >/dev/null
-ionice -c 3 -p $$
 
 profile=$1
 model_path=$2

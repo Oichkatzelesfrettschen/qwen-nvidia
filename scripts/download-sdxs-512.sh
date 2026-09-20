@@ -16,10 +16,6 @@ set -eu
 # fetched here (evidence/image-appliance/stable-diffusion-cpp-pin.md's open
 # questions).
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

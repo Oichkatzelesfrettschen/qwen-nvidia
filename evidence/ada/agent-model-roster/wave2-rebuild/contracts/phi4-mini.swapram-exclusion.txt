@@ -1,0 +1,7 @@
+When the RAM tier accepts a swapout, the process does not get the following:
+
+1. The u area (user area): The u area is captured after the `ru_nswap` increment above, because for the current process that increment lands inside these USIZE bytes. If the RAM tier is used, the u area is not captured and thus not swapped out.
+
+When the RAM tier is used for swapin, the process still reads the following from outside the pool:
+
+1. The u area (user area): The u area is still read from the RAM tier, as it is not captured when the RAM tier is used for swapout. The u area is still available for the process to use.

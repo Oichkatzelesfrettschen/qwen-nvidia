@@ -1,0 +1,7 @@
+There are two separate conditions that can make `brk` refuse to grow the data segment:
+
+1. The total memory usage (`u.u_tsize + newsize + u.u_ssize`) exceeds the process ceiling (`swapram_ceiling` or `MAXMEM`), which sets `u.u_error` to `ENOMEM`.
+
+2. The new data segment would overlap with the stack (`u.u_procp->p_daddr + newsize > u.u_procp->p_saddr`), which also sets `u.u_error` to `ENOMEM`.
+
+When the kernel refuses, `sbrk` returns `(void*) -1` and leaves `_curbrk` unchanged.

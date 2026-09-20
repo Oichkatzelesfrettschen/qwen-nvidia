@@ -687,7 +687,7 @@ class WorkloadLease:
 
     def write_status(self, line):
         with contextlib.suppress(OSError):
-            with open(self.status_path, "w", encoding="ascii") as handle:
+            with open(self.status_path, "w", encoding="utf-8") as handle:
                 handle.write(line + "\n")
 
     def release(self):

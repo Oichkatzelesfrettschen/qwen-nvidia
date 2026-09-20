@@ -1,0 +1,1 @@
+The bit that decides whether the USB controller or the processor owns a bulk endpoint buffer is the AVAILABLE bit in the DPRAM register. When a bulk OUT buffer is found with this bit clear, the driver re-arms the buffer, allowing it to be used again. The driver then re-arm it when it loses its armed state, ensuring the buffer is available for the next packet.

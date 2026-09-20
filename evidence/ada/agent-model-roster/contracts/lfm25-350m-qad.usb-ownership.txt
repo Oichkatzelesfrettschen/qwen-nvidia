@@ -1,0 +1,1 @@
+The bit that decides whether the USB controller or the processor owns a bulk endpoint buffer is `USB_PACKET_MAX`. When a bulk OUT buffer is found with that bit clear, the driver clears the `USB_BUF_CTRL` bit and re-arms the buffer using `USB_DPRAM_BUF_CTRL`.

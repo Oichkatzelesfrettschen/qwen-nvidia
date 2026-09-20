@@ -1,0 +1,257 @@
+===== sys/kern/vm_swap.c =====
+/*
+ * Copyright (c) 1986 Regents of the University of California.
+ * All rights reserved.  The Berkeley software License Agreement
+ * specifies the terms and conditions for redistribution.
+ */
+#include <sys/param.h>
+#include <sys/user.h>
+#include <sys/proc.h>
+#include <sys/map.h>
+#include <sys/buf.h>
+#include <sys/systm.h>
+#include <sys/vm.h>
+#include <sys/inode.h>
+#include <sys/uio.h>
+#include <sys/exec.h>
+#include <sys/signal.h>
+#ifdef SWAPRAM
+#include <machine/swapram.h>
+#endif
+
+/*
+ * The clean text at the start of a process's data area: swapout skips it
+ * and swapin reads it from the executable. Zero when there is no
+ * executable to read from, as for process 1 before it execs.
+ */
+static size_t
+swaptext (p)
+    register struct proc *p;
+{
+    if (p->p_tip == NULL || p->p_tsize > p->p_dsize)
+        return 0;
+    return p->p_tsize;
+}
+
+#ifdef SWAP_IMAGE_ALIGN
+#define SWAP_IMAGE_WRITE (B_WRITE | B_SWAPIMAGE)
+
+/* Blocks held by one erase-aligned flash image. */
+static size_t
+swapimagespan (dsize, ssize)
+    size_t dsize, ssize;
+{
+    size_t blocks = btod (dsize) + btod (ssize) + btod (USIZE);
+
+    return (blocks + SWAP_IMAGE_ALIGN - 1) & ~(SWAP_IMAGE_ALIGN - 1);
+}
+#else
+#define SWAP_IMAGE_WRITE B_WRITE
+#endif
+
+/*
+ * Swap a process in.
+ * Allocate data and possible text separately.  It would be better
+ * to do largest first.  Text, data, and stack are allocated in
+ * that order, as that is likely to be in order of size.
+ * U area goes into u0 buffer.
+ */
+void
+swapin (p)
+    register struct proc *p;
+{
+    size_t daddr = (size_t)__user_data_start;
+    size_t saddr = USER_TOP (p) - p->p_ssize;
+    size_t uaddr = (size_t) &u0;
+    size_t tsize = swaptext (p);
+
+    /*
+     * The text comes back from the executable, which swapout never
+     * wrote; only what follows it is on swap.
+     */
+    if (tsize && exec_text_restore (p, (caddr_t) daddr, tsize) != 0) {
+        /*
+         * The file no longer yields the text the process ran: a flipped
+         * bit in a packed stream, a short raw image. The process comes
+         * back with garbage text and SIGKILL takes it before that text
+         * runs, while the swapper and every other process go on.
+         */
+        printf ("swapin: pid %d: executable text corrupt\n", p->p_pid);
+        psignal (p, SIGKILL);
+    }
+#ifdef SWAPRAM
+    /*
+     * An image the RAM tier took holds no swapmap blocks, so it comes back
+     * whole from the pool and nothing here is freed.
+     */
+    if (swapram_present (p)) {
+        swapram_in (p, (caddr_t) (daddr + tsize), (caddr_t) saddr,
+            (caddr_t) uaddr);
+    } else
+#endif
+    {
+    if (p->p_dsize > tsize) {
+        swap (p->p_daddr, daddr + tsize, p->p_dsize - tsize, B_READ);
+#ifndef SWAP_IMAGE_ALIGN
+        mfree (swapmap, btod (p->p_dsize - tsize), p->p_daddr);
+#endif
+    }
+    if (p->p_ssize) {
+        swap (p->p_saddr, saddr, p->p_ssize, B_READ);
+#ifndef SWAP_IMAGE_ALIGN
+        mfree (swapmap, btod (p->p_ssize), p->p_saddr);
+#endif
+    }
+    swap (p->p_addr, uaddr, USIZE, B_READ);
+#ifdef SWAP_IMAGE_ALIGN
+    mfree (swapmap, swapimagespan (p->p_dsize - tsize, p->p_ssize),
+        p->p_daddr);
+#else
+    mfree (swapmap, btod (USIZE), p->p_addr);
+#endif
+    }
+
+    p->p_daddr = daddr;
+    p->p_saddr = saddr;
+    p->p_addr = uaddr;
+    if (p->p_stat == SRUN)
+        setrq (p);
+    p->p_flag |= SLOAD;
+    p->p_time = 0;
+#ifdef UCB_METER
+    cnt.v_swpin++;
+#endif
+}
+
+/*
+ * Swap out process p.
+ * odata and ostack are the old data size and the stack size
+ * of the process, and are supplied during core expansion swaps.
+ * The freecore flag causes its core to be freed -- it may be
+ * off when called to create an image for a child process
+ * in newproc.
+ *
+ * panic: out of swap space
+ */
+void
+swapout (p, freecore, odata, ostack)
+    register struct proc *p;
+    int freecore __unused;
+    register u_int odata, ostack;
+{
+    size_t a[3];
+    size_t tsize = swaptext (p);
+#ifdef SWAPRAM
+    int ram;
+#endif
+
+    if (odata == (u_int) X_OLDSIZE)
+        odata = p->p_dsize;
+    if (ostack == (u_int) X_OLDSIZE)
+        ostack = p->p_ssize;
+    /* Only what follows the clean text goes to swap. */
+    odata = odata > tsize ? odata - tsize : 0;
+#ifdef SWAPRAM
+    /*
+     * The tier counts what the data and stack compress to and reserves
+     * that plus the encoder's worst case for the u area before a byte is
+     * stored, so a reservation that succeeds cannot run out part way and
+     * swapout never has to unwind. A reservation that fails leaves the
+     * flash path below untouched.
+     */
+    ram = swapram_out (p, (caddr_t) (p->p_daddr + tsize), odata,
+        (caddr_t) p->p_saddr, ostack, USIZE);
+    a[0] = a[1] = a[2] = 0;
+    if (! ram)
+#endif
+#ifdef SWAP_IMAGE_ALIGN
+    if (malloc3_contiguous_next (swapmap, btod (p->p_dsize - tsize),
+        btod (p->p_ssize), btod (USIZE), SWAP_IMAGE_ALIGN, &swapnext,
+        a) == 0) {
+#else
+    if (malloc3 (swapmap, btod (p->p_dsize - tsize), btod (p->p_ssize),
+        btod (USIZE), a) == NULL) {
+#endif
+        register struct mapent *ep;
+
+        printf ("swapout: pid %d dsize %u ssize %u, free:",
+            p->p_pid, p->p_dsize, p->p_ssize);
+        for (ep = swapmap->m_map; ep->m_size; ep++)
+            printf (" %u@%u", ep->m_size, ep->m_addr);
+        printf ("\n");
+        panic ("out of swap space");
+    }
+#ifdef SWAP_IMAGE_ALIGN
+#ifdef SWAPRAM
+    if (! ram)
+#endif
+        swap_cursor_publish (swapnext);
+#endif
+    p->p_flag |= SLOCK;
+    if (odata) {
+#ifdef SWAPRAM
+        if (ram)
+            swapram_put (p, SWAPRAM_DATA, (caddr_t) (p->p_daddr + tsize),
+                odata);
+        else
+#endif
+        swap (a[0], p->p_daddr + tsize, odata, SWAP_IMAGE_WRITE);
+    }
+    if (ostack) {
+#ifdef SWAPRAM
+        if (ram)
+            swapram_put (p, SWAPRAM_STACK, (caddr_t) p->p_saddr, ostack);
+        else
+#endif
+        swap (a[1], p->p_saddr, ostack, SWAP_IMAGE_WRITE);
+    }
+    /*
+     * Increment u_ru.ru_nswap for process being tossed out of core.
+     * We can be called to swap out a process other than the current
+     * process, so we have to map in the victim's u structure briefly.
+     * Note, savekdsa6 *must* be a static, because we remove the stack
+     * in the next instruction.  The splclock is to prevent the clock
+     * from coming in and doing accounting for the wrong process, plus
+     * we don't want to come through here twice.  Why are we doing
+     * this, anyway?
+     */
+    {
+        int s;
+
+        s = splclock();
+        u.u_ru.ru_nswap++;
+        splx (s);
+    }
+#ifdef SWAPRAM
+    /*
+     * The u area is captured after the ru_nswap increment above, because
+     * for the current process that increment lands inside these USIZE
+     * bytes.
+     */
+    if (ram) {
+        swapram_put (p, SWAPRAM_U, (caddr_t) p->p_addr, USIZE);
+        swapram_commit (p);
+    } else
+#endif
+    swap (a[2], p->p_addr, USIZE, SWAP_IMAGE_WRITE);
+    /*
+     * a[] is zero on the RAM tier, which is how swapin and pstat see that
+     * the process holds no flash swap blocks. A zero p_addr is never jumped
+     * to: swtch longjmps to p_addr only for processes on the run queue, and
+     * setrq is guarded by SLOAD everywhere, which swapout clears below.
+     */
+    p->p_daddr = a[0];
+    p->p_saddr = a[1];
+    p->p_addr = a[2];
+    p->p_flag &= ~(SLOAD|SLOCK);
+    p->p_time = 0;
+
+#ifdef UCB_METER
+    cnt.v_swpout++;
+#endif
+    if (runout) {
+        runout = 0;
+        wakeup ((caddr_t)&runout);
+    }
+}
+

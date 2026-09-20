@@ -7,10 +7,6 @@ set -eu
 # The publisher states the model suits knowledge-intensive work poorly, which
 # makes it the speed bound of the ladder rather than its capability bound.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

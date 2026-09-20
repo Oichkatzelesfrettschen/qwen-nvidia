@@ -1,0 +1,15 @@
+The function `flash_swap_append` first checks whether the `offset` is aligned to a program page boundary by verifying that `(offset & (FLASH_PROG_BYTES - 1)) == 0`. If not, it returns an error.
+
+Before performing any erase or program operations, it only checks this alignment condition. It does **not** check whether the offset is aligned to a sector boundary, nor does it verify that the source data is valid or that the length is valid in terms of sector alignment or bounds.
+
+The callers must guarantee that:
+- The `offset` is aligned to a program page boundary (which the function checks),
+- The `length` is a multiple of `FLASH_PROG_BYTES` (which the function does not check),
+- The `source` pointer is valid and points to valid data (which the function does not check),
+- The `offset` is within valid flash bounds (which the function does not check).
+
+Thus, the function itself checks only `offset & (FLASH_PROG_BYTES - 1)`.
+
+In plain prose:
+
+`flash_swap_append` checks that the `offset` is aligned to a program page boundary (i.e., `(offset & (FLASH_PROG_BYTES - 1)) == 0`). It does not check that the `length` is a multiple of `FLASH_PROG_BYTES`, nor does it verify that the `source` pointer is valid or that the `offset` is within valid flash bounds. These guarantees must be provided by the callers.

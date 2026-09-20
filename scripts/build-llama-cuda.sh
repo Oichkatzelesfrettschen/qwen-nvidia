@@ -46,7 +46,6 @@ set -eu
 usage() {
     printf 'usage: %s [SOURCE_DIRECTORY]\n' "$0" >&2
     printf '  QWEN_CUDA_ARCHITECTURES    89 (default, SASS and PTX) or 89-real (SASS only)\n' >&2
-    printf '  QWEN_BUILD_VULKAN          ON adds the Vulkan diagnostic backend, default OFF\n' >&2
     printf '  QWEN_CUDA_GRAPHS           default ON\n' >&2
     printf '  QWEN_CUDA_FA               default ON\n' >&2
     printf '  QWEN_CUDA_FA_ALL_QUANTS    default ON\n' >&2
@@ -78,7 +77,16 @@ usage() {
 
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 cuda_architectures=${QWEN_CUDA_ARCHITECTURES:-89}
-build_vulkan=${QWEN_BUILD_VULKAN:-OFF}
+# The retired backend. This tree builds CUDA and refuses a request to
+# restore Vulkan rather than reading it as a CUDA experiment, so a stale
+# caller fails loudly instead of configuring a backend nothing here serves.
+case ${QWEN_BUILD_VULKAN:-OFF} in
+    OFF) ;;
+    *)
+        printf 'QWEN_BUILD_VULKAN names a retired backend; this tree builds CUDA only\n' >&2
+        exit 2
+        ;;
+esac
 cuda_graphs=${QWEN_CUDA_GRAPHS:-ON}
 cuda_fa=${QWEN_CUDA_FA:-ON}
 cuda_fa_all_quants=${QWEN_CUDA_FA_ALL_QUANTS:-ON}
@@ -109,7 +117,6 @@ case $cuda_architectures in
         "$cuda_architectures" >&2; exit 2 ;;
 esac
 for pair in \
-    "QWEN_BUILD_VULKAN=$build_vulkan" \
     "QWEN_CUDA_GRAPHS=$cuda_graphs" \
     "QWEN_CUDA_FA=$cuda_fa" \
     "QWEN_CUDA_FA_ALL_QUANTS=$cuda_fa_all_quants" \
@@ -305,7 +312,7 @@ build_tests	OFF
 subprocess	ON
 llguidance	OFF
 arch	$cuda_architectures
-vulkan	$build_vulkan
+vulkan	OFF
 graphs	$cuda_graphs
 fa	$cuda_fa
 fa_all_quants	$cuda_fa_all_quants
@@ -354,7 +361,7 @@ set -- cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DGGML_OPENMP="$ggml_openmp" \
     -DGGML_RPC=OFF \
     -DGGML_CUDA=ON \
-    -DGGML_VULKAN="$build_vulkan" \
+    -DGGML_VULKAN=OFF \
     -DGGML_CUDA_FA="$cuda_fa" \
     -DGGML_CUDA_FA_ALL_QUANTS="$cuda_fa_all_quants" \
     -DGGML_CUDA_GRAPHS="$cuda_graphs" \
@@ -393,26 +400,6 @@ fi
 
 printf 'source_commit=%s worktree=%s\n' "$actual_commit" "$worktree_state"
 git -C "$source_directory" diff --stat | tail -1
-
-# ggml builds its Vulkan shader compiler as a nested ExternalProject whose
-# CMakeCache.txt records the absolute path it was created under, so a tree
-# copied to seed a second arm carries a cache naming the first arm and the
-# subbuild refuses to configure against it.
-shader_generator_prefix=$build_directory/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix
-if [ -f "$shader_generator_prefix/src/vulkan-shaders-gen-build/CMakeCache.txt" ] &&
-    ! grep -q "^CMAKE_CACHEFILE_DIR:INTERNAL=$shader_generator_prefix/" \
-        "$shader_generator_prefix/src/vulkan-shaders-gen-build/CMakeCache.txt"
-then
-    printf 'shader_generator_cache=stale removing=%s\n' "$shader_generator_prefix"
-    rm -rf "$shader_generator_prefix"
-fi
-
-if [ "$build_vulkan" = ON ] && [ ! -d /usr/include/spirv ]; then
-    printf 'the SPIR-V headers are absent from /usr/include/spirv\n' >&2
-    printf 'install them with: sudo pacman -S --needed spirv-headers\n' >&2
-    printf 'or leave QWEN_BUILD_VULKAN=OFF for the CUDA closure alone\n' >&2
-    exit 1
-fi
 
 printf 'cuda_build=starting configuration=%s tree=%s\n' \
     "$configuration_id" "$build_directory"

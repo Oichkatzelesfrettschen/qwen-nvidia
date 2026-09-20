@@ -225,15 +225,15 @@ trap 'stop_server; exit 143' TERM
 # slot, and the prompt cache off, so prompt_n reports the tokens the arm
 # actually prefilled. The launch runs through the backend's own runtime
 # wrapper rather than a raw invocation, so the wrapper supplies the backend
-# scrub and the placement policy; the probe retains its own nice-19
-# measurement scheduling through QWEN_SERVING_NICE, which the wrapper applies
-# in place of the served default of 0, and the observed nice and I/O class
+# scrub and the placement policy; the probe runs at the served scheduling
+# rather than below it, because an arm measured under a deprioritized server
+# measures the deprioritization, and the observed nice and I/O class
 # are read back from the kernel into the arm summary. The wrapper profile is
 # pinned to default, because an ambient no-graphs, pdl, or custom profile
 # would change the arm's allocation and the tuple schema records no profile.
 start_server() {
-    env QWEN_SERVING_NICE=19 QWEN_CUDA_PROFILE=default QWEN_VULKAN_PROFILE=default \
-        ionice -c 3 "$runtime_wrapper" "$llama_server" \
+    env QWEN_CUDA_PROFILE=default QWEN_VULKAN_PROFILE=default \
+        "$runtime_wrapper" "$llama_server" \
         --model "$model_path" \
         --alias "$model_id" \
         --host 127.0.0.1 \

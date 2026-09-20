@@ -7,10 +7,6 @@ set -eu
 # maps to PROJECTOR_TYPE_QWEN3VL. The shipped Qwen3.5-4B projector declares the
 # same value, so the served path is the one already in use.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

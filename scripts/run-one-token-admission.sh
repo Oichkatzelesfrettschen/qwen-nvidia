@@ -30,9 +30,6 @@ set -eu
 # The device is exclusive for the duration. The appliance listener holds the
 # GPU, so it comes down before this runs and back up after.
 
-renice -n 19 -p $$ >/dev/null 2>&1 || true
-ionice -c 3 -p $$ >/dev/null 2>&1 || true
-
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     printf 'usage: %s STATIC_ADMISSION_TSV [OUTPUT_DIRECTORY]\n' "$0" >&2
     printf 'environment: QWEN_LLAMA_SERVER QWEN_CANDIDATE_ROOT QWEN_CONTROL_MODEL\n' >&2

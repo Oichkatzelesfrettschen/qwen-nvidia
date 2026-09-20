@@ -27,7 +27,7 @@ kernels for the served `cache_type_k=q8_0`/`cache_type_v=q4_0` pair rather than
 leaving it off the flash-attention path, and the build runs through `g++-15`
 because nvcc refuses a host compiler newer than GCC 15.
 
-CUDA0 is the one serving backend, and the promoted closure `15bc632adf7f`
+CUDA0 is the one serving backend, and the promoted closure `de074f9738b8`
 carries the CUDA backend alone and the compute lease. Vulkan serving and Vulkan admission campaigns
 are retired in this repository: `QWEN_SERVING_BACKEND` takes `cuda` alone and
 the launch chain refuses `vulkan`, `scripts/promote-llama-build.sh` refuses a
@@ -87,8 +87,30 @@ carries the same policy on the transition
 `evidence/ada/evict-first-7b-admission/` measured, where the resident child
 unloaded 1404 ms before its successor loaded. A roster holding either row
 serves one child at a time, so router construction and launch are
-constrained to `QWEN_ROUTER_MAX=1`. The active model quarantine set in
-`scripts/quarantine.tsv` consists of `ministral3-3b`.
+constrained to `QWEN_ROUTER_MAX=1`. Nine rows carry
+`switch_policy=standalone-only`, which the router never serves: the
+coding-agent roster `oxcoder-9b`, `ornith15-9b`, `qwable-9b-fable5`,
+`qwen3-4b-instruct-2507`, `klear-agentforge-8b`, `hammer21-3b`,
+`granite40-micro`, `swe-dev-7b` and `swe-agent-lm-7b`, and the second
+wave `lfm25-8b-a1b`, `lfm25-12b-instruct`, `smollm3-3b` and `phi4-mini`,
+admitted in `evidence/ada/agent-model-roster/` as standalone launch
+subjects for the summarize roster. Each holds that policy until a router
+transition of its own is measured, because three of them are Q6_K 9B
+artifacts whose tensor sets alone exceed the device pairwise. The active
+model quarantine set in `scripts/quarantine.tsv` consists of
+`ministral3-3b`.
+`lfm25-8b-a1b` and `phi4-mini` aborted under the appliance's full tensor
+override because `llama_context::graph_max_nodes` gave their architectures
+eight nodes per tensor where the served `qwen35` gets thirty-two;
+`patches/llama-sched-graph-budget.patch` raises the multiplier for those
+two architectures, the build that carries it serves both rows, and the
+quarantine is lifted. `lfm25-12b-instruct` and `smollm3-3b` render no
+`tool_calls` branch and complete no forced tool call, so they produce no
+graph input, which is a template property carrying no device observation:
+their exclusion is the registry tier and `standalone-only`, the way
+`hammer21-3b`'s is. `evidence/quarantine/` carries a record for each of
+the four and `evidence/ada/agent-model-roster/WAVE2-REBUILD.md` carries
+the rebuild.
 
 ## Measured baseline
 
@@ -122,8 +144,8 @@ dequant+GEMM runs at roughly half the MMQ rate past the crossover.
 `patches/llama-cuda-mmvq-crossover-ad104.patch` parameterizes the Ada Q6_K
 and Q8_0 ceilings as named CMake thresholds and instantiates the kernel
 through sixteen columns. The promoted serving closure places Q6_K at ten and
-Q8_0 at sixteen (`evidence/ada/promotion-15bc632adf7f/`, carried forward
-from `evidence/ada/promotion-88681bf4d161/`).
+Q8_0 at sixteen (`evidence/ada/promotion-de074f9738b8/`, carried forward
+from `evidence/ada/promotion-15bc632adf7f/`).
 
 ## Promotion is CUDA-authoritative
 
@@ -132,14 +154,21 @@ one-token placement check and a multimodal smoke both run with
 `LLAMA_NO_CPU_FALLBACK=1` and require every weight buffer to name CUDA0. A
 build that also carries `libggml-vulkan.so` is refused ahead of both smokes,
 and an accepted promotion reports `backend_set=cuda`.
-The served closure is configuration `15bc632adf7f`
-(`evidence/ada/promotion-15bc632adf7f/`), using 89-real, CUDA only, Q6_K MMVQ
+The served closure is configuration `de074f9738b8`
+(`evidence/ada/promotion-de074f9738b8/`), using 89-real, CUDA only, Q6_K MMVQ
 threshold 10, Q8_0 MMVQ threshold 16, and
 `patches/llama-server-vulkan-workload-lease.patch`, so llama-server holds the
 compute lease across its model load and every decoding pass and its teardown
-reports the hold. Configuration `88681bf4d161` is retained as the
+reports the hold. It is the first closure carrying
+`patches/llama-sched-graph-budget.patch`, which is why `phi4-mini` and
+`lfm25-8b-a1b` load on it. Configuration `15bc632adf7f` is retained as the
 rollback target, and configuration `572951d25562` is retained as the
 PTX-bearing dual-backend diagnostic closure.
+
+`QWEN_CUDA_ARCHITECTURES` defaults to `89`, which emits PTX beside SASS, and
+the serving arm is `89-real`, which emits SASS alone. A promotion states
+which it built: `efa48befa03b` and `1f88e8fca5ef` took the bare default and
+are retained unpromoted for that reason.
 
 ## Roadmap
 

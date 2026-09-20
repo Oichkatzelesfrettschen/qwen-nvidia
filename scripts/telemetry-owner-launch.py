@@ -18,7 +18,7 @@ blocked_file = pid_file.with_name(pid_file.name + ".blocked")
 def refuse(reason):
     temporary = blocked_file.with_name(blocked_file.name + ".new")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(reason + "\n")
     os.replace(temporary, blocked_file)
     raise SystemExit(75)

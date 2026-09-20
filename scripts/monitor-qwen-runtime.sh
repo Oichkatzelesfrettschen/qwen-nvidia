@@ -6,6 +6,7 @@ if [ "$#" -ne 5 ]; then
         "$0" >&2
     exit 2
 fi
+taskset -pc 1 $$ >/dev/null
 
 server_pid=$1
 telemetry_log=$2
@@ -20,9 +21,12 @@ case $server_pid in
         ;;
 esac
 
+# 0 names a session that measures no graphics latency, which is what a host
+# serving on CUDA with the desktop probe absent runs; the responsiveness stop
+# condition is then unarmed rather than failing every sample.
 case $latency_watchdog_pid in
     '' | *[!0-9]*)
-        printf 'latency watchdog PID must be a positive integer\n' >&2
+        printf 'latency watchdog PID must be a positive integer or 0\n' >&2
         exit 2
         ;;
 esac
@@ -72,8 +76,6 @@ if [ "$guard_nice" != 0 ]; then
         "$guard_nice" >&2
     exit 2
 fi
-taskset -pc 1 $$ >/dev/null
-ionice -c 3 -p $$
 guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status)
 
 sample_seconds=1
@@ -158,7 +160,8 @@ terminate_server() {
 } >"$telemetry_log"
 
 while server_is_original_process; do
-    if ! kill -0 "$latency_watchdog_pid" 2>/dev/null; then
+    if [ "$latency_watchdog_pid" -ne 0 ] &&
+        ! kill -0 "$latency_watchdog_pid" 2>/dev/null; then
         terminate_server graphics_latency_watchdog_unavailable
     fi
     if ! kill -0 "$kernel_hazard_watchdog_pid" 2>/dev/null; then

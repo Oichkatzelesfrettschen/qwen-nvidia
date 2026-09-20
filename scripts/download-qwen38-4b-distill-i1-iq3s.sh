@@ -5,10 +5,6 @@ set -eu
 # i1-Q2_K and the 2.783 GB Q4_K_M the appliance serves. It exists to answer the
 # quality half of the ladder where Q2_K answers the speed half.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2

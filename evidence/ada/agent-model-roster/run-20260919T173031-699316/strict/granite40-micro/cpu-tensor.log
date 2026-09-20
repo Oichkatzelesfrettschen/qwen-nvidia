@@ -1,0 +1,206 @@
+0.00.175.806 I cmn  common_param: common_params_print_info: build 1935 (f280b2698) with GNU 15.3.0 for Linux x86_64
+0.00.175.808 I cmn  common_param: common_params_print_info: verbosity = 10 (adjust with the `-lv N` CLI arg)
+0.00.175.808 I cmn  common_param: device_info:
+0.00.286.579 I cmn  common_param:   - CUDA0   : NVIDIA GeForce RTX 4070 Ti (11933 MiB, 9582 MiB free)
+0.00.286.585 I cmn  common_param:   - CPU     : AMD Ryzen 5 5600X3D 6-Core Processor (15875 MiB, 15875 MiB free)
+0.00.286.631 I cmn  common_param: system_info: n_threads = 1 (n_threads_batch = 1) / 12 | CUDA : ARCHS = 890 | USE_GRAPHS = 1 | FA_ALL_QUANTS = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.00.287.075 I srv          init: running without SSL
+0.00.287.170 I srv          init: using 11 threads for HTTP server
+0.00.287.171 I srv          init: The UI is disabled
+0.00.287.171 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.287.260 W srv  llama_server: -----------------
+0.00.287.261 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.287.262 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.287.262 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.287.263 W srv  llama_server: -----------------
+0.00.287.294 I srv         start: binding port with default address family
+0.00.288.606 I srv    load_model: loading model '$HOME/models/granite-4.0-micro-GGUF/granite-4.0-micro-bf16.gguf'
+0.00.288.608 I srv    load_model: local path '$HOME/models/granite-4.0-micro-GGUF/granite-4.0-micro-bf16.gguf'
+0.00.306.619 I llama_model_loader: loaded meta data with 42 key-value pairs and 362 tensors from $HOME/models/granite-4.0-micro-GGUF/granite-4.0-micro-bf16.gguf (version GGUF V3 (latest))
+0.00.306.633 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+0.00.306.643 I llama_model_loader: - kv   0:                       general.architecture str              = granite
+0.00.306.644 I llama_model_loader: - kv   1:                               general.type str              = model
+0.00.306.645 I llama_model_loader: - kv   2:                               general.name str              = Granite 4.0 Micro
+0.00.306.645 I llama_model_loader: - kv   3:                         general.size_label str              = 3.4B
+0.00.306.645 I llama_model_loader: - kv   4:                            general.license str              = apache-2.0
+0.00.306.657 I llama_model_loader: - kv   5:                               general.tags arr[str,2]       = ["language", "granite-4.0"]
+0.00.306.659 I llama_model_loader: - kv   6:                        granite.block_count u32              = 40
+0.00.306.660 I llama_model_loader: - kv   7:                     granite.context_length u32              = 131072
+0.00.306.660 I llama_model_loader: - kv   8:                   granite.embedding_length u32              = 2560
+0.00.306.661 I llama_model_loader: - kv   9:                granite.feed_forward_length u32              = 8192
+0.00.306.661 I llama_model_loader: - kv  10:               granite.attention.head_count u32              = 40
+0.00.306.664 I llama_model_loader: - kv  11:            granite.attention.head_count_kv arr[i32,40]      = [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, ...
+0.00.306.670 I llama_model_loader: - kv  12:                     granite.rope.freq_base f32              = 10000000.000000
+0.00.306.672 I llama_model_loader: - kv  13:   granite.attention.layer_norm_rms_epsilon f32              = 0.000010
+0.00.306.672 I llama_model_loader: - kv  14:                       granite.expert_count u32              = 0
+0.00.306.672 I llama_model_loader: - kv  15:                  granite.expert_used_count u32              = 0
+0.00.306.673 I llama_model_loader: - kv  16:                          general.file_type u32              = 32
+0.00.306.673 I llama_model_loader: - kv  17:                         granite.vocab_size u32              = 100352
+0.00.306.674 I llama_model_loader: - kv  18:               granite.rope.dimension_count u32              = 64
+0.00.306.674 I llama_model_loader: - kv  19:                    granite.attention.scale f32              = 0.015625
+0.00.306.675 I llama_model_loader: - kv  20:                    granite.embedding_scale f32              = 12.000000
+0.00.306.675 I llama_model_loader: - kv  21:                     granite.residual_scale f32              = 0.220000
+0.00.306.676 I llama_model_loader: - kv  22:                        granite.logit_scale f32              = 10.000000
+0.00.306.676 I llama_model_loader: - kv  23:  granite.expert_shared_feed_forward_length u32              = 8192
+0.00.306.677 I llama_model_loader: - kv  24:                    granite.ssm.conv_kernel u32              = 4
+0.00.306.677 I llama_model_loader: - kv  25:                     granite.ssm.state_size u32              = 256
+0.00.306.677 I llama_model_loader: - kv  26:                    granite.ssm.group_count u32              = 1
+0.00.306.678 I llama_model_loader: - kv  27:                     granite.ssm.inner_size u32              = 5120
+0.00.306.678 I llama_model_loader: - kv  28:                 granite.ssm.time_step_rank u32              = 128
+0.00.306.678 I llama_model_loader: - kv  29:             granite.rope.scaling.finetuned bool             = true
+0.00.306.679 I llama_model_loader: - kv  30:               general.quantization_version u32              = 2
+0.00.306.679 I llama_model_loader: - kv  31:                       tokenizer.ggml.model str              = gpt2
+0.00.306.679 I llama_model_loader: - kv  32:                         tokenizer.ggml.pre str              = dbrx
+0.00.314.055 I llama_model_loader: - kv  33:                      tokenizer.ggml.tokens arr[str,100352]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+0.00.316.140 I llama_model_loader: - kv  34:                  tokenizer.ggml.token_type arr[i32,100352]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+0.00.323.270 I llama_model_loader: - kv  35:                      tokenizer.ggml.merges arr[str,100000]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+0.00.323.272 I llama_model_loader: - kv  36:                tokenizer.ggml.bos_token_id u32              = 100257
+0.00.323.272 I llama_model_loader: - kv  37:                tokenizer.ggml.eos_token_id u32              = 100257
+0.00.323.273 I llama_model_loader: - kv  38:            tokenizer.ggml.unknown_token_id u32              = 100269
+0.00.323.273 I llama_model_loader: - kv  39:            tokenizer.ggml.padding_token_id u32              = 100256
+0.00.323.273 I llama_model_loader: - kv  40:               tokenizer.ggml.add_bos_token bool             = false
+0.00.323.274 I llama_model_loader: - kv  41:                    tokenizer.chat_template str              = {%- set tools_system_message_prefix =...
+0.00.323.276 I llama_model_loader: - type  f32:   81 tensors
+0.00.323.277 I llama_model_loader: - type bf16:  281 tensors
+0.00.323.278 I print_info: file format = GGUF V3 (latest)
+0.00.323.279 I print_info: file type   = BF16
+0.00.323.280 I print_info: file size   = 6.34 GiB (16.00 BPW) 
+0.00.351.842 D init_tokenizer: initializing tokenizer for type 2
+0.00.358.155 I load: 69 unused tokens
+0.00.358.161 D load: control token: 100281 '</tools>' is not marked as EOG
+0.00.358.161 D load: control token: 100278 '<schema>' is not marked as EOG
+0.00.358.162 D load: control token: 100267 '<|start_of_plugin|>' is not marked as EOG
+0.00.358.162 D load: control token: 100265 '<|end_of_role|>' is not marked as EOG
+0.00.358.163 D load: control token: 100262 '<|filename|>' is not marked as EOG
+0.00.358.163 D load: control token: 100259 '<|fim_middle|>' is not marked as EOG
+0.00.358.163 D load: control token: 100258 '<|fim_prefix|>' is not marked as EOG
+0.00.358.163 D load: control token: 100256 '<|pad|>' is not marked as EOG
+0.00.358.237 D load: control token: 100282 '<documents>' is not marked as EOG
+0.00.359.434 D load: control token: 100277 '<think_off>' is not marked as EOG
+0.00.359.657 D load: control token: 100268 '<|end_of_plugin|>' is not marked as EOG
+0.00.360.854 D load: control token: 100264 '<|start_of_role|>' is not marked as EOG
+0.00.361.484 D load: control token: 100279 '</schema>' is not marked as EOG
+0.00.361.856 D load: control token: 100280 '<tools>' is not marked as EOG
+0.00.362.364 D load: control token: 100263 '<|reponame|>' is not marked as EOG
+0.00.363.021 D load: control token: 100269 '<|unk|>' is not marked as EOG
+0.00.363.125 D load: control token: 100283 '</documents>' is not marked as EOG
+0.00.363.572 D load: control token: 100260 '<|fim_suffix|>' is not marked as EOG
+0.00.364.617 D load: control token: 100276 '<think_on>' is not marked as EOG
+0.00.365.838 I load: printing all EOG tokens:
+0.00.365.839 I load:   - 100257 ('<|end_of_text|>')
+0.00.365.840 I load:   - 100261 ('<|fim_pad|>')
+0.00.365.937 I load: special tokens cache size = 96
+0.00.385.773 I load: token to piece cache size = 0.6152 MB
+0.00.385.781 I print_info: arch                  = granite
+0.00.385.781 I print_info: vocab_only            = 0
+0.00.385.781 I print_info: no_alloc              = 0
+0.00.385.782 I print_info: n_ctx_train           = 131072
+0.00.385.783 I print_info: n_embd_inp            = 2560
+0.00.385.783 I print_info: n_embd                = 2560
+0.00.385.784 I print_info: n_embd_out            = 2560
+0.00.385.784 I print_info: n_layer               = 40
+0.00.385.784 I print_info: n_layer_all           = 40
+0.00.385.788 I print_info: n_head                = 40
+0.00.385.789 I print_info: n_head_kv             = 8
+0.00.385.789 I print_info: n_rot                 = 64
+0.00.385.789 I print_info: n_swa                 = 0
+0.00.385.791 I print_info: is_swa_any            = 0
+0.00.385.791 I print_info: n_embd_head_k         = 64
+0.00.385.791 I print_info: n_embd_head_v         = 64
+0.00.385.792 I print_info: n_gqa                 = 5
+0.00.385.796 I print_info: n_embd_k_gqa          = 512
+0.00.385.798 I print_info: n_embd_v_gqa          = 512
+0.00.385.798 I print_info: f_norm_eps            = 0.0e+00
+0.00.385.799 I print_info: f_norm_rms_eps        = 1.0e-05
+0.00.385.799 I print_info: f_clamp_kqv           = 0.0e+00
+0.00.385.800 I print_info: f_max_alibi_bias      = 0.0e+00
+0.00.385.800 I print_info: f_logit_scale         = 1.0e+01
+0.00.385.800 I print_info: f_attn_scale          = 1.6e-02
+0.00.385.801 I print_info: f_attn_value_scale    = 0.0000
+0.00.385.802 I print_info: n_ff                  = 8192
+0.00.385.802 I print_info: n_expert              = 0
+0.00.385.802 I print_info: n_expert_used         = 0
+0.00.385.803 I print_info: n_expert_groups       = 0
+0.00.385.803 I print_info: n_group_used          = 0
+0.00.385.803 I print_info: causal attn           = 1
+0.00.385.803 I print_info: pooling type          = -1
+0.00.385.803 I print_info: rope type             = 0
+0.00.385.803 I print_info: rope scaling          = linear
+0.00.385.804 I print_info: freq_base_train       = 10000000.0
+0.00.385.804 I print_info: freq_scale_train      = 1
+0.00.385.805 I print_info: n_ctx_orig_yarn       = 131072
+0.00.385.805 I print_info: rope_yarn_log_mul     = 0.0000
+0.00.385.805 I print_info: rope_finetuned        = yes
+0.00.385.806 I print_info: model type            = 3B
+0.00.385.806 I print_info: model params          = 3.40 B
+0.00.385.807 I print_info: general.name          = Granite 4.0 Micro
+0.00.385.807 I print_info: f_embedding_scale     = 12.000000
+0.00.385.808 I print_info: f_residual_scale      = 0.220000
+0.00.385.808 I print_info: f_attention_scale     = 0.015625
+0.00.385.808 I print_info: n_ff_shexp            = 8192
+0.00.385.811 I print_info: vocab type            = BPE
+0.00.385.812 I print_info: n_vocab               = 100352
+0.00.385.812 I print_info: n_merges              = 100000
+0.00.385.812 I print_info: BOS token             = 100257 '<|end_of_text|>'
+0.00.385.812 I print_info: EOS token             = 100257 '<|end_of_text|>'
+0.00.385.812 I print_info: EOT token             = 100257 '<|end_of_text|>'
+0.00.385.813 I print_info: UNK token             = 100269 '<|unk|>'
+0.00.385.813 I print_info: PAD token             = 100256 '<|pad|>'
+0.00.385.813 I print_info: LF token              = 198 'Ċ'
+0.00.385.813 I print_info: FIM PRE token         = 100258 '<|fim_prefix|>'
+0.00.385.814 I print_info: FIM SUF token         = 100260 '<|fim_suffix|>'
+0.00.385.814 I print_info: FIM MID token         = 100259 '<|fim_middle|>'
+0.00.385.814 I print_info: FIM PAD token         = 100261 '<|fim_pad|>'
+0.00.385.814 I print_info: EOG token             = 100257 '<|end_of_text|>'
+0.00.385.814 I print_info: EOG token             = 100261 '<|fim_pad|>'
+0.00.385.814 I print_info: max token length      = 256
+0.00.385.816 I load_tensors: loading model tensors, this can take a while... (load_mode = mmap)
+0.00.385.844 D load_tensors: layer   0 assigned to device CPU, is_swa = 0
+0.00.385.844 D load_tensors: layer   1 assigned to device CPU, is_swa = 0
+0.00.385.844 D load_tensors: layer   2 assigned to device CPU, is_swa = 0
+0.00.385.845 D load_tensors: layer   3 assigned to device CPU, is_swa = 0
+0.00.385.845 D load_tensors: layer   4 assigned to device CPU, is_swa = 0
+0.00.385.845 D load_tensors: layer   5 assigned to device CPU, is_swa = 0
+0.00.385.845 D load_tensors: layer   6 assigned to device CPU, is_swa = 0
+0.00.385.845 D load_tensors: layer   7 assigned to device CPU, is_swa = 0
+0.00.385.846 D load_tensors: layer   8 assigned to device CPU, is_swa = 0
+0.00.385.846 D load_tensors: layer   9 assigned to device CPU, is_swa = 0
+0.00.385.846 D load_tensors: layer  10 assigned to device CPU, is_swa = 0
+0.00.385.846 D load_tensors: layer  11 assigned to device CPU, is_swa = 0
+0.00.385.846 D load_tensors: layer  12 assigned to device CPU, is_swa = 0
+0.00.385.847 D load_tensors: layer  13 assigned to device CPU, is_swa = 0
+0.00.385.847 D load_tensors: layer  14 assigned to device CPU, is_swa = 0
+0.00.385.847 D load_tensors: layer  15 assigned to device CPU, is_swa = 0
+0.00.385.847 D load_tensors: layer  16 assigned to device CPU, is_swa = 0
+0.00.385.847 D load_tensors: layer  17 assigned to device CPU, is_swa = 0
+0.00.385.848 D load_tensors: layer  18 assigned to device CPU, is_swa = 0
+0.00.385.848 D load_tensors: layer  19 assigned to device CPU, is_swa = 0
+0.00.385.848 D load_tensors: layer  20 assigned to device CPU, is_swa = 0
+0.00.385.848 D load_tensors: layer  21 assigned to device CPU, is_swa = 0
+0.00.385.848 D load_tensors: layer  22 assigned to device CPU, is_swa = 0
+0.00.385.849 D load_tensors: layer  23 assigned to device CPU, is_swa = 0
+0.00.385.849 D load_tensors: layer  24 assigned to device CPU, is_swa = 0
+0.00.385.849 D load_tensors: layer  25 assigned to device CPU, is_swa = 0
+0.00.385.849 D load_tensors: layer  26 assigned to device CPU, is_swa = 0
+0.00.385.849 D load_tensors: layer  27 assigned to device CPU, is_swa = 0
+0.00.385.850 D load_tensors: layer  28 assigned to device CPU, is_swa = 0
+0.00.385.850 D load_tensors: layer  29 assigned to device CPU, is_swa = 0
+0.00.385.850 D load_tensors: layer  30 assigned to device CPU, is_swa = 0
+0.00.385.850 D load_tensors: layer  31 assigned to device CPU, is_swa = 0
+0.00.385.850 D load_tensors: layer  32 assigned to device CPU, is_swa = 0
+0.00.385.850 D load_tensors: layer  33 assigned to device CPU, is_swa = 0
+0.00.385.851 D load_tensors: layer  34 assigned to device CPU, is_swa = 0
+0.00.385.851 D load_tensors: layer  35 assigned to device CPU, is_swa = 0
+0.00.385.851 D load_tensors: layer  36 assigned to device CPU, is_swa = 0
+0.00.385.851 D load_tensors: layer  37 assigned to device CPU, is_swa = 0
+0.00.385.851 D load_tensors: layer  38 assigned to device CPU, is_swa = 0
+0.00.385.852 D load_tensors: layer  39 assigned to device CPU, is_swa = 0
+0.00.385.852 D load_tensors: layer  40 assigned to device CPU, is_swa = 0
+0.00.386.140 D create_tensor: loading tensor token_embd.weight
+0.00.391.413 E llama_model_load: error loading model: tensor token_embd.weight selected CPU buffer CPU while LLAMA_NO_CPU_FALLBACK is enabled
+0.00.391.416 E llama_model_load_from_file_impl: failed to load model
+0.00.391.418 E cmn  common_init_: failed to load model '$HOME/models/granite-4.0-micro-GGUF/granite-4.0-micro-bf16.gguf'
+0.00.391.421 E srv    load_model: failed to load model, '$HOME/models/granite-4.0-micro-GGUF/granite-4.0-micro-bf16.gguf'
+0.00.391.422 I srv    operator(): operator(): cleaning up before exit...
+0.00.391.670 E srv  llama_server: exiting due to model loading error
+0.00.391.691 I srv       destroy: vulkan workload lease teardown: held=no

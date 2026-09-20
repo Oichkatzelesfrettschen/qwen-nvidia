@@ -6,10 +6,6 @@ if [ "$#" -gt 2 ]; then
     exit 2
 fi
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_directory=$(CDPATH='' cd -- "$script_directory/.." && pwd)
 source_directory=${1:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
@@ -27,13 +23,25 @@ git clone --quiet --shared --no-checkout "$source_directory" \
     "$temporary_directory/llama.cpp"
 git -C "$temporary_directory/llama.cpp" checkout --quiet --detach \
     "$expected_commit"
+# The production series. The retired Vulkan backend's scheduling, pacing,
+# submit-limit and submit-trace patches left with that backend: this tree
+# configures GGML_VULKAN=OFF, so replaying them verified source no artifact
+# contains. llama-no-cpu-fallback rejects host placement in generic model
+# loading and graph scheduling rather than in a backend, so it stays, and
+# the three digests below are byte-identical under the reduced stack.
+# llama-sched-graph-budget joins the series as the other half of that
+# refusal: no-cpu-fallback turns a host placement into an error, and the
+# graph budget decides whether the appliance's --override-tensor '.*=CUDA0'
+# reaches a served model or aborts inside the scheduler. It raises the
+# nodes-per-tensor multiplier for the two architectures measured to abort
+# and leaves every other one at eight, because the budget sizes a hash set
+# cleared once per decoded token. It applies after no-cpu-fallback because
+# both rewrite src/llama-context.cpp, and it is the only member whose
+# digest moved when it joined.
 for patch_name in \
-    llama-vulkan-low-priority.patch \
     llama-no-cpu-fallback.patch \
-    llama-vulkan-duty-cycle.patch \
-    llama-vulkan-runtime-submit-limit.patch \
-    llama-vulkan-submit-trace.patch \
-    llama-router-tools-proxy.patch; do
+    llama-router-tools-proxy.patch \
+    llama-sched-graph-budget.patch; do
     git -C "$temporary_directory/llama.cpp" apply --check \
         "$patch_directory/$patch_name"
     git -C "$temporary_directory/llama.cpp" apply \
@@ -53,15 +61,7 @@ verify_source() {
     printf 'patch_replay_match=%s sha256=%s\n' "$relative_path" "$actual_sha256"
 }
 
-verify_source d81e9093b4a3d98bf5cde8dc710ec187ddbaffca84540369cec72ecd132e575c \
-    ggml/src/ggml-vulkan/ggml-vulkan.cpp
-verify_source 16abd2face079cad962bb722026d7418e65de67c18c1e1f954df733c1598a70a \
-    ggml/src/ggml-vulkan/ggml-vulkan-pacing.h
-verify_source 4b8befd927e9b0c83cfc7cfe843d2f853a9a9db7f6a55c147ffcd4129afd95f8 \
-    ggml/src/ggml-vulkan/ggml-vulkan-submit-limit.h
-verify_source ac957254c09afda811983801e7dd59d7e4829d40e572804ea7e23dadba521867 \
-    ggml/src/ggml-vulkan/ggml-vulkan-submit-trace.h
-verify_source ecc818cdce4a7265f6f932962c325a582f42b91cb2661916fa28b5a79a49d1ad \
+verify_source b7156f38267cceb19583b736dc1ac3a92f8d95ed11a517f0b5bb3868a9e01252 \
     src/llama-context.cpp
 verify_source d0d6c8725891ac4baf68fd947ab4be75cc93ba37b1e988ca1c556881a49d0abc \
     src/llama-model-loader.cpp
@@ -82,15 +82,15 @@ printf 'patch_series=accepted commit=%s\n' "$expected_commit"
 # ggml-cuda.cu and a proc-address entry at its registry, regions no other
 # candidate writes, and takes the last position because the diagnostic stage
 # below cuts its ggml-cuda.cu hunks against the tree this stage produces.
-candidate_patch_names="llama-vulkan-view-alias-deps.patch llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
+candidate_patch_names="llama-server-vulkan-workload-lease.patch llama-cuda-mmvq-crossover-ad104.patch llama-cuda-paged-kv-buffer.patch llama-mtmd-device-embd.patch"
 # One digest line per file the candidate stage rewrites. Retained evidence
-# quotes the ggml-vulkan.cpp line, so it keeps its format and its position.
+# The list lost its ggml-vulkan.cpp line with the backend that patch wrote.
 # mmq.cuh belongs in the list exactly while a candidate rewrites it, and no
 # candidate does: llama-cuda-mmq-stream-k-grid and llama-cuda-mmq-fixup-pipeline
 # were each its sole writer in turn and both were rejected. mmf.cu, mmq.cu, and
 # mmvf.cu left the list with the census patch, whose hook lines were their only
 # candidate-stage writer.
-candidate_digest_paths="ggml/src/ggml-vulkan/ggml-vulkan.cpp tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/ggml-cuda.cu src/llama-kv-cache.cpp"
+candidate_digest_paths="tools/server/server-context.cpp ggml/src/ggml-cuda/mmvq.cu ggml/src/ggml-cuda/mmvq.cuh ggml/src/ggml-cuda/CMakeLists.txt ggml/src/ggml-cuda/ggml-cuda.cu src/llama-kv-cache.cpp"
 if [ "${QWEN_LLAMA_CANDIDATE_PATCHES:-0}" = 1 ]; then
     for candidate_name in $candidate_patch_names; do
         git -C "$temporary_directory/llama.cpp" apply --check \

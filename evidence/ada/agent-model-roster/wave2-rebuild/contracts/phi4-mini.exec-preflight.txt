@@ -1,0 +1,27 @@
+The `exec_hsaout_check` function in the provided source code verifies and commits the process in the following order:
+
+1. It first checks if the executable's header length is less than the size of the `struct exec`. If it is, it returns `ENOEXEC`, indicating that the executable is not in the correct format.
+
+2. Next, it checks if the executable's magic number is `OMAGIC` and if it has the `EX_HSPACK` flag. If either of these conditions is not met, it returns `ENOEXEC`, indicating that the executable is not in the recognized packed format.
+
+3. It then validates the headers of the executable using the `hsx_headers` function. If the headers are not valid, it returns `EFTYPE`, indicating that the container header is bad.
+
+4. It checks the layout of the executable using the `aout_layout_check` function. If the layout check fails, it returns an error code indicating either `ENOMEM` (if the layout is too big) or `EFTYPE` (if the layout is not valid).
+
+5. It holds the executable using `exec_text_hold` to ensure that no other process can modify it while this function is executing.
+
+6. It preflights both streams of the executable into a buffer cache block. If either stream fails to load, it returns `EFTYPE`.
+
+7. It saves the arguments of the executable using `exec_save_args`. If this function fails, it releases the buffer cache block and returns the error.
+
+8. It sets up the process's memory layout, including text, data, bss, and heap segments.
+
+9. It establishes the process using `exec_estab`. If this function fails, it releases the buffer cache block and returns the error.
+
+10. It releases the executable using `exec_text_release` and increments the process's count.
+
+11. It commits the process by setting `p_tip` to the executable's inode and updating the process's size.
+
+12. It performs a second expansion of the executable's text and data streams into the new process's memory. If this second expansion fails, it releases the buffer cache block, prints an error message, and kills the process using `psignal (p, SIGKILL)`.
+
+In summary, the `exec_hsaout_check` function verifies the executable's format, layout, and headers, holds the executable, preflights the streams, saves the arguments, sets up the process's memory layout, establishes the process, and commits it. If the second expansion of the executable's streams disagrees with the header, the process is killed using `SIGKILL`.

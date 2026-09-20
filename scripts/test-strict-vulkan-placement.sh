@@ -18,10 +18,6 @@ if [ ! -f "$model_path" ]; then
     exit 2
 fi
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 wrapper=$script_directory/vulkan-runtime-env.sh
 temporary_directory=$(mktemp -d)

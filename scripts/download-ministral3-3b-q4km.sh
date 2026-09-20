@@ -8,10 +8,6 @@ set -eu
 # which would have retired this rung on a false premise; this conversion carries
 # the Q4_K_M the device measures fastest.
 
-renice -n 19 -p $$ >/dev/null
-taskset -pc 0 $$ >/dev/null
-ionice -c 3 -p $$
-
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
     exit 2
