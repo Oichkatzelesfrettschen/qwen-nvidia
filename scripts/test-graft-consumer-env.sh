@@ -74,7 +74,8 @@ fi
 # and the refusal names the shape it had rather than the absence of the field.
 for shape in wrong_function:function_record_graph empty_calls:tool_calls_0 \
     bad_arguments:arguments_unparsed ok_false:arguments_ok_false \
-    truncated:finish_length http_error:HTTP\ 500 quoted_field:without\ tool_calls; do
+    truncated:raise\ QWEN_PROBE_MAX_TOKENS http_error:HTTP\ 500 \
+    quoted_field:without\ tool_calls; do
     mode=${shape%%:*}
     expected=${shape#*:}
     start_fixture "$mode"

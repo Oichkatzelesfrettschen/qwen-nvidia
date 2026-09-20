@@ -116,9 +116,11 @@ to complete a tool call in every case measured: `hammer21-3b`,
 let it serve, `phi4-mini`. The header read that establishes it costs a
 range request and no download.
 
-The converse does not hold. `swe-dev-7b`, `oxcoder-9b` and `lfm25-8b-a1b`
-all render the branch and all failed the probe, so the template is
-necessary and not sufficient. As a filter it is still worth running first: it rejected three
+The converse does not hold. `swe-dev-7b` and `oxcoder-9b` render the branch
+and still answer a forced call in prose, so the template is necessary and
+not sufficient. `lfm25-8b-a1b` belongs to neither group: it renders the
+branch and completes the call once the probe stops cutting it off at 128
+tokens, which `evidence/ada/agent-model-roster/EIGHT-B.md` measures. As a filter it is still worth running first: it rejected three
 of this wave's four before any bytes moved, and would have rejected the
 350M before the whole line of work that followed it.
 

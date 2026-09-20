@@ -21,11 +21,12 @@ lfm2moe and phi3 alone, and the row loads and warms up under the unchanged
 placement on the build that carries it. The device failure is resolved, so
 the row leaves quarantine and returns to tier candidate.
 
-What it does not do is call a tool. Given a forced record_symbols request
-with a 2048-token cap it writes the entries as prose in message content and
-the served template parses no call out of them, so it drops every target
-across three files. That is a template property, not a device failure, and
-it holds the row at standalone-only rather than in quarantine.
+It does call a tool. The broad screen recorded otherwise because its
+forced record_probe request caps the reply at 128 tokens and this row
+reasons before it calls, so the budget ran out before the call; at 512 it
+completes record_probe(ok=true). It still drops every target on the
+record_symbols contract at a 2048-token cap, which is a separate and harder
+request. evidence/ada/agent-model-roster/EIGHT-B.md carries both.
 
 Recorded 2026-09-19, resolved 2026-09-20. The abort is in
 evidence/ada/agent-model-roster/WAVE2.md and the recovery in

@@ -1,0 +1,22 @@
+<think>Looking at this source code, I need to understand the flow of execution verification and what happens when there's a mismatch during the second expansion check. Let me trace through the `exec_hsaout_check` function step by step.
+
+First, I see this is for handling packed a.out executables with the EX_HSPACK flag. The function starts by checking basic requirements like header length and magic numbers. Then it validates headers using `hsx_headers` and does a layout check with `aout_layout_check`.
+
+The key part is the preflight phase where it uses `hsx_load_buf` to read both the text and data streams into a buffer cache block (`geteblk`). It reads the compressed text stream starting at offset `HSX_HDRSIZE` and compressed data stream immediately after that. If either of these loads fail, it returns EFTYPE and releases resources.
+
+Now for the critical part - after setting up the process layout and establishing the execution environment, it does a second expansion with `hsx_load_buf` again, but this time with actual destination addresses. This is where it loads the text stream into `epp->data.vaddr` and the data stream into `epp->data.vaddr + raw.a_text`. 
+
+If this second expansion fails (meaning the decompressed output doesn't match what was expected), the code immediately calls `printf` to warn about corruption, sends SIGKILL to the process, and returns EFTYPE. Only after this successful second expansion does it release the buffer, clear execution state, and set up the stack.
+
+So the verification order is: first preflight load (to NULL), then commit the process, then second load (to actual addresses). And if the second load fails, the process gets killed with SIGKILL.</think>The `exec_hsaout_check` function verifies and commits the process in this order:
+
+1. **Preflight verification**: It reads both the compressed text (`x.x_ctext` starting at `HSX_HDRSIZE`) and compressed data (`x.x_cdata` starting at `HSX_HDRSIZE + x.x_ctext`) streams into a buffer cache block using `hsx_load_buf`, but discards the output (to `NULL`) while validating lengths and CRCs against header promises. If either fails, it returns `EFTYPE` and releases resources.
+
+2. **Process commitment**: If preflight succeeds, it saves arguments, establishes process layout, and calls `exec_estab`. Then it commits by releasing the old text reference (`exec_text_release`) and setting `p->p_tip` to hold the new inode.
+
+3. **Second expansion**: After commitment, it performs a *second* `hsx_load_buf` call to expand the streams into the actual user address space (`epp->data.vaddr`). If this second expansion fails (decompressed output doesn't match header CRCs/lengths), it:
+   - Prints a warning: `printf ("pid %d: packed executable changed between passes\n", p->p_pid)`
+   - Sends `SIGKILL` to the process
+   - Returns `EFTYPE`
+
+Only if the second expansion succeeds does it release the buffer and proceed to execution setup. The process is immediately terminated (killed) if the second expansion disagrees with header expectations.

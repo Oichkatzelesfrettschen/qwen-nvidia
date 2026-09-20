@@ -1,0 +1,50 @@
+<think>Looking at the `flash_swap_append` function, I need to understand what checks it performs and what it expects its callers to guarantee. Let me trace through the code carefully.
+
+First, I see there's a check: `if ((offset & (FLASH_PROG_BYTES - 1)) != 0)` - this returns -1 if the offset isn't aligned to program byte boundaries. That's clearly something it's verifying.
+
+Then in the main loop, there's another check: `if ((offset & (FLASH_SECTOR_BYTES - 1)) == 0 && ops->erase(...))` - this only attempts to erase if the offset is at a sector boundary, which makes sense because erasing requires sector alignment.
+
+The function is working with flash programming where you can program one byte at a time but erasing requires full sectors. The logic seems to be: if we're at a sector boundary, erase the whole sector first, then program the data.
+
+Now for what callers must guarantee... Looking at the function signature and usage, I can see several things it assumes:
+
+1. The caller must provide a scratch buffer - there are references to `scratch[index]` in the padding logic
+2. The caller must ensure the length is reasonable and aligned properly
+3. The caller must handle the case where `length == 0` is invalid
+
+Wait, let me look more carefully at what the function doesn't check but assumes. The function calls `ops->program()` and `ops->erase()` but doesn't validate the ops pointer or the return values from these operations. The callers must guarantee that these operations succeed.
+
+Also looking at the scratch buffer usage - when chunk != FLASH_PROG_BYTES, it pads with 0xff values from the scratch buffer. This suggests the caller must provide a sufficiently large scratch buffer.
+
+Actually, let me re-read this more systematically. The function has two main checks:
+1. Offset alignment check at the start
+2. Sector boundary check before erase operation
+
+What it doesn't check but relies on callers to guarantee:
+- Valid/allocated scratch buffer of sufficient size
+- That the ops pointer and its methods are valid
+- That the source data is valid
+- That the offset + length doesn't exceed some valid range (though this might be checked by the flash driver)
+
+The question asks what the function checks itself, and what callers must guarantee the function doesn't check. So I need to identify both categories clearly.</think>Looking at the `flash_swap_append` function, here's what it checks and what callers must guarantee:
+
+**What `flash_swap_append` checks:**
+1. It checks that `offset` is aligned to `FLASH_PROG_BYTES` boundaries:  
+   `if ((offset & (FLASH_PROG_BYTES - 1)) != 0)` returns -1
+2. It checks that `offset` is at a sector boundary before attempting to erase:  
+   `if ((offset & (FLASH_SECTOR_BYTES - 1)) == 0)` only calls `ops->erase`
+
+**What callers must guarantee (what the function doesn't check):**
+1. `ops` must be a valid `struct flash_swap_ops` pointer with valid function pointers
+2. `source` must point to valid data
+3. `scratch` must be a valid buffer of at least `FLASH_PROG_BYTES` size
+4. `length` must be > 0 (though the function doesn't explicitly validate this)
+5. The flash operations (`ops->erase`, `ops->program`) must handle bit-level programming constraints (e.g., not allowing 0-to-1 transitions in NOR flash)
+
+The function does not check:
+- Validity of `length` value (only decrements it)
+- Bounds of `offset + length`
+- Validity of `scratch` buffer size beyond initial `FLASH_PROG_BYTES`
+- Whether `ops` functions actually work correctly
+
+Callers must guarantee the function doesn't check by ensuring proper alignment, valid pointers, and appropriate buffer sizes.

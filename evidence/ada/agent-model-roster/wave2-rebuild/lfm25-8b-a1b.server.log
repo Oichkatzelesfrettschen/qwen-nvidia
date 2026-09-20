@@ -14,8 +14,8 @@ device_budget_headroom=ample surplus_bytes=4827643904
 model_memory_preflight=observe
 depth_validation admitted=16384 validated=none geometry=2048/512
 runtime_environment backend=cuda wrapper=cuda-runtime-env.sh profile=default
-gpu_compute_lease path=/home/eirikr/qwen-webui-state/vulkan-workload.lock legacy_name=QWEN_VULKAN_WORKLOAD_LOCK
-roster_cache path=/home/eirikr/qwen-webui-state/router-model-cache entries=0
+gpu_compute_lease path=$HOME/qwen-webui-state/vulkan-workload.lock legacy_name=QWEN_VULKAN_WORKLOAD_LOCK
+roster_cache path=$HOME/qwen-webui-state/router-model-cache entries=0
 0.00.047.764 I cmn  common_param: common_params_print_info: build 1935 (f280b2698) with GNU 15.3.0 for Linux x86_64
 0.00.047.768 I cmn  common_param: common_params_print_info: verbosity = 4 (adjust with the `-lv N` CLI arg)
 0.00.047.769 I cmn  common_param: device_info:
@@ -25,11 +25,11 @@ roster_cache path=/home/eirikr/qwen-webui-state/router-model-cache entries=0
 0.00.158.950 I srv          init: running without SSL
 0.00.159.856 I srv          init: using 11 threads for HTTP server
 0.00.160.238 I srv         start: binding port with default address family
-0.00.161.501 I srv  workload_lea: vulkan workload lease armed: path=/home/eirikr/qwen-webui-state/vulkan-workload.lock
-0.00.161.513 I srv  workload_lea: vulkan workload lease acquired: path=/home/eirikr/qwen-webui-state/vulkan-workload.lock waited_ms=0 bound=deadline
-0.00.161.616 I srv    load_model: loading model '/home/eirikr/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf'
-0.00.161.618 I srv    load_model: local path '/home/eirikr/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf'
-0.00.200.489 I llama_model_loader: loaded meta data with 39 key-value pairs and 256 tensors from /home/eirikr/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf (version GGUF V3 (latest))
+0.00.161.501 I srv  workload_lea: vulkan workload lease armed: path=$HOME/qwen-webui-state/vulkan-workload.lock
+0.00.161.513 I srv  workload_lea: vulkan workload lease acquired: path=$HOME/qwen-webui-state/vulkan-workload.lock waited_ms=0 bound=deadline
+0.00.161.616 I srv    load_model: loading model '$HOME/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf'
+0.00.161.618 I srv    load_model: local path '$HOME/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf'
+0.00.200.489 I llama_model_loader: loaded meta data with 39 key-value pairs and 256 tensors from $HOME/models/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf (version GGUF V3 (latest))
 0.00.200.510 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
 0.00.200.526 I llama_model_loader: - kv   0:                       general.architecture str              = lfm2moe
 0.00.200.528 I llama_model_loader: - kv   1:                               general.type str              = model
@@ -209,5 +209,5 @@ How are you?<|im_end|>
 0.22.748.953 I srv  llama_server: listening on http://127.0.0.1:8080
 0.22.748.955 W srv  llama_server: NOTICE: server default port will be changed to :9931 in a future release
 0.22.748.955 W srv  llama_server:         ref: https://github.com/ggml-org/llama.cpp/pull/26508
-0.22.751.471 I srv  workload_lea: vulkan workload lease released: path=/home/eirikr/qwen-webui-state/vulkan-workload.lock
+0.22.751.471 I srv  workload_lea: vulkan workload lease released: path=$HOME/qwen-webui-state/vulkan-workload.lock
 0.22.751.474 I srv  update_slots: all slots are idle

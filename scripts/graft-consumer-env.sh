@@ -68,7 +68,22 @@ header_file=$(mktemp "${TMPDIR:-/tmp}/graft-consumer-env.XXXXXX")
 printf 'header = "Authorization: Bearer %s"\n' "$(tr -d '\n' <"$api_key_file")" \
     >"$header_file"
 
-probe_body='{"model":"'$served_model'","temperature":0,"max_tokens":128,
+# The cap covers a reasoning preamble, because a model that thinks before it
+# calls spends the budget on tokens the call never reaches. At 128 this probe
+# cut off lfm25-8b-a1b and klear-agentforge-8b and recorded both as unable to
+# call a tool; both complete record_probe(ok=true) at 512
+# (evidence/ada/agent-model-roster/tool-format-probe/). One forced call costs a
+# few dozen tokens, so a model that answers at once spends nothing extra here.
+probe_max_tokens=${QWEN_PROBE_MAX_TOKENS:-1024}
+case $probe_max_tokens in
+    ''|*[!0-9]*)
+        printf 'QWEN_PROBE_MAX_TOKENS names a token count: %s\n' \
+            "$probe_max_tokens" >&2
+        exit 2
+        ;;
+esac
+
+probe_body='{"model":"'$served_model'","temperature":0,"max_tokens":'$probe_max_tokens',
 "tools":[{"type":"function","function":{"name":"record_probe",
 "description":"Record the probe.","parameters":{"type":"object",
 "properties":{"ok":{"type":"boolean"}},"required":["ok"]}}}],
@@ -113,6 +128,13 @@ case $probe_verdict in
     ok) ;;
     no_tool_calls)
         printf 'the served llama-server answered a forced tool call without tool_calls; launch with QWEN_CHAT_TOOLS=on and a model that records one, such as the 4B distill (the 2B distill answers in prose)\n' >&2
+        exit 1
+        ;;
+    finish_length)
+        # A reply the cap cut off says nothing about whether the model can
+        # record a call, so the refusal names the cap rather than the model.
+        printf 'the tool-call probe reached max_tokens %s before completing record_probe(ok=true); raise QWEN_PROBE_MAX_TOKENS, because a reply cut off mid-call is no evidence the model cannot make one\n' \
+            "$probe_max_tokens" >&2
         exit 1
         ;;
     *)
