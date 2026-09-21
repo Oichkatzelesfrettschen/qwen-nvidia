@@ -109,11 +109,25 @@ over the whole set. It runs faster on a busier machine.
 | 24 | 2 | 79.16 | 3.61 | 95.6% |
 
 The mechanism is a hypothesis rather than a finding: the governor reads
-`performance` with boost enabled, and observed core clocks were a mixed 3466 to
-4333 MHz, so a sustained multi-core load plausibly holds the package at a
-clock that a lightly loaded machine lets fall, while a nice-19 process
-contributes little to whatever the hardware is using to decide. Settling it
-needs per-run clock capture rather than an argument.
+`performance` with boost enabled, so a sustained multi-core load plausibly
+holds the package at a clock a lightly loaded machine lets fall, while a
+nice-19 process contributes little to whatever the hardware uses to decide.
+
+The harness now samples `/proc/cpuinfo` core frequencies for the same interval
+it samples the compute clients, and records the mean across cores and the peak
+any core reached. Three runs at load 15 report a mean of 4107 to 4329 MHz
+against a peak of 4347 to 4382, with `reference_ms` at 78.723 to 81.379 --
+the high-load band's timings at a near-boost clock, which is what the
+hypothesis predicts for that end.
+
+**The other end is not measured.** The host has not returned below load 14
+since the instrument existed, so there is no low-load clock sample to compare
+against, and the hypothesis stands unsettled rather than supported. What the
+instrument does buy immediately is that a future arm comparison carries the
+clock each arm ran at, so an arm that happened to run during load cannot claim
+its advantage silently. The sample count also travels: a 320 ms run at a
+0.1 second interval yields about five samples, which bounds what the mean is
+worth.
 
 What this does settle is which numbers survive the host. The setup stages do
 not: over the same runs `cuda_context_ms` spans 132.131 to 4757.229 ms, a

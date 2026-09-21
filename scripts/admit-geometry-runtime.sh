@@ -55,9 +55,11 @@ record() { printf '%s\t%s\n' "$1" "$2" >>"$summary"; }
 
 service_pid=''
 sampler_pid=''
+clock_sampler_pid=''
 cleanup() {
     status=$?
     if [ -n "$sampler_pid" ]; then kill "$sampler_pid" 2>/dev/null || :; fi
+    if [ -n "$clock_sampler_pid" ]; then kill "$clock_sampler_pid" 2>/dev/null || :; fi
     if [ -n "$service_pid" ] && kill -0 "$service_pid" 2>/dev/null; then
         kill "$service_pid" 2>/dev/null || :
         wait "$service_pid" 2>/dev/null || :
@@ -159,8 +161,22 @@ sample_clients() {
         sleep 0.1
     done
 }
+# reference_ms correlates with host load at -0.84 on this workstation, running
+# faster on a busier machine, which starvation does not explain and a package
+# clock held up by a sustained load would. The hypothesis needs the clock the
+# run actually saw rather than an argument, so the core frequencies are sampled
+# beside the compute clients for the same interval.
+sample_clock() {
+    while :; do
+        awk -v stamp="$(date +%s.%N)" '/^cpu MHz/ { sum += $4; n += 1; if ($4 > max) max = $4 }
+            END { if (n) printf "%s\t%.0f\t%.0f\n", stamp, sum / n, max }' /proc/cpuinfo
+        sleep 0.1
+    done
+}
 sample_clients >"$output_directory/clients-during.raw" 9>&- &
 sampler_pid=$!
+sample_clock >"$output_directory/clock-during.tsv" 9>&- &
+clock_sampler_pid=$!
 
 request_started=$(date +%s.%N)
 # The reply is scrubbed on the way in like every other capture: it carries
@@ -187,6 +203,7 @@ sys.stdout.write(buffer.decode())
 PY
 request_ended=$(date +%s.%N)
 kill "$sampler_pid" 2>/dev/null || :; wait "$sampler_pid" 2>/dev/null || :; sampler_pid=''
+kill "$clock_sampler_pid" 2>/dev/null || :; wait "$clock_sampler_pid" 2>/dev/null || :; clock_sampler_pid=''
 record request_wall_s "$(printf '%s %s' "$request_started" "$request_ended" | awk '{ printf "%.3f", $2 - $1 }')"
 
 # The reply is read by one Python pass that prints tab-separated facts; the
@@ -271,6 +288,11 @@ for stage in accel compare cuda_context download launch module optix_context pip
 done
 record stage_sum_ms "$(fact stage_sum_ms)"
 record host_load_1m_after "$(awk '{print $1}' /proc/loadavg)"
+# The mean across cores answers what the package was held at; the maximum
+# answers what a single-threaded stage could have been given.
+record core_mhz_mean_during "$(awk -F '\t' '{ s += $2; n += 1 } END { if (n) printf "%.0f", s / n }' "$output_directory/clock-during.tsv")"
+record core_mhz_peak_during "$(awk -F '\t' '$3 > m { m = $3 } END { printf "%.0f", m }' "$output_directory/clock-during.tsv")"
+record clock_samples "$(wc -l <"$output_directory/clock-during.tsv" | tr -d ' ')"
 record gpu_utilization_after_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader -i 0 | tr -d ' %')"
 check reply_runtime_sha256 "$(fact runtime_sha256)" "$runtime_sha256"
 
