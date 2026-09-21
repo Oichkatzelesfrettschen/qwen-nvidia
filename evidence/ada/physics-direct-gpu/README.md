@@ -159,6 +159,19 @@ A scene where per-step readback is a measurable share of the step would;
 The direct arm still copies its device buffers to host memory for the JSON
 reply, so this admits the state-access API rather than a GPU-resident path.
 
+## The conditions these timings belong to
+
+`scripts/qwen-exec-idle-priority.sh` runs the runtime at nice 19 with idle I/O
+and verifies both before it execs, so every timing here is a measurement of this
+host under the load it carried as much as of the runtime. A loaded machine
+starves a deprioritized process: a geometry query whose stages sum to 319 ms on
+a quiet host summed to 9864 ms at load average 24, thirty times higher, with the
+setup stages taking almost all of it. The admission harness now records the
+one-minute load average and the GPU utilization either side of the run, so a
+contaminated run reads as contaminated rather than as a slow one. A priority
+change needs its own paired comparison rather than being bundled into a claim
+about something else.
+
 ## Status
 
 The arms ran after `scripts/qwen-drain-controller.sh resume

@@ -24,7 +24,7 @@ the service requires before it reports `completed` at all.
 
 import json
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 # The columns of scripts/geometry-profiles.tsv, in order. The service and the
 # MCP child both read that ledger, so the shape lives here beside the version
 # rather than in each reader, where a column added to one reader leaves the
@@ -47,8 +47,16 @@ MODULE_CACHES = ("enabled", "disabled")
 STAGE_KEYS = {
     "scene_ms", "cuda_context_ms", "optix_context_ms", "accel_ms", "module_ms",
     "pipeline_ms", "sbt_ms", "upload_ms", "launch_ms", "download_ms",
-    "validate_ms", "teardown_ms",
+    "reference_ms", "compare_ms", "teardown_ms",
 }
+# The runtime serializes every stage and the wall time with three decimal
+# places, so each carries up to half a millisecond-thousandth of rounding. The
+# stages can each round up while the total rounds down, which puts their sum
+# legitimately above it by (stages + 1) * half a step. A tolerance finer than
+# the precision it checks rejects correct runs, so the bound is derived from
+# the format rather than written as an epsilon.
+STAGE_PRECISION_MS = 0.001
+STAGE_SUM_TOLERANCE_MS = (len(STAGE_KEYS) + 1) * STAGE_PRECISION_MS / 2
 MODULE_CACHE_KEYS = {"requested", "enabled", "location"}
 MAX_LINE_BYTES = 65536
 ACTIONS = ("geometry_ray_query", "status")
@@ -197,8 +205,10 @@ def validate_result(result):
     # The stages partition the run, so their sum cannot exceed the wall time
     # they were taken inside; a stage double-counted or a mark left behind
     # shows up here rather than in a plausible-looking table.
-    if sum(timings.values()) > result["wall_ms"] + 1e-6:
-        raise ProtocolError("the stage timings sum past wall_ms")
+    if sum(timings.values()) > result["wall_ms"] + STAGE_SUM_TOLERANCE_MS:
+        raise ProtocolError("the stage timings sum %.3f ms past wall_ms, beyond the %.4f ms "
+                            "the serialization can account for"
+                            % (sum(timings.values()) - result["wall_ms"], STAGE_SUM_TOLERANCE_MS))
     if abs(timings["launch_ms"] - result["launch_ms"]) > 1e-6:
         raise ProtocolError("timings.launch_ms disagrees with launch_ms")
 

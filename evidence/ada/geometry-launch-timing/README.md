@@ -81,6 +81,120 @@ That ordering is the finding, and it is what the next change has to answer
 before any streams or events are worth adding: the reference intersection is
 the cost, not the launch.
 
+## The validation stage is now two stages, and the split is unmeasured
+
+The retained `warm/` and `cold/` captures above report `validate_ms`, which
+covered computing the reference answer, comparing the device result against it,
+and accumulating the statistics. The reference is a function of the rays, the
+triangles and `t_max` and of nothing the device produced, so it is now computed
+into its own vector and timed as `reference_ms` apart from the `compare_ms`
+that consumes it. That is what makes the first reusable for unchanged inputs
+without weakening the second: every ray is still compared against an
+independently computed answer, and nothing cached is a previous device result.
+
+**The reference is 95.5 percent of the stage.** The seventeen runs that retain
+both columns -- eleven in `reference-split.tsv` and six in `clock-samples.tsv`
+-- give that share a mean of 95.46 percent with a standard deviation of 0.45
+and a range of 94.77 to 96.18. It is the only thing about these two stages that
+has held still. The two runs at load 24 enter the `reference_ms` set below and
+not this one, because their `compare_ms` was not captured.
+
+`reference_ms` is 82.00 ms with a standard deviation of 3.37 over nineteen runs
+and a range of 77.285 to 88.597, and **what moves it is not established.** Host
+load does not: the correlation is -0.11 once one batch of four consecutive runs
+is set aside, and that batch is the whole of the -0.43 the full set shows.
+
+| load band | runs | `reference_ms` mean | min | max |
+| --- | --- | --- | --- | --- |
+| 4.1 to 4.2 | 3 | 80.62 | 77.29 | 85.28 |
+| 7.4 to 7.6 | 4 | 86.84 | 84.72 | 88.60 |
+| 15 to 18 | 10 | 81.05 | 78.72 | 85.48 |
+| 24 | 2 | 79.16 | 79.03 | 79.29 |
+
+The load-7.5 batch sits above every other band including the quieter one below
+it, so it is an anomaly in those four runs rather than a point on a trend. What
+was different about that window is unknown.
+
+The clock hypothesis is refuted rather than unsettled. `clock-samples.tsv`
+carries the package frequency each run was given: 4107 to 4329 MHz mean across
+cores at load 15, and 4210 to 4284 at load 4, with peaks of 4345 to 4382 in
+both. The clock is the same at both ends, so it does not explain a timing
+difference between them -- and there is less of a difference to explain than
+the earlier reading of this file claimed.
+
+The sampler reads the mean and maximum across all cores from `/proc/cpuinfo`
+every tenth of a second for the length of the request, so what it bounds is the
+band the package sat in while the run happened. It does not name the frequency
+the thread computing the reference was given, and an 80 ms stage fits between
+two samples, so a stage time divided by one of these means is not a cycle
+count. Refuting a package-wide difference between two load bands is the claim
+it was built for and the only one it carries.
+
+That leaves the absolute timing varying by 14 percent for reasons this
+instrument set does not reach, and the share stable at 95.5 through three
+revisions of the explanation. The share is what step one needed and what a
+projection should rest on; the absolute is not.
+
+The setup stages remain the ones the host genuinely does take: over the same
+runs `cuda_context_ms` spans 132.131 to 4757.229 ms, a factor of 36, queueing
+behind driver work and idle-class I/O. The reference and the comparison run
+back to back in one process, which is why their ratio survives whatever the
+machine is doing to their absolute cost.
+
+The one departure is a `compare_ms` of 21.929 on the first run against a freshly
+allocated reference vector, against 3.4 to 4.8 on every later run, and it is
+unexplained. First touch of the reference vector is not the cause: the vector is
+constructed and every entry written inside the reference span, so its eight
+megabytes of faults are charged to `reference_ms` and cannot land in the
+comparison. The comparison's own allocation is `primitive_hits`, one counter
+per triangle.
+
+Materializing the reference costs something the retained captures do not
+measure. The merged combined `validate_ms` is 88.719 ms and the two stages here
+sum to 84.812, but those are different runs, the split total is the lower of
+the two, and both sit inside the 14 percent the absolute moves by on this host,
+so that subtraction isolates nothing. What the change does is write a
+`RayResult` per ray to memory and read it back, eight megabytes per million
+rays, where the reference used to be consumed in register. On fourteen
+triangles the traffic is small; it scales with the ray count, and a paired
+measurement is what would price it.
+
+So caching the reference removes about 82 ms of the roughly 119 ms a resident
+worker would leave per query, with a 77 to 89 ms range this instrument set does
+not account for, and the comparison it protects costs about 4 ms. Ray generation at 22 ms caches
+beside it for a fixed query set. What survives both is upload, launch, download
+and compare: on the order of 13 ms. That is a projection from one-shot
+measurements and a resident implementation has not run.
+
+A reuse key for the reference has to name the mathematical inputs -- ordered
+geometry and transforms, ordered ray bytes, the intersection limit, and the
+reference implementation's build identity -- rather than the scene and query
+names. Once PhysX supplies the transforms, a reference computed for one
+simulation state would otherwise verify the next state on the strength of an
+unchanged scene name.
+
+## The conditions these timings belong to
+
+`scripts/qwen-exec-idle-priority.sh` runs the runtime at nice 19 with idle I/O
+and verifies both before it execs, so every stage here is a measurement of this
+host under the load it carried as much as of the runtime. The effect is not
+small. Repeating the pair at load average 24, with a GPG daemon at 94 percent
+of a core and the desktop holding the GPU at 68 percent, took the warm run's
+stage sum from 319 ms to 9864 ms: `cuda_context_ms` 4757 against 136,
+`optix_context_ms` 3294 against 47, `pipeline_ms` 1581 against 9. `launch_ms`
+moved from 2.428 to 2.653, 9 percent, because the launch is the one stage the
+host scheduler does not own.
+
+Those runs are discarded rather than retained. The harness now records the
+one-minute load average and the GPU utilization either side of every run in
+both lanes, so a contaminated run reads as contaminated rather than as a slow
+one. A load threshold is not imposed: what counts as quiet is a judgment about
+the host, and the record is what lets a reader make it.
+
+Changing the priority is its own paired comparison against the same scene,
+reference implementation and runtime. It is not bundled into a claim about a
+resident worker.
+
 ## What has not run
 
 The resident worker itself, its explicit streams and events, its reusable

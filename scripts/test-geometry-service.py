@@ -148,6 +148,9 @@ def main():
                   "the cold row pays more in the module stage than the warm row")
             check(cold.get("scene_sha256") != warm.get("scene_sha256"),
                   "the cache state changes the digest that names the run")
+            check(warm.get("timings", {}).get("reference_ms") is not None
+                  and warm.get("timings", {}).get("compare_ms") is not None,
+                  "the reply times the reference apart from the comparison that uses it")
             try:
                 protocol.parse_reply(json.dumps(reply))
                 check(True, "the reply parses under the protocol")
@@ -181,6 +184,17 @@ def main():
                   "a held lease refuses the request")
             check(not marker.exists(), "no runtime started under a held lease")
             os.close(lease)
+        finally:
+            harness.stop()
+
+        # Thirteen stages each rounded up against one total rounded down put
+        # the sum legitimately above the wall time by the serialization's own
+        # worth. A tolerance finer than the format rejects a correct run.
+        harness = Harness(state, mode="rounding")
+        try:
+            reply = harness.exchange(request())
+            check(reply["status"] == "completed",
+                  "stages summing the serialization's worth above wall_ms still complete")
         finally:
             harness.stop()
 
