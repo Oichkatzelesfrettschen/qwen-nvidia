@@ -43,6 +43,36 @@ correctly when the actor poses behind it are no longer copied back is not
 settled by the headers. It is left as a measurement: the two rows run the same
 scene for the same steps, and a divergence in the reported angles is the answer.
 
+## A step that completed without the contacts it was asked for
+
+PhysX reports a GPU buffer that ran out of room through the error callback and
+then completes the step: the result returns and the contacts that did not fit
+are absent. `strings` over
+`/opt/nvidia/physx/bin/linux.x86_64/release/libPhysXGpu_64.so` carries the
+reports verbatim, among them "Contact buffer overflow detected, please increase
+its size in the scene desc!" and
+"PxGpuDynamicsMemoryConfig::collisionStackSize buffer overflow detected, please
+increase its size to at least %u in the scene desc! Contacts have been
+dropped." PhysX raises them at warning severity, which a callback filtering on
+`PxErrorCode::eABORT` and its neighbours never sees, so the runtime counted
+zero errors and returned a result describing a simulation it did not run.
+
+`scripts/physics-runtime/physx-message-policy.h` carries the predicate that
+reads the message text instead, and the runtime refuses such a run as
+`simulation_state_dropped`. The count travels in the result as
+`physx_messages`, so a reader can tell a run the policy cleared from one that
+predates the policy, and the protocol refuses a completed reply carrying a
+nonzero `invalidating`.
+
+`scripts/test-physx-message-policy.sh` drives the predicate with the library's
+own sentences on both sides -- eleven overflow reports with their placeholders
+filled, against benign lines from the same library including
+"PxgConstraintPartition: attempting to remove an edge from an empty partition.
+Skipping." -- and reads each policy substring back out of the shipped library,
+so an SDK upgrade that rewords a report fails the gate rather than passing a
+run whose contacts were dropped. Emptying two entries from the predicate fails
+the first check with all nine reports it then admits.
+
 ## The measurement, and its falsifiers
 
 Both rows simulate `d6-chain-4` at the same timestep, gravity and step count and

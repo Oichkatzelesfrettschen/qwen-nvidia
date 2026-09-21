@@ -12,7 +12,9 @@ set -eu
 # direct-GPU path specifically: `sleep-claim` answers a sleep state the path has
 # no source for, `cuda-error` reports a driver error beside a successful read,
 # and `path-mismatch` claims the scene holds the direct-GPU flag it declares it
-# does not.
+# does not. `dropped-state` completes while reporting the GPU buffer overflow
+# that means its own contacts were dropped, which the runtime refuses by name
+# and the protocol refuses in a reply that reached it anyway.
 
 [ "$#" -eq 6 ] || { printf 'usage: fake-physx-runtime SCENE TIMESTEP_S STEPS GRAVITY_Y DEVICE_INDEX STATE_PATH\n' >&2; exit 2; }
 scene=$1
@@ -55,7 +57,9 @@ else
     transfers='"transfers":{"counted":false,"device_reads":null,"device_to_host_copies":null,"bytes":null,"cuda_last_error":null}'
     divergence='"cpu_accessor_divergence":null'
 fi
+messages='"physx_messages":{"total":0,"invalidating":0}'
 case $mode in
+    dropped-state) messages='"physx_messages":{"total":3,"invalidating":1}' ;;
     sleep-claim) sleeping=false ;;
     cuda-error) transfers='"transfers":{"counted":true,"device_reads":3,"device_to_host_copies":3,"bytes":144,"cuda_last_error":700}' ;;
     path-mismatch) direct_active=$([ "$direct_active" = true ] && printf false || printf true) ;;
@@ -73,5 +77,5 @@ touching=2
 [ "$mode" = contacts ] && touching=4
 printf '"contacts":{"pairs":%s,"touching":%s,"cache_hits":1},' "$pairs" "$touching"
 printf '"solver":{"active_constraints":1},"broadphase":{"adds":2,"removes":0},'
-printf '%s,%s,' "$transfers" "$divergence"
+printf '%s,%s,%s,' "$transfers" "$divergence" "$messages"
 printf '"steps":%s,"timestep_s":%s,"simulate_ms":12.5,"state_read_ms":0.4,"wall_ms":40.0}\n' "$steps" "$timestep"

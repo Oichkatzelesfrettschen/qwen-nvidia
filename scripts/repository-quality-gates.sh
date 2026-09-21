@@ -150,6 +150,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-aur-llama-cpp-cuda-retention.py
 scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
+scripts/test-physx-message-policy.sh
 python3 scripts/test-geometry-service.py
 scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check
