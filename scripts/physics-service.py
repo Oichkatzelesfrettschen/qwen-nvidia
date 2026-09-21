@@ -50,10 +50,7 @@ PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
 LEASE_FILE_NAME = "vulkan-workload.lock"
 LEASE_STATUS_FILE_NAME = "vulkan-workload.status"
 LEASE_WAIT_POLL_SECONDS = 0.05
-PROFILE_COLUMNS = (
-    "profile_id", "scene", "timestep_s", "max_steps", "gravity_y", "gpu_dynamics",
-    "gpu_broadphase", "timeout_s", "execution_policy", "device_index",
-)
+PROFILE_COLUMNS = protocol.PROFILE_COLUMNS
 SCENES = ("d6-chain-4",)
 MAX_RUNTIME_STDERR_BYTES = 65536
 MAX_RUNTIME_OUTPUT_BYTES = 1 << 20
@@ -158,6 +155,9 @@ def load_profiles(path):
                 protocol._identifier(row["profile_id"], "profile_id")
                 if row["scene"] not in SCENES:
                     raise ValueError("scene %s is not one the runtime carries" % row["scene"])
+                if row["state_path"] not in protocol.STATE_PATHS:
+                    raise ValueError("state_path %s is not one the runtime carries"
+                                     % row["state_path"])
                 row["timestep_s"] = float(row["timestep_s"])
                 if not 0 < row["timestep_s"] <= 1:
                     raise ValueError("timestep_s is outside (0, 1]")
@@ -339,11 +339,14 @@ class PhysicsService:
         argv = [
             PRIORITY_WRAPPER, self.settings["runtime"], profile["scene"],
             "%.9g" % profile["timestep_s"], str(steps), "%.9g" % profile["gravity_y"],
-            str(profile["device_index"]),
+            str(profile["device_index"]), profile["state_path"],
         ]
+        # The state path selects a scene flag that is not mutable after creation,
+        # so two paths are two runs and the digest that names a run carries it.
         scene_sha256 = hashlib.sha256(json.dumps(
             {"scene": profile["scene"], "timestep_s": profile["timestep_s"], "steps": steps,
-             "gravity_y": profile["gravity_y"]}, sort_keys=True).encode()).hexdigest()
+             "gravity_y": profile["gravity_y"], "state_path": profile["state_path"]},
+            sort_keys=True).encode()).hexdigest()
         environment = {
             "PATH": "/usr/bin:/bin",
             "HOME": os.environ.get("HOME", "/"),

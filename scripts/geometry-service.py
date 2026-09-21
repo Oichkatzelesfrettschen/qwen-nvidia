@@ -53,9 +53,7 @@ PRIORITY_WRAPPER = os.path.join(SERVICE_DIRECTORY, "qwen-exec-idle-priority.sh")
 LEASE_FILE_NAME = "vulkan-workload.lock"
 LEASE_STATUS_FILE_NAME = "vulkan-workload.status"
 LEASE_WAIT_POLL_SECONDS = 0.05
-PROFILE_COLUMNS = (
-    "profile_id", "scene", "query_set", "max_rays", "timeout_s", "execution_policy", "device_index",
-)
+PROFILE_COLUMNS = protocol.PROFILE_COLUMNS
 SCENES = ("cube-and-plane",)
 QUERY_SETS = ("orbit",)
 MAX_RUNTIME_STDERR_BYTES = 65536

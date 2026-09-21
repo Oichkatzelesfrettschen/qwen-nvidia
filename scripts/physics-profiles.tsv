@@ -18,6 +18,15 @@
 # execution_policy refused or validator-gated, the same reading the web and
 #                 image ledgers give the field: refused emits no tool
 # device_index    the CUDA device the runtime binds
+# state_path      readback or direct-gpu. readback reads simulation state
+#                 from the actor accessors PhysX fills during fetchResults.
+#                 direct-gpu raises PxSceneFlag::eENABLE_DIRECT_GPU_API,
+#                 which disables those copies and answers from device
+#                 buffers through PxDirectGPUAPI; the flag is not mutable,
+#                 so the path belongs to the scene rather than a request.
+#                 The flag forces eDISABLE_SLEEPING, which both paths raise
+#                 so the rows differ in the transfer path alone.
 #
-# profile_id	scene	timestep_s	max_steps	gravity_y	gpu_dynamics	gpu_broadphase	timeout_s	execution_policy	device_index
-physics-d6-chain-a	d6-chain-4	0.016666667	3600	9.81	yes	yes	120	refused	0
+# profile_id	scene	timestep_s	max_steps	gravity_y	gpu_dynamics	gpu_broadphase	timeout_s	execution_policy	device_index	state_path
+physics-d6-chain-a	d6-chain-4	0.016666667	3600	9.81	yes	yes	120	refused	0	readback
+physics-d6-chain-a-direct	d6-chain-4	0.016666667	3600	9.81	yes	yes	120	refused	0	direct-gpu
