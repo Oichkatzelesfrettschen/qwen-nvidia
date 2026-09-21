@@ -134,16 +134,27 @@ fields as null on the direct path and the harness reads `unmeasured` rather
 than `yes`. `PxD6JointGPUAPIReadType` carries joint force and torque, so a
 direct path that measures a joint reads those.
 
-**No speed claim is supported at this scene size.** Four readback runs measured
-`simulate_ms` at 1635.25, 1465.05, 1308.72 and 1500.78, a 25 percent spread on
-the control alone; three direct runs measured 1551.39, 1266.61 and 1521.27. The
-spread between repeats of one configuration exceeds any difference between the
-configurations, so the retained pair (1500.78 against 1521.27) resolves nothing
-about which is faster. `state_read_ms` moved across the direct arm's runs from
-21.33 ms to 0.31 ms to 0.456 ms, which is first-call CUDA initialization rather
-than transfer cost, against 0.0013 ms for the readback arm's accessor loop.
-Four bodies is too small a scene to separate these; resolving it needs repeats
-and a body count where the per-step readback is a measurable share of the step.
+**The two paths are not separable in step time at this scene size.** Five
+back-to-back admissions per arm, retained in `repeats.tsv`:
+
+| arm | `simulate_ms` mean | sd | min | max |
+| --- | --- | --- | --- | --- |
+| readback | 1386.69 | 19.24 | 1360.71 | 1410.37 |
+| direct-gpu | 1372.58 | 24.88 | 1353.49 | 1415.90 |
+
+The direct arm's mean is 14.11 ms lower, 1.02 percent, which is 0.63 pooled
+standard deviations: the arms overlap. Its explicit state read costs 0.453 ms
+more than the readback arm's accessor loop, 0.033 percent of one run, and the
+21.33 ms this reported on the direct arm's first run of the session was
+first-call CUDA initialization rather than transfer cost.
+
+Scattered runs taken while the tree was being edited spread `simulate_ms` from
+1266.61 to 1635.25 and read as a 25 percent noise floor. That was machine state,
+not the measurement: back to back on an idle card the spread within one
+configuration is 3.6 and 4.5 percent. Either way the difference between the
+configurations is smaller, so four bodies cannot answer which path is faster.
+A scene where per-step readback is a measurable share of the step would;
+4 bodies move 224 bytes, which is not one.
 
 The direct arm still copies its device buffers to host memory for the JSON
 reply, so this admits the state-access API rather than a GPU-resident path.
