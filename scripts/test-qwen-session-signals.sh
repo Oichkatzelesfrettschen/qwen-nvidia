@@ -12,13 +12,58 @@ fi
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 temporary_directory=$(mktemp -d)
+
+# Starting a fixture is a fork, an exec and a write, and a host under load takes
+# seconds over what an idle one does in milliseconds. Each wait polls its own
+# condition to a deadline long enough that only a stuck fixture reaches it: the
+# one second these loops allowed turned a busy machine into a test failure,
+# which reports the fixture rather than the load.
+WAIT_DEADLINE_TICKS=${QWEN_TEST_WAIT_TICKS:-3000}
+
+barrier_reads() {
+    [ "$(sed -n '1p' "$state_directory/admission.barrier" 2>/dev/null || true)" = "$1" ]
+}
+
+wait_until() {
+    waited=0
+    until "$@"; do
+        waited=$((waited + 1))
+        if [ "$waited" -ge "$WAIT_DEADLINE_TICKS" ]; then
+            return 1
+        fi
+        sleep 0.01
+    done
+}
 fixture_scripts=$temporary_directory/remote
 session_pid=''
 server_pid=''
+cleanup_ran=''
+
+process_gone() {
+    ! kill -0 "$1" 2>/dev/null
+}
 
 cleanup_fixture() {
+    # The trap covers EXIT as well as each signal, and the handler itself
+    # exits, so a second entry would signal a pid this one already reaped.
+    if [ -n "$cleanup_ran" ]; then
+        return 0
+    fi
+    cleanup_ran=yes
     if [ -n "$session_pid" ]; then
         kill -TERM "$session_pid" 2>/dev/null || true
+        # A session that does not answer TERM must not hold the test open. The
+        # failure being reported is the result, and an unbounded wait here
+        # returns a stall in its place.
+        waited=0
+        while ! process_gone "$session_pid"; do
+            waited=$((waited + 1))
+            if [ "$waited" -ge 200 ]; then
+                kill -KILL "$session_pid" 2>/dev/null || true
+                break
+            fi
+            sleep 0.01
+        done
         wait "$session_pid" 2>/dev/null || true
     fi
     if [ -n "$server_pid" ]; then
@@ -99,11 +144,7 @@ for signal_and_status in HUP:129 INT:130 TERM:143; do
       >"$temporary_directory/session-$signal_name.stdout" \
       2>"$temporary_directory/session-$signal_name.stderr" &
     session_pid=$!
-    attempt=0
-    while [ ! -s "$server_pid_marker" ] && [ "$attempt" -lt 100 ]; do
-        attempt=$((attempt + 1))
-        sleep 0.01
-    done
+    wait_until test -s "$server_pid_marker" || true
     if [ ! -s "$server_pid_marker" ]; then
         printf '%s session did not start its server fixture\n' \
             "$signal_name" >&2
@@ -152,10 +193,7 @@ QWEN_ROUTER=1 QWEN_ROUTER_ORDERLY_RETIREMENT=1 QWEN_REQUIRE_API_KEY=1 \
     >"$temporary_directory/session-router-env.stdout" \
     2>"$temporary_directory/session-router-env.stderr" &
 session_pid=$!
-attempt=0
-while [ ! -s "$router_env_record" ] && [ "$attempt" -lt 200 ]; do
-    attempt=$((attempt + 1)); sleep 0.01
-done
+wait_until test -s "$router_env_record" || true
 grep -Fqx "command=$fixture_scripts/qwen-router-orderly-retire.py" "$router_env_record"
 grep -Fqx "api_key_file=$state_directory/api.key" "$router_env_record"
 kill -TERM "$session_pid"
@@ -177,10 +215,7 @@ QWEN_TEST_TEARDOWN_PROOF=missing QWEN_TEST_SERVER_PID_MARKER=$server_pid_marker 
         "$temporary_directory/fake-static" 4096 4096 18080 "$state_directory" default \
     >"$temporary_directory/session-stale.stdout" 2>"$temporary_directory/session-stale.stderr" &
 session_pid=$!
-attempt=0
-while [ ! -s "$server_pid_marker" ] && [ "$attempt" -lt 100 ]; do
-    attempt=$((attempt + 1)); sleep 0.01
-done
+wait_until test -s "$server_pid_marker" || true
 kill -TERM "$session_pid"
 wait "$session_pid" 2>/dev/null || true
 session_pid=''
@@ -213,11 +248,7 @@ QWEN_TEST_SERVER_PID_MARKER=$server_pid_marker \
     >"$temporary_directory/session-active.stdout" \
     2>"$temporary_directory/session-active.stderr" &
 session_pid=$!
-attempt=0
-while [ ! -s "$server_pid_marker" ] && [ "$attempt" -lt 100 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-done
+wait_until test -s "$server_pid_marker" || true
 [ -s "$server_pid_marker" ] || { printf 'active-drain server did not start\n' >&2; exit 1; }
 server_pid=$(sed -n '1p' "$server_pid_marker")
 QWEN_GPU_ADMISSION_BARRIER=$state_directory \
@@ -225,19 +256,10 @@ QWEN_GPU_ADMISSION_BARRIER=$state_directory \
         sh -c 'touch "$1"; while [ ! -e "$2" ]; do sleep 0.05; done' \
             sh "$active_started" "$active_release" &
 active_pid=$!
-attempt=0
-while [ ! -e "$active_started" ] && [ "$attempt" -lt 100 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-done
+wait_until test -e "$active_started" || true
 [ -e "$active_started" ] || { printf 'active operation did not start\n' >&2; exit 1; }
 kill -TERM "$session_pid"
-attempt=0
-while [ "$(sed -n '1p' "$state_directory/admission.barrier" 2>/dev/null || true)" != quiescing ] && \
-      [ "$attempt" -lt 100 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-done
+wait_until barrier_reads quiescing || true
 if ! kill -0 "$server_pid" 2>/dev/null || ! kill -0 "$session_pid" 2>/dev/null; then
     printf 'session retirement did not wait for active work\n' >&2
     exit 1
