@@ -99,7 +99,9 @@ the divergence between the CPU accessors and the device values.
 
 The device arms have not run. `scripts/qwen-admission-barrier.sh` reads
 `quiescing` on this host, which a session shutdown leaves deliberately in place
-until an owned startup resumes it, and flipping that shared state was refused by
-the permission harness. Nothing here reports a device measurement, and both rows
+until an owned startup resumes it. Reopening it is
+`scripts/qwen-drain-controller.sh resume --barrier-identity ID`, which takes the
+retirement and in-flight references before it writes the word; that remains a
+shared-state change and was refused by the permission harness. Nothing here reports a device measurement, and both rows
 in `scripts/physics-profiles.tsv` stay `execution_policy=refused`; raising one is
 a separate transition that this proof would inform.
