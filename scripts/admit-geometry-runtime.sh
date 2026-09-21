@@ -69,7 +69,10 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 "$script_directory/gpu-state-latch.sh" require-clear
-"$script_directory/gpu-state-latch.sh" status | tee "$output_directory/latch.txt"
+# The latch names its taint file by absolute path, so the retained copy takes
+# the same scrub every other capture here does; sanitize-public-artifact.py
+# refuses a tracked capture carrying a home path.
+"$script_directory/gpu-state-latch.sh" status | scrub_home | tee "$output_directory/latch.txt"
 "$script_directory/build-geometry-runtime.sh" "$output_directory/optix-ray-runtime" |
     tee "$output_directory/build.txt"
 runtime_sha256=$(sed -n 's/^geometry_runtime_sha256=//p' "$output_directory/build.txt")

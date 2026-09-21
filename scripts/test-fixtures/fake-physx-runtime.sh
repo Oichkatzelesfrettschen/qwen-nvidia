@@ -14,7 +14,9 @@ set -eu
 # and `path-mismatch` claims the scene holds the direct-GPU flag it declares it
 # does not. `dropped-state` completes while reporting the GPU buffer overflow
 # that means its own contacts were dropped, which the runtime refuses by name
-# and the protocol refuses in a reply that reached it anyway.
+# and the protocol refuses in a reply that reached it anyway. `joint-claim`
+# answers joint angles on the direct-GPU path, where the accessors read poses
+# the flag stopped copying back and report the frozen initial transform.
 
 [ "$#" -eq 6 ] || { printf 'usage: fake-physx-runtime SCENE TIMESTEP_S STEPS GRAVITY_Y DEVICE_INDEX STATE_PATH\n' >&2; exit 2; }
 scene=$1
@@ -49,11 +51,13 @@ active=true
 if [ "$state_path" = direct-gpu ]; then
     direct_active=true
     sleeping=null
+    joint_state='"twist_rad":null,"swing_y_rad":null,"swing_z_rad":null,"broken":null'
     transfers='"transfers":{"counted":true,"device_reads":3,"device_to_host_copies":3,"bytes":144,"cuda_last_error":0}'
     divergence='"cpu_accessor_divergence":{"position_max":0.0,"linear_velocity_max":0.0}'
 else
     direct_active=false
     sleeping=false
+    joint_state='"twist_rad":0.01,"swing_y_rad":0.2,"swing_z_rad":0,"broken":false'
     transfers='"transfers":{"counted":false,"device_reads":null,"device_to_host_copies":null,"bytes":null,"cuda_last_error":null}'
     divergence='"cpu_accessor_divergence":null'
 fi
@@ -63,11 +67,12 @@ case $mode in
     sleep-claim) sleeping=false ;;
     cuda-error) transfers='"transfers":{"counted":true,"device_reads":3,"device_to_host_copies":3,"bytes":144,"cuda_last_error":700}' ;;
     path-mismatch) direct_active=$([ "$direct_active" = true ] && printf false || printf true) ;;
+    joint-claim) joint_state='"twist_rad":0,"swing_y_rad":0,"swing_z_rad":0,"broken":false' ;;
 esac
 printf '{"gpu":{"cuda_context_valid":true,"gpu_dynamics_requested":true,"gpu_broadphase_requested":true,"gpu_dynamics_active":%s,"direct_gpu_active":%s,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s},' "$active" "$direct_active" "$device"
 printf '"state_path":"%s",' "$state_path"
 printf '"bodies":[{"id":"box-0","position":[1.2,5.1,0],"orientation":[0,0,0.1,0.995],"linear_velocity":[0,-1,0],"angular_velocity":[0,0,0.2],"sleeping":%s}],' "$sleeping"
-printf '"joints":[{"id":"joint-0","body0":"anchor","body1":"box-0","twist_rad":0.01,"swing_y_rad":0.2,"swing_z_rad":0,"broken":false}],'
+printf '"joints":[{"id":"joint-0","body0":"anchor","body1":"box-0",%s}],' "$joint_state"
 # The counts are distinct and ordered so the reply exercises the protocol's
 # narrow-phase invariants rather than satisfying them with zeros: touching and
 # cache hits are subsets of the pairs reaching narrow phase, and the solver and

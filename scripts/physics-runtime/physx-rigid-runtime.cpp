@@ -375,8 +375,21 @@ int main(int argc, char** argv) {
     out += "],\"joints\":[";
     for (size_t index = 0; index < joints.size(); ++index) {
         if (index) out += ",";
-        PxConstraintFlags flags = joints[index].joint->getConstraintFlags();
         out += "{\"id\":\"" + joints[index].id + "\",\"body0\":\"" + joints[index].body0 + "\",\"body1\":\"" + joints[index].body1 + "\"";
+        // PxD6JointGPUAPIReadType carries joint force and torque and no angle,
+        // and the angle accessors derive from the two actors' poses, whose
+        // readback the direct path disables. They return without error and
+        // report the relative transform the last copy left: measured on this
+        // scene, the readback path reports swing_z of -1.8470, -0.1159, -0.1548
+        // and -0.2537 radians where the direct path reports zero on every axis
+        // of every joint. eBROKEN follows the constraint force, which
+        // PxDirectGPUAPI.h states getForce no longer reports properly. Each is
+        // unmeasured here rather than answered from state the flag froze.
+        if (direct_gpu) {
+            out += ",\"twist_rad\":null,\"swing_y_rad\":null,\"swing_z_rad\":null,\"broken\":null}";
+            continue;
+        }
+        PxConstraintFlags flags = joints[index].joint->getConstraintFlags();
         out += ",\"twist_rad\":" + number(joints[index].joint->getTwistAngle());
         out += ",\"swing_y_rad\":" + number(joints[index].joint->getSwingYAngle());
         out += ",\"swing_z_rad\":" + number(joints[index].joint->getSwingZAngle());

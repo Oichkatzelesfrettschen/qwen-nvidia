@@ -95,11 +95,66 @@ the divergence between the CPU accessors and the device values.
 | the two rows agree on final body positions within solver noise | a divergence, which would mean the extra flag changes what is simulated |
 | the two rows agree on joint angles | a divergence, which settles the `getTwistAngle()` question against the accessor |
 
+## What the paired run measured
+
+Both arms ran on the RTX 4070 Ti at 3600 steps of `d6-chain-4`, 30 of 30 checks
+accepted each, retained under `readback/` and `direct/`. Protocol 5.
+
+| | readback | direct-gpu |
+| --- | --- | --- |
+| `direct_gpu_active` read off the scene | false | true |
+| transfers counted | unmeasured | 3 device reads, 3 device-to-host copies, 224 bytes |
+| `cuda_last_error` after the reads | unmeasured | 0 |
+| `physx_messages` total / invalidating | 0 / 0 | 0 / 0 |
+| `cpu_accessor_position_max` | unmeasured | 6.39245 m |
+| `cpu_accessor_linear_velocity_max` | unmeasured | 3.82818 m/s |
+| link spans | 1.198, 1.199, 1.191 | 1.198, 1.199, 1.191 |
+
+**The two paths agree exactly on the state they both measure.** The maximum
+distance between the arms' final body positions is 0.000000; the link spans are
+identical to three decimals. Raising `eENABLE_DIRECT_GPU_API` on both rows --
+which forces `eDISABLE_SLEEPING`, so both raise it -- left the simulation
+identical, and the device buffers carry what the readback path reports.
+
+**The CPU accessors go stale, by more than the scene is long.** The direct
+arm's `getGlobalPose` disagrees with the device value by 6.39 m on a chain that
+hangs about 5 m, and `getLinearVelocity` by 3.83 m/s. They answer from whatever
+the last copy left, which is the initial pose. An existing accessor cannot
+remain a verification path on this configuration.
+
+**The joint angle accessors report a simulation that did not happen.** Before
+this was corrected, the direct arm reported `twist_rad`, `swing_y_rad` and
+`swing_z_rad` as 0.0000 on every joint where the readback arm reported swing_z
+of -1.8470, -0.1159, -0.1548 and -0.2537 radians. They return without error, so
+the header's rule that a function without a direct counterpart "will continue
+to work" holds in the narrow sense and not in the useful one: the angles derive
+from the two actors' poses, and those are the poses the flag stopped copying.
+`joints_unbroken` passed on those zeros. The runtime now reports all four joint
+fields as null on the direct path and the harness reads `unmeasured` rather
+than `yes`. `PxD6JointGPUAPIReadType` carries joint force and torque, so a
+direct path that measures a joint reads those.
+
+**No speed claim is supported at this scene size.** Four readback runs measured
+`simulate_ms` at 1635.25, 1465.05, 1308.72 and 1500.78, a 25 percent spread on
+the control alone; three direct runs measured 1551.39, 1266.61 and 1521.27. The
+spread between repeats of one configuration exceeds any difference between the
+configurations, so the retained pair (1500.78 against 1521.27) resolves nothing
+about which is faster. `state_read_ms` moved across the direct arm's runs from
+21.33 ms to 0.31 ms to 0.456 ms, which is first-call CUDA initialization rather
+than transfer cost, against 0.0013 ms for the readback arm's accessor loop.
+Four bodies is too small a scene to separate these; resolving it needs repeats
+and a body count where the per-step readback is a measurable share of the step.
+
+The direct arm still copies its device buffers to host memory for the JSON
+reply, so this admits the state-access API rather than a GPU-resident path.
+
 ## Status
 
-The device arms have not run. `scripts/qwen-admission-barrier.sh` reads
-`quiescing` on this host, which a session shutdown leaves deliberately in place
-until an owned startup resumes it, and flipping that shared state was refused by
-the permission harness. Nothing here reports a device measurement, and both rows
-in `scripts/physics-profiles.tsv` stay `execution_policy=refused`; raising one is
-a separate transition that this proof would inform.
+The arms ran after `scripts/qwen-drain-controller.sh resume
+--barrier-identity ID` reopened the barrier a session shutdown had left
+`quiescing`; that is the operation rather than `qwen_barrier_set_state`, which
+writes the state word with neither the retirement nor the in-flight reference
+held. Both rows in `scripts/physics-profiles.tsv` stay
+`execution_policy=refused`: the harness raises its own copy for one run and
+records both readings, so nothing here lets a model start a simulation. Raising
+a row is a separate transition that this proof informs.

@@ -66,7 +66,10 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 "$script_directory/gpu-state-latch.sh" require-clear
-"$script_directory/gpu-state-latch.sh" status | tee "$output_directory/latch.txt"
+# The latch names its taint file by absolute path, so the retained copy takes
+# the same scrub every other capture here does; sanitize-public-artifact.py
+# refuses a tracked capture carrying a home path.
+"$script_directory/gpu-state-latch.sh" status | scrub_home | tee "$output_directory/latch.txt"
 "$script_directory/verify-nvidia-sdk.sh" | tee "$output_directory/sdk-verify.txt"
 "$script_directory/build-physics-runtime.sh" "$output_directory/physx-rigid-runtime" |
     tee "$output_directory/build.txt"
@@ -199,7 +202,12 @@ bodies = result.get("bodies") or []
 joints = result.get("joints") or []
 facts["body_count"] = str(len(bodies))
 facts["joint_count"] = str(len(joints))
-facts["joints_unbroken"] = "yes" if joints and not any(j.get("broken") for j in joints) else "no"
+# A joint field the direct path reports unmeasured cannot answer this: `not
+# any(None)` reads true, so the check would pass on the absence it was given.
+if joints and all(j.get("broken") is None for j in joints):
+    facts["joints_unbroken"] = "unmeasured"
+else:
+    facts["joints_unbroken"] = "yes" if joints and not any(j.get("broken") for j in joints) else "no"
 # The chain hangs from an anchor at y=6 over a ground plane at y=0 with 0.5
 # half-extent boxes, so every center sits below the anchor and above 0.5, and
 # consecutive centers stay one joint span (1.2) apart within the solver's slack.
@@ -253,7 +261,8 @@ record device_name_runtime "$(fact device_name)"
 check steps_simulated "$(fact steps)" "$steps"
 check body_count "$(fact body_count)" 4
 check joint_count "$(fact joint_count)" 4
-check joints_unbroken "$(fact joints_unbroken)" yes
+expected_joints=$([ "$state_path" = direct-gpu ] && printf unmeasured || printf yes)
+check joints_unbroken "$(fact joints_unbroken)" "$expected_joints"
 check bodies_finite "$(fact bodies_finite)" yes
 check bodies_above_ground "$(fact bodies_above_ground)" yes
 check bodies_below_anchor "$(fact bodies_below_anchor)" yes
