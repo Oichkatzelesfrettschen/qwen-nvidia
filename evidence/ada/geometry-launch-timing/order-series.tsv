@@ -1,0 +1,9 @@
+# Warm and cold rows alternated on an already-initialized GPU, 1048576 rays,
+# to separate what the OptiX disk cache governs from what a first launch on an
+# idle card pays. The captures are discarded and the stage timings retained.
+#
+position	module_cache	cuda_context_ms	optix_context_ms	module_ms	launch_ms	validate_ms	sum_ms
+1	enabled	126.689	47.493	1.082	2.427	88.185	312.236
+2	disabled	139.678	37.84	32.576	2.418	88.693	344.353
+3	enabled	126.328	48.164	0.355	2.447	88.305	312.077
+4	disabled	97.407	36.949	32.84	2.419	88.917	306.055

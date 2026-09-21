@@ -24,15 +24,32 @@ the service requires before it reports `completed` at all.
 
 import json
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 # The columns of scripts/geometry-profiles.tsv, in order. The service and the
 # MCP child both read that ledger, so the shape lives here beside the version
 # rather than in each reader, where a column added to one reader leaves the
 # other rejecting every row as the wrong width.
 PROFILE_COLUMNS = (
     "profile_id", "scene", "query_set", "max_rays", "timeout_s", "execution_policy",
-    "device_index",
+    "device_index", "module_cache",
 )
+# Whether the OptiX disk cache is available to optixModuleCreate. optix_host.h
+# states there is no in-memory cache, so the module stage either compiles the
+# PTX or reads a compiled module back, and a timing taken without pinning this
+# measures run history. OPTIX_CACHE_MAXSIZE=0 in the environment takes
+# precedence over the API and can disable a cache the row asked for, which is
+# why the reply carries the request and the readback separately.
+MODULE_CACHES = ("enabled", "disabled")
+# One number per stage of a launch. A resident worker would keep the optix
+# context, the module, the pipeline and the acceleration structure; every query
+# would still pay upload, launch, download and validate. Separating them is
+# what makes that claim measurable rather than argued.
+STAGE_KEYS = {
+    "scene_ms", "cuda_context_ms", "optix_context_ms", "accel_ms", "module_ms",
+    "pipeline_ms", "sbt_ms", "upload_ms", "launch_ms", "download_ms",
+    "validate_ms", "teardown_ms",
+}
+MODULE_CACHE_KEYS = {"requested", "enabled", "location"}
 MAX_LINE_BYTES = 65536
 ACTIONS = ("geometry_ray_query", "status")
 STATUSES = ("accepted", "completed", "refused", "failed")
@@ -60,7 +77,8 @@ REPLY_KEYS = {"protocol", "request_id", "status", "profile_id", "result", "error
 RESULT_KEYS = {
     "scene", "query_set", "rays", "hits", "misses", "t_min", "t_max", "t_mean",
     "primitive_hits", "reference_agreement", "reference_disagreement",
-    "results_fnv1a64", "wall_ms", "launch_ms", "gpu", "runtime_sha256", "scene_sha256",
+    "results_fnv1a64", "wall_ms", "launch_ms", "timings", "module_cache", "gpu",
+    "runtime_sha256", "scene_sha256",
 }
 
 
@@ -170,6 +188,37 @@ def validate_result(result):
     for key in ("wall_ms", "launch_ms"):
         if _number(result[key], key) < 0:
             raise ProtocolError("%s is negative" % key)
+    timings = result["timings"]
+    if not isinstance(timings, dict) or set(timings) != STAGE_KEYS:
+        raise ProtocolError("timings keys differ from the schema")
+    for key in sorted(STAGE_KEYS):
+        if _number(timings[key], "timings.%s" % key) < 0:
+            raise ProtocolError("timings.%s is negative" % key)
+    # The stages partition the run, so their sum cannot exceed the wall time
+    # they were taken inside; a stage double-counted or a mark left behind
+    # shows up here rather than in a plausible-looking table.
+    if sum(timings.values()) > result["wall_ms"] + 1e-6:
+        raise ProtocolError("the stage timings sum past wall_ms")
+    if abs(timings["launch_ms"] - result["launch_ms"]) > 1e-6:
+        raise ProtocolError("timings.launch_ms disagrees with launch_ms")
+
+    cache = result["module_cache"]
+    if not isinstance(cache, dict) or set(cache) != MODULE_CACHE_KEYS:
+        raise ProtocolError("module_cache keys differ from the schema")
+    if cache["requested"] not in MODULE_CACHES:
+        raise ProtocolError("module_cache.requested is not one of %s" % ", ".join(MODULE_CACHES))
+    if not isinstance(cache["enabled"], bool):
+        raise ProtocolError("module_cache.enabled is not a boolean")
+    if not isinstance(cache["location"], str):
+        raise ProtocolError("module_cache.location is not a string")
+    # The environment can disable a cache this run asked for but cannot enable
+    # one it refused, so a disabled request reading back enabled is the reply
+    # disagreeing with itself.
+    if cache["requested"] == "disabled" and cache["enabled"]:
+        raise ProtocolError("module_cache reads enabled where the run disabled it")
+    if not cache["enabled"] and cache["location"]:
+        raise ProtocolError("module_cache names a location with the cache disabled")
+
     gpu = result["gpu"]
     if not isinstance(gpu, dict) or set(gpu) != set(GPU_PROOF_KEYS):
         raise ProtocolError("gpu proof keys differ from the schema")
