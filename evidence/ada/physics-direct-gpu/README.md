@@ -26,6 +26,12 @@ include asynchronous CUDA errors", so the runtime reads
 `PxCudaContext::getLastError()` after the copies and the protocol refuses a
 reply carrying a nonzero one.
 
+A finish event is recorded at the end of the call it is given to, so the three
+reads take three events rather than one. One event shared across them records
+three times and reports only the last; waiting on it would prove the earlier
+copies complete only if PhysX dispatched all three on a single stream, which
+the interface does not state.
+
 ## What the direct path cannot answer
 
 `PxRigidDynamicGPUAPIReadType` carries global pose, linear and angular
