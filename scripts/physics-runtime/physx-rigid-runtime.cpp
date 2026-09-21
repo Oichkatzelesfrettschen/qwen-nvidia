@@ -177,20 +177,30 @@ void read_states_direct(PxScene& scene, PxCudaContextManager& cuda,
     if (context->memAlloc(&angular_device, vector_bytes)) fail("device_alloc_angular");
     if (context->memcpyHtoD(index_device, indices.data(), index_bytes)) fail("index_upload");
 
-    CUevent finished = NULL;
-    if (context->eventCreate(&finished, 0)) fail("event_create");
+    // One event per read. A finish event is recorded at the end of the call it
+    // is given to, so a single event shared across the three reads records
+    // three times and reports only the last: waiting on it would prove the
+    // first two complete only if PhysX dispatched all three on one stream,
+    // which the interface does not state. Three events are waited on
+    // individually and the three reads still dispatch before the first wait.
+    CUevent finished[3] = {NULL, NULL, NULL};
+    for (int slot = 0; slot < 3; ++slot) {
+        if (context->eventCreate(&finished[slot], 0)) fail("event_create");
+    }
     const PxRigidDynamicGPUIndex* index_pointer =
         reinterpret_cast<const PxRigidDynamicGPUIndex*>(index_device);
     if (!direct.getRigidDynamicData(reinterpret_cast<void*>(pose_device), index_pointer,
-                                    PxRigidDynamicGPUAPIReadType::eGLOBAL_POSE, count, NULL, finished))
+                                    PxRigidDynamicGPUAPIReadType::eGLOBAL_POSE, count, NULL, finished[0]))
         fail("direct_read_pose");
     if (!direct.getRigidDynamicData(reinterpret_cast<void*>(linear_device), index_pointer,
-                                    PxRigidDynamicGPUAPIReadType::eLINEAR_VELOCITY, count, NULL, finished))
+                                    PxRigidDynamicGPUAPIReadType::eLINEAR_VELOCITY, count, NULL, finished[1]))
         fail("direct_read_linear");
     if (!direct.getRigidDynamicData(reinterpret_cast<void*>(angular_device), index_pointer,
-                                    PxRigidDynamicGPUAPIReadType::eANGULAR_VELOCITY, count, NULL, finished))
+                                    PxRigidDynamicGPUAPIReadType::eANGULAR_VELOCITY, count, NULL, finished[2]))
         fail("direct_read_angular");
-    if (context->eventSynchronize(finished)) fail("event_synchronize");
+    for (int slot = 0; slot < 3; ++slot) {
+        if (context->eventSynchronize(finished[slot])) fail("event_synchronize");
+    }
 
     std::vector<PxTransform> poses(count);
     std::vector<PxVec3> linear(count);
@@ -206,7 +216,7 @@ void read_states_direct(PxScene& scene, PxCudaContextManager& cuda,
         states[index].angular = angular[index];
     }
 
-    context->eventDestroy(finished);
+    for (int slot = 0; slot < 3; ++slot) context->eventDestroy(finished[slot]);
     context->memFree(angular_device);
     context->memFree(linear_device);
     context->memFree(pose_device);
