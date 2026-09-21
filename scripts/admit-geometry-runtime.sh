@@ -238,11 +238,12 @@ record launch_ms "$(fact launch_ms)"
 record runtime_wall_ms "$(fact wall_ms)"
 check reply_runtime_sha256 "$(fact runtime_sha256)" "$runtime_sha256"
 
-# The during-run record keeps the runtime's client rows and the lease state
-# with the pid removed; the count of ticks that saw the runtime is the claim.
-awk -F '\t' -v OFS='\t' '$3 == "tick" || $3 ~ /^runtime pid=/ { print; next }
-    { split($3, row, ", "); n = split(row[1], path, "/"); split(row[3], memory, " ");
-      print $1, $2, path[n] " " memory[1] " " memory[2] }' <"$output_directory/clients-during.raw" |
+# The during-run record keeps the runtime's client rows, the sampler's own
+# runtime lines, and the lease state with the pid removed; the count of ticks
+# that saw the runtime is the claim, so the scrub that has to preserve the name
+# lives in one file both harnesses read rather than in a copy each.
+. "$script_directory/compute-client-record.sh"
+qwen_compute_client_record <"$output_directory/clients-during.raw" |
     scrub_home >"$output_directory/clients-during.tsv"
 rm -f "$output_directory/clients-during.raw"
 ticks=$(grep -c '	tick$' "$output_directory/clients-during.tsv" || :)
