@@ -50,6 +50,10 @@ LANES = {
         "count_key": "rays",
         "ceiling_column": "max_rays",
         "scene_column": "scene",
+        # The column admitting device memory held between requests. A lane
+        # whose ledger carries one names it here, and a row reading anything
+        # but one-shot names a session no service this child talks to ends.
+        "residency_column": "residency",
         "description": "Trace one bounded ray query against a fixture scene on the GPU through OptiX and return the proof that it ran there.",
     },
 }
@@ -134,6 +138,15 @@ def profile_row(settings):
             if row["execution_policy"] != "validator-gated":
                 raise web_server.InvalidArgument(
                     f"profile {settings['profile']} reads {row['execution_policy']}, so nothing runs")
+            # A bounded-resident row admits device memory held between requests
+            # and a session a supervisor bounds. The service this child talks
+            # to serves the one-shot path, so a tool that offered such a row
+            # would name a session nothing here ends.
+            residency_column = lane.get("residency_column")
+            if residency_column and row[residency_column] != "one-shot":
+                raise web_server.InvalidArgument(
+                    f"profile {settings['profile']} reads residency {row[residency_column]}, "
+                    "which no tool serves")
             return row, ceiling
     raise web_server.InvalidArgument(f"profile {settings['profile']} is not in the ledger")
 

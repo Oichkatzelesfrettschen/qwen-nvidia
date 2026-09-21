@@ -154,6 +154,7 @@ python3 scripts/test-physics-service.py
 scripts/test-physx-message-policy.sh
 scripts/test-admit-client-scrub.sh
 python3 scripts/test-geometry-service.py
+python3 scripts/test-geometry-resident-driver.py
 scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-closure-identity-token-count.py

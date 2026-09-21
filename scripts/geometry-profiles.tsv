@@ -23,6 +23,36 @@
 #                  service sets OPTIX_CACHE_MAXSIZE=0 for a disabled row,
 #                  which the header says takes precedence over the API.
 #
-# profile_id	scene	query_set	max_rays	timeout_s	execution_policy	device_index	module_cache
-geometry-cube-orbit-a	cube-and-plane	orbit	1048576	60	refused	0	enabled
-geometry-cube-orbit-a-cold	cube-and-plane	orbit	1048576	60	refused	0	disabled
+# The five residency columns admit device memory held between requests, which
+# execution_policy does not cover: that field admits the compute one request
+# runs, and a process can hold a CUDA context, an acceleration structure and
+# its buffers while running nothing. The two permissions are separate here
+# because they are separately revocable -- a session that retains memory still
+# takes the compute lease for each request and holds none between them -- and
+# scripts/gpu-workloads.tsv remains the authority for the lease.
+#
+# residency         one-shot or bounded-resident. A one-shot row's runtime
+#                   exits with its answer and releases every allocation with
+#                   the process. A bounded-resident row's runtime keeps its
+#                   CUDA context, OptiX context, module, pipeline, shader
+#                   binding table and acceleration structure across the
+#                   requests of one declared session.
+# session_requests  the requests a session serves before it retires; 1 on a
+#                   one-shot row, which is what such a process serves
+# session_seconds   the wall seconds a session retires at, whichever bound
+#                   arrives first
+# idle_timeout_s    the interval with no request in hand that retires a
+#                   session early; it has to be under session_seconds to fire
+# residency_budget_mib
+#                   the device memory ceiling the session fails at rather than
+#                   enlarges. The runtime counts its own allocations against
+#                   it and the supervisor counts the driver's residency for
+#                   the process against it, because neither reading sees what
+#                   the other does.
+#
+# The three columns only a session has read n-a on a one-shot row.
+#
+# profile_id	scene	query_set	max_rays	timeout_s	execution_policy	device_index	module_cache	residency	session_requests	session_seconds	idle_timeout_s	residency_budget_mib
+geometry-cube-orbit-a	cube-and-plane	orbit	1048576	60	refused	0	enabled	one-shot	1	n-a	n-a	n-a
+geometry-cube-orbit-a-cold	cube-and-plane	orbit	1048576	60	refused	0	disabled	one-shot	1	n-a	n-a	n-a
+geometry-cube-orbit-a-resident	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	300	15	512

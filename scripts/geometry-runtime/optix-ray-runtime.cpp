@@ -1,8 +1,26 @@
-// One bounded OptiX ray query on the GPU, with the proof that it ran there
+// Bounded OptiX ray queries on the GPU, with the proof that each ran there
 // and a host reference for every ray printed ahead of its result.
 //
-// The program takes a scene name, a query-set name, a ray count, and a
-// device index, all from argv as the service hands them out of
+// The program runs in one of two modes against one Session. One-shot mode
+// takes a ray count, builds the device state, serves that one query, releases
+// everything and prints one JSON object; it is what geometry-service.py
+// spawns per request and it is the control the resident mode is measured
+// against. Resident mode takes the bounds a bounded-resident profile row
+// declares -- the requests and wall seconds a session serves, the idle
+// interval that ends it early, and the device memory it may hold -- builds
+// the state once, prints a ready line, and then serves one request per line
+// read from stdin until a bound or a shutdown arrives, whereupon it releases
+// every device resource and prints a retired line. It runs one request at a
+// time and holds no compute lease of its own: the supervisor takes the lease
+// around each request and holds none while the worker waits for the next.
+//
+// The stages partition the same table in both modes. A one-shot run names all
+// thirteen; a resident session names six at startup, six per request and
+// teardown at retirement, which is what makes a session's total comparable
+// against the one-shot run it is measured against.
+//
+// The program takes a scene name, a query-set name, and a device index, all
+// from argv as the service or the supervisor hands them out of
 // scripts/geometry-profiles.tsv, and builds the scene from a table in this
 // file: a caller chooses a fixture and supplies no geometry. It creates the
 // CUDA context and the OptiX device context, builds a geometry acceleration
@@ -26,14 +44,19 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include <poll.h>
+#include <unistd.h>
 
 #include "optix-ray-shared.h"
 #include "optix-ray-programs-ptx.h"
@@ -207,40 +230,174 @@ struct Empty { int unused; };
 
 } // namespace
 
-int main(int argc, char ** argv) {
-    if (argc != 6) {
-        std::fprintf(stderr, "usage: optix-ray-runtime SCENE QUERY_SET RAY_COUNT DEVICE_INDEX MODULE_CACHE\n");
-        return 2;
-    }
-    const std::string scene_name = argv[1];
-    const std::string query_name = argv[2];
-    const long ray_count_long = std::strtol(argv[3], nullptr, 10);
-    const int device_index = std::atoi(argv[4]);
-    const std::string module_cache = argv[5];
-    if (ray_count_long < 1 || ray_count_long > 1048576 || device_index < 0) {
-        return 2;
-    }
-    if (module_cache != "enabled" && module_cache != "disabled") return fail("unknown_module_cache");
-    const int cache_requested = module_cache == "enabled" ? 1 : 0;
-    const unsigned int ray_count = (unsigned int) ray_count_long;
-    const float t_max = 100.0f;
-    Stages stages;
+// The version of scripts/geometry_protocol.py this binary was built against.
+// build-geometry-runtime.sh reads it out of that module and defines it here,
+// so the Python module stays the one authority and a binary compiled against
+// an older protocol reports the version it speaks rather than a key set that
+// happens to differ. A protocol change moves the binary's digest with it.
+#ifndef GEOMETRY_PROTOCOL_VERSION
+#error "GEOMETRY_PROTOCOL_VERSION is defined by build-geometry-runtime.sh from geometry_protocol.py"
+#endif
 
-    const auto wall_start = Clock::now();
-    std::vector<Triangle> triangles = build_scene(scene_name);
-    if (triangles.empty()) return fail("unknown_scene");
+namespace {
+
+// A supervisor asking the resident worker to stop ends the session the way
+// the worker's own bounds do. sig_atomic_t is what a handler may write, and
+// poll() returns EINTR at the same moment, so the wait ends without a second
+// mechanism.
+volatile sig_atomic_t stop_requested = 0;
+
+void on_stop(int) { stop_requested = 1; }
+
+// The request line's own parser. geometry_protocol.py bounds an identifier to
+// [A-Za-z0-9_-] and a count to an integer, so no value can carry a quote and
+// no key can appear inside one; the search for a key is exact rather than
+// approximate. A line holding anything else is refused whole, because a
+// long-lived process reading lines is where a permissive parser would widen
+// what a caller reaches.
+bool json_key_offset(const std::string & line, const char * key, size_t & offset) {
+    const std::string quoted = std::string("\"") + key + "\"";
+    const size_t found = line.find(quoted);
+    if (found == std::string::npos) return false;
+    size_t index = found + quoted.size();
+    while (index < line.size() && (line[index] == ' ' || line[index] == '\t')) ++index;
+    if (index >= line.size() || line[index] != ':') return false;
+    ++index;
+    while (index < line.size() && (line[index] == ' ' || line[index] == '\t')) ++index;
+    offset = index;
+    return true;
+}
+
+bool json_string_field(const std::string & line, const char * key, std::string & out) {
+    size_t index = 0;
+    if (!json_key_offset(line, key, index)) return false;
+    if (index >= line.size() || line[index] != '"') return false;
+    ++index;
+    out.clear();
+    while (index < line.size() && line[index] != '"') {
+        const char c = line[index];
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '-' || c == '_';
+        if (!allowed || out.size() >= 64) return false;
+        out.push_back(c);
+        ++index;
+    }
+    return index < line.size() && !out.empty();
+}
+
+bool json_uint_field(const std::string & line, const char * key, unsigned long & out) {
+    size_t index = 0;
+    if (!json_key_offset(line, key, index)) return false;
+    if (index >= line.size() || line[index] < '0' || line[index] > '9') return false;
+    out = 0;
+    while (index < line.size() && line[index] >= '0' && line[index] <= '9') {
+        if (out > (4294967295UL - 9) / 10) return false;
+        out = out * 10 + (unsigned long) (line[index] - '0');
+        ++index;
+    }
+    return true;
+}
+
+// One line from the supervisor, or the reason none arrived. The idle interval
+// and what the session has left are the same deadline seen from two ends, so
+// the caller passes whichever is nearer and names the bound it was.
+enum class LineOutcome { line, closed, timeout, interrupted, overlong };
+
+LineOutcome read_line(std::string & line, int timeout_ms) {
+    line.clear();
+    for (;;) {
+        struct pollfd waiting = {0, POLLIN, 0};
+        const int ready = poll(&waiting, 1, timeout_ms);
+        if (ready < 0) return errno == EINTR ? LineOutcome::interrupted : LineOutcome::closed;
+        if (ready == 0) return LineOutcome::timeout;
+        char byte = 0;
+        const ssize_t got = read(0, &byte, 1);
+        if (got == 0) return LineOutcome::closed;
+        if (got < 0) return errno == EINTR ? LineOutcome::interrupted : LineOutcome::closed;
+        if (byte == '\n') return LineOutcome::line;
+        if (line.size() >= 65536) return LineOutcome::overlong;
+        line.push_back(byte);
+    }
+}
+
+// What one request found, apart from the timings that found it.
+struct Summary {
+    std::vector<uint64_t> primitive_hits;
+    uint64_t hits = 0, misses = 0, agree = 0, disagree = 0;
+    double t_sum = 0.0;
+    float t_min = 0.0f, t_hi = 0.0f;
+    uint64_t results_digest = 0;
+};
+
+#define SESSION_CHECK(call) do { const int rc = (call); if (rc != 0) return rc; } while (0)
+
+// The device state a query runs against. One-shot mode builds it, serves one
+// request and releases it; resident mode builds it once and serves the
+// requests of one declared session against it. Both call setup(), serve() and
+// teardown(), so the control arm and the experiment differ in how many times
+// each runs and in nothing else the stages measure.
+struct Session {
+    std::string scene_name, query_name, module_cache;
+    int device_index = 0;
+    int cache_requested = 1;
+    float t_max = 100.0f;
+    // Zero leaves the ceiling to the caller, which is what a one-shot run has:
+    // its allocations end with the process that held the compute lease.
+    size_t budget_bytes = 0;
+
+    std::vector<Triangle> triangles;
+    cudaDeviceProp prop = {};
+    CUcontext cu_context = nullptr;
+    OptixDeviceContext context = nullptr;
+    OptixModule module = nullptr;
+    OptixProgramGroup groups[3] = {};
+    OptixPipeline pipeline = nullptr;
+    OptixShaderBindingTable sbt = {};
+    OptixTraversableHandle handle = 0;
+    size_t gas_output_bytes = 0;
+    int cache_enabled = -1;
+    char cache_location[512] = {};
+    bool context_created = false, gas_built = false, pipeline_created = false;
+
+    CUdeviceptr d_vertices = 0, d_gas = 0, d_raygen = 0, d_miss = 0, d_hit = 0;
+    CUdeviceptr d_rays = 0, d_results = 0, d_params = 0;
+    size_t vertices_bytes = 0, gas_bytes = 0, raygen_bytes = 0, miss_bytes = 0, hit_bytes = 0;
+    size_t rays_bytes = 0, results_bytes = 0, params_bytes = 0;
+    size_t allocated_bytes = 0;
+
     std::vector<Ray> rays;
-    if (!build_rays(query_name, ray_count, rays)) return fail("unknown_query_set");
+    std::vector<RayResult> results, references;
+
+    // Every device allocation passes through here, so allocated_bytes is what
+    // this process asked the driver for rather than an estimate of it. It is
+    // one of the two readings the residency budget is held to; the supervisor
+    // reads the driver's residency for the process, which counts the context
+    // this number does not.
+    int allocate(CUdeviceptr & pointer, size_t & tracked, size_t bytes) {
+        CUDA_CHECK(cudaMalloc((void **) &pointer, bytes), "cuda_alloc_failed");
+        tracked = bytes;
+        allocated_bytes += bytes;
+        return 0;
+    }
+
+    void release(CUdeviceptr & pointer, size_t & tracked) {
+        if (pointer == 0) return;
+        cudaFree((void *) pointer);
+        allocated_bytes -= tracked;
+        pointer = 0;
+        tracked = 0;
+    }
+
+    int setup(Stages & stages);
+    int serve(unsigned int ray_count, Stages & stages, Summary & summary);
+    double teardown();
+};
+
+int Session::setup(Stages & stages) {
     auto mark = Clock::now();
-    stages.scene_ms = elapsed_ms(wall_start, mark);
-
-    bool context_created = false, gas_built = false, pipeline_created = false, launch_completed = false;
-
     CUDA_CHECK(cudaSetDevice(device_index), "cuda_device_unavailable");
-    cudaDeviceProp prop;
     CUDA_CHECK(cudaGetDeviceProperties(&prop, device_index), "cuda_device_unavailable");
     CUDA_CHECK(cudaFree(nullptr), "cuda_context_invalid");
-    CUcontext cu_context = nullptr;
     if (cuCtxGetCurrent(&cu_context) != CUDA_SUCCESS || cu_context == nullptr) return fail("cuda_context_invalid");
     stages.cuda_context_ms = elapsed_ms(mark, Clock::now());
     mark = Clock::now();
@@ -249,7 +406,6 @@ int main(int argc, char ** argv) {
     OptixDeviceContextOptions options = {};
     options.logCallbackFunction = &log_callback;
     options.logCallbackLevel = 2;
-    OptixDeviceContext context = nullptr;
     OPTIX_CHECK(optixDeviceContextCreate(cu_context, &options, &context), "optix_context_failed");
     context_created = true;
 
@@ -260,10 +416,8 @@ int main(int argc, char ** argv) {
     // over this call and can disable the cache but not enable it, so the state
     // is read back off the context rather than assumed from the request.
     OPTIX_CHECK(optixDeviceContextSetCacheEnabled(context, cache_requested), "optix_cache_failed");
-    int cache_enabled = -1;
     OPTIX_CHECK(optixDeviceContextGetCacheEnabled(context, &cache_enabled), "optix_cache_failed");
     if (cache_requested == 0 && cache_enabled != 0) return fail("module_cache_not_disabled");
-    char cache_location[512] = {};
     if (cache_enabled) {
         OPTIX_CHECK(optixDeviceContextGetCacheLocation(context, cache_location, sizeof cache_location),
                     "optix_cache_failed");
@@ -279,8 +433,7 @@ int main(int argc, char ** argv) {
         vertices.insert(vertices.end(), t.b, t.b + 3);
         vertices.insert(vertices.end(), t.c, t.c + 3);
     }
-    CUdeviceptr d_vertices = 0;
-    CUDA_CHECK(cudaMalloc((void **) &d_vertices, vertices.size() * sizeof(float)), "cuda_alloc_failed");
+    SESSION_CHECK(allocate(d_vertices, vertices_bytes, vertices.size() * sizeof(float)));
     CUDA_CHECK(cudaMemcpy((void *) d_vertices, vertices.data(), vertices.size() * sizeof(float), cudaMemcpyHostToDevice), "cuda_copy_failed");
     OptixBuildInput build_input = {};
     build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
@@ -296,14 +449,19 @@ int main(int argc, char ** argv) {
     accel_options.operation = OPTIX_BUILD_OPERATION_BUILD;
     OptixAccelBufferSizes sizes = {};
     OPTIX_CHECK(optixAccelComputeMemoryUsage(context, &accel_options, &build_input, 1, &sizes), "optix_gas_size_failed");
-    CUdeviceptr d_temp = 0, d_gas = 0;
-    CUDA_CHECK(cudaMalloc((void **) &d_temp, sizes.tempSizeInBytes), "cuda_alloc_failed");
-    CUDA_CHECK(cudaMalloc((void **) &d_gas, sizes.outputSizeInBytes), "cuda_alloc_failed");
-    OptixTraversableHandle handle = 0;
+    CUdeviceptr d_temp = 0;
+    size_t temp_bytes = 0;
+    SESSION_CHECK(allocate(d_temp, temp_bytes, sizes.tempSizeInBytes));
+    SESSION_CHECK(allocate(d_gas, gas_bytes, sizes.outputSizeInBytes));
+    gas_output_bytes = sizes.outputSizeInBytes;
     OPTIX_CHECK(optixAccelBuild(context, nullptr, &accel_options, &build_input, 1, d_temp, sizes.tempSizeInBytes,
                                 d_gas, sizes.outputSizeInBytes, &handle, nullptr, 0), "optix_gas_build_failed");
     CUDA_CHECK(cudaDeviceSynchronize(), "optix_gas_build_failed");
     gas_built = true;
+    // The build's scratch is dead the moment the structure is built, so it is
+    // released here rather than at teardown: a session holding it would carry
+    // it against the residency budget for every request that never uses it.
+    release(d_temp, temp_bytes);
 
     stages.accel_ms = elapsed_ms(mark, Clock::now());
     mark = Clock::now();
@@ -322,7 +480,6 @@ int main(int argc, char ** argv) {
     pipeline_options.usesPrimitiveTypeFlags = OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE;
     char log[4096];
     size_t log_size = sizeof log;
-    OptixModule module = nullptr;
     OPTIX_CHECK(optixModuleCreate(context, &module_options, &pipeline_options, optix_ray_programs_ptx,
                                   sizeof(optix_ray_programs_ptx) - 1, log, &log_size, &module), "optix_module_failed");
     stages.module_ms = elapsed_ms(mark, Clock::now());
@@ -338,12 +495,10 @@ int main(int argc, char ** argv) {
     descs[2].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
     descs[2].hitgroup.moduleCH = module;
     descs[2].hitgroup.entryFunctionNameCH = "__closesthit__orbit";
-    OptixProgramGroup groups[3] = {};
     log_size = sizeof log;
     OPTIX_CHECK(optixProgramGroupCreate(context, descs, 3, &group_options, log, &log_size, groups), "optix_program_group_failed");
     OptixPipelineLinkOptions link_options = {};
     link_options.maxTraceDepth = 1;
-    OptixPipeline pipeline = nullptr;
     log_size = sizeof log;
     OPTIX_CHECK(optixPipelineCreate(context, &pipeline_options, &link_options, groups, 3, log, &log_size, &pipeline), "optix_pipeline_failed");
     OPTIX_CHECK(optixPipelineSetStackSize(pipeline, 0, 0, 2048, 1), "optix_pipeline_failed");
@@ -351,19 +506,20 @@ int main(int argc, char ** argv) {
     stages.pipeline_ms = elapsed_ms(mark, Clock::now());
     mark = Clock::now();
 
-    // shader binding table
+    // The shader binding table and the launch parameter block are fixed for
+    // the session, so they are built once here and a request's upload writes
+    // the block's contents rather than its allocation.
     SbtRecord<Empty> raygen_record = {}, miss_record = {}, hit_record = {};
     OPTIX_CHECK(optixSbtRecordPackHeader(groups[0], &raygen_record), "optix_sbt_failed");
     OPTIX_CHECK(optixSbtRecordPackHeader(groups[1], &miss_record), "optix_sbt_failed");
     OPTIX_CHECK(optixSbtRecordPackHeader(groups[2], &hit_record), "optix_sbt_failed");
-    CUdeviceptr d_raygen = 0, d_miss = 0, d_hit = 0;
-    CUDA_CHECK(cudaMalloc((void **) &d_raygen, sizeof raygen_record), "cuda_alloc_failed");
-    CUDA_CHECK(cudaMalloc((void **) &d_miss, sizeof miss_record), "cuda_alloc_failed");
-    CUDA_CHECK(cudaMalloc((void **) &d_hit, sizeof hit_record), "cuda_alloc_failed");
+    SESSION_CHECK(allocate(d_raygen, raygen_bytes, sizeof raygen_record));
+    SESSION_CHECK(allocate(d_miss, miss_bytes, sizeof miss_record));
+    SESSION_CHECK(allocate(d_hit, hit_bytes, sizeof hit_record));
+    SESSION_CHECK(allocate(d_params, params_bytes, sizeof(LaunchParams)));
     CUDA_CHECK(cudaMemcpy((void *) d_raygen, &raygen_record, sizeof raygen_record, cudaMemcpyHostToDevice), "cuda_copy_failed");
     CUDA_CHECK(cudaMemcpy((void *) d_miss, &miss_record, sizeof miss_record, cudaMemcpyHostToDevice), "cuda_copy_failed");
     CUDA_CHECK(cudaMemcpy((void *) d_hit, &hit_record, sizeof hit_record, cudaMemcpyHostToDevice), "cuda_copy_failed");
-    OptixShaderBindingTable sbt = {};
     sbt.raygenRecord = d_raygen;
     sbt.missRecordBase = d_miss;
     sbt.missRecordStrideInBytes = sizeof miss_record;
@@ -372,14 +528,41 @@ int main(int argc, char ** argv) {
     sbt.hitgroupRecordStrideInBytes = sizeof hit_record;
     sbt.hitgroupRecordCount = 1;
     stages.sbt_ms = elapsed_ms(mark, Clock::now());
+    return 0;
+}
+
+// Serve one request against the session's device state. Returns 0 for a
+// served request, 2 where the ray count would take the session's own
+// allocations past its residency ceiling, and 1 where the device refused.
+int Session::serve(unsigned int ray_count, Stages & stages, Summary & summary) {
+    auto mark = Clock::now();
+    if (!build_rays(query_name, ray_count, rays)) return fail("unknown_query_set");
+    stages.scene_ms = elapsed_ms(mark, Clock::now());
     mark = Clock::now();
 
-    // rays in, results out, one launch
-    CUdeviceptr d_rays = 0, d_results = 0, d_params = 0;
-    CUDA_CHECK(cudaMalloc((void **) &d_rays, rays.size() * sizeof(Ray)), "cuda_alloc_failed");
-    CUDA_CHECK(cudaMalloc((void **) &d_results, rays.size() * sizeof(RayResult)), "cuda_alloc_failed");
-    CUDA_CHECK(cudaMalloc((void **) &d_params, sizeof(LaunchParams)), "cuda_alloc_failed");
-    CUDA_CHECK(cudaMemcpy((void *) d_rays, rays.data(), rays.size() * sizeof(Ray), cudaMemcpyHostToDevice), "cuda_copy_failed");
+    // The ray and result buffers are the only allocations a request's size
+    // changes. A larger request grows them and a smaller one runs inside what
+    // is already there, which is the residency the budget is declared for.
+    const size_t need_rays = (size_t) ray_count * sizeof(Ray);
+    const size_t need_results = (size_t) ray_count * sizeof(RayResult);
+    if (budget_bytes) {
+        const size_t growth = (need_rays > rays_bytes ? need_rays - rays_bytes : 0) +
+                              (need_results > results_bytes ? need_results - results_bytes : 0);
+        if (allocated_bytes + growth > budget_bytes) {
+            std::fprintf(stderr, "optix_runtime=refused reason=budget_exceeded held=%zu growth=%zu budget=%zu\n",
+                         allocated_bytes, growth, budget_bytes);
+            return 2;
+        }
+    }
+    if (need_rays > rays_bytes) {
+        release(d_rays, rays_bytes);
+        SESSION_CHECK(allocate(d_rays, rays_bytes, need_rays));
+    }
+    if (need_results > results_bytes) {
+        release(d_results, results_bytes);
+        SESSION_CHECK(allocate(d_results, results_bytes, need_results));
+    }
+    CUDA_CHECK(cudaMemcpy((void *) d_rays, rays.data(), need_rays, cudaMemcpyHostToDevice), "cuda_copy_failed");
     LaunchParams params = {};
     params.handle = handle;
     params.rays = (const Ray *) d_rays;
@@ -388,14 +571,15 @@ int main(int argc, char ** argv) {
     params.t_max = t_max;
     CUDA_CHECK(cudaMemcpy((void *) d_params, &params, sizeof params, cudaMemcpyHostToDevice), "cuda_copy_failed");
     stages.upload_ms = elapsed_ms(mark, Clock::now());
+
     const auto launch_start = Clock::now();
     OPTIX_CHECK(optixLaunch(pipeline, nullptr, d_params, sizeof(LaunchParams), &sbt, ray_count, 1, 1), "optix_launch_failed");
     CUDA_CHECK(cudaDeviceSynchronize(), "optix_launch_failed");
     stages.launch_ms = elapsed_ms(launch_start, Clock::now());
-    launch_completed = true;
     mark = Clock::now();
-    std::vector<RayResult> results(ray_count);
-    CUDA_CHECK(cudaMemcpy(results.data(), (void *) d_results, results.size() * sizeof(RayResult), cudaMemcpyDeviceToHost), "cuda_copy_failed");
+
+    results.resize(ray_count);
+    CUDA_CHECK(cudaMemcpy(results.data(), (void *) d_results, need_results, cudaMemcpyDeviceToHost), "cuda_copy_failed");
     stages.download_ms = elapsed_ms(mark, Clock::now());
     mark = Clock::now();
 
@@ -405,7 +589,7 @@ int main(int argc, char ** argv) {
     // inputs give the same reference every run; the comparison is what has to
     // run against every fresh device result, and separating them is what makes
     // the first reusable without weakening the second.
-    std::vector<RayResult> references(ray_count);
+    references.resize(ray_count);
     for (unsigned int i = 0; i < ray_count; ++i) {
         references[i] = reference(rays[i], triangles, t_max);
     }
@@ -413,10 +597,9 @@ int main(int argc, char ** argv) {
     mark = Clock::now();
 
     // summary and reference agreement
-    std::vector<uint64_t> primitive_hits(triangles.size(), 0);
-    uint64_t hits = 0, misses = 0, agree = 0, disagree = 0;
-    double t_sum = 0.0;
-    float t_min = t_max, t_hi = 0.0f;
+    summary = Summary();
+    summary.primitive_hits.assign(triangles.size(), 0);
+    summary.t_min = t_max;
     for (unsigned int i = 0; i < ray_count; ++i) {
         const RayResult & r = results[i];
         const RayResult & ref = references[i];
@@ -429,59 +612,115 @@ int main(int argc, char ** argv) {
             // same surface, so an edge hit on the neighbor is not a disagreement
             same = std::fabs(r.t - ref.t) <= 1e-3f * std::fmax(1.0f, ref.t);
         }
-        if (same) ++agree; else ++disagree;
+        if (same) ++summary.agree; else ++summary.disagree;
         if (device_hit) {
-            ++hits;
-            ++primitive_hits[(size_t) r.primitive];
-            t_sum += r.t;
-            if (r.t < t_min) t_min = r.t;
-            if (r.t > t_hi) t_hi = r.t;
+            ++summary.hits;
+            ++summary.primitive_hits[(size_t) r.primitive];
+            summary.t_sum += r.t;
+            if (r.t < summary.t_min) summary.t_min = r.t;
+            if (r.t > summary.t_hi) summary.t_hi = r.t;
         } else {
-            ++misses;
+            ++summary.misses;
         }
     }
+    summary.results_digest = digest(results);
     stages.compare_ms = elapsed_ms(mark, Clock::now());
+    return 0;
+}
 
+double Session::teardown() {
+    const auto mark = Clock::now();
+    if (pipeline) { optixPipelineDestroy(pipeline); pipeline = nullptr; }
+    for (auto & g : groups) { if (g) { optixProgramGroupDestroy(g); g = nullptr; } }
+    if (module) { optixModuleDestroy(module); module = nullptr; }
+    if (context) { optixDeviceContextDestroy(context); context = nullptr; }
+    release(d_rays, rays_bytes);
+    release(d_results, results_bytes);
+    release(d_params, params_bytes);
+    release(d_raygen, raygen_bytes);
+    release(d_miss, miss_bytes);
+    release(d_hit, hit_bytes);
+    release(d_gas, gas_bytes);
+    release(d_vertices, vertices_bytes);
+    return elapsed_ms(mark, Clock::now());
+}
+
+struct StageField { const char * name; double value; };
+
+// The summary a reply carries, over whichever stages the caller paid. A
+// one-shot run names all thirteen; a resident request names the six it paid,
+// and the session's ready and retired lines name the other seven, so the
+// three sets partition one table rather than zeroing what a run did not do.
+std::string result_object(const Session & session, unsigned int ray_count, const Summary & summary,
+                          double wall_ms, double launch_ms, const StageField * timed, size_t timed_count) {
+    char buffer[128];
+    std::string out = "{";
+    out += "\"scene\":\"" + session.scene_name + "\",\"query_set\":\"" + session.query_name + "\"";
+    out += ",\"rays\":" + std::to_string(ray_count);
+    out += ",\"hits\":" + std::to_string(summary.hits) + ",\"misses\":" + std::to_string(summary.misses);
+    std::snprintf(buffer, sizeof buffer, ",\"t_min\":%.6g,\"t_max\":%.6g,\"t_mean\":%.6g",
+                  summary.hits ? summary.t_min : 0.0f, summary.t_hi,
+                  summary.hits ? summary.t_sum / (double) summary.hits : 0.0);
+    out += buffer;
+    out += ",\"primitive_hits\":[";
+    for (size_t i = 0; i < summary.primitive_hits.size(); ++i) {
+        out += (i ? "," : "") + std::to_string(summary.primitive_hits[i]);
+    }
+    out += "]";
+    out += ",\"reference_agreement\":" + std::to_string(summary.agree) +
+           ",\"reference_disagreement\":" + std::to_string(summary.disagree);
+    std::snprintf(buffer, sizeof buffer, ",\"results_fnv1a64\":\"%016llx\"",
+                  (unsigned long long) summary.results_digest);
+    out += buffer;
+    std::snprintf(buffer, sizeof buffer, ",\"wall_ms\":%.3f,\"launch_ms\":%.3f", wall_ms, launch_ms);
+    out += buffer;
+    out += ",\"timings\":{";
+    for (size_t i = 0; i < timed_count; ++i) {
+        std::snprintf(buffer, sizeof buffer, "%s\"%s_ms\":%.3f", i ? "," : "", timed[i].name, timed[i].value);
+        out += buffer;
+    }
+    out += "}";
+    // The request and the readback both travel: OPTIX_CACHE_MAXSIZE=0 in the
+    // environment can disable a cache this asked for, and a module timing read
+    // without that distinction is not reproducible.
+    out += ",\"module_cache\":{\"requested\":\"" + session.module_cache + "\"";
+    out += ",\"enabled\":" + std::string(session.cache_enabled ? "true" : "false");
+    out += ",\"location\":\"" + std::string(session.cache_location) + "\"}";
+    out += ",\"gpu\":{";
+    out += std::string("\"context_created\":") + (session.context_created ? "true" : "false");
+    out += std::string(",\"gas_built\":") + (session.gas_built ? "true" : "false");
+    out += std::string(",\"pipeline_created\":") + (session.pipeline_created ? "true" : "false");
+    // The launch this reply reports is the one that filled the results it
+    // summarizes, so the flag is true wherever a result object is built at
+    // all: serve() returns before this point on a launch the device refused.
+    out += ",\"launch_completed\":true";
+    out += ",\"optix_version\":" + std::to_string(OPTIX_VERSION);
+    out += ",\"gas_bytes\":" + std::to_string(session.gas_output_bytes);
+    out += ",\"device_name\":\"" + std::string(session.prop.name) + "\",\"device_index\":" +
+           std::to_string(session.device_index) + "}";
+    out += "}";
+    return out;
+}
+
+void emit(const std::string & line) {
+    std::printf("%s\n", line.c_str());
+    std::fflush(stdout);
+}
+
+int one_shot(Session & session, unsigned int ray_count) {
+    Stages stages;
+    const auto wall_start = Clock::now();
+    SESSION_CHECK(session.setup(stages));
+    Summary summary;
+    const int served = session.serve(ray_count, stages, summary);
+    if (served == 2) return fail("budget_exceeded");
+    if (served != 0) return served;
     // Teardown is timed, so it runs before the reply is assembled rather than
     // after it is printed: a stage nobody measures is a stage a resident
     // worker cannot be shown to save.
-    mark = Clock::now();
-    optixPipelineDestroy(pipeline);
-    for (auto & g : groups) optixProgramGroupDestroy(g);
-    optixModuleDestroy(module);
-    optixDeviceContextDestroy(context);
-    cudaFree((void *) d_rays); cudaFree((void *) d_results); cudaFree((void *) d_params);
-    cudaFree((void *) d_raygen); cudaFree((void *) d_miss); cudaFree((void *) d_hit);
-    cudaFree((void *) d_temp); cudaFree((void *) d_gas); cudaFree((void *) d_vertices);
-    stages.teardown_ms = elapsed_ms(mark, Clock::now());
-
-    const auto wall_end = Clock::now();
-    const double wall_ms = elapsed_ms(wall_start, wall_end);
-
-    char buffer[128];
-    std::string out = "{";
-    out += "\"scene\":\"" + scene_name + "\",\"query_set\":\"" + query_name + "\"";
-    out += ",\"rays\":" + std::to_string(ray_count);
-    out += ",\"hits\":" + std::to_string(hits) + ",\"misses\":" + std::to_string(misses);
-    std::snprintf(buffer, sizeof buffer, ",\"t_min\":%.6g,\"t_max\":%.6g,\"t_mean\":%.6g",
-                  hits ? t_min : 0.0f, t_hi, hits ? t_sum / (double) hits : 0.0);
-    out += buffer;
-    out += ",\"primitive_hits\":[";
-    for (size_t i = 0; i < primitive_hits.size(); ++i) {
-        out += (i ? "," : "") + std::to_string(primitive_hits[i]);
-    }
-    out += "]";
-    out += ",\"reference_agreement\":" + std::to_string(agree) + ",\"reference_disagreement\":" + std::to_string(disagree);
-    std::snprintf(buffer, sizeof buffer, ",\"results_fnv1a64\":\"%016llx\"", (unsigned long long) digest(results));
-    out += buffer;
-    std::snprintf(buffer, sizeof buffer, ",\"wall_ms\":%.3f,\"launch_ms\":%.3f", wall_ms, stages.launch_ms);
-    out += buffer;
-    // Each stage stands on its own because they answer different questions: a
-    // resident worker keeps the context, module, pipeline and acceleration
-    // structure, and every query still pays the upload, the launch, the
-    // download and the validation.
-    out += ",\"timings\":{";
-    const struct { const char * name; double value; } timed[] = {
+    stages.teardown_ms = session.teardown();
+    const double wall_ms = elapsed_ms(wall_start, Clock::now());
+    const StageField timed[] = {
         {"scene", stages.scene_ms},
         {"cuda_context", stages.cuda_context_ms},
         {"optix_context", stages.optix_context_ms},
@@ -496,26 +735,200 @@ int main(int argc, char ** argv) {
         {"compare", stages.compare_ms},
         {"teardown", stages.teardown_ms},
     };
-    for (size_t i = 0; i < sizeof timed / sizeof timed[0]; ++i) {
-        std::snprintf(buffer, sizeof buffer, "%s\"%s_ms\":%.3f", i ? "," : "", timed[i].name, timed[i].value);
-        out += buffer;
-    }
-    out += "}";
-    // The request and the readback both travel: OPTIX_CACHE_MAXSIZE=0 in the
-    // environment can disable a cache this asked for, and a module timing read
-    // without that distinction is not reproducible.
-    out += ",\"module_cache\":{\"requested\":\"" + module_cache + "\"";
-    out += ",\"enabled\":" + std::string(cache_enabled ? "true" : "false");
-    out += ",\"location\":\"" + std::string(cache_location) + "\"}";
-    out += ",\"gpu\":{";
-    out += std::string("\"context_created\":") + (context_created ? "true" : "false");
-    out += std::string(",\"gas_built\":") + (gas_built ? "true" : "false");
-    out += std::string(",\"pipeline_created\":") + (pipeline_created ? "true" : "false");
-    out += std::string(",\"launch_completed\":") + (launch_completed ? "true" : "false");
-    out += ",\"optix_version\":" + std::to_string(OPTIX_VERSION);
-    out += ",\"gas_bytes\":" + std::to_string(sizes.outputSizeInBytes);
-    out += ",\"device_name\":\"" + std::string(prop.name) + "\",\"device_index\":" + std::to_string(device_index) + "}";
-    out += "}";
-    std::printf("%s\n", out.c_str());
+    emit(result_object(session, ray_count, summary, wall_ms, stages.launch_ms, timed,
+                       sizeof timed / sizeof timed[0]));
     return 0;
+}
+
+std::string ready_line(const Session & session, const Stages & startup, double startup_ms,
+                       unsigned long requests, unsigned long seconds, unsigned long idle) {
+    char buffer[1024];
+    std::string ready;
+    std::snprintf(buffer, sizeof buffer, "{\"protocol\":%d,\"event\":\"ready\"", GEOMETRY_PROTOCOL_VERSION);
+    ready += buffer;
+    ready += ",\"scene\":\"" + session.scene_name + "\",\"query_set\":\"" + session.query_name + "\"";
+    ready += ",\"module_cache\":{\"requested\":\"" + session.module_cache + "\"";
+    ready += ",\"enabled\":" + std::string(session.cache_enabled ? "true" : "false");
+    ready += ",\"location\":\"" + std::string(session.cache_location) + "\"}";
+    ready += ",\"gpu\":{";
+    ready += std::string("\"context_created\":") + (session.context_created ? "true" : "false");
+    ready += std::string(",\"gas_built\":") + (session.gas_built ? "true" : "false");
+    ready += std::string(",\"pipeline_created\":") + (session.pipeline_created ? "true" : "false");
+    ready += ",\"optix_version\":" + std::to_string(OPTIX_VERSION);
+    ready += ",\"gas_bytes\":" + std::to_string(session.gas_output_bytes);
+    ready += ",\"device_name\":\"" + std::string(session.prop.name) + "\",\"device_index\":" +
+             std::to_string(session.device_index) + "}";
+    std::snprintf(buffer, sizeof buffer,
+                  ",\"timings\":{\"cuda_context_ms\":%.3f,\"optix_context_ms\":%.3f,\"accel_ms\":%.3f,"
+                  "\"module_ms\":%.3f,\"pipeline_ms\":%.3f,\"sbt_ms\":%.3f}"
+                  ",\"startup_ms\":%.3f,\"device_allocated_bytes\":%zu"
+                  ",\"session_requests\":%lu,\"session_seconds\":%lu,\"idle_timeout_s\":%lu"
+                  ",\"residency_budget_mib\":%zu}",
+                  startup.cuda_context_ms, startup.optix_context_ms, startup.accel_ms,
+                  startup.module_ms, startup.pipeline_ms, startup.sbt_ms, startup_ms,
+                  session.allocated_bytes, requests, seconds, idle,
+                  session.budget_bytes / (1024 * 1024));
+    ready += buffer;
+    return ready;
+}
+
+int resident(Session & session, unsigned long session_requests, unsigned long session_seconds,
+             unsigned long idle_seconds) {
+    struct sigaction action = {};
+    action.sa_handler = on_stop;
+    sigaction(SIGTERM, &action, nullptr);
+    sigaction(SIGINT, &action, nullptr);
+
+    Stages startup;
+    const auto session_start = Clock::now();
+    SESSION_CHECK(session.setup(startup));
+    emit(ready_line(session, startup, elapsed_ms(session_start, Clock::now()),
+                    session_requests, session_seconds, idle_seconds));
+
+    char buffer[512];
+    unsigned long served = 0;
+    const char * retirement = "shutdown";
+    for (;;) {
+        if (stop_requested) break;
+        const double age_s = elapsed_ms(session_start, Clock::now()) / 1000.0;
+        if (served >= session_requests) { retirement = "request_limit"; break; }
+        if (age_s >= (double) session_seconds) { retirement = "session_limit"; break; }
+        // Whichever bound is nearer decides how long this waits: the idle
+        // interval with no request in hand, or what the session has left.
+        const double remaining_s = (double) session_seconds - age_s;
+        const bool idle_is_nearer = (double) idle_seconds < remaining_s;
+        const double wait_s = idle_is_nearer ? (double) idle_seconds : remaining_s;
+        std::string line;
+        const LineOutcome outcome = read_line(line, (int) (wait_s * 1000.0));
+        if (outcome == LineOutcome::timeout) {
+            retirement = idle_is_nearer ? "idle_timeout" : "session_limit";
+            break;
+        }
+        if (outcome != LineOutcome::line) {
+            // A closed pipe is the supervisor gone and an interrupted wait is
+            // its signal; an overlong line is neither, and its sender is told
+            // on stderr rather than answered.
+            if (outcome == LineOutcome::overlong) {
+                std::fprintf(stderr, "optix_runtime=rejected reason=line_over_65536_bytes\n");
+            }
+            break;
+        }
+        unsigned long line_protocol = 0;
+        std::string request_id, action_name;
+        if (!json_uint_field(line, "protocol", line_protocol) ||
+            line_protocol != (unsigned long) GEOMETRY_PROTOCOL_VERSION ||
+            !json_string_field(line, "action", action_name) ||
+            !json_string_field(line, "request_id", request_id)) {
+            std::fprintf(stderr, "optix_runtime=rejected reason=malformed_request\n");
+            break;
+        }
+        if (action_name == "shutdown") break;
+        unsigned long rays_requested = 0;
+        if (action_name != "query" || !json_uint_field(line, "rays", rays_requested) ||
+            rays_requested < 1 || rays_requested > 1048576) {
+            std::snprintf(buffer, sizeof buffer,
+                          "{\"protocol\":%d,\"event\":\"refused\",\"request_id\":\"%s\","
+                          "\"reason\":\"invalid_argument\","
+                          "\"detail\":\"the line names no query of 1 to 1048576 rays\"}",
+                          GEOMETRY_PROTOCOL_VERSION, request_id.c_str());
+            emit(buffer);
+            continue;
+        }
+        Stages stages;
+        Summary summary;
+        const auto request_start = Clock::now();
+        const int outcome_code = session.serve((unsigned int) rays_requested, stages, summary);
+        if (outcome_code == 2) {
+            std::snprintf(buffer, sizeof buffer,
+                          "{\"protocol\":%d,\"event\":\"refused\",\"request_id\":\"%s\","
+                          "\"reason\":\"budget_exceeded\","
+                          "\"detail\":\"%lu rays would take the session past its residency ceiling\"}",
+                          GEOMETRY_PROTOCOL_VERSION, request_id.c_str(), rays_requested);
+            emit(buffer);
+            // The ceiling is the configuration's, so passing it ends the
+            // session rather than shrinking the request: a worker that served
+            // the next request would hold memory nothing admitted.
+            retirement = "budget_exceeded";
+            break;
+        }
+        if (outcome_code != 0) return outcome_code;
+        const double wall_ms = elapsed_ms(request_start, Clock::now());
+        ++served;
+        const StageField timed[] = {
+            {"scene", stages.scene_ms},
+            {"upload", stages.upload_ms},
+            {"launch", stages.launch_ms},
+            {"download", stages.download_ms},
+            {"reference", stages.reference_ms},
+            {"compare", stages.compare_ms},
+        };
+        std::string reply;
+        std::snprintf(buffer, sizeof buffer, "{\"protocol\":%d,\"event\":\"result\",\"request_id\":\"%s\"",
+                      GEOMETRY_PROTOCOL_VERSION, request_id.c_str());
+        reply += buffer;
+        std::snprintf(buffer, sizeof buffer,
+                      ",\"residency\":{\"request_index\":%lu,\"session_age_s\":%.3f,"
+                      "\"device_allocated_bytes\":%zu,\"requests_remaining\":%lu}",
+                      served, elapsed_ms(session_start, Clock::now()) / 1000.0,
+                      session.allocated_bytes, session_requests - served);
+        reply += buffer;
+        reply += ",\"result\":" + result_object(session, (unsigned int) rays_requested, summary, wall_ms,
+                                                stages.launch_ms, timed, sizeof timed / sizeof timed[0]);
+        reply += "}";
+        emit(reply);
+    }
+    const double teardown_ms = session.teardown();
+    std::snprintf(buffer, sizeof buffer,
+                  "{\"protocol\":%d,\"event\":\"retired\",\"reason\":\"%s\",\"requests_served\":%lu,"
+                  "\"session_age_s\":%.3f,\"timings\":{\"teardown_ms\":%.3f},"
+                  "\"device_allocated_bytes\":%zu}",
+                  GEOMETRY_PROTOCOL_VERSION, retirement, served,
+                  elapsed_ms(session_start, Clock::now()) / 1000.0, teardown_ms,
+                  session.allocated_bytes);
+    emit(buffer);
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char ** argv) {
+    // One-shot: the ray count stands where resident mode names its bounds, so
+    // the two forms cannot be confused for one another by a miscounted argv.
+    const bool resident_mode = argc >= 4 && std::string(argv[3]) == "resident";
+    if (!((resident_mode && argc == 10) || (!resident_mode && argc == 6))) {
+        std::fprintf(stderr,
+                     "usage: optix-ray-runtime SCENE QUERY_SET RAY_COUNT DEVICE_INDEX MODULE_CACHE\n"
+                     "       optix-ray-runtime SCENE QUERY_SET resident DEVICE_INDEX MODULE_CACHE"
+                     " SESSION_REQUESTS SESSION_SECONDS IDLE_SECONDS BUDGET_MIB\n");
+        return 2;
+    }
+    Session session;
+    session.scene_name = argv[1];
+    session.query_name = argv[2];
+    session.device_index = std::atoi(argv[4]);
+    session.module_cache = argv[5];
+    if (session.device_index < 0) return 2;
+    if (session.module_cache != "enabled" && session.module_cache != "disabled") return fail("unknown_module_cache");
+    session.cache_requested = session.module_cache == "enabled" ? 1 : 0;
+    session.triangles = build_scene(session.scene_name);
+    if (session.triangles.empty()) return fail("unknown_scene");
+
+    if (!resident_mode) {
+        const long ray_count = std::strtol(argv[3], nullptr, 10);
+        if (ray_count < 1 || ray_count > 1048576) return 2;
+        return one_shot(session, (unsigned int) ray_count);
+    }
+    const long requests = std::strtol(argv[6], nullptr, 10);
+    const long seconds = std::strtol(argv[7], nullptr, 10);
+    const long idle = std::strtol(argv[8], nullptr, 10);
+    const long budget_mib = std::strtol(argv[9], nullptr, 10);
+    // The bounds are the profile row's, revalidated here: a supervisor is what
+    // hands them over, and a session that took them on trust would run under
+    // whatever the launch line happened to say.
+    if (requests < 1 || requests > 64 || seconds < 1 || seconds > 3600 ||
+        idle < 1 || idle >= seconds || budget_mib < 1 || budget_mib > 4096) {
+        return 2;
+    }
+    session.budget_bytes = (size_t) budget_mib * 1024 * 1024;
+    return resident(session, (unsigned long) requests, (unsigned long) seconds, (unsigned long) idle);
 }

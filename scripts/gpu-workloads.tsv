@@ -33,6 +33,15 @@
 #                    the claim outlives the campaign, and n-a marks an entry
 #                    point that leaves no long-lived child behind.
 # execution_policy   acquires, inherits, delegates, monitored, or none.
+#
+# active_compute_lease answers who owns the device while compute runs and
+# says nothing about device memory held while none does. Those are separate
+# permissions: a process can hold a CUDA context, an acceleration structure
+# and its buffers across requests it is not running. scripts/geometry-profiles.tsv
+# is the authority for that one in the geometry lane -- a bounded-resident row
+# declares the session, its bounds and its memory ceiling -- and a lane whose
+# entry points all read `no` or `exports` here still holds memory only where
+# a ledger row admits it.
 entrypoint	role	backend	top_level_owner	nested_owner_capability	active_compute_lease	may_overlap_compute	child_closes_owner_fd	execution_policy
 cuda-runtime-env.sh	active-workload	cuda	no	yes	no	yes	no	inherits
 image-review.py	active-workload	cuda	no	yes	no	yes	no	inherits
@@ -138,6 +147,8 @@ geometry-service.py	active-workload	cuda	no	yes	yes	yes	no	inherits
 build-geometry-runtime.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
 geometry-teardown-check.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
 admit-geometry-runtime.sh	measurement-campaign	cuda	yes	yes	exports	no	yes	acquires
+geometry-resident-driver.py	active-workload	cuda	no	yes	yes	no	no	inherits
+admit-geometry-resident.sh	measurement-campaign	cuda	yes	yes	exports	no	yes	acquires
 build-image-runtime-cuda.sh	non-gpu-helper	none	no	no	no	yes	n-a	none
 test-load-lease-coverage.sh	measurement-campaign	cuda	yes	no	exports	no	yes	acquires
 probe-lease-shutdown-stall.sh	measurement-campaign	cuda	yes	no	exports	no	yes	acquires

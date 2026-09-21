@@ -35,8 +35,12 @@ PHYSICS_LEDGER = (
     "physics-d6-test\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t5\tvalidator-gated\t0\treadback\n"
 )
 GEOMETRY_LEDGER = (
-    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\tmodule_cache\n"
-    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled\n"
+    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\tmodule_cache"
+    "\tresidency\tsession_requests\tsession_seconds\tidle_timeout_s\tresidency_budget_mib\n"
+    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled"
+    "\tone-shot\t1\tn-a\tn-a\tn-a\n"
+    "geometry-cube-resident\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled"
+    "\tbounded-resident\t4\t60\t5\t512\n"
 )
 
 
@@ -190,6 +194,18 @@ def main():
                       "the geometry child lists ray_query bounded by its ledger")
             finally:
                 geometry.close()
+            # A bounded-resident row admits device memory held between requests
+            # and a session the service has no loop for, so the child that
+            # would offer it as a tool refuses to start one.
+            resident = ChildSession({**environment, "QWEN_SIDECAR_SERVICE": "geometry",
+                                     "QWEN_SIDECAR_PROFILE": "geometry-cube-resident",
+                                     "QWEN_SIDECAR_PROFILES": str(state / "geometry" / "profiles.tsv")})
+            try:
+                listing = resident.request("tools/list")
+                tools = (listing.get("result") or {}).get("tools") or []
+                check(not tools, "the geometry child offers no tool for a bounded-resident row")
+            finally:
+                resident.close()
         finally:
             service.terminate()
             try:
