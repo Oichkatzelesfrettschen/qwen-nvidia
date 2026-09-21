@@ -18,7 +18,12 @@ IDENTITY_FIELD = re.compile(
     r'(?im)([\"\']?(?:username|user_name|hostname|host_name)[\"\']?\s*[:=]\s*)'
     r'([\"\']?)([A-Za-z0-9_.-]+)(\2)'
 )
-PUBLIC_IDENTITIES = {"qwen-laptop", "redacted", "unavailable"}
+# Identities that carry no private information and pass through unredacted.
+# `qwen-laptop` is the identity retained evidence was scrubbed to before this
+# tree named its own host, so it stays accepted: dropping it would redact a
+# published artifact this repository already carries. New artifacts scrub to
+# `qwen-host`.
+PUBLIC_IDENTITIES = {"qwen-host", "qwen-laptop", "redacted", "unavailable"}
 
 
 def sanitize(text):

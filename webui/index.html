@@ -272,7 +272,7 @@ function writeBrowserStorage(storageName, key, value) {
 let apiKey = readBrowserStorage('sessionStorage', 'qwen-api-key') || '';
 $('#api-key').value = apiKey;
 
-// Reasoning costs decode tokens at about one per second on this APU, so the
+// Reasoning costs decode tokens at about one per second on this device, so the
 // choice persists across reloads rather than resetting to on each visit.
 $('#reasoning').checked =
   readBrowserStorage('localStorage', 'qwen-reasoning') === 'on';

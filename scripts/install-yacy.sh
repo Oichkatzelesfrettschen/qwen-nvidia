@@ -102,7 +102,7 @@ config_file=$settings_directory/yacy.conf
 # of keys layers over the full defaults rather than needing every key
 # restated. autocrawl already defaults to false in the pinned tree
 # (defaults/yacy.init:627); this instance states it explicitly so a later
-# upstream default change cannot start a crawl this laptop never asked for.
+# upstream default change cannot start a crawl this host never asked for.
 cat >"$config_file" <<EOF
 port = 8090
 host = 127.0.0.1

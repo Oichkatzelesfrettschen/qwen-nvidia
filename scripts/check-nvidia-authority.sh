@@ -1,15 +1,14 @@
 #!/bin/sh
 set -eu
 
-# Refuse a tree in which prior-host authority still speaks as current policy.
+# Refuse a tree in which off-device authority still speaks as current policy.
 #
-# This repository was derived from an appliance built on an AMD Raven2 APU over
-# Mesa RADV. Its measurements, its device controls, and its driver verdicts
-# belong to that machine, and a default here changes when a measurement on this
-# host moves it. The gate reads the active tree for the terms that name the
-# other machine's hardware, driver, and compute stack, and it admits them only
-# where a path declares itself prior-host or where the mechanism they name is
-# this host's own.
+# A measurement, a device control, or a driver verdict taken on other hardware
+# belongs to that hardware, and a default here moves when a measurement on this
+# host moves it. The gate reads the active tree for the terms that name a
+# different hardware, driver, or compute stack, and it admits them only where a
+# path declares itself off-device or where the mechanism they name is this
+# host's own.
 #
 # Vulkan itself is legitimate: llama-server carries the CUDA and Vulkan backends
 # in one binary and enumerates CUDA0 and Vulkan0 for the same card, so the gate

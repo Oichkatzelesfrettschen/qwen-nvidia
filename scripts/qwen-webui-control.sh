@@ -36,7 +36,7 @@ bind_host=${QWEN_BIND_HOST:-127.0.0.1}
 latency_mode=${QWEN_LATENCY_MODE:-observe}
 server_port=${QWEN_SERVER_PORT:-8080}
 # llama-ui is a SvelteKit build produced on a machine with Node and copied here
-# as static files, so the laptop serves it without a build toolchain or a second
+# as static files, so this host serves it without a build toolchain or a second
 # process. QWEN_STATIC_PATH selects it against the hand-written diagnostic page.
 # The distill and the base model share the Qwen3.5-4B architecture, so a model
 # swap is an argument rather than an edit. The distill is the text default: it

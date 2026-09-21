@@ -124,7 +124,7 @@ sanitize_pattern() {
 sanitize_temporary_pattern=$(sanitize_pattern "$temporary_directory")
 sanitize_home_pattern=$(sanitize_pattern "$HOME")
 sanitize_host_pattern=$(sanitize_pattern \
-    "$(hostname 2>/dev/null || printf 'qwen-laptop')")
+    "$(hostname 2>/dev/null || printf 'qwen-host')")
 
 # One filter for every byte the record keeps, metadata included: a summary row
 # naming the server, the model, and the projector carries the home prefix as
@@ -135,7 +135,7 @@ sanitize_host_pattern=$(sanitize_pattern \
 sanitize_text() {
     sed -e "s#$sanitize_temporary_pattern#\$LEASE_TEST_TMPDIR#g" \
         -e "s#$sanitize_home_pattern#\$HOME#g" \
-        -e "s#$sanitize_host_pattern#qwen-laptop#g" \
+        -e "s#$sanitize_host_pattern#qwen-host#g" \
         -e 's#[0-9a-fA-F]\{2\}\(:[0-9a-fA-F]\{2\}\)\{5\}#<mac>#g'
 }
 

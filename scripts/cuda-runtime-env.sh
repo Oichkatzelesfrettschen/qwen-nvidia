@@ -39,8 +39,7 @@ serving_cpu_list=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2
 # The scheduling policy is applied rather than inherited, and it is exported so
 # the session that started this process can read back what to require of it.
 # A discrete card decodes while the host waits on it, so the server runs at the
-# desktop's own priority across every core here, where the APU tree pinned one
-# core at nice 19 to leave the second for the desktop.
+# desktop's own priority across every core rather than pinned to one.
 renice -n "$serving_nice" -p $$ >/dev/null 2>&1 || {
     printf 'renice to %s failed\n' "$serving_nice" >&2
     exit 1

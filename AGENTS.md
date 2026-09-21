@@ -100,8 +100,7 @@ takes no desktop-responsiveness measurement records
 event duration, or the absence of a probe crash for it. A disable flag or a
 rejection assertion naming the retired backend is enforcement, not support.
 The workstation's own Vulkan libraries and its compositor are outside this
-contract, and no host driver is removed by it. That inverts the APU tree, where Vulkan was the only
-accelerated path the device offered, and it changes which ceiling binds:
+contract, and no host driver is removed by it. The ceiling that binds here is
 device memory rather than memory bandwidth. A 12 GiB carve-out with 2.5 GiB
 already resident holds one 9B Q4_K_M
 trunk, a 0.8B draft, and two KV caches with little room over, so every paired
@@ -2679,8 +2678,10 @@ in both, so grid selection controls divisibility and divisibility controls
 whether the fixup launch exists.
 
 `evidence/SHA256SUMS` and `ARTIFACTS.md` fix the retention class of every
-surface. Git copies replace the private hostname with `qwen-laptop`, the home
-prefix with `$HOME`, and MAC addresses with `<mac>`.
+surface. Git copies replace the private hostname with `qwen-host`, the home
+prefix with `$HOME`, and MAC addresses with `<mac>`. Evidence retained from
+before this tree named its own host carries `qwen-laptop` in that position, and
+the sanitizer still accepts it so a published artifact stays readable.
 
 A graded result is conditioned on the request sequence that produced it. Three
 repeats of the ten arithmetic rows reproduce exactly, so greedy decoding on this
@@ -2824,8 +2825,7 @@ reserved for human co-authors.
   `api.key` files stay outside the repository and their contents stay unprinted
   and untransmitted.
 - `/etc/sudoers.d/90-qwen-agent` sets `timestamp_type=global` with a 60 minute
-  timeout, so one `sudo -v` on the laptop covers the SSH sessions that
-  administer it. The user types the password; it stays out of SSH command
+  timeout, so one `sudo -v` covers the sessions that administer this host. The user types the password; it stays out of SSH command
   lines, scripts, logs, and project files.
 - New files carry no copyright line. Existing upstream headers stay verbatim.
 - Scripts are POSIX `sh` with `set -eu`, long descriptive variable names, and a
@@ -2836,7 +2836,7 @@ reserved for human co-authors.
   tool-enabled server stays off the LAN.
 - The service starts and stops through the launch and teardown scripts alone.
   No unit file, crontab entry, or login hook starts it, so a reboot leaves the
-  laptop with nothing listening.
+  host with nothing listening.
 
 ## Repository guidelines
 
