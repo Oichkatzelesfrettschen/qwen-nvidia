@@ -102,6 +102,13 @@ rm -f "$output_directory/ownership-before.raw"
 "$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
 device_name_smi=$(nvidia-smi --query-gpu=name --format=csv,noheader -i 0 | sed 's/^ *//; s/ *$//')
 record device_name_nvidia_smi "$device_name_smi"
+# scripts/qwen-exec-idle-priority.sh runs the runtime at nice 19 with idle I/O,
+# so a timing is a measurement of this host under this load as much as of the
+# runtime: a loaded machine starves the deprioritized process. The load either
+# side of the run travels with the record so a contaminated run reads as
+# contaminated rather than as a slow one.
+record host_load_1m_before "$(awk '{print $1}' /proc/loadavg)"
+record gpu_utilization_before_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader -i 0 | tr -d ' %')"
 
 QWEN_GPU_COMPUTE_LEASE=$output_directory/state/vulkan-workload.lock
 export QWEN_GPU_COMPUTE_LEASE
@@ -254,6 +261,8 @@ record state_read_ms "$(fact state_read_ms)"
 # one.
 check physx_messages_invalidating "$(fact physx_messages_invalidating)" 0
 record physx_messages_total "$(fact physx_messages_total)"
+record host_load_1m_after "$(awk '{print $1}' /proc/loadavg)"
+record gpu_utilization_after_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader -i 0 | tr -d ' %')"
 record cpu_accessor_position_max "$(fact cpu_accessor_position_max)"
 record cpu_accessor_linear_velocity_max "$(fact cpu_accessor_linear_velocity_max)"
 check device_name_matches_nvidia_smi "$(fact device_name_matches_nvidia_smi)" yes

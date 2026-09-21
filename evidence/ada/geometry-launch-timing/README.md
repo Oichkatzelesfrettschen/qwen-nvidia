@@ -81,6 +81,54 @@ That ordering is the finding, and it is what the next change has to answer
 before any streams or events are worth adding: the reference intersection is
 the cost, not the launch.
 
+## The validation stage is now two stages, and the split is unmeasured
+
+The retained `warm/` and `cold/` captures above report `validate_ms`, which
+covered computing the reference answer, comparing the device result against it,
+and accumulating the statistics. The reference is a function of the rays, the
+triangles and `t_max` and of nothing the device produced, so it is now computed
+into its own vector and timed as `reference_ms` apart from the `compare_ms`
+that consumes it. That is what makes the first reusable for unchanged inputs
+without weakening the second: every ray is still compared against an
+independently computed answer, and nothing cached is a previous device result.
+
+**The split has not been measured on a quiet host.** The runs that produced
+88.719 ms of combined `validate_ms` predate it. A repeat at load average 24
+reported `reference_ms` 79.291 and `compare_ms` 21.929 on the warm arm and
+79.033 and 3.611 on the cold, which would put the reference at roughly nine
+tenths of the stage, but those runs carried a warm stage sum of 9864 ms against
+319 ms quiet and are not evidence of anything but the load. The retained
+captures are the quiet ones, at the stage layout they were taken under.
+
+A reuse key for the reference has to name the mathematical inputs -- ordered
+geometry and transforms, ordered ray bytes, the intersection limit, and the
+reference implementation's build identity -- rather than the scene and query
+names. Once PhysX supplies the transforms, a reference computed for one
+simulation state would otherwise verify the next state on the strength of an
+unchanged scene name.
+
+## The conditions these timings belong to
+
+`scripts/qwen-exec-idle-priority.sh` runs the runtime at nice 19 with idle I/O
+and verifies both before it execs, so every stage here is a measurement of this
+host under the load it carried as much as of the runtime. The effect is not
+small. Repeating the pair at load average 24, with a GPG daemon at 94 percent
+of a core and the desktop holding the GPU at 68 percent, took the warm run's
+stage sum from 319 ms to 9864 ms: `cuda_context_ms` 4757 against 136,
+`optix_context_ms` 3294 against 47, `pipeline_ms` 1581 against 9. `launch_ms`
+moved from 2.428 to 2.653, 9 percent, because the launch is the one stage the
+host scheduler does not own.
+
+Those runs are discarded rather than retained. The harness now records the
+one-minute load average and the GPU utilization either side of every run in
+both lanes, so a contaminated run reads as contaminated rather than as a slow
+one. A load threshold is not imposed: what counts as quiet is a judgment about
+the host, and the record is what lets a reader make it.
+
+Changing the priority is its own paired comparison against the same scene,
+reference implementation and runtime. It is not bundled into a claim about a
+resident worker.
+
 ## What has not run
 
 The resident worker itself, its explicit streams and events, its reusable

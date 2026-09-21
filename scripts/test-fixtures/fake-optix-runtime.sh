@@ -10,7 +10,9 @@ set -eu
 # `crash` exits 1 with the runtime's refusal line, `hang` sleeps past any
 # deadline, `prose` prints text where JSON is expected, `stage-sum` reports
 # stage timings that add past the wall time they were taken inside, and
-# `cache-claim` reports the disk cache enabled on a run that disabled it.
+# `cache-claim` reports the disk cache enabled on a run that disabled it, and
+# `rounding` reports stages summing exactly the (stages + 1) half-steps above
+# the wall time that three-decimal serialization can produce on a correct run.
 
 [ "$#" -eq 5 ] || { printf 'usage: fake-optix-runtime SCENE QUERY_SET RAY_COUNT DEVICE_INDEX MODULE_CACHE\n' >&2; exit 2; }
 scene=$1
@@ -60,8 +62,13 @@ wall_ms=12.5
 case $mode in
     stage-sum) module_ms=200 ;;
     cache-claim) cache_enabled=true; cache_location=$HOME/.cache/qwen-optix-module ;;
+    # The thirteen stages below sum to 5.0 with module_ms at 1.5. A wall time
+    # 0.007 ms under that is the largest excess thirteen stages rounded up and
+    # one total rounded down can produce, so it is the boundary a correct run
+    # can reach and the validator has to admit.
+    rounding) module_ms=1.5; wall_ms=4.993 ;;
 esac
-timings=$(printf '"scene_ms":0.1,"cuda_context_ms":0.4,"optix_context_ms":0.6,"accel_ms":0.3,"module_ms":%s,"pipeline_ms":0.7,"sbt_ms":0.1,"upload_ms":0.2,"launch_ms":0.4,"download_ms":0.2,"validate_ms":0.3,"teardown_ms":0.2' "$module_ms")
+timings=$(printf '"scene_ms":0.1,"cuda_context_ms":0.4,"optix_context_ms":0.6,"accel_ms":0.3,"module_ms":%s,"pipeline_ms":0.7,"sbt_ms":0.1,"upload_ms":0.2,"launch_ms":0.4,"download_ms":0.2,"reference_ms":0.2,"compare_ms":0.1,"teardown_ms":0.2' "$module_ms")
 printf '{"scene":"%s","query_set":"%s","rays":%s,"hits":%s,"misses":%s,"t_min":2.5,"t_max":4.2,"t_mean":3.1,"primitive_hits":[%s,0,0,0,0,0,0,0,0,0,0,0,0,0],"reference_agreement":%s,"reference_disagreement":%s,"results_fnv1a64":"0123456789abcdef","wall_ms":%s,"launch_ms":0.4,"timings":{%s},"module_cache":{"requested":"%s","enabled":%s,"location":"%s"},"gpu":{"context_created":true,"gas_built":true,"pipeline_created":true,"launch_completed":%s,"optix_version":90100,"gas_bytes":4096,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s}}\n' \
     "$scene" "$query_set" "$rays" "$hits" "$misses" "$hits" "$agree" "$disagree" \
     "$wall_ms" "$timings" "$module_cache" "$cache_enabled" "$cache_location" "$launch" "$device"

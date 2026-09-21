@@ -62,7 +62,8 @@ struct Stages {
     double upload_ms = 0.0;
     double launch_ms = 0.0;
     double download_ms = 0.0;
-    double validate_ms = 0.0;
+    double reference_ms = 0.0;
+    double compare_ms = 0.0;
     double teardown_ms = 0.0;
 };
 
@@ -398,6 +399,19 @@ int main(int argc, char ** argv) {
     stages.download_ms = elapsed_ms(mark, Clock::now());
     mark = Clock::now();
 
+    // The reference answer is a function of the rays, the triangles and t_max
+    // and of nothing the device produced, so it is computed into its own
+    // vector and timed apart from the comparison that consumes it. Unchanged
+    // inputs give the same reference every run; the comparison is what has to
+    // run against every fresh device result, and separating them is what makes
+    // the first reusable without weakening the second.
+    std::vector<RayResult> references(ray_count);
+    for (unsigned int i = 0; i < ray_count; ++i) {
+        references[i] = reference(rays[i], triangles, t_max);
+    }
+    stages.reference_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
+
     // summary and reference agreement
     std::vector<uint64_t> primitive_hits(triangles.size(), 0);
     uint64_t hits = 0, misses = 0, agree = 0, disagree = 0;
@@ -405,7 +419,7 @@ int main(int argc, char ** argv) {
     float t_min = t_max, t_hi = 0.0f;
     for (unsigned int i = 0; i < ray_count; ++i) {
         const RayResult & r = results[i];
-        const RayResult ref = reference(rays[i], triangles, t_max);
+        const RayResult & ref = references[i];
         const bool device_hit = r.t >= 0.0f && r.primitive >= 0 && (size_t) r.primitive < triangles.size();
         const bool reference_hit = ref.primitive >= 0;
         bool same = device_hit == reference_hit;
@@ -426,7 +440,7 @@ int main(int argc, char ** argv) {
             ++misses;
         }
     }
-    stages.validate_ms = elapsed_ms(mark, Clock::now());
+    stages.compare_ms = elapsed_ms(mark, Clock::now());
 
     // Teardown is timed, so it runs before the reply is assembled rather than
     // after it is printed: a stage nobody measures is a stage a resident
@@ -478,7 +492,8 @@ int main(int argc, char ** argv) {
         {"upload", stages.upload_ms},
         {"launch", stages.launch_ms},
         {"download", stages.download_ms},
-        {"validate", stages.validate_ms},
+        {"reference", stages.reference_ms},
+        {"compare", stages.compare_ms},
         {"teardown", stages.teardown_ms},
     };
     for (size_t i = 0; i < sizeof timed / sizeof timed[0]; ++i) {

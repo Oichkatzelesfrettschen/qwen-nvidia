@@ -106,6 +106,14 @@ rm -f "$output_directory/ownership-before.raw"
 "$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
 device_name_smi=$(nvidia-smi --query-gpu=name --format=csv,noheader -i 0 | sed 's/^ *//; s/ *$//')
 record device_name_nvidia_smi "$device_name_smi"
+# scripts/qwen-exec-idle-priority.sh runs the runtime at nice 19 with idle I/O,
+# so a stage timing is a measurement of this host under this load as much as of
+# the runtime: a loaded machine starves the deprioritized process and the setup
+# stages grow by an order of magnitude. The load either side of the run travels
+# with the record so a contaminated run reads as contaminated rather than as a
+# slow one.
+record host_load_1m_before "$(awk '{print $1}' /proc/loadavg)"
+record gpu_utilization_before_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader -i 0 | tr -d ' %')"
 
 QWEN_GPU_COMPUTE_LEASE=$output_directory/state/vulkan-workload.lock
 export QWEN_GPU_COMPUTE_LEASE
@@ -258,10 +266,12 @@ record profile_module_cache "$module_cache"
 check reply_module_cache_requested "$(fact module_cache_requested)" "$module_cache"
 expected_cache=$([ "$module_cache" = enabled ] && printf true || printf false)
 check module_cache_enabled "$(fact module_cache_enabled)" "$expected_cache"
-for stage in accel cuda_context download launch module optix_context pipeline sbt scene teardown upload validate; do
+for stage in accel compare cuda_context download launch module optix_context pipeline reference sbt scene teardown upload; do
     record "stage_${stage}_ms" "$(fact "stage_${stage}_ms")"
 done
 record stage_sum_ms "$(fact stage_sum_ms)"
+record host_load_1m_after "$(awk '{print $1}' /proc/loadavg)"
+record gpu_utilization_after_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader -i 0 | tr -d ' %')"
 check reply_runtime_sha256 "$(fact runtime_sha256)" "$runtime_sha256"
 
 # The during-run record keeps the runtime's client rows, the sampler's own
