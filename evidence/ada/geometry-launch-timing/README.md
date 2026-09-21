@@ -92,13 +92,35 @@ that consumes it. That is what makes the first reusable for unchanged inputs
 without weakening the second: every ray is still compared against an
 independently computed answer, and nothing cached is a previous device result.
 
-**The split has not been measured on a quiet host.** The runs that produced
-88.719 ms of combined `validate_ms` predate it. A repeat at load average 24
-reported `reference_ms` 79.291 and `compare_ms` 21.929 on the warm arm and
-79.033 and 3.611 on the cold, which would put the reference at roughly nine
-tenths of the stage, but those runs carried a warm stage sum of 9864 ms against
-319 ms quiet and are not evidence of anything but the load. The retained
-captures are the quiet ones, at the stage layout they were taken under.
+**The reference is 95.5 percent of the stage.** Nine runs across a host load
+average of 15 to 24 give `reference_ms` a mean of 80.966 ms with a standard
+deviation of 2.165 and an 8.0 percent spread, and `compare_ms` a mean of 3.846
+with a standard deviation of 0.377. `reference-split.tsv` retains seven of them
+with the load each one saw.
+
+Those numbers are usable from a loaded host and the setup stages beside them
+are not, which is the point of recording the load. Over the same runs
+`cuda_context_ms` spans 132.131 to 4757.229 ms, a factor of 36, while
+`reference_ms` spans 79.033 to 85.477. The reference and the comparison are
+host loops over a million rays with no syscall in them, so a nice-19 process
+still gets a core; the setup stages queue behind driver work and idle-class
+I/O, which is what the load takes from them. A stage that holds to 8 percent
+while its neighbor moves by 36 times is measuring itself.
+
+The one departure is a `compare_ms` of 21.929 on the first run against a freshly
+allocated reference vector, against 3.4 to 4.3 on every later run. Eight megabytes
+of first-touch page faults land in that stage, and they land there once.
+
+The merged captures report 88.719 ms of combined `validate_ms` against 84.812 ms
+for the two stages summed here. The difference is the materialized vector: the
+reference used to be computed inside the comparison loop and consumed
+immediately, and it is now written to memory and read back.
+
+So caching the reference removes 81 ms of the roughly 119 ms a resident worker
+would leave per query, and the comparison it protects costs 4 ms. Ray generation
+at 22 ms caches beside it for a fixed query set. What survives both is upload,
+launch, download and compare: about 13 ms. That is a projection from one-shot
+measurements and a resident implementation has not run.
 
 A reuse key for the reference has to name the mathematical inputs -- ordered
 geometry and transforms, ordered ray bytes, the intersection limit, and the
