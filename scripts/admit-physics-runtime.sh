@@ -140,10 +140,13 @@ sample_clients >"$output_directory/clients-during.raw" 9>&- &
 sampler_pid=$!
 
 request_started=$(date +%s.%N)
-python3 - "$socket_path" "$profile_id" "$steps" >"$output_directory/reply.json" <<'PY'
+python3 - "$socket_path" "$profile_id" "$steps" "$script_directory" >"$output_directory/reply.json" <<'PY'
 import json, socket, sys
 path, profile, steps = sys.argv[1], sys.argv[2], int(sys.argv[3])
-message = {"protocol": 1, "action": "physics_simulate_rigid", "request_id": "admit-d6", "profile_id": profile, "steps": steps}
+# The device admission uses the same version authority as the service.
+sys.path.insert(0, sys.argv[4])
+from physics_protocol import PROTOCOL_VERSION
+message = {"protocol": PROTOCOL_VERSION, "action": "physics_simulate_rigid", "request_id": "admit-d6", "profile_id": profile, "steps": steps}
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
     connection.settimeout(300)
     connection.connect(path)
@@ -230,9 +233,9 @@ awk -F '\t' -v OFS='\t' '$3 == "tick" { print; next }
       print $1, $2, path[n] " " memory[1] " " memory[2] }' <"$output_directory/clients-during.raw" |
     scrub_home >"$output_directory/clients-during.tsv"
 rm -f "$output_directory/clients-during.raw"
-ticks=$(grep -c '	tick$' "$output_directory/clients-during.tsv" || :)
+ticks=$(grep -c '\ttick$' "$output_directory/clients-during.tsv" || :)
 runtime_ticks=$(grep -c 'physx-rigid-runtime' "$output_directory/clients-during.tsv" || :)
-held_ticks=$(grep -c '	held	tick$' "$output_directory/clients-during.tsv" || :)
+held_ticks=$(grep -c '\theld\ttick$' "$output_directory/clients-during.tsv" || :)
 record sampler_ticks "$ticks"
 record runtime_client_ticks "$runtime_ticks"
 record lease_held_ticks "$held_ticks"
