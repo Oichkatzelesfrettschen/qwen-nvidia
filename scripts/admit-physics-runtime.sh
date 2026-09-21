@@ -40,7 +40,7 @@ checks_failed=0
 check() {
     checks_total=$((checks_total + 1))
     if [ "$2" = "$3" ]; then
-        printf '%s\taccepted\t%s\n' "$1" "$2" "$3" >>"$summary"
+        printf '%s\taccepted\t%s\n' "$1" "$2" >>"$summary"
     else
         checks_failed=$((checks_failed + 1))
         printf '%s\trejected\tobserved=%s expected=%s\n' "$1" "$2" "$3" >>"$summary"
