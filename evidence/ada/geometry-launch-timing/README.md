@@ -92,48 +92,43 @@ that consumes it. That is what makes the first reusable for unchanged inputs
 without weakening the second: every ray is still compared against an
 independently computed answer, and nothing cached is a previous device result.
 
-**The reference is 95.4 percent of the stage.** Thirteen runs across a host
-load average of 7.4 to 24 give that share a mean of 95.42 percent with a
-standard deviation of 0.49 and a range of 94.77 to 96.18.
-`reference-split.tsv` retains eleven of them with the load each one saw.
+**The reference is 95.5 percent of the stage.** Eighteen runs give that share a
+mean of 95.47 percent with a standard deviation of 0.44 and a range of 94.77 to
+96.18. It is the only thing about these two stages that has held still.
 
-The share is what holds. The absolute timings do not, and not in the direction
-starvation would predict: `reference_ms` correlates with host load at **-0.84**,
-averaging 86.84 ms at load 7.5 and 79.16 ms at load 24, an 11.6 percent range
-over the whole set. It runs faster on a busier machine.
+`reference_ms` is 82.00 ms with a standard deviation of 3.37 over nineteen runs
+and a range of 77.285 to 88.597, and **what moves it is not established.** Host
+load does not: the correlation is -0.11 once one batch of four consecutive runs
+is set aside, and that batch is the whole of the -0.43 the full set shows.
 
-| load band | runs | `reference_ms` | `compare_ms` | reference share |
+| load band | runs | `reference_ms` mean | min | max |
 | --- | --- | --- | --- | --- |
-| 7.4 to 7.6 | 4 | 86.84 | 4.28 | 95.3% |
-| 15 to 18 | 7 | 81.48 | 3.88 | 95.5% |
-| 24 | 2 | 79.16 | 3.61 | 95.6% |
+| 4.1 to 4.2 | 3 | 80.62 | 77.29 | 85.28 |
+| 7.4 to 7.6 | 4 | 86.84 | 84.72 | 88.60 |
+| 15 to 18 | 10 | 81.05 | 78.72 | 85.48 |
+| 24 | 2 | 79.16 | 79.03 | 79.29 |
 
-The mechanism is a hypothesis rather than a finding: the governor reads
-`performance` with boost enabled, so a sustained multi-core load plausibly
-holds the package at a clock a lightly loaded machine lets fall, while a
-nice-19 process contributes little to whatever the hardware uses to decide.
+The load-7.5 batch sits above every other band including the quieter one below
+it, so it is an anomaly in those four runs rather than a point on a trend. What
+was different about that window is unknown.
 
-The harness now samples `/proc/cpuinfo` core frequencies for the same interval
-it samples the compute clients, and records the mean across cores and the peak
-any core reached. Three runs at load 15 report a mean of 4107 to 4329 MHz
-against a peak of 4347 to 4382, with `reference_ms` at 78.723 to 81.379 --
-the high-load band's timings at a near-boost clock, which is what the
-hypothesis predicts for that end.
+The clock hypothesis is refuted rather than unsettled. `clock-samples.tsv`
+carries the package frequency each run was given: 4107 to 4329 MHz mean across
+cores at load 15, and 4210 to 4284 at load 4, with peaks of 4345 to 4382 in
+both. The clock is the same at both ends, so it does not explain a timing
+difference between them -- and there is less of a difference to explain than
+the earlier reading of this file claimed.
 
-**The other end is not measured.** The host has not returned below load 14
-since the instrument existed, so there is no low-load clock sample to compare
-against, and the hypothesis stands unsettled rather than supported. What the
-instrument does buy immediately is that a future arm comparison carries the
-clock each arm ran at, so an arm that happened to run during load cannot claim
-its advantage silently. The sample count also travels: a 320 ms run at a
-0.1 second interval yields about five samples, which bounds what the mean is
-worth.
+That leaves the absolute timing varying by 14 percent for reasons this
+instrument set does not reach, and the share stable at 95.5 through three
+revisions of the explanation. The share is what step one needed and what a
+projection should rest on; the absolute is not.
 
-What this does settle is which numbers survive the host. The setup stages do
-not: over the same runs `cuda_context_ms` spans 132.131 to 4757.229 ms, a
-factor of 36, and they queue behind driver work and idle-class I/O. The ratio
-between two host loops running back to back in one process does, because
-whatever the clock is, it is the same clock for both.
+The setup stages remain the ones the host genuinely does take: over the same
+runs `cuda_context_ms` spans 132.131 to 4757.229 ms, a factor of 36, queueing
+behind driver work and idle-class I/O. The reference and the comparison run
+back to back in one process, which is why their ratio survives whatever the
+machine is doing to their absolute cost.
 
 The one departure is a `compare_ms` of 21.929 on the first run against a freshly
 allocated reference vector, against 3.4 to 4.8 on every later run. Eight megabytes
@@ -144,9 +139,9 @@ for the two stages summed here. The difference is the materialized vector: the
 reference used to be computed inside the comparison loop and consumed
 immediately, and it is now written to memory and read back.
 
-So caching the reference removes between 79 and 87 ms of the roughly 119 ms a
-resident worker would leave per query, depending on what the host is doing, and
-the comparison it protects costs about 4 ms. Ray generation at 22 ms caches
+So caching the reference removes about 82 ms of the roughly 119 ms a resident
+worker would leave per query, with a 77 to 89 ms range this instrument set does
+not account for, and the comparison it protects costs about 4 ms. Ray generation at 22 ms caches
 beside it for a fixed query set. What survives both is upload, launch, download
 and compare: on the order of 13 ms. That is a projection from one-shot
 measurements and a resident implementation has not run.

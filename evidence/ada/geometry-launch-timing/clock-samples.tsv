@@ -1,0 +1,15 @@
+# Runs carrying the clock the run was given, added after reference_ms varied in
+# a way host load did not explain. mean_mhz and peak_mhz are the mean across
+# cores and the highest any core reached, sampled every tenth of a second for
+# the interval the compute clients are sampled; samples is how many that was.
+#
+# The clock is the same at load 4 as at load 15, which refutes the hypothesis
+# that a sustained load holds a package clock an idle machine lets fall.
+#
+batch	run	load_before	mean_mhz	peak_mhz	samples	reference_ms	compare_ms
+load15	1	15.19	4203	4368	100	81.379	3.547
+load15	2	15.47	4107	4382	5	78.723	3.802
+load15	3	15.59	4329	4347	5	80.006	4.199
+load4	1	4.23	4210	4360	11	77.285	3.388
+load4	2	4.23	4284	4345	5	85.276	3.993
+load4	3	4.13	4229	4357	5	79.313	3.415

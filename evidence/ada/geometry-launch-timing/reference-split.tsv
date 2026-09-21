@@ -2,9 +2,11 @@
 # average of 7.4 to 17.4, with the load and GPU utilization each run saw. Two
 # further runs at load 24 are cited in README.md and were not captured here.
 #
-# reference_ms is not load-insensitive: it correlates with load at -0.84, running
-# faster on a busier machine. The share it takes of the two stages is what holds,
-# at 95.42 percent with a standard deviation of 0.49 across every run.
+# reference_ms varies between 77.3 and 88.6 ms for reasons these instruments do
+# not reach. Host load is not one: the correlation is -0.11 once the load-7.5
+# batch below is set aside, and clock-samples.tsv shows the package at the same
+# frequency at load 4 as at load 15. The share the reference takes of the two
+# stages is what holds, at 95.47 percent with a standard deviation of 0.44.
 #
 # The setup stages in these runs are contaminated by the same load and are not
 # retained; cuda_context_ms travels as the witness, spanning 132 to 2347 ms here.
