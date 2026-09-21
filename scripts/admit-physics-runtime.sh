@@ -40,7 +40,7 @@ checks_failed=0
 check() {
     checks_total=$((checks_total + 1))
     if [ "$2" = "$3" ]; then
-        printf '%s\taccepted\t%s\n' "$1" "$2" >>"$summary"
+        printf '%s\taccepted\t%s\n' "$1" "$2" "$3" >>"$summary"
     else
         checks_failed=$((checks_failed + 1))
         printf '%s\trejected\tobserved=%s expected=%s\n' "$1" "$2" "$3" >>"$summary"
@@ -233,9 +233,9 @@ awk -F '\t' -v OFS='\t' '$3 == "tick" { print; next }
       print $1, $2, path[n] " " memory[1] " " memory[2] }' <"$output_directory/clients-during.raw" |
     scrub_home >"$output_directory/clients-during.tsv"
 rm -f "$output_directory/clients-during.raw"
-ticks=$(grep -c '\ttick$' "$output_directory/clients-during.tsv" || :)
+ticks=$(grep -c '	tick$' "$output_directory/clients-during.tsv" || :)
 runtime_ticks=$(grep -c 'physx-rigid-runtime' "$output_directory/clients-during.tsv" || :)
-held_ticks=$(grep -c '\theld\ttick$' "$output_directory/clients-during.tsv" || :)
+held_ticks=$(grep -c '	held	tick$' "$output_directory/clients-during.tsv" || :)
 record sampler_ticks "$ticks"
 record runtime_client_ticks "$runtime_ticks"
 record lease_held_ticks "$held_ticks"
