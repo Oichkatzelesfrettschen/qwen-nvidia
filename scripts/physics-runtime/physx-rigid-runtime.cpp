@@ -15,6 +15,8 @@
 //
 // Build: scripts/build-physics-runtime.sh, against /opt/nvidia/physx.
 
+#include "physx-message-policy.h"
+
 #include <PxPhysicsAPI.h>
 #include <cudamanager/PxCudaContext.h>
 #include <cudamanager/PxCudaContextManager.h>
@@ -36,11 +38,20 @@ PxDefaultAllocator allocator;
 
 struct CountingErrorCallback : public PxErrorCallback {
     int errors = 0;
+    int messages = 0;
+    int invalidating = 0;
     void reportError(PxErrorCode::Enum code, const char* message, const char* file, int line) override {
+        messages += 1;
         if (code & (PxErrorCode::eABORT | PxErrorCode::eINTERNAL_ERROR | PxErrorCode::eOUT_OF_MEMORY |
                     PxErrorCode::eINVALID_OPERATION | PxErrorCode::eINVALID_PARAMETER)) {
             errors += 1;
         }
+        // A GPU buffer that ran out of room is reported at warning severity and
+        // the step still completes, so the severity filter above never sees it
+        // and the result would describe a simulation missing the contacts that
+        // did not fit. physx_message_invalidates reads the message text the SDK
+        // ships instead.
+        if (physx_message_invalidates(message)) invalidating += 1;
         std::fprintf(stderr, "physx: code=%d %s (%s:%d)\n", (int)code, message, file, line);
     }
 } error_callback;
@@ -304,6 +315,7 @@ int main(int argc, char** argv) {
         scene->fetchResults(true);
     }
     const auto simulate_end = std::chrono::steady_clock::now();
+    if (error_callback.invalidating) fail("simulation_state_dropped");
     if (error_callback.errors) fail("physx_error");
 
     // PxDirectGPUAPI answers only after a first simulation step has been taken,
@@ -410,6 +422,10 @@ int main(int argc, char** argv) {
     } else {
         out += "null";
     }
+    // The count stands whether or not anything was reported, so a reader can
+    // tell a run the policy cleared from one that predates the policy.
+    out += ",\"physx_messages\":{\"total\":" + std::to_string(error_callback.messages);
+    out += ",\"invalidating\":" + std::to_string(error_callback.invalidating) + "}";
     out += ",\"steps\":" + std::to_string(steps);
     out += ",\"timestep_s\":" + number(timestep);
     const double simulate_ms = std::chrono::duration<double, std::milli>(simulate_end - simulate_start).count();

@@ -184,6 +184,9 @@ for key in ("counted", "device_reads", "device_to_host_copies", "bytes", "cuda_l
 # accessors then answer stale is a measurement, not an assumption, so the
 # divergence between them and the device values is recorded rather than judged.
 divergence = result.get("cpu_accessor_divergence")
+messages = result.get("physx_messages") or {}
+facts["physx_messages_total"] = str(messages.get("total"))
+facts["physx_messages_invalidating"] = str(messages.get("invalidating"))
 facts["cpu_accessor_position_max"] = "-" if divergence is None else str(divergence.get("position_max"))
 facts["cpu_accessor_linear_velocity_max"] = "-" if divergence is None else str(divergence.get("linear_velocity_max"))
 facts["device_name"] = gpu.get("device_name", "-")
@@ -237,6 +240,12 @@ record transfer_device_to_host_copies "$(fact transfer_device_to_host_copies)"
 record transfer_bytes "$(fact transfer_bytes)"
 record transfer_cuda_last_error "$(fact transfer_cuda_last_error)"
 record state_read_ms "$(fact state_read_ms)"
+# A GPU buffer that overflowed drops the contacts that did not fit and PhysX
+# completes the step anyway, so a run that reported one describes a different
+# simulation; the runtime refuses it by name and a completed reply cannot carry
+# one.
+check physx_messages_invalidating "$(fact physx_messages_invalidating)" 0
+record physx_messages_total "$(fact physx_messages_total)"
 record cpu_accessor_position_max "$(fact cpu_accessor_position_max)"
 record cpu_accessor_linear_velocity_max "$(fact cpu_accessor_linear_velocity_max)"
 check device_name_matches_nvidia_smi "$(fact device_name_matches_nvidia_smi)" yes

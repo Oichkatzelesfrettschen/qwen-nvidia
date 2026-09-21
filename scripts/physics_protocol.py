@@ -22,7 +22,7 @@ requires before it reports `completed` at all.
 
 import json
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 MAX_LINE_BYTES = 65536
 ACTIONS = ("physics_simulate_rigid", "status")
 STATUSES = ("accepted", "completed", "refused", "failed")
@@ -56,6 +56,12 @@ PROFILE_COLUMNS = (
 )
 TRANSFER_KEYS = {"counted", "device_reads", "device_to_host_copies", "bytes",
                  "cuda_last_error"}
+# PhysX reports a GPU buffer that ran out of room at warning severity and
+# completes the step anyway, so a reply can describe a simulation missing the
+# contacts that did not fit. The runtime refuses such a run by name, and the
+# count travels so a reader can tell a run the policy cleared from one that
+# predates the policy.
+MESSAGE_KEYS = {"total", "invalidating"}
 DIVERGENCE_KEYS = {"position_max", "linear_velocity_max"}
 REQUEST_KEYS = {"protocol", "action", "request_id", "profile_id", "steps", "authorization"}
 # The grant a run spends travels as an opaque string the service revalidates
@@ -67,8 +73,8 @@ REPLY_KEYS = {"protocol", "request_id", "status", "profile_id", "result", "error
 RESULT_KEYS = {
     "bodies", "joints", "contacts", "solver", "broadphase", "steps",
     "timestep_s", "wall_ms", "simulate_ms", "state_read_ms", "gpu",
-    "state_path", "transfers", "cpu_accessor_divergence", "runtime_sha256",
-    "scene_sha256",
+    "state_path", "transfers", "cpu_accessor_divergence", "physx_messages",
+    "runtime_sha256", "scene_sha256",
 }
 BODY_KEYS = {"id", "position", "orientation", "linear_velocity", "angular_velocity", "sleeping"}
 JOINT_KEYS = {"id", "body0", "body1", "twist_rad", "swing_y_rad", "swing_z_rad", "broken"}
@@ -250,6 +256,21 @@ def validate_result(result):
         for key in sorted(DIVERGENCE_KEYS):
             if _number(divergence[key], "cpu_accessor_divergence.%s" % key) < 0:
                 raise ProtocolError("cpu_accessor_divergence.%s is negative" % key)
+
+    messages = result["physx_messages"]
+    if not isinstance(messages, dict) or set(messages) != MESSAGE_KEYS:
+        raise ProtocolError("physx_messages keys differ from the schema")
+    for key in sorted(MESSAGE_KEYS):
+        value = messages[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ProtocolError("physx_messages.%s is not a non-negative integer" % key)
+    if messages["invalidating"] > messages["total"]:
+        raise ProtocolError("physx_messages.invalidating exceeds the total reported")
+    # The runtime refuses a run whose state was dropped, so a completed reply
+    # carrying one is a result assembled from a simulation it does not describe.
+    if messages["invalidating"] != 0:
+        raise ProtocolError("the run reported %d message(s) invalidating its own state"
+                            % messages["invalidating"])
 
     gpu = result["gpu"]
     if not isinstance(gpu, dict) or set(gpu) != set(GPU_PROOF_KEYS):

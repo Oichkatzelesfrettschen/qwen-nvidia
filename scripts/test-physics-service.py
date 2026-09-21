@@ -201,7 +201,9 @@ def main():
                 ("cuda-error", "physics-d6-direct", "runtime_failed",
                  "a driver error beside a successful direct-gpu read fails"),
                 ("path-mismatch", "physics-d6-test", "runtime_failed",
-                 "a scene flag disagreeing with the declared state path fails")):
+                 "a scene flag disagreeing with the declared state path fails"),
+                ("dropped-state", "physics-d6-test", "runtime_failed",
+                 "a run reporting the overflow that dropped its own contacts fails")):
             harness = Harness(state, mode=mode)
             try:
                 reply = harness.exchange(request(profile=profile))
