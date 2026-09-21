@@ -1,9 +1,13 @@
-# The reference and comparison stages across seven runs on a host carrying a
-# load average of 15 to 18, with the load and GPU utilization each run saw.
-# The setup stages in the same runs are contaminated by that load and are not
-# retained here; cuda_context_ms travels as the witness, spanning 132 to 512 ms
-# across rows whose reference_ms spans 79.1 to 85.5. The captures are discarded
-# and the stage timings retained.
+# The reference and comparison stages across eleven runs spanning a host load
+# average of 7.4 to 17.4, with the load and GPU utilization each run saw. Two
+# further runs at load 24 are cited in README.md and were not captured here.
+#
+# reference_ms is not load-insensitive: it correlates with load at -0.84, running
+# faster on a busier machine. The share it takes of the two stages is what holds,
+# at 95.42 percent with a standard deviation of 0.49 across every run.
+#
+# The setup stages in these runs are contaminated by the same load and are not
+# retained; cuda_context_ms travels as the witness, spanning 132 to 2347 ms here.
 #
 arm	run	load_before	gpu_before_percent	reference_ms	compare_ms	launch_ms	cuda_context_ms
 warm	0	17.36	67	80.018	4.003	2.706	2347.327
@@ -13,3 +17,7 @@ warm	3	15.70	68	80.874	3.564	2.593	132.131
 cold	1	15.88	65	80.648	4.143	3.044	192.288
 cold	2	16.13	64	79.087	3.475	2.616	512.366
 cold	3	16.44	65	85.477	3.391	2.63	141.472
+warm	4	7.62	63	84.717	4.652	2.884	672.179
+warm	5	7.62	68	86.347	3.489	2.743	155.691
+cold	4	7.57	65	88.597	4.145	3.119	132.767
+cold	5	7.36	66	87.684	4.842	2.967	145.606

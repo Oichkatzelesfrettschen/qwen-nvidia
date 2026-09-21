@@ -92,23 +92,37 @@ that consumes it. That is what makes the first reusable for unchanged inputs
 without weakening the second: every ray is still compared against an
 independently computed answer, and nothing cached is a previous device result.
 
-**The reference is 95.5 percent of the stage.** Nine runs across a host load
-average of 15 to 24 give `reference_ms` a mean of 80.966 ms with a standard
-deviation of 2.165 and an 8.0 percent spread, and `compare_ms` a mean of 3.846
-with a standard deviation of 0.377. `reference-split.tsv` retains seven of them
-with the load each one saw.
+**The reference is 95.4 percent of the stage.** Thirteen runs across a host
+load average of 7.4 to 24 give that share a mean of 95.42 percent with a
+standard deviation of 0.49 and a range of 94.77 to 96.18.
+`reference-split.tsv` retains eleven of them with the load each one saw.
 
-Those numbers are usable from a loaded host and the setup stages beside them
-are not, which is the point of recording the load. Over the same runs
-`cuda_context_ms` spans 132.131 to 4757.229 ms, a factor of 36, while
-`reference_ms` spans 79.033 to 85.477. The reference and the comparison are
-host loops over a million rays with no syscall in them, so a nice-19 process
-still gets a core; the setup stages queue behind driver work and idle-class
-I/O, which is what the load takes from them. A stage that holds to 8 percent
-while its neighbor moves by 36 times is measuring itself.
+The share is what holds. The absolute timings do not, and not in the direction
+starvation would predict: `reference_ms` correlates with host load at **-0.84**,
+averaging 86.84 ms at load 7.5 and 79.16 ms at load 24, an 11.6 percent range
+over the whole set. It runs faster on a busier machine.
+
+| load band | runs | `reference_ms` | `compare_ms` | reference share |
+| --- | --- | --- | --- | --- |
+| 7.4 to 7.6 | 4 | 86.84 | 4.28 | 95.3% |
+| 15 to 18 | 7 | 81.48 | 3.88 | 95.5% |
+| 24 | 2 | 79.16 | 3.61 | 95.6% |
+
+The mechanism is a hypothesis rather than a finding: the governor reads
+`performance` with boost enabled, and observed core clocks were a mixed 3466 to
+4333 MHz, so a sustained multi-core load plausibly holds the package at a
+clock that a lightly loaded machine lets fall, while a nice-19 process
+contributes little to whatever the hardware is using to decide. Settling it
+needs per-run clock capture rather than an argument.
+
+What this does settle is which numbers survive the host. The setup stages do
+not: over the same runs `cuda_context_ms` spans 132.131 to 4757.229 ms, a
+factor of 36, and they queue behind driver work and idle-class I/O. The ratio
+between two host loops running back to back in one process does, because
+whatever the clock is, it is the same clock for both.
 
 The one departure is a `compare_ms` of 21.929 on the first run against a freshly
-allocated reference vector, against 3.4 to 4.3 on every later run. Eight megabytes
+allocated reference vector, against 3.4 to 4.8 on every later run. Eight megabytes
 of first-touch page faults land in that stage, and they land there once.
 
 The merged captures report 88.719 ms of combined `validate_ms` against 84.812 ms
@@ -116,10 +130,11 @@ for the two stages summed here. The difference is the materialized vector: the
 reference used to be computed inside the comparison loop and consumed
 immediately, and it is now written to memory and read back.
 
-So caching the reference removes 81 ms of the roughly 119 ms a resident worker
-would leave per query, and the comparison it protects costs 4 ms. Ray generation
-at 22 ms caches beside it for a fixed query set. What survives both is upload,
-launch, download and compare: about 13 ms. That is a projection from one-shot
+So caching the reference removes between 79 and 87 ms of the roughly 119 ms a
+resident worker would leave per query, depending on what the host is doing, and
+the comparison it protects costs about 4 ms. Ray generation at 22 ms caches
+beside it for a fixed query set. What survives both is upload, launch, download
+and compare: on the order of 13 ms. That is a projection from one-shot
 measurements and a resident implementation has not run.
 
 A reuse key for the reference has to name the mathematical inputs -- ordered
