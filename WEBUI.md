@@ -107,10 +107,12 @@ Read the API key and enter it in the page:
 scripts/qwen-webui-control.sh key
 ```
 
-A LAN reader opens `http://HOST:8080` directly, naming this host's own
-address. A remote client instead keeps a tunnel running on its own machine
-and opens `http://127.0.0.1:8080`. The helper forwards the approval broker on
-port 8571 beside the server, run from the remote client:
+A browser on this workstation opens `http://127.0.0.1:8080`, the address the
+default bind leaves the listener on. Under `QWEN_BIND_HOST=0.0.0.0` a LAN
+reader opens `http://HOST:8080`, naming this host's own address. A separate
+client machine instead keeps a tunnel running on its own side and opens
+`http://127.0.0.1:8080`; the helper forwards the approval broker on port 8571
+beside the server and runs from that client:
 
 ```sh
 ./scripts/connect-qwen-webui.sh HOST 8080 8080

@@ -37,9 +37,11 @@ if [ "$local_port" -ne "$remote_port" ]; then
     printf 'Launch the remote session with QWEN_WEB_BROKER_ORIGIN=http://127.0.0.1:%s.\n' \
         "$local_port"
 fi
-# Both tunnel endpoints bind loopback. The appliance exposes no unauthenticated
-# llama.cpp listener to its LAN, and the browser remains on the client machine
-# rather than competing with the serving host for its GPU or CPU scheduling.
+# Both tunnel endpoints bind loopback, so the server exposes no unauthenticated
+# llama.cpp listener to the LAN and each forwarded port stays on its own
+# machine's interface. A browser on the serving host reaches the same ports
+# directly, which is what makes this a helper for a separate client rather than
+# the access path.
 exec ssh -N -T \
     -o ExitOnForwardFailure=yes \
     -o ServerAliveInterval=30 \

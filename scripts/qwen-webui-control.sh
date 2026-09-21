@@ -35,9 +35,10 @@ required_vulkan_mib=${QWEN_REQUIRED_VULKAN_MIB:-4608}
 bind_host=${QWEN_BIND_HOST:-127.0.0.1}
 latency_mode=${QWEN_LATENCY_MODE:-observe}
 server_port=${QWEN_SERVER_PORT:-8080}
-# llama-ui is a SvelteKit build produced on a machine with Node and copied here
-# as static files, so this host serves it without a build toolchain or a second
-# process. QWEN_STATIC_PATH selects it against the hand-written diagnostic page.
+# llama-ui is a Vite build of the pinned llama.cpp front end that
+# scripts/build-llama-ui.sh installs as static files, so llama-server serves it
+# through --path and starts no second process. QWEN_STATIC_PATH selects it
+# against the hand-written diagnostic page.
 # The distill and the base model share the Qwen3.5-4B architecture, so a model
 # swap is an argument rather than an edit. The distill is the text default: it
 # reasons in 43.3% of the base model's tokens and reaches an answer 2.71 times

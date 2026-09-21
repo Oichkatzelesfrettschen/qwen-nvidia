@@ -40,9 +40,9 @@ esac
 
 case $runtime_profile in
     default | no-graphs | no-fusion | pdl | unified | custom)
-        # Every profile of either backend submits continuously and the card is
-        # discrete, so aggregate busy is recorded rather than enforced and the
-        # latency watchdog carries the responsiveness stop condition alone.
+        # Every profile submits continuously and the card is discrete, so
+        # aggregate busy is recorded rather than enforced and the latency
+        # watchdog carries the responsiveness stop condition alone.
         maximum_gpu_busy_percent=100
         ;;
     *)

@@ -2,9 +2,12 @@
 set -eu
 
 # The 16-bit rung of the compact-text checkpoint, and the arm whose outcome the
-# fitted streaming rate leaves open. The 0.8B Q8_0 point measures 18.53 tok/s at
-# 0.778 GiB, so 1.451 GiB predicts a rate at the 9 tok/s admission floor rather
-# than clearly above or below it.
+# fitted streaming rate leaves open. Both numbers in that fit are legacy-host
+# measurements retained in evidence/legacy/raven2/universal-candidate-ladder.md:
+# the 0.8B Q8_0 point at 18.53 tok/s and 0.778 GiB, and the 9.0 tok/s admission
+# floor the ladder derives, where 1.451 GiB falls on the floor rather than
+# clearly above or below it. Neither rate measures this device, which has run no
+# arm of this rung.
 
 if [ "$#" -gt 1 ]; then
     printf 'usage: %s [DESTINATION_DIRECTORY]\n' "$0" >&2
