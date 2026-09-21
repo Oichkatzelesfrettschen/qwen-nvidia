@@ -2191,7 +2191,15 @@ scripts/qwen-drain-controller.sh retire [--deadline MS] [--record FILE] -- COMMA
                                                 # 4 transition complete with the exclusion unproven, 1 failed
 scripts/qwen-drain-controller.sh admit [--record FILE] -- COMMAND...
                                                 # run one job holding an in-flight share, refused while quiescing
-scripts/qwen-drain-controller.sh status|resume  # the barrier state and whether a share is held
+scripts/qwen-drain-controller.sh status      # the barrier state, its paths, the recorded
+                                                # identity, and whether a share is held
+scripts/qwen-drain-controller.sh resume [--barrier-identity ID]
+                                                # reopen admission after a shutdown left it
+                                                # quiescing. Takes the retirement and in-flight
+                                                # references first and refuses on either, so it
+                                                # is the operation rather than a direct
+                                                # qwen_barrier_set_state, which writes the word
+                                                # with neither reference held
 scripts/image-review.py --router-origin URL --artifact-origin URL --model ID \
     --sha256 HEX --prompt-hash HEX --constraint NAME=DESCRIPTION \
     [--image-mode real|withheld|swapped [--swap-sha256 HEX]]

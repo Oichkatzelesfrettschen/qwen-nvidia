@@ -134,6 +134,14 @@ qwen_barrier_state() {
 # The state word is updated on the locked inode. Shared readers wait through
 # truncation and publication under the exclusive lock; replacing the pathname
 # would leave an earlier reader attached to an obsolete running state.
+#
+# This is the primitive and not the operation. It writes the word with neither
+# the retirement nor the in-flight reference held, so reopening admission
+# through it admits work into a live destruction: a drain that reached its
+# deadline holds no in-flight reference while its emergency destroy runs.
+# `scripts/qwen-drain-controller.sh resume` takes both references, compares the
+# recorded session identity against the pathname and the acquired descriptor,
+# and is what a caller reaching for `running` wants.
 qwen_barrier_set_state() {
     qwen_barrier_new_state=$1
     case $qwen_barrier_new_state in
