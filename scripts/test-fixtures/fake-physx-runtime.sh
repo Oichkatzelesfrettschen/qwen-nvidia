@@ -6,7 +6,9 @@ set -eu
 # misbehaves on the mode in fake-mode beside it: `ok` answers with every GPU proof held,
 # `cpu` answers with gpu_dynamics_active false the way a PhysX CPU fallback
 # would, `crash` exits 1 with the runtime's refusal line, `hang` sleeps past
-# any deadline, and `prose` prints text where JSON is expected.
+# any deadline, `prose` prints text where JSON is expected, and `contacts`
+# reports more touching pairs than pairs reaching narrow phase, which the
+# counters cannot express and the protocol refuses.
 
 [ "$#" -eq 5 ] || { printf 'usage: fake-physx-runtime SCENE TIMESTEP_S STEPS GRAVITY_Y DEVICE_INDEX\n' >&2; exit 2; }
 scene=$1
@@ -32,4 +34,13 @@ active=true
 printf '{"gpu":{"cuda_context_valid":true,"gpu_dynamics_requested":true,"gpu_broadphase_requested":true,"gpu_dynamics_active":%s,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s},' "$active" "$device"
 printf '"bodies":[{"id":"box-0","position":[1.2,5.1,0],"orientation":[0,0,0.1,0.995],"linear_velocity":[0,-1,0],"angular_velocity":[0,0,0.2],"sleeping":false}],'
 printf '"joints":[{"id":"joint-0","body0":"anchor","body1":"box-0","twist_rad":0.01,"swing_y_rad":0.2,"swing_z_rad":0,"broken":false}],'
-printf '"contacts":{"pairs":0,"touching":0},"steps":%s,"timestep_s":%s,"simulate_ms":12.5,"wall_ms":40.0}\n' "$steps" "$timestep"
+# The counts are distinct and ordered so the reply exercises the protocol's
+# narrow-phase invariants rather than satisfying them with zeros: touching and
+# cache hits are subsets of the pairs reaching narrow phase, and the solver and
+# broad-phase counters belong to their own stages.
+pairs=3
+touching=2
+[ "$mode" = contacts ] && touching=4
+printf '"contacts":{"pairs":%s,"touching":%s,"cache_hits":1},' "$pairs" "$touching"
+printf '"solver":{"active_constraints":1},"broadphase":{"adds":2,"removes":0},'
+printf '"steps":%s,"timestep_s":%s,"simulate_ms":12.5,"wall_ms":40.0}\n' "$steps" "$timestep"
