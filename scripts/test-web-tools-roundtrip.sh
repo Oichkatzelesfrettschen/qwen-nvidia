@@ -103,7 +103,10 @@ read_listening_port() {
     # The complete line rather than the first byte ends the wait: a partially
     # flushed file would otherwise yield an empty port and send the next
     # request to a hostless URL.
-    while [ "$attempt" -lt 100 ]; do
+    # The broker binds after a fork, an exec and an interpreter start, so the
+    # deadline is sized for a loaded host: only a broker that never binds
+    # reaches it, and a busy machine is not a failing one.
+    while [ "$attempt" -lt 300 ]; do
         listening_port=$(awk '/^listening / { print $3; exit }' "$listening_file" \
             2>/dev/null || true)
         if [ -n "$listening_port" ]; then
