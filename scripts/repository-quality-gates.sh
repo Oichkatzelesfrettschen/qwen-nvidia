@@ -152,6 +152,7 @@ scripts/test-device-environment-identity.sh
 scripts/test-verify-nvidia-sdk.sh
 python3 scripts/test-physics-service.py
 scripts/test-physx-message-policy.sh
+scripts/test-admit-client-scrub.sh
 python3 scripts/test-geometry-service.py
 scripts/test-repository-quality-gates-host-role.sh
 scripts/refresh-evidence-manifest.sh --check

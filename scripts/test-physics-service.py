@@ -148,6 +148,10 @@ def main():
                   "the direct-gpu reply carries the flag read back off the scene")
             check(all(body.get("sleeping") is None for body in direct_result.get("bodies", [{}])),
                   "the direct-gpu path reports no sleep state it has no source for")
+            check(all(joint.get(key) is None
+                      for joint in direct_result.get("joints", [{}])
+                      for key in ("twist_rad", "swing_y_rad", "swing_z_rad", "broken")),
+                  "the direct-gpu path reports no joint state read off frozen poses")
             check(direct_result.get("transfers", {}).get("counted") is True
                   and direct_result.get("transfers", {}).get("device_reads") == 3,
                   "the direct-gpu reply counts its own transfers")
@@ -203,7 +207,9 @@ def main():
                 ("path-mismatch", "physics-d6-test", "runtime_failed",
                  "a scene flag disagreeing with the declared state path fails"),
                 ("dropped-state", "physics-d6-test", "runtime_failed",
-                 "a run reporting the overflow that dropped its own contacts fails")):
+                 "a run reporting the overflow that dropped its own contacts fails"),
+                ("joint-claim", "physics-d6-direct", "runtime_failed",
+                 "a direct-gpu runtime answering joint angles read off frozen poses fails")):
             harness = Harness(state, mode=mode)
             try:
                 reply = harness.exchange(request(profile=profile))

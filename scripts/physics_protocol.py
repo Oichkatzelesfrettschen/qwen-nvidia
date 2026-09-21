@@ -22,7 +22,7 @@ requires before it reports `completed` at all.
 
 import json
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 MAX_LINE_BYTES = 65536
 ACTIONS = ("physics_simulate_rigid", "status")
 STATUSES = ("accepted", "completed", "refused", "failed")
@@ -196,6 +196,21 @@ def validate_result(result):
         if not isinstance(joint, dict) or set(joint) != JOINT_KEYS:
             raise ProtocolError("a joint's keys differ from the schema")
         _identifier(joint["id"], "joint id")
+        # The angle accessors derive from the two actors' poses, whose readback
+        # the direct path disables, so they report the relative transform the
+        # last copy left rather than the one the solver reached: measured on the
+        # D6 chain, the readback path reports swing_z of -1.8470, -0.1159,
+        # -0.1548 and -0.2537 radians where the direct path reports zero on
+        # every axis. eBROKEN follows the constraint force, which
+        # PxDirectGPUAPI.h states getForce no longer reports properly.
+        # PxD6JointGPUAPIReadType carries joint force and torque, so a direct
+        # path that measures a joint reads those; until it does, the fields are
+        # unmeasured and the schema requires that rather than a plausible zero.
+        if direct:
+            for key in ("twist_rad", "swing_y_rad", "swing_z_rad", "broken"):
+                if joint[key] is not None:
+                    raise ProtocolError("%s is measured on the direct-gpu path" % key)
+            continue
         for axis in ("twist_rad", "swing_y_rad", "swing_z_rad"):
             _number(joint[axis], axis)
         if not isinstance(joint["broken"], bool):
