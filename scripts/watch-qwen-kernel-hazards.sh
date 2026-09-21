@@ -38,8 +38,9 @@ if [ "$guard_nice" != 0 ]; then
 fi
 guard_affinity=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status)
 
-# The signatures cover both backends because one tree serves on CUDA and falls
-# back to Vulkan on the same card. NVRM Xid lines name the fault: Xid 13, 31,
+# The signatures cover both backends because the diagnostic closure that
+# scripts/serving-closures.tsv carries at backend_set cuda+vulkan runs Vulkan
+# arms by hand on the card the promoted cuda closure serves on. NVRM Xid lines name the fault: Xid 13, 31,
 # and 43 name a faulting channel, Xid 79 names a card that stopped answering,
 # and RmInitAdapter failure names a device that never came up.
 hazard_pattern='ring[^[:cntrl:]]*timeout|GPU reset|VM fault|device loss|device lost|out of memory|oom-kill|NVRM[^[:cntrl:]]*Xid|GPU has fallen off the bus|RmInitAdapter failed|nvidia[^[:cntrl:]]*GPU at PCI[^[:cntrl:]]*has fallen'

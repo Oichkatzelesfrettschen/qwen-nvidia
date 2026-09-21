@@ -152,10 +152,13 @@ sample_clients >"$output_directory/clients-during.raw" 9>&- &
 sampler_pid=$!
 
 request_started=$(date +%s.%N)
-python3 - "$socket_path" "$profile_id" "$rays" >"$output_directory/reply.json" <<'PY'
+python3 - "$socket_path" "$profile_id" "$rays" "$script_directory" >"$output_directory/reply.json" <<'PY'
 import json, socket, sys
 path, profile, rays = sys.argv[1], sys.argv[2], int(sys.argv[3])
-message = {"protocol": 1, "action": "geometry_ray_query", "request_id": "admit-orbit", "profile_id": profile, "rays": rays}
+# The device admission uses the same version authority as the service.
+sys.path.insert(0, sys.argv[4])
+from geometry_protocol import PROTOCOL_VERSION
+message = {"protocol": PROTOCOL_VERSION, "action": "geometry_ray_query", "request_id": "admit-orbit", "profile_id": profile, "rays": rays}
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
     connection.settimeout(300)
     connection.connect(path)

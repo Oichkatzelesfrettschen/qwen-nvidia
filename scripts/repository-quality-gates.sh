@@ -118,6 +118,7 @@ scripts/test-qwen-launch-router-preflight.sh
 scripts/test-qwen-capacity-policy.sh
 scripts/test-web-presets.sh
 scripts/test-qwen-web-launch.sh
+scripts/test-build-llama-ui.sh
 scripts/test-qwen-session-signals.sh
 scripts/test-qwen-retire-server-child.sh
 scripts/test-drain-integration-mutations.sh
@@ -158,5 +159,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-sanitize-public-artifact.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/sanitize-public-artifact.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-text-policy.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-tracked-artifacts.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-protocol-version-authority.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-protocol-version-authority.py
 
 printf 'repository_quality_gates=accepted\n'

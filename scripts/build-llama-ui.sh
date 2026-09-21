@@ -1,54 +1,82 @@
 #!/bin/sh
 set -eu
 
-# Build the llama.cpp SvelteKit front end and deploy it as static files.
+# Build the llama.cpp front end and install it as the static directory
+# llama-server serves through --path.
 #
-# The build needs Node, npm, and roughly a thousand packages, which the serving
-# host carries none of and should not. This runs where the toolchain is, pulls
-# the UI sources out of the pinned checkout so the front end matches the server
-# that serves it, and copies only the built output across. The serving host
-# gains no toolchain and starts no second process: llama-server serves the
-# directory through --path.
+# The front end is a Vite project inside the pinned llama.cpp checkout, which
+# this repository does not vendor, so the build reads it through
+# QWEN_UI_SOURCE and produces plain files. npm and its dependency set stay in
+# a temporary build tree that the exit trap removes, and the build runs on a
+# copy so the pinned checkout keeps the contents the promotion gate recorded.
+# The installed directory holds the built output alone;
+# scripts/qwen-webui-control.sh selects it over webui/ by its index.html.
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-    printf 'usage: %s SSH_TARGET [REMOTE_STATIC_DIRECTORY]\n' "$0" >&2
+if [ "$#" -gt 1 ]; then
+    printf 'usage: %s [DESTINATION]\n' "$0" >&2
     exit 2
 fi
 
-ssh_target=$1
-remote_static_directory=${2:-qwen-nvidia-setup/webui-llama-ui}
-source_directory=${QWEN_UI_SOURCE:-src/llama.cpp-qwen-nvidia/tools/ui}
-work_directory=$(mktemp -d)
+CDPATH='' cd -- "$(dirname -- "$0")/.."
+repository_root=$(pwd)
 
+llama_source=${QWEN_LLAMA_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
+source_directory=${QWEN_UI_SOURCE:-"$llama_source/tools/ui"}
+destination=${1:-"$repository_root/webui-llama-ui"}
+
+for required in node npm tar; do
+    command -v "$required" >/dev/null 2>&1 || {
+        printf 'the front end build needs %s on this host\n' "$required" >&2
+        exit 1
+    }
+done
+
+if [ ! -f "$source_directory/package.json" ]; then
+    printf 'no front end sources at %s; set QWEN_UI_SOURCE\n' \
+        "$source_directory" >&2
+    exit 1
+fi
+
+# An install replaces the destination wholesale, so a directory that carries no
+# index.html is something other than a previous install and is left alone.
+if [ -e "$destination" ] && [ ! -f "$destination/index.html" ]; then
+    printf 'refusing to replace %s: it holds no index.html\n' "$destination" >&2
+    exit 1
+fi
+
+work_directory=$(mktemp -d)
+staging=$work_directory/install
 cleanup() {
     rm -rf "$work_directory"
 }
 trap cleanup EXIT HUP INT TERM
 
-for required in node npm rsync; do
-    command -v "$required" >/dev/null 2>&1 || {
-        printf 'this machine needs %s to build the front end\n' "$required" >&2
-        exit 1
-    }
-done
-
-printf 'fetching UI sources from %s:%s\n' "$ssh_target" "$source_directory"
-rsync -a -e 'ssh -o BatchMode=yes' \
-    "$ssh_target:$source_directory/" "$work_directory/"
+printf 'copying front end sources from %s\n' "$source_directory"
+mkdir -p "$work_directory/source"
+( cd "$source_directory" && tar -cf - --exclude=node_modules --exclude=dist . ) |
+    ( cd "$work_directory/source" && tar -xf - )
 
 printf 'installing dependencies\n'
-( cd "$work_directory" && npm ci --no-audit --no-fund >/dev/null )
+( cd "$work_directory/source" && npm ci --no-audit --no-fund >/dev/null )
 
 printf 'building\n'
-( cd "$work_directory" && npm run build >/dev/null )
+( cd "$work_directory/source" && npm run build >/dev/null )
 
-if [ ! -f "$work_directory/dist/index.html" ]; then
-    printf 'build produced no dist/index.html\n' >&2
+if [ ! -f "$work_directory/source/dist/index.html" ]; then
+    printf 'the build produced no dist/index.html\n' >&2
     exit 1
 fi
 
-printf 'deploying to %s:%s\n' "$ssh_target" "$remote_static_directory"
-rsync -a --delete -e 'ssh -o BatchMode=yes' \
-    "$work_directory/dist/" "$ssh_target:$remote_static_directory/"
+# The swap happens after the build succeeds, so a failed build leaves the
+# serving directory as it was and llama-server keeps its --path valid.
+printf 'installing into %s\n' "$destination"
+mkdir -p "$staging"
+( cd "$work_directory/source/dist" && tar -cf - . ) |
+    ( cd "$staging" && tar -xf - )
+if [ -d "$destination" ]; then
+    mv "$destination" "$work_directory/replaced"
+fi
+mkdir -p "$(dirname -- "$destination")"
+mv "$staging" "$destination"
 
-printf 'deployed; restart the session to serve it\n'
+printf 'installed; restart the session to serve it\n'

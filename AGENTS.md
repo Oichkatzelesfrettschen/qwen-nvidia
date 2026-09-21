@@ -2284,7 +2284,7 @@ scripts/geometry-teardown-check.sh [STATE_DIRECTORY]
 scripts/admit-geometry-runtime.sh OUT [RAYS]    # one orbit query on the device through the service, proof retained
 
 # Rebuild the static UI, and the MMQ kernel-policy build arm
-scripts/build-llama-ui.sh                       # Node on the workstation
+scripts/build-llama-ui.sh [DESTINATION]         # Vite build into webui-llama-ui/
 scripts/build-image-runtime-cuda.sh [OUT]       # sd-cli under SD_CUDA=ON for SM89, never executed here
 QWEN_FORCE_MMQ=ON scripts/build-llama-cuda.sh   # the MMQ kernel-policy arm
 
