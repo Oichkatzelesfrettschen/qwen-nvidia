@@ -22,7 +22,7 @@ requires before it reports `completed` at all.
 
 import json
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 MAX_LINE_BYTES = 65536
 ACTIONS = ("physics_simulate_rigid", "status")
 STATUSES = ("accepted", "completed", "refused", "failed")
@@ -35,9 +35,28 @@ GPU_PROOF_KEYS = (
     "gpu_dynamics_requested",
     "gpu_broadphase_requested",
     "gpu_dynamics_active",
+    "direct_gpu_active",
     "device_name",
     "device_index",
 )
+# How simulation state leaves the device. `readback` takes it from the actor
+# accessors PhysX fills during fetchResults; `direct-gpu` raises
+# PxSceneFlag::eENABLE_DIRECT_GPU_API, which disables those copies, and reads
+# device buffers through PxDirectGPUAPI instead. The path decides which fields
+# have a source, so the validator below reads it rather than accepting a null
+# wherever one appears.
+STATE_PATHS = ("readback", "direct-gpu")
+# The columns of scripts/physics-profiles.tsv, in order. The service and the
+# MCP child both read that ledger, so the shape lives here beside the version
+# rather than in each reader, where a column added to one reader leaves the
+# other rejecting every row as the wrong width.
+PROFILE_COLUMNS = (
+    "profile_id", "scene", "timestep_s", "max_steps", "gravity_y", "gpu_dynamics",
+    "gpu_broadphase", "timeout_s", "execution_policy", "device_index", "state_path",
+)
+TRANSFER_KEYS = {"counted", "device_reads", "device_to_host_copies", "bytes",
+                 "cuda_last_error"}
+DIVERGENCE_KEYS = {"position_max", "linear_velocity_max"}
 REQUEST_KEYS = {"protocol", "action", "request_id", "profile_id", "steps", "authorization"}
 # The grant a run spends travels as an opaque string the service revalidates
 # against the same signing key the MCP child used; it is optional at the
@@ -47,7 +66,8 @@ STATUS_REQUEST_KEYS = {"protocol", "action", "request_id"}
 REPLY_KEYS = {"protocol", "request_id", "status", "profile_id", "result", "error", "reason"}
 RESULT_KEYS = {
     "bodies", "joints", "contacts", "solver", "broadphase", "steps",
-    "timestep_s", "wall_ms", "simulate_ms", "gpu", "runtime_sha256",
+    "timestep_s", "wall_ms", "simulate_ms", "state_read_ms", "gpu",
+    "state_path", "transfers", "cpu_accessor_divergence", "runtime_sha256",
     "scene_sha256",
 }
 BODY_KEYS = {"id", "position", "orientation", "linear_velocity", "angular_velocity", "sleeping"}
@@ -140,6 +160,10 @@ def validate_result(result):
     if set(result) != RESULT_KEYS:
         raise ProtocolError("result keys differ from the schema: %s"
                             % ", ".join(sorted(set(result) ^ RESULT_KEYS)))
+    state_path = result["state_path"]
+    if state_path not in STATE_PATHS:
+        raise ProtocolError("state_path is not one of %s" % ", ".join(STATE_PATHS))
+    direct = state_path == "direct-gpu"
     if not isinstance(result["bodies"], list) or not result["bodies"]:
         raise ProtocolError("result holds no body")
     for body in result["bodies"]:
@@ -150,7 +174,15 @@ def validate_result(result):
         _vector(body["orientation"], "orientation", 4)
         _vector(body["linear_velocity"], "linear_velocity", 3)
         _vector(body["angular_velocity"], "angular_velocity", 3)
-        if not isinstance(body["sleeping"], bool):
+        # PxRigidDynamicGPUAPIReadType carries pose, velocity and acceleration
+        # and no sleep state, so the direct path has no source for this field.
+        # It reports null rather than the false a raised eDISABLE_SLEEPING
+        # would make true by construction, and the schema requires that null
+        # instead of tolerating one from either path.
+        if direct:
+            if body["sleeping"] is not None:
+                raise ProtocolError("sleeping is measured on the direct-gpu path")
+        elif not isinstance(body["sleeping"], bool):
             raise ProtocolError("sleeping is not a boolean")
     if not isinstance(result["joints"], list):
         raise ProtocolError("joints is not a list")
@@ -179,16 +211,57 @@ def validate_result(result):
     steps = result["steps"]
     if isinstance(steps, bool) or not isinstance(steps, int) or not MIN_STEPS <= steps <= MAX_STEPS:
         raise ProtocolError("result steps is outside [%d, %d]" % (MIN_STEPS, MAX_STEPS))
-    for key in ("timestep_s", "wall_ms", "simulate_ms"):
+    for key in ("timestep_s", "wall_ms", "simulate_ms", "state_read_ms"):
         if _number(result[key], key) <= 0 and key == "timestep_s":
             raise ProtocolError("timestep_s is not positive")
+    if result["state_read_ms"] < 0:
+        raise ProtocolError("state_read_ms is negative")
+
+    # The readback path's copies happen inside fetchResults and PhysX reports
+    # no count of them, so it reports them unmeasured; a zero there would be a
+    # claim that no copy happened.
+    transfers = result["transfers"]
+    if not isinstance(transfers, dict) or set(transfers) != TRANSFER_KEYS:
+        raise ProtocolError("transfers keys differ from the schema")
+    if transfers["counted"] is not direct:
+        raise ProtocolError("transfers.counted disagrees with state_path")
+    for key in ("device_reads", "device_to_host_copies", "bytes", "cuda_last_error"):
+        value = transfers[key]
+        if not direct:
+            if value is not None:
+                raise ProtocolError("transfers.%s is counted on the readback path" % key)
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ProtocolError("transfers.%s is not a non-negative integer" % key)
+    if direct and transfers["cuda_last_error"] != 0:
+        raise ProtocolError("the driver reported CUDA error %d after the state read"
+                            % transfers["cuda_last_error"])
+
+    # The direct path disables the copies behind the actor accessors, so the
+    # divergence between those accessors and the device values is a measurement
+    # of that path alone.
+    divergence = result["cpu_accessor_divergence"]
+    if not direct:
+        if divergence is not None:
+            raise ProtocolError("cpu_accessor_divergence is measured on the readback path")
+    else:
+        if not isinstance(divergence, dict) or set(divergence) != DIVERGENCE_KEYS:
+            raise ProtocolError("cpu_accessor_divergence keys differ from the schema")
+        for key in sorted(DIVERGENCE_KEYS):
+            if _number(divergence[key], "cpu_accessor_divergence.%s" % key) < 0:
+                raise ProtocolError("cpu_accessor_divergence.%s is negative" % key)
+
     gpu = result["gpu"]
     if not isinstance(gpu, dict) or set(gpu) != set(GPU_PROOF_KEYS):
         raise ProtocolError("gpu proof keys differ from the schema")
     for key in ("cuda_context_valid", "gpu_dynamics_requested", "gpu_broadphase_requested",
-                "gpu_dynamics_active"):
+                "gpu_dynamics_active", "direct_gpu_active"):
         if not isinstance(gpu[key], bool):
             raise ProtocolError("gpu.%s is not a boolean" % key)
+    # The flag is read back off the scene, so a descriptor PhysX declined leaves
+    # the proof and the declared path disagreeing rather than passing.
+    if gpu["direct_gpu_active"] is not direct:
+        raise ProtocolError("gpu.direct_gpu_active disagrees with state_path")
     if not isinstance(gpu["device_name"], str) or not gpu["device_name"]:
         raise ProtocolError("gpu.device_name is empty")
     if isinstance(gpu["device_index"], bool) or not isinstance(gpu["device_index"], int):

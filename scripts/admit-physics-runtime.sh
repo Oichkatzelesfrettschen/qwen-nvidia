@@ -172,8 +172,20 @@ steps, smi_name = int(sys.argv[2]), sys.argv[3]
 facts = {"status": reply.get("status"), "reason": reply.get("reason") or "-"}
 result = reply.get("result") or {}
 gpu = result.get("gpu") or {}
-for key in ("cuda_context_valid", "gpu_dynamics_requested", "gpu_broadphase_requested", "gpu_dynamics_active"):
+for key in ("cuda_context_valid", "gpu_dynamics_requested", "gpu_broadphase_requested",
+            "gpu_dynamics_active", "direct_gpu_active"):
     facts[key] = str(gpu.get(key)).lower()
+facts["state_path"] = result.get("state_path", "-")
+facts["state_read_ms"] = str(result.get("state_read_ms"))
+transfers = result.get("transfers") or {}
+for key in ("counted", "device_reads", "device_to_host_copies", "bytes", "cuda_last_error"):
+    facts["transfer_" + key] = str(transfers.get(key)).lower()
+# The direct path disables the copies behind the actor accessors. Whether those
+# accessors then answer stale is a measurement, not an assumption, so the
+# divergence between them and the device values is recorded rather than judged.
+divergence = result.get("cpu_accessor_divergence")
+facts["cpu_accessor_position_max"] = "-" if divergence is None else str(divergence.get("position_max"))
+facts["cpu_accessor_linear_velocity_max"] = "-" if divergence is None else str(divergence.get("linear_velocity_max"))
 facts["device_name"] = gpu.get("device_name", "-")
 facts["device_name_matches_nvidia_smi"] = "yes" if gpu.get("device_name") == smi_name else "no"
 facts["device_index"] = str(gpu.get("device_index"))
@@ -211,6 +223,22 @@ check cuda_context_valid "$(fact cuda_context_valid)" true
 check gpu_dynamics_requested "$(fact gpu_dynamics_requested)" true
 check gpu_broadphase_requested "$(fact gpu_broadphase_requested)" true
 check gpu_dynamics_active "$(fact gpu_dynamics_active)" true
+# The scene's flag is read back off the scene and the ledger names the path, so
+# a descriptor PhysX declined leaves the two disagreeing rather than passing.
+state_path=$(awk -F '\t' -v id="$profile_id" '!/^#/ && $1 == id { print $11 }' \
+    "$output_directory/physics-profiles.tsv")
+record profile_state_path "$state_path"
+check reply_state_path "$(fact state_path)" "$state_path"
+expected_direct=$([ "$state_path" = direct-gpu ] && printf true || printf false)
+check direct_gpu_active "$(fact direct_gpu_active)" "$expected_direct"
+check transfers_counted "$(fact transfer_counted)" "$expected_direct"
+record transfer_device_reads "$(fact transfer_device_reads)"
+record transfer_device_to_host_copies "$(fact transfer_device_to_host_copies)"
+record transfer_bytes "$(fact transfer_bytes)"
+record transfer_cuda_last_error "$(fact transfer_cuda_last_error)"
+record state_read_ms "$(fact state_read_ms)"
+record cpu_accessor_position_max "$(fact cpu_accessor_position_max)"
+record cpu_accessor_linear_velocity_max "$(fact cpu_accessor_linear_velocity_max)"
 check device_name_matches_nvidia_smi "$(fact device_name_matches_nvidia_smi)" yes
 record device_name_runtime "$(fact device_name)"
 check steps_simulated "$(fact steps)" "$steps"

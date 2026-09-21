@@ -31,8 +31,8 @@ CHILD = SCRIPTS / "sidecar-mcp" / "server.py"
 PHYSICS_SERVICE = SCRIPTS / "physics-service.py"
 FAKE_PHYSX = SCRIPTS / "test-fixtures" / "fake-physx-runtime.sh"
 PHYSICS_LEDGER = (
-    "# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\n"
-    "physics-d6-test\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t5\tvalidator-gated\t0\n"
+    "# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\tstate_path\n"
+    "physics-d6-test\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t5\tvalidator-gated\t0\treadback\n"
 )
 GEOMETRY_LEDGER = (
     "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\n"

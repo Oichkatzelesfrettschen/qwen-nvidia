@@ -1799,9 +1799,9 @@ fi
 # section's tag set gains the lane's own term. The geometry ledger stays
 # all-refused, so the emitted object holds web and physics alone.
 physics_profiles_gated=$work/physics-profiles-gated.tsv
-printf '# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\n' \
+printf '# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\tstate_path\n' \
     >"$physics_profiles_gated"
-printf 'physics-fixture-a\td6-chain-4\t0.016666667\t3600\t9.81\tyes\tyes\t120\tvalidator-gated\t0\n' \
+printf 'physics-fixture-a\td6-chain-4\t0.016666667\t3600\t9.81\tyes\tyes\t120\tvalidator-gated\t0\treadback\n' \
     >>"$physics_profiles_gated"
 sidecar_mcp_server_program=$work/sidecar-mcp-server.py
 printf '#!/usr/bin/env python3\n' >"$sidecar_mcp_server_program"

@@ -34,9 +34,10 @@ FAKE = SCRIPTS / "test-fixtures" / "fake-physx-runtime.sh"
 SERVICE = SCRIPTS / "physics-service.py"
 
 LEDGER = (
-    "# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\n"
-    "physics-d6-test\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t3\tvalidator-gated\t0\n"
-    "physics-d6-refused\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t3\trefused\t0\n"
+    "# profile_id\tscene\ttimestep_s\tmax_steps\tgravity_y\tgpu_dynamics\tgpu_broadphase\ttimeout_s\texecution_policy\tdevice_index\tstate_path\n"
+    "physics-d6-test\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t3\tvalidator-gated\t0\treadback\n"
+    "physics-d6-direct\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t3\tvalidator-gated\t0\tdirect-gpu\n"
+    "physics-d6-refused\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t3\trefused\t0\treadback\n"
 )
 
 
@@ -135,6 +136,31 @@ def main():
             status = (state / "vulkan-workload.status").read_text()
             check(status.startswith("state=released"), "the lease is released after the job")
 
+            # The two paths are two scenes: the flag is not mutable, so the row
+            # carries it and the digest that names a run carries it too.
+            readback_digest = reply.get("result", {}).get("scene_sha256")
+            direct = harness.exchange(request(profile="physics-d6-direct"))
+            check(direct["status"] == "completed", "the direct-gpu row completes")
+            direct_result = direct.get("result", {})
+            check(direct_result.get("state_path") == "direct-gpu",
+                  "the direct-gpu reply names its state path")
+            check(direct_result.get("gpu", {}).get("direct_gpu_active") is True,
+                  "the direct-gpu reply carries the flag read back off the scene")
+            check(all(body.get("sleeping") is None for body in direct_result.get("bodies", [{}])),
+                  "the direct-gpu path reports no sleep state it has no source for")
+            check(direct_result.get("transfers", {}).get("counted") is True
+                  and direct_result.get("transfers", {}).get("device_reads") == 3,
+                  "the direct-gpu reply counts its own transfers")
+            check(direct_result.get("cpu_accessor_divergence") is not None,
+                  "the direct-gpu reply measures the CPU accessor divergence")
+            check(direct_result.get("scene_sha256") != readback_digest,
+                  "the state path changes the digest that names the run")
+            try:
+                protocol.parse_reply(json.dumps(direct))
+                check(True, "the direct-gpu reply parses under the protocol")
+            except protocol.ProtocolError as error:
+                check(False, "the direct-gpu reply parses under the protocol: %s" % error)
+
             reply = harness.exchange(request(profile="physics-d6-refused"))
             check(reply["status"] == "refused" and reply.get("reason") == "profile_refused",
                   "a refused row is refused by name")
@@ -161,16 +187,24 @@ def main():
         finally:
             harness.stop()
 
-        for mode, reason, description in (("cpu", "gpu_fallback", "a runtime without the GPU proof fails"),
-                                          ("crash", "runtime_failed", "a crashing runtime fails"),
-                                          ("prose", "runtime_failed", "a runtime printing prose fails"),
-                                          ("flood", "runtime_failed", "a runtime flooding stdout is ended and fails"),
-                                          ("hang", "runtime_timeout", "a hanging runtime times out"),
-                                          ("contacts", "runtime_failed",
-                                           "a runtime reporting more touching pairs than narrow-phase pairs fails")):
+        for mode, profile, reason, description in (
+                ("cpu", "physics-d6-test", "gpu_fallback", "a runtime without the GPU proof fails"),
+                ("crash", "physics-d6-test", "runtime_failed", "a crashing runtime fails"),
+                ("prose", "physics-d6-test", "runtime_failed", "a runtime printing prose fails"),
+                ("flood", "physics-d6-test", "runtime_failed",
+                 "a runtime flooding stdout is ended and fails"),
+                ("hang", "physics-d6-test", "runtime_timeout", "a hanging runtime times out"),
+                ("contacts", "physics-d6-test", "runtime_failed",
+                 "a runtime reporting more touching pairs than narrow-phase pairs fails"),
+                ("sleep-claim", "physics-d6-direct", "runtime_failed",
+                 "a direct-gpu runtime answering a sleep state it cannot read fails"),
+                ("cuda-error", "physics-d6-direct", "runtime_failed",
+                 "a driver error beside a successful direct-gpu read fails"),
+                ("path-mismatch", "physics-d6-test", "runtime_failed",
+                 "a scene flag disagreeing with the declared state path fails")):
             harness = Harness(state, mode=mode)
             try:
-                reply = harness.exchange(request())
+                reply = harness.exchange(request(profile=profile))
                 check(reply["status"] == "failed" and reply.get("reason") == reason, description)
                 if mode == "hang":
                     left = subprocess.run(["pgrep", "-f", "fake-physx-runtime.sh d6-chain-4"],

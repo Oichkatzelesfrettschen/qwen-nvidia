@@ -42,8 +42,6 @@ LANES = {
         "count_key": "steps",
         "ceiling_column": "max_steps",
         "scene_column": "scene",
-        "columns": ("profile_id", "scene", "timestep_s", "max_steps", "gravity_y", "gpu_dynamics",
-                    "gpu_broadphase", "timeout_s", "execution_policy", "device_index"),
         "description": "Simulate one bounded rigid-body scene on the GPU through PhysX and return the proof that it ran there.",
     },
     "geometry": {
@@ -52,7 +50,6 @@ LANES = {
         "count_key": "rays",
         "ceiling_column": "max_rays",
         "scene_column": "scene",
-        "columns": ("profile_id", "scene", "query_set", "max_rays", "timeout_s", "execution_policy", "device_index"),
         "description": "Trace one bounded ray query against a fixture scene on the GPU through OptiX and return the proof that it ran there.",
     },
 }
@@ -113,6 +110,10 @@ def resolve_timeout(raw):
 def profile_row(settings):
     """Return the ledger row the child serves, read from the same TSV the service reads."""
     lane = LANES[settings["service"]]
+    # The ledger's shape comes from the lane's protocol module, which the
+    # service reads too, so a column added to the ledger reaches both readers
+    # at once instead of leaving this one rejecting every row as mis-shaped.
+    columns = __import__(lane["protocol"]).PROFILE_COLUMNS
     try:
         with open(settings["profiles"], encoding="utf-8") as handle:
             lines = [line.rstrip("\n") for line in handle if line.strip() and not line.startswith("#")]
@@ -120,9 +121,9 @@ def profile_row(settings):
         raise web_server.InvalidArgument(f"the profile ledger is unreadable: {error.__class__.__name__}") from None
     for line in lines:
         fields = line.split("\t")
-        if len(fields) != len(lane["columns"]):
+        if len(fields) != len(columns):
             raise web_server.InvalidArgument("the profile ledger carries a row of the wrong width")
-        row = dict(zip(lane["columns"], fields))
+        row = dict(zip(columns, fields))
         if row["profile_id"] == settings["profile"]:
             try:
                 ceiling = int(row[lane["ceiling_column"]])

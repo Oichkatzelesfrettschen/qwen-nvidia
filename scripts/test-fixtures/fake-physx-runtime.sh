@@ -8,13 +8,18 @@ set -eu
 # would, `crash` exits 1 with the runtime's refusal line, `hang` sleeps past
 # any deadline, `prose` prints text where JSON is expected, and `contacts`
 # reports more touching pairs than pairs reaching narrow phase, which the
-# counters cannot express and the protocol refuses.
+# counters cannot express and the protocol refuses. Three modes misreport the
+# direct-GPU path specifically: `sleep-claim` answers a sleep state the path has
+# no source for, `cuda-error` reports a driver error beside a successful read,
+# and `path-mismatch` claims the scene holds the direct-GPU flag it declares it
+# does not.
 
-[ "$#" -eq 5 ] || { printf 'usage: fake-physx-runtime SCENE TIMESTEP_S STEPS GRAVITY_Y DEVICE_INDEX\n' >&2; exit 2; }
+[ "$#" -eq 6 ] || { printf 'usage: fake-physx-runtime SCENE TIMESTEP_S STEPS GRAVITY_Y DEVICE_INDEX STATE_PATH\n' >&2; exit 2; }
 scene=$1
 timestep=$2
 steps=$3
 device=$5
+state_path=$6
 # The service hands the runtime a fixed environment, so the mode and the
 # marker live beside this script rather than in variables: a test copies it
 # into a directory of its own and writes fake-mode there.
@@ -22,6 +27,10 @@ here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 mode=ok
 [ -r "$here/fake-mode" ] && mode=$(cat "$here/fake-mode")
 [ "$scene" = d6-chain-4 ] || { printf 'physx_runtime=rejected reason=unknown_scene\n' >&2; exit 1; }
+case $state_path in
+    readback | direct-gpu) ;;
+    *) printf 'physx_runtime=rejected reason=unknown_state_path\n' >&2; exit 1 ;;
+esac
 printf 'pid=%s nice=%s\n' "$$" "$(awk '{print $19}' /proc/self/stat)" >"$here/runtime-marker.txt"
 case $mode in
     crash) printf 'physx_runtime=rejected reason=cuda_context_invalid\n' >&2; exit 1 ;;
@@ -31,8 +40,29 @@ case $mode in
 esac
 active=true
 [ "$mode" = cpu ] && active=false
-printf '{"gpu":{"cuda_context_valid":true,"gpu_dynamics_requested":true,"gpu_broadphase_requested":true,"gpu_dynamics_active":%s,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s},' "$active" "$device"
-printf '"bodies":[{"id":"box-0","position":[1.2,5.1,0],"orientation":[0,0,0.1,0.995],"linear_velocity":[0,-1,0],"angular_velocity":[0,0,0.2],"sleeping":false}],'
+
+# The direct-GPU path has no source for a sleep state and counts its own
+# transfers; the readback path leaves both unmeasured because PhysX performs
+# those copies inside fetchResults and reports no count of them.
+if [ "$state_path" = direct-gpu ]; then
+    direct_active=true
+    sleeping=null
+    transfers='"transfers":{"counted":true,"device_reads":3,"device_to_host_copies":3,"bytes":144,"cuda_last_error":0}'
+    divergence='"cpu_accessor_divergence":{"position_max":0.0,"linear_velocity_max":0.0}'
+else
+    direct_active=false
+    sleeping=false
+    transfers='"transfers":{"counted":false,"device_reads":null,"device_to_host_copies":null,"bytes":null,"cuda_last_error":null}'
+    divergence='"cpu_accessor_divergence":null'
+fi
+case $mode in
+    sleep-claim) sleeping=false ;;
+    cuda-error) transfers='"transfers":{"counted":true,"device_reads":3,"device_to_host_copies":3,"bytes":144,"cuda_last_error":700}' ;;
+    path-mismatch) direct_active=$([ "$direct_active" = true ] && printf false || printf true) ;;
+esac
+printf '{"gpu":{"cuda_context_valid":true,"gpu_dynamics_requested":true,"gpu_broadphase_requested":true,"gpu_dynamics_active":%s,"direct_gpu_active":%s,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s},' "$active" "$direct_active" "$device"
+printf '"state_path":"%s",' "$state_path"
+printf '"bodies":[{"id":"box-0","position":[1.2,5.1,0],"orientation":[0,0,0.1,0.995],"linear_velocity":[0,-1,0],"angular_velocity":[0,0,0.2],"sleeping":%s}],' "$sleeping"
 printf '"joints":[{"id":"joint-0","body0":"anchor","body1":"box-0","twist_rad":0.01,"swing_y_rad":0.2,"swing_z_rad":0,"broken":false}],'
 # The counts are distinct and ordered so the reply exercises the protocol's
 # narrow-phase invariants rather than satisfying them with zeros: touching and
@@ -43,4 +73,5 @@ touching=2
 [ "$mode" = contacts ] && touching=4
 printf '"contacts":{"pairs":%s,"touching":%s,"cache_hits":1},' "$pairs" "$touching"
 printf '"solver":{"active_constraints":1},"broadphase":{"adds":2,"removes":0},'
-printf '"steps":%s,"timestep_s":%s,"simulate_ms":12.5,"wall_ms":40.0}\n' "$steps" "$timestep"
+printf '%s,%s,' "$transfers" "$divergence"
+printf '"steps":%s,"timestep_s":%s,"simulate_ms":12.5,"state_read_ms":0.4,"wall_ms":40.0}\n' "$steps" "$timestep"

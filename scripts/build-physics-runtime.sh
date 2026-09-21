@@ -19,7 +19,7 @@ host_cxx=${QWEN_HOST_COMPILER:-/usr/bin/g++-15}
 [ -d "$physx_prefix/include" ] || { printf 'PhysX SDK is absent at %s\n' "$physx_prefix" >&2; exit 1; }
 library_directory=$physx_prefix/bin/linux.x86_64/release
 
-"$host_cxx" -std=c++17 -O2 -DNDEBUG -DPX_PHYSX_STATIC_LIB -o "$output" \
+"$host_cxx" -std=c++17 -O2 -DNDEBUG -DPX_PHYSX_STATIC_LIB -Wall -Wextra -Werror -o "$output" \
     "$script_directory/physics-runtime/physx-rigid-runtime.cpp" \
     -I"$physx_prefix/include" -I"$cuda_prefix/include" \
     -L"$library_directory" -L"$cuda_prefix/lib64" \

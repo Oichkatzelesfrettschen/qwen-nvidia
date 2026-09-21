@@ -25,6 +25,14 @@ the service requires before it reports `completed` at all.
 import json
 
 PROTOCOL_VERSION = 1
+# The columns of scripts/geometry-profiles.tsv, in order. The service and the
+# MCP child both read that ledger, so the shape lives here beside the version
+# rather than in each reader, where a column added to one reader leaves the
+# other rejecting every row as the wrong width.
+PROFILE_COLUMNS = (
+    "profile_id", "scene", "query_set", "max_rays", "timeout_s", "execution_policy",
+    "device_index",
+)
 MAX_LINE_BYTES = 65536
 ACTIONS = ("geometry_ray_query", "status")
 STATUSES = ("accepted", "completed", "refused", "failed")
