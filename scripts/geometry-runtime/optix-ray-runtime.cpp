@@ -357,9 +357,16 @@ struct Session {
     int device_index = 0;
     int cache_requested = 1;
     float t_max = 100.0f;
-    // Zero leaves the ceiling to the caller, which is what a one-shot run has:
-    // its allocations end with the process that held the compute lease.
+    // What this process may ask cudaMalloc for. Zero leaves the ceiling to the
+    // caller, which is what a one-shot run has: its allocations end with the
+    // process that held the compute lease.
     size_t budget_bytes = 0;
+    // The supervisor's ceiling over the driver's reading for the whole
+    // process, which counts the CUDA context and the OptiX module and pipeline
+    // that no cudaMalloc here passes through. The worker echoes it so the
+    // supervisor can detect the two holding different sessions, and enforces
+    // budget_bytes, which is the only figure it can account for.
+    size_t residency_budget_mib = 0;
 
     std::vector<Triangle> triangles;
     cudaDeviceProp prop = {};
@@ -558,14 +565,16 @@ int Session::serve(unsigned int ray_count, Stages & stages, Summary & summary) {
 
     // The ray and result buffers are the only allocations a request's size
     // changes. A larger request grows them and a smaller one runs inside what
-    // is already there, which is the residency the budget is declared for.
+    // is already there. The check is against the growth rather than the held
+    // total so a request that fits in existing buffers never fails, and it
+    // runs before cudaMalloc so a refusal costs no device memory.
     const size_t need_rays = (size_t) ray_count * sizeof(Ray);
     const size_t need_results = (size_t) ray_count * sizeof(RayResult);
     if (budget_bytes) {
         const size_t growth = (need_rays > rays_bytes ? need_rays - rays_bytes : 0) +
                               (need_results > results_bytes ? need_results - results_bytes : 0);
         if (allocated_bytes + growth > budget_bytes) {
-            std::fprintf(stderr, "optix_runtime=refused reason=budget_exceeded held=%zu growth=%zu budget=%zu\n",
+            std::fprintf(stderr, "optix_runtime=refused reason=budget_exceeded held=%zu growth=%zu application_budget=%zu\n",
                          allocated_bytes, growth, budget_bytes);
             return 2;
         }
@@ -779,11 +788,11 @@ std::string ready_line(const Session & session, const Stages & startup, double s
                   "\"module_ms\":%.3f,\"pipeline_ms\":%.3f,\"sbt_ms\":%.3f}"
                   ",\"startup_ms\":%.3f,\"device_allocated_bytes\":%zu"
                   ",\"session_requests\":%lu,\"session_seconds\":%lu,\"idle_timeout_s\":%lu"
-                  ",\"residency_budget_mib\":%zu}",
+                  ",\"residency_budget_mib\":%zu,\"application_budget_mib\":%zu}",
                   startup.cuda_context_ms, startup.optix_context_ms, startup.accel_ms,
                   startup.module_ms, startup.pipeline_ms, startup.sbt_ms, startup_ms,
                   session.allocated_bytes, requests, seconds, idle,
-                  session.budget_bytes / (1024 * 1024));
+                  session.residency_budget_mib, session.budget_bytes / (1024 * 1024));
     ready += buffer;
     return ready;
 }
@@ -867,7 +876,7 @@ int resident(Session & session, unsigned long session_requests, unsigned long se
             std::snprintf(buffer, sizeof buffer,
                           "{\"protocol\":%d,\"event\":\"refused\",\"request_id\":\"%s\","
                           "\"reason\":\"budget_exceeded\","
-                          "\"detail\":\"%lu rays would take the session past its residency ceiling\"}",
+                          "\"detail\":\"%lu rays would take the session past its application allocation ceiling\"}",
                           GEOMETRY_PROTOCOL_VERSION, request_id.c_str(), rays_requested);
             emit(buffer);
             // The ceiling is the configuration's, so passing it ends the
@@ -960,11 +969,12 @@ int main(int argc, char ** argv) {
     // One-shot: the ray count stands where resident mode names its bounds, so
     // the two forms cannot be confused for one another by a miscounted argv.
     const bool resident_mode = argc >= 4 && std::string(argv[3]) == "resident";
-    if (!((resident_mode && argc == 10) || (!resident_mode && argc == 6))) {
+    if (!((resident_mode && argc == 11) || (!resident_mode && argc == 6))) {
         std::fprintf(stderr,
                      "usage: optix-ray-runtime SCENE QUERY_SET RAY_COUNT DEVICE_INDEX MODULE_CACHE\n"
                      "       optix-ray-runtime SCENE QUERY_SET resident DEVICE_INDEX MODULE_CACHE"
-                     " SESSION_REQUESTS SESSION_SECONDS IDLE_SECONDS BUDGET_MIB\n");
+                     " SESSION_REQUESTS SESSION_SECONDS IDLE_SECONDS"
+                     " RESIDENCY_BUDGET_MIB APPLICATION_BUDGET_MIB\n");
         return 2;
     }
     Session session;
@@ -986,14 +996,17 @@ int main(int argc, char ** argv) {
     const long requests = std::strtol(argv[6], nullptr, 10);
     const long seconds = std::strtol(argv[7], nullptr, 10);
     const long idle = std::strtol(argv[8], nullptr, 10);
-    const long budget_mib = std::strtol(argv[9], nullptr, 10);
+    const long residency_mib = std::strtol(argv[9], nullptr, 10);
+    const long application_mib = std::strtol(argv[10], nullptr, 10);
     // The bounds are the profile row's, revalidated here: a supervisor is what
     // hands them over, and a session that took them on trust would run under
     // whatever the launch line happened to say.
     if (requests < 1 || requests > 64 || seconds < 1 || seconds > 3600 ||
-        idle < 1 || idle >= seconds || budget_mib < 1 || budget_mib > 4096) {
+        idle < 1 || idle >= seconds || residency_mib < 1 || residency_mib > 4096 ||
+        application_mib < 1 || application_mib > 4096) {
         return 2;
     }
-    session.budget_bytes = (size_t) budget_mib * 1024 * 1024;
+    session.residency_budget_mib = (size_t) residency_mib;
+    session.budget_bytes = (size_t) application_mib * 1024 * 1024;
     return resident(session, (unsigned long) requests, (unsigned long) seconds, (unsigned long) idle);
 }

@@ -188,6 +188,7 @@ class Worker:
             self.profile["module_cache"], str(self.bounds["session_requests"]),
             str(self.bounds["session_seconds"]), str(self.bounds["idle_timeout_s"]),
             str(self.bounds["residency_budget_mib"]),
+            str(self.bounds["application_budget_mib"]),
         ]
         started = time.monotonic()
         # The worker is a grandchild with a closed descriptor set: flock binds
@@ -247,8 +248,22 @@ class Worker:
             raise WorkerRetiring(self.notice["reason"])
         if event == "refused":
             protocol.validate_resident_refused(message, request_id)
-            raise DriverError("the worker refused the request: %s %s"
-                              % (message["reason"], message["detail"]))
+            if message["reason"] != "budget_exceeded":
+                raise DriverError("the worker refused the request: %s %s"
+                                  % (message["reason"], message["detail"]))
+            # A refusal against the application ceiling is a bound the worker
+            # reached, not a request that failed: serving the next request
+            # would hold memory the row admits nothing for, so the runtime
+            # retires on it and announces that on the following line. Reading
+            # the notice here is what puts this on the authorized path; a
+            # supervisor that treated the refusal as a failure would terminate
+            # a worker that is waiting to be told it may destroy.
+            event, notice = protocol.parse_resident_line(self.reader.line(deadline))
+            if event != "retiring":
+                raise DriverError("the worker refused against its application ceiling "
+                                  "and then answered %s rather than retiring" % event)
+            self.notice = protocol.validate_resident_retiring(notice, self.served)
+            raise WorkerRetiring(self.notice["reason"])
         if event != "result":
             raise DriverError("the worker answered %s rather than result" % event)
         protocol.validate_resident_result(message, self.bounds, request_id, rays)

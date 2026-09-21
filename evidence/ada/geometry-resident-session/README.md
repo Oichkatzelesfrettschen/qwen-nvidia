@@ -11,8 +11,9 @@ met the independent host reference on every ray, and both ledger rows stay
 
 `retirement/` is a third capture, from `scripts/admit-geometry-retirement.sh`:
 the ways a session ends, each reached on the card rather than against the test
-fixture, with what owned the destruction recorded at each. It accepted at 37 of
-37.
+fixture, with what owned the destruction recorded at each. It accepted at 47 of
+47. `two-ceilings/` holds the summaries of a later pair of A/B runs, kept for
+the ceilings they check rather than for a timing.
 
 ## The launch a one-shot query reports is mostly not the ray trace
 
@@ -82,6 +83,50 @@ The gap narrows as the query grows because what residency removes is fixed. The
 setup stages are 157 ms whatever the ray count, while the host reference that
 no residency removes grows with the rays.
 
+## Two ceilings, because the readings count different things
+
+A row declares `residency_budget_mib` over the driver's reading for the whole
+process and `application_budget_mib` over what the runtime asks `cudaMalloc`
+for. **One number over both readings can never refuse the worker's own
+growth.** The driver's reading is 214 MiB before a request runs, because it
+counts the CUDA context and the OptiX module and pipeline; the worker's figure
+reaches 33,558,440 bytes at the ceiling ray count, 32 MiB, because it counts
+the ray and result buffers and the acceleration structure and nothing else.
+Any allowance low enough to bind on 32 MiB fails the driver's reading first, so
+no session starts and the worker's own check never runs. The two accountings
+differ by an order of magnitude and the driver's reading sets the floor.
+
+Separated, the application ceiling binds on the growth it can account for. A
+ray is 24 bytes and its result 8, so 1,048,576 rays occupy 32 MiB exactly; a
+measurement row declares 40, which is that with an explicit scratch margin
+beside the acceleration structure. `geometry-cube-orbit-a-appbudget` declares
+16 against the same `max_rays`, and `retirement/` drives it at two ray counts:
+
+| rays | worker's growth | outcome | reason | authorized |
+| ---: | ---: | --- | --- | --- |
+| 262,144 | 8 MiB | served, then the supervisor retired it | `shutdown` | yes |
+| 1,048,576 | 32 MiB | refused before `cudaMalloc` ran | `budget_exceeded` | yes |
+
+`runtime-application-ceiling.err` carries the arithmetic the runtime refused
+on, `held=4008 growth=33554432 application_budget=16777216`, and the record
+shows `device_allocated_bytes=4008` after it: **a refusal costs no device
+memory, because the check runs against the growth before the allocation.**
+
+A refusal against the application ceiling is a bound the worker reached rather
+than a request that failed, so it takes the authorized retirement path. The
+worker announces `retiring` and waits; the supervisor takes the lease and sends
+`shutdown`. A supervisor that read the refusal as a failure would terminate a
+worker that was waiting to be told it may destroy, which is the same ownership
+inversion the lifecycle corrections removed from the other exits.
+
+`two-ceilings/` is `scripts/admit-geometry-resident.sh` accepting at 9 of 9 at
+both ray counts with the readings held against their own ceilings: 322 and 346
+MiB observed against 512, and 8 and 32 MiB allocated against 40. Those runs
+carry no timing claim. They ran with the desktop holding the GPU at 64 percent
+and the host at load 2.15 to 3.61, against the 9 to 13 percent and load 1.3 of
+the captures the table above reports, and nothing in the split changes a
+measured interval.
+
 ## Residency is held without the lease, and three readings differ
 
 The driver reads the worker's device residency at a moment when it holds no
@@ -131,6 +176,8 @@ lease itself, so a supervisor holding one never waits on a child that wants one.
 | session-limit | `session_limit` | yes | 0 | free |
 | residency-unread | run ended, worker destroyed under a lease taken to do it | n-a | 0 | free |
 | residency-over | run ended, worker destroyed under a lease taken to do it | n-a | 0 | free |
+| application-serves | `shutdown` | yes | 0 | free |
+| application-ceiling | `budget_exceeded` | yes | 0 | free |
 
 `geometry-cube-orbit-a-retire` and `geometry-cube-orbit-a-wall` exist for this:
 the measurement row serves sixteen requests over three hundred seconds, so a
@@ -217,18 +264,10 @@ and the reference implementation's build identity, because a reference computed
 for one simulation state would otherwise verify the next on the strength of an
 unchanged scene name.
 
-**The worker's own memory ceiling cannot fire under any row this ledger
-admits.** Its check compares what it has asked `cudaMalloc` for against the
-row's allowance, and that figure reaches 33,558,440 bytes at the ceiling ray
-count, 32 MiB. Any allowance under 214 MiB fails at the first residency reading
-instead, because the CUDA context alone is that large before a request runs.
-There is therefore no allowance at which a session starts and the worker's own
-check refuses a request: the two accountings differ by an order of magnitude
-and the driver's reading sets the floor. `budget_exceeded` is exercised against
-the fake worker in `scripts/test-geometry-resident-driver.py` and is
-unreachable on the card. Making it bind would mean holding the driver's reading
-against the allowance per request rather than per idle moment, which is a
-change to what the allowance means and is not made here.
+The supervisor's remaining device-capacity margin is a third quantity and is
+not a column here. It is a property of what the host admits rather than of one
+session, and one worker holds the compute lease at a time, so nothing in this
+arrangement reads it. A second concurrent session is what would need it.
 
 Also unrun on the card: a session serving different ray counts, two sessions
 contending for the lease, and any co-residency with a language model or a

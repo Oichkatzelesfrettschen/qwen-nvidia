@@ -23,7 +23,7 @@
 #                  service sets OPTIX_CACHE_MAXSIZE=0 for a disabled row,
 #                  which the header says takes precedence over the API.
 #
-# The five residency columns admit device memory held between requests, which
+# The six residency columns admit device memory held between requests, which
 # execution_policy does not cover: that field admits the compute one request
 # runs, and a process can hold a CUDA context, an acceleration structure and
 # its buffers while running nothing. The two permissions are separate here
@@ -44,25 +44,47 @@
 # idle_timeout_s    the interval with no request in hand that retires a
 #                   session early; it has to be under session_seconds to fire
 # residency_budget_mib
-#                   the device memory ceiling the session fails at rather than
-#                   enlarges. The runtime counts its own allocations against
-#                   it and the supervisor counts the driver's residency for
-#                   the process against it, because neither reading sees what
-#                   the other does.
+#                   the ceiling over the driver's reading for the whole
+#                   process, which the supervisor takes at a moment it holds
+#                   no lease and no request is in flight. It counts the CUDA
+#                   context, the OptiX module and the pipeline, which are
+#                   214 MiB on an RTX 4070 Ti before a request runs. A reading
+#                   the probe cannot supply ends the session rather than
+#                   passing as zero.
+# application_budget_mib
+#                   the ceiling over what the runtime asks cudaMalloc for,
+#                   which it checks against a request's growth before it
+#                   allocates. A row sizes it from the buffers max_rays
+#                   admits plus an explicit scratch margin: a ray is 24 bytes
+#                   and a result 8, so 1,048,576 rays occupy 32 MiB exactly,
+#                   and 40 leaves 8 MiB beside the acceleration structure.
 #
-# The three columns only a session has read n-a on a one-shot row.
+# The two ceilings are separate because they count different things and one
+# number cannot bind both. Any value low enough to refuse a 32 MiB ray buffer
+# is below the 214 MiB context, so the driver's reading fails first and no
+# session starts; holding the driver's reading against the buffers instead
+# would refuse every session the context alone. Separated, the application
+# ceiling binds on the growth it can account for while the driver's reading
+# keeps the allowance for the process.
+#
+# The four columns only a session has read n-a on a one-shot row.
 #
 # The two calibration rows carry bounds a measurement row is deliberately too
 # generous to reach: geometry-cube-orbit-a-resident serves sixteen requests
 # over three hundred seconds, so a run that measures what residency costs
-# retires on the supervisor's word and never on its own. Reaching the idle
+# retires on the supervisor's word and never on its own.
+# geometry-cube-orbit-a-appbudget declares 16 MiB of application allowance
+# against a row whose max_rays needs 32, so 262,144 rays serve inside it and
+# 1,048,576 are refused before a cudaMalloc runs. That pair is what shows the
+# ceiling discriminating rather than failing everything. Reaching the idle
 # interval, the request count and the wall bound is what proves destruction
 # runs under the compute lease at each of them, and that needs a session
 # small enough to end by itself inside a harness run.
 #
-# profile_id	scene	query_set	max_rays	timeout_s	execution_policy	device_index	module_cache	residency	session_requests	session_seconds	idle_timeout_s	residency_budget_mib
-geometry-cube-orbit-a	cube-and-plane	orbit	1048576	60	refused	0	enabled	one-shot	1	n-a	n-a	n-a
-geometry-cube-orbit-a-cold	cube-and-plane	orbit	1048576	60	refused	0	disabled	one-shot	1	n-a	n-a	n-a
-geometry-cube-orbit-a-resident	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	300	15	512
-geometry-cube-orbit-a-retire	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	2	120	3	512
-geometry-cube-orbit-a-wall	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	8	6	512
+# profile_id	scene	query_set	max_rays	timeout_s	execution_policy	device_index	module_cache	residency	session_requests	session_seconds	idle_timeout_s	residency_budget_mib	application_budget_mib
+geometry-cube-orbit-a	cube-and-plane	orbit	1048576	60	refused	0	enabled	one-shot	1	n-a	n-a	n-a	n-a
+geometry-cube-orbit-a-cold	cube-and-plane	orbit	1048576	60	refused	0	disabled	one-shot	1	n-a	n-a	n-a	n-a
+geometry-cube-orbit-a-resident	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	300	15	512	40
+geometry-cube-orbit-a-retire	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	2	120	3	512	40
+geometry-cube-orbit-a-wall	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	8	6	512	40
+geometry-cube-orbit-a-appbudget	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	4	120	6	512	16

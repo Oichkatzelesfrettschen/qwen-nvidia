@@ -109,6 +109,8 @@ session_requests=$(awk -F '\t' -v id="$resident_profile" '!/^#/ && $1 == id { pr
 residency_budget_mib=$(awk -F '\t' -v id="$resident_profile" '!/^#/ && $1 == id { print $13 }' "$output_directory/geometry-profiles.tsv")
 record session_requests_declared "$session_requests"
 record residency_budget_mib "$residency_budget_mib"
+application_budget_mib=$(awk -F '\t' -v id="$resident_profile" '!/^#/ && $1 == id { print $14 }' "$output_directory/geometry-profiles.tsv")
+record application_budget_mib "$application_budget_mib"
 record requests_per_block "$requests"
 record blocks "$blocks"
 record rays_requested "$rays"
@@ -240,10 +242,15 @@ peak_allocated=$(awk -F '\t' '$1 == "resident" && $11 + 0 > peak { peak = $11 + 
 record peak_worker_allocated_bytes "$peak_allocated"
 peak_allocated_mib=$((peak_allocated / 1048576))
 record peak_worker_allocated_mib "$peak_allocated_mib"
+# The driver's readings and the worker's own accounting answer to different
+# ceilings because they count different things: the readings include the CUDA
+# context and the OptiX module and pipeline, and the worker's figure counts
+# only what it asked cudaMalloc for.
 check residency_within_budget \
     "$([ "$peak_sampled_mib" -le "$residency_budget_mib" ] &&
-        [ "$peak_idle_mib" -le "$residency_budget_mib" ] &&
-        [ "$peak_allocated_mib" -le "$residency_budget_mib" ] && printf yes || printf no)" yes
+        [ "$peak_idle_mib" -le "$residency_budget_mib" ] && printf yes || printf no)" yes
+check application_within_budget \
+    "$([ "$peak_allocated_mib" -le "$application_budget_mib" ] && printf yes || printf no)" yes
 
 check teardown "$("$script_directory/geometry-teardown-check.sh" "$output_directory/state" |
     scrub_home | tee "$output_directory/teardown.txt" |

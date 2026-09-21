@@ -36,11 +36,11 @@ PHYSICS_LEDGER = (
 )
 GEOMETRY_LEDGER = (
     "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\tmodule_cache"
-    "\tresidency\tsession_requests\tsession_seconds\tidle_timeout_s\tresidency_budget_mib\n"
+    "\tresidency\tsession_requests\tsession_seconds\tidle_timeout_s\tresidency_budget_mib\tapplication_budget_mib\n"
     "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled"
-    "\tone-shot\t1\tn-a\tn-a\tn-a\n"
+    "\tone-shot\t1\tn-a\tn-a\tn-a\tn-a\n"
     "geometry-cube-resident\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled"
-    "\tbounded-resident\t4\t60\t5\t512\n"
+    "\tbounded-resident\t4\t60\t5\t512\t64\n"
 )
 
 

@@ -29,15 +29,15 @@ PROBE = SCRIPTS / "test-fixtures" / "fake-residency-probe.sh"
 DRIVER = SCRIPTS / "geometry-resident-driver.py"
 
 _ROWS = (
-    ("geometry-cube-test", "one-shot", "1", "n-a", "n-a", "n-a"),
-    ("geometry-cube-resident", "bounded-resident", "4", "60", "5", "512"),
-    ("geometry-cube-refused", "one-shot", "1", "n-a", "n-a", "n-a"),
+    ("geometry-cube-test", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-resident", "bounded-resident", "4", "60", "5", "512", "64"),
+    ("geometry-cube-refused", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
 )
 LEDGER = "# " + "\t".join(protocol.PROFILE_COLUMNS) + "\n" + "".join(
     "\t".join((profile_id, "cube-and-plane", "orbit", "4096", "10",
                "refused" if profile_id.endswith("refused") else "validator-gated", "0", "enabled",
-               residency, requests, seconds, idle, budget)) + "\n"
-    for profile_id, residency, requests, seconds, idle, budget in _ROWS)
+               residency, requests, seconds, idle, budget, application)) + "\n"
+    for profile_id, residency, requests, seconds, idle, budget, application in _ROWS)
 
 
 class Harness:
@@ -153,7 +153,7 @@ def main():
                 ("resident-holds", "a worker retiring while it still holds device memory"),
                 ("resident-served", "a worker retiring having served more than it was sent"),
                 ("resident-disagree", "a worker answering with a ray the reference contradicts"),
-                ("resident-budget", "a worker refusing a request against its residency ceiling")):
+                ("resident-refuses", "a worker refusing a well-formed request for no bound of its own")):
             completed, _ = Harness(root / mode, mode=mode).run(requests=2)
             check(completed.returncode != 0, "%s is refused" % label)
 
@@ -174,6 +174,17 @@ def main():
         check(completed.returncode == 0,
               "a pid the driver does not list holds nothing, which is inside every allowance")
 
+        # The two ceilings count different things, and this is the case one
+        # number over both readings cannot catch: 128 MiB of the worker's own
+        # allocations against a 64 MiB application ceiling, while the probe
+        # reports 128 MiB against a 512 MiB residency allowance. The residency
+        # reading passes and the application ceiling is what refuses.
+        completed, _ = Harness(root / "overapplication", mode="resident-overallocates").run(
+            requests=2, probe="held")
+        check(completed.returncode != 0,
+              "a worker allocating past the application ceiling is refused "
+              "though its residency reading is inside the allowance")
+
         # Destroying device state is compute. A worker that reaches a bound of
         # its own asks for the lease that destruction runs under; one that
         # destroys at the moment its bound expires did it owning nothing.
@@ -193,13 +204,27 @@ def main():
             "resident-idle-after", "resident-retire"],
               "the notice stops the requests and the record names the bound it cited")
 
+        # A refusal against the application ceiling is a bound the worker
+        # reached, so it takes the authorized retirement path rather than the
+        # termination one: the session ends with the worker told it may
+        # destroy, not killed while it waits to be.
+        harness = Harness(root / "appceiling", mode="resident-budget")
+        completed, record = harness.run(requests=2)
+        rows = [line.split("\t") for line in record.read_text().splitlines()]
+        check(completed.returncode == 0 and "retirement_authorized=True" in completed.stdout,
+              "a request refused against the application ceiling retires authorized "
+              "rather than being terminated")
+        check(any(row[0] == "resident-retiring" and row[-1] == "budget_exceeded"
+                  for row in rows[1:]),
+              "the record names the application ceiling as the bound the session ended on")
+
         # A request that fails may have left a launch in flight, so the worker
         # is ended and reaped before the ownership protecting that work goes.
         # A failure found after the reply arrived owns nothing in flight, so
         # that path takes the lease again to destroy under it. Either way the
         # row naming the ownership is written before the lease is released.
         for mode, note, label in (
-                ("resident-budget", "owned-request",
+                ("resident-refuses", "owned-request",
                  "a request that fails ends the worker under the lease that covered it"),
                 ("resident-disagree", "owned",
                  "a reply that fails its check ends the worker under a lease taken to do it")):

@@ -32,23 +32,33 @@ PROTOCOL_VERSION = 4
 PROFILE_COLUMNS = (
     "profile_id", "scene", "query_set", "max_rays", "timeout_s", "execution_policy",
     "device_index", "module_cache", "residency", "session_requests", "session_seconds",
-    "idle_timeout_s", "residency_budget_mib",
+    "idle_timeout_s", "residency_budget_mib", "application_budget_mib",
 )
 # Whether the runtime a profile names exits with its answer or keeps its device
 # state between requests. execution_policy admits the compute one request runs;
-# these five columns admit the device memory a process holds while it runs no
+# these six columns admit the device memory a process holds while it runs no
 # request, which is the separate permission a resident worker needs. A one-shot
 # row releases every allocation with the process that held the compute lease,
 # so it carries a session of one request and n-a for the three bounds only a
 # session has. A bounded-resident row names the request count and the wall
 # seconds its session ends at, the idle interval that ends it earlier, and the
-# device memory ceiling it fails at rather than enlarges.
+# device memory ceilings it fails at rather than enlarges: one over the
+# driver's reading for the whole process, one over the buffers the worker
+# itself asks for.
 RESIDENCY_MODES = ("one-shot", "bounded-resident")
 RESIDENCY_UNSET = "n-a"
 SESSION_REQUESTS_MAX = 64
 SESSION_SECONDS_MAX = 3600
 IDLE_TIMEOUT_SECONDS_MAX = 300
 RESIDENCY_BUDGET_MIB_MAX = 4096
+# What the worker may ask cudaMalloc for. It is a separate ceiling from the
+# one above because the two count different things: the driver's reading
+# includes the CUDA context and the OptiX module and pipeline, which are
+# 214 MiB on an RTX 4070 Ti before a request runs, while the worker counts
+# only the buffers it asked for. One number held against both readings can
+# never refuse the worker's own growth: any value low enough to bind on a
+# 32 MiB ray buffer fails the driver's reading first and no session starts.
+APPLICATION_BUDGET_MIB_MAX = 4096
 # Whether the OptiX disk cache is available to optixModuleCreate. optix_host.h
 # states there is no in-memory cache, so the module stage either compiles the
 # PTX or reads a compiled module back, and a timing taken without pinning this
@@ -125,7 +135,8 @@ RESIDENT_READY_GPU_KEYS = tuple(key for key in (
     "device_name", "device_index"))
 RESIDENT_READY_KEYS = {"event", "scene", "query_set", "module_cache", "gpu", "timings",
                        "startup_ms", "device_allocated_bytes", "session_requests",
-                       "session_seconds", "idle_timeout_s", "residency_budget_mib"}
+                       "session_seconds", "idle_timeout_s", "residency_budget_mib",
+                       "application_budget_mib"}
 RESIDENT_RESULT_KEYS = {"event", "request_id", "residency", "result"}
 RESIDENT_RESIDENCY_KEYS = {"request_index", "session_age_s", "device_allocated_bytes",
                            "requests_remaining"}
@@ -242,7 +253,8 @@ def residency_bounds(row):
     mode = row["residency"]
     if mode not in RESIDENCY_MODES:
         raise ProtocolError("residency is not one of %s" % ", ".join(RESIDENCY_MODES))
-    optional = ("session_seconds", "idle_timeout_s", "residency_budget_mib")
+    optional = ("session_seconds", "idle_timeout_s", "residency_budget_mib",
+                "application_budget_mib")
     if mode == "one-shot":
         if row["session_requests"] != "1":
             raise ProtocolError("a one-shot row serves one request and reads session_requests %s"
@@ -256,7 +268,8 @@ def residency_bounds(row):
     for column, ceiling in (("session_requests", SESSION_REQUESTS_MAX),
                             ("session_seconds", SESSION_SECONDS_MAX),
                             ("idle_timeout_s", IDLE_TIMEOUT_SECONDS_MAX),
-                            ("residency_budget_mib", RESIDENCY_BUDGET_MIB_MAX)):
+                            ("residency_budget_mib", RESIDENCY_BUDGET_MIB_MAX),
+                            ("application_budget_mib", APPLICATION_BUDGET_MIB_MAX)):
         try:
             value = int(row[column])
         except (TypeError, ValueError):
@@ -469,9 +482,9 @@ def validate_resident_ready(message, bounds):
         if message[column] != value:
             raise ProtocolError("ready reads %s as %r where the ledger declares %r"
                                 % (column, message[column], value))
-    if allocated > bounds["residency_budget_mib"] * 1024 * 1024:
-        raise ProtocolError("ready allocates %d bytes against a ceiling of %d MiB"
-                            % (allocated, bounds["residency_budget_mib"]))
+    if allocated > bounds["application_budget_mib"] * 1024 * 1024:
+        raise ProtocolError("ready allocates %d bytes against an application ceiling of %d MiB"
+                            % (allocated, bounds["application_budget_mib"]))
     return message
 
 
@@ -497,9 +510,9 @@ def validate_resident_result(message, bounds, request_id, rays):
         raise ProtocolError("residency.requests_remaining %d disagrees with %d served of %d"
                             % (remaining, index, bounds["session_requests"]))
     allocated = _count(residency["device_allocated_bytes"], "residency.device_allocated_bytes")
-    if allocated > bounds["residency_budget_mib"] * 1024 * 1024:
-        raise ProtocolError("the request holds %d bytes against a ceiling of %d MiB"
-                            % (allocated, bounds["residency_budget_mib"]))
+    if allocated > bounds["application_budget_mib"] * 1024 * 1024:
+        raise ProtocolError("the request holds %d bytes against an application ceiling of %d MiB"
+                            % (allocated, bounds["application_budget_mib"]))
     result = message["result"]
     validate_result(result, timings_keys=RESIDENT_REQUEST_STAGE_KEYS,
                     result_keys=RESIDENT_WORKER_RESULT_KEYS)

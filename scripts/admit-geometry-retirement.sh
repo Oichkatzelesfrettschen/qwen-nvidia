@@ -78,16 +78,18 @@ record runtime_protocol_version "$(sed -n 's/^geometry_protocol_version=//p' "$o
 record retirement_authorization_s "$(sed -n 's/^geometry_retirement_authorization_s=//p' "$output_directory/build.txt")"
 check ordinary_user "$([ "$(id -u)" -ne 0 ] && printf yes || printf no)" yes
 
-# The three bounded-resident rows stay refused in the tree; the copy raises
-# them for this run alone and the record names what the tree reads.
-for profile_id in geometry-cube-orbit-a-retire geometry-cube-orbit-a-wall; do
+# The calibration rows stay refused in the tree; the copy raises them for
+# this run alone and the record names what the tree reads.
+for profile_id in geometry-cube-orbit-a-retire geometry-cube-orbit-a-wall \
+                  geometry-cube-orbit-a-appbudget; do
     in_tree_policy=$(awk -F '\t' -v id="$profile_id" '!/^#/ && $1 == id { print $6 }' \
         "$script_directory/geometry-profiles.tsv")
     [ -n "$in_tree_policy" ] || { printf 'profile %s is absent from the ledger\n' "$profile_id" >&2; exit 1; }
     record "in_tree_execution_policy.$profile_id" "$in_tree_policy"
 done
 awk -F '\t' -v OFS='\t' \
-    '!/^#/ && ($1 == "geometry-cube-orbit-a-retire" || $1 == "geometry-cube-orbit-a-wall") { $6 = "validator-gated" } { print }' \
+    '!/^#/ && ($1 == "geometry-cube-orbit-a-retire" || $1 == "geometry-cube-orbit-a-wall" ||
+               $1 == "geometry-cube-orbit-a-appbudget") { $6 = "validator-gated" } { print }' \
     "$script_directory/geometry-profiles.tsv" >"$output_directory/geometry-profiles.tsv"
 record subject_execution_policy validator-gated
 record rays_requested "$rays"
@@ -111,22 +113,32 @@ export QWEN_GPU_COMPUTE_LEASE
 # reached at all; the probe column is the residency instrument, nvidia-smi
 # where the reading is meant to succeed.
 #
-# arm profile requests interval probe expect_exit expect_reason
+# The last two are one row at two ray counts. Its application ceiling is
+# 16 MiB and a ray costs 24 bytes with its result 8, so 262,144 rays occupy
+# 8 MiB and serve while 1,048,576 occupy 32 and are refused before a
+# cudaMalloc runs. The pair is what shows the ceiling discriminating rather
+# than failing every request, and the refusal is a bound the worker reached,
+# so it retires authorized rather than being terminated.
+#
+# arm profile requests rays interval probe expect_exit expect_reason
 arms="
-shutdown geometry-cube-orbit-a-retire 1 0 device 0 shutdown
-request-limit geometry-cube-orbit-a-retire 2 0 device 0 request_limit
-idle-timeout geometry-cube-orbit-a-retire 2 5 device 0 idle_timeout
-session-limit geometry-cube-orbit-a-wall 16 1 device 0 session_limit
-residency-unread geometry-cube-orbit-a-retire 2 0 unread 1 terminated
-residency-over geometry-cube-orbit-a-retire 2 0 over 1 terminated
+shutdown geometry-cube-orbit-a-retire 1 default 0 device 0 shutdown
+request-limit geometry-cube-orbit-a-retire 2 default 0 device 0 request_limit
+idle-timeout geometry-cube-orbit-a-retire 2 default 5 device 0 idle_timeout
+session-limit geometry-cube-orbit-a-wall 16 default 1 device 0 session_limit
+residency-unread geometry-cube-orbit-a-retire 2 default 0 unread 1 terminated
+residency-over geometry-cube-orbit-a-retire 2 default 0 over 1 terminated
+application-serves geometry-cube-orbit-a-appbudget 1 262144 0 device 0 shutdown
+application-ceiling geometry-cube-orbit-a-appbudget 1 1048576 0 device 0 budget_exceeded
 "
-printf '%s\n' "$arms" | while read -r arm profile requests interval probe_mode expect_exit expect_reason; do
+printf '%s\n' "$arms" | while read -r arm profile requests arm_rays interval probe_mode expect_exit expect_reason; do
     [ -n "$arm" ] || continue
+    [ "$arm_rays" = default ] && arm_rays=$rays
     set -- --profiles "$output_directory/geometry-profiles.tsv" --profile-id "$profile" \
         --runtime "$runtime" --state-dir "$output_directory/state" \
         --record "$output_directory/record-$arm.tsv" \
         --stderr "$output_directory/runtime-$arm.err" --mode resident \
-        --requests "$requests" --rays "$rays" --run-id "$arm" \
+        --requests "$requests" --rays "$arm_rays" --run-id "$arm" \
         --idle-between-requests-s "$interval"
     [ "$probe_mode" = device ] || set -- "$@" --residency-probe "$probe $probe_mode {pid}"
     status=0
@@ -170,7 +182,7 @@ drip_started=$(date +%s.%N)
         sleep 1
         index=$((index + 1))
     done
-} | "$runtime" cube-and-plane orbit resident 0 enabled 16 8 6 512 \
+} | "$runtime" cube-and-plane orbit resident 0 enabled 16 8 6 512 40 \
     >"$output_directory/drip.out" 2>"$output_directory/drip.err" || :
 drip_ended=$(date +%s.%N)
 drip_elapsed=$(printf '%s %s' "$drip_started" "$drip_ended" | awk '{ printf "%.1f", $2 - $1 }')

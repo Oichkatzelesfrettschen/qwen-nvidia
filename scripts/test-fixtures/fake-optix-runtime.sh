@@ -14,7 +14,7 @@ set -eu
 # `rounding` reports stages summing exactly the (stages + 1) half-steps above
 # the wall time that three-decimal serialization can produce on a correct run.
 #
-# The resident form takes `resident` where the ray count stands and the four
+# The resident form takes `resident` where the ray count stands and the five
 # session bounds after the module cache, and serves one request per line on
 # stdin the way the compiled runtime does. Its misbehaving modes are the
 # claims a supervisor cannot check any other way: `resident-bounds` reads back
@@ -24,10 +24,16 @@ set -eu
 # `resident-disagree` answers with one ray the host reference contradicts,
 # `resident-silent-retire` destroys on reaching its own bound without asking
 # for the lease that destruction runs under, and `resident-unauthorized`
-# announces the retirement and destroys without waiting for the answer, and
+# announces the retirement and destroys without waiting for the answer,
+# `resident-refuses` answers a well-formed request with a refusal that is no
+# bound of its own, so the session goes on and the supervisor is what ends it,
+# and
 # `resident-early-retire` reaches its idle interval after one request, which
 # is the bound a supervisor meets between requests rather than in answer to
-# one.
+# one, and `resident-overallocates` answers a request holding more than the
+# application ceiling admits while staying well inside the residency
+# allowance, which is the case a single ceiling over both readings cannot
+# catch.
 
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 mode=ok
@@ -46,13 +52,14 @@ resident_protocol_version() {
 }
 
 if [ "${3:-}" = resident ]; then
-    [ "$#" -eq 9 ] || { printf 'usage: fake-optix-runtime SCENE QUERY_SET resident DEVICE MODULE_CACHE REQUESTS SECONDS IDLE BUDGET\n' >&2; exit 2; }
+    [ "$#" -eq 10 ] || { printf 'usage: fake-optix-runtime SCENE QUERY_SET resident DEVICE MODULE_CACHE REQUESTS SECONDS IDLE RESIDENCY_BUDGET APPLICATION_BUDGET\n' >&2; exit 2; }
     device=$4
     module_cache=$5
     requests=$6
     seconds=$7
     idle=$8
     budget=$9
+    application_budget=${10}
     version=$(resident_protocol_version)
     [ "$mode" = resident-protocol ] && version=$((version + 1))
     ready_requests=$requests
@@ -64,19 +71,26 @@ if [ "${3:-}" = resident ]; then
         cache_enabled=false
         cache_location=
     fi
-    printf '{"protocol":%s,"event":"ready","scene":"%s","query_set":"%s","module_cache":{"requested":"%s","enabled":%s,"location":"%s"},"gpu":{"context_created":true,"gas_built":true,"pipeline_created":true,"optix_version":90100,"gas_bytes":4096,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s},"timings":{"cuda_context_ms":120.0,"optix_context_ms":40.0,"accel_ms":0.2,"module_ms":1.5,"pipeline_ms":8.0,"sbt_ms":0.1},"startup_ms":170.0,"device_allocated_bytes":16777216,"session_requests":%s,"session_seconds":%s,"idle_timeout_s":%s,"residency_budget_mib":%s}\n' \
+    printf '{"protocol":%s,"event":"ready","scene":"%s","query_set":"%s","module_cache":{"requested":"%s","enabled":%s,"location":"%s"},"gpu":{"context_created":true,"gas_built":true,"pipeline_created":true,"optix_version":90100,"gas_bytes":4096,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s},"timings":{"cuda_context_ms":120.0,"optix_context_ms":40.0,"accel_ms":0.2,"module_ms":1.5,"pipeline_ms":8.0,"sbt_ms":0.1},"startup_ms":170.0,"device_allocated_bytes":16777216,"session_requests":%s,"session_seconds":%s,"idle_timeout_s":%s,"residency_budget_mib":%s,"application_budget_mib":%s}\n' \
         "$version" "$scene" "$query_set" "$module_cache" "$cache_enabled" "$cache_location" \
-        "$device" "$ready_requests" "$seconds" "$idle" "$budget"
+        "$device" "$ready_requests" "$seconds" "$idle" "$budget" "$application_budget"
     served=0
     reason=shutdown
+    request_allocated=16777216
+    [ "$mode" = resident-overallocates ] && request_allocated=134217728
     while IFS= read -r line; do
         request_id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([A-Za-z0-9_-]*\)".*/\1/p')
         action=$(printf '%s' "$line" | sed -n 's/.*"action":"\([A-Za-z0-9_-]*\)".*/\1/p')
         [ "$action" = shutdown ] && { reason=shutdown; break; }
         rays=$(printf '%s' "$line" | sed -n 's/.*"rays":\([0-9]*\).*/\1/p')
         [ -n "$rays" ] || { reason=shutdown; break; }
+        if [ "$mode" = resident-refuses ]; then
+            printf '{"protocol":%s,"event":"refused","request_id":"%s","reason":"invalid_argument","detail":"the line names no query of 1 to 1048576 rays"}\n' \
+                "$version" "$request_id"
+            continue
+        fi
         if [ "$mode" = resident-budget ]; then
-            printf '{"protocol":%s,"event":"refused","request_id":"%s","reason":"budget_exceeded","detail":"%s rays would take the session past its residency ceiling"}\n' \
+            printf '{"protocol":%s,"event":"refused","request_id":"%s","reason":"budget_exceeded","detail":"%s rays would take the session past its application allocation ceiling"}\n' \
                 "$version" "$request_id" "$rays"
             reason=budget_exceeded
             break
@@ -87,8 +101,8 @@ if [ "${3:-}" = resident ]; then
         [ "$mode" = resident-disagree ] && { agree=$((rays - 1)); disagree=1; }
         hits=$((rays * 3 / 4))
         misses=$((rays - hits))
-        printf '{"protocol":%s,"event":"result","request_id":"%s","residency":{"request_index":%s,"session_age_s":1.5,"device_allocated_bytes":16777216,"requests_remaining":%s},"result":{"scene":"%s","query_set":"%s","rays":%s,"hits":%s,"misses":%s,"t_min":2.5,"t_max":4.2,"t_mean":3.1,"primitive_hits":[%s,0,0,0,0,0,0,0,0,0,0,0,0,0],"reference_agreement":%s,"reference_disagreement":%s,"results_fnv1a64":"0123456789abcdef","wall_ms":12.5,"launch_ms":0.4,"timings":{"scene_ms":0.1,"upload_ms":0.2,"launch_ms":0.4,"download_ms":0.2,"reference_ms":0.2,"compare_ms":0.1},"module_cache":{"requested":"%s","enabled":%s,"location":"%s"},"gpu":{"context_created":true,"gas_built":true,"pipeline_created":true,"launch_completed":true,"optix_version":90100,"gas_bytes":4096,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s}}}\n' \
-            "$version" "$request_id" "$served" "$((requests - served))" "$scene" "$query_set" \
+        printf '{"protocol":%s,"event":"result","request_id":"%s","residency":{"request_index":%s,"session_age_s":1.5,"device_allocated_bytes":%s,"requests_remaining":%s},"result":{"scene":"%s","query_set":"%s","rays":%s,"hits":%s,"misses":%s,"t_min":2.5,"t_max":4.2,"t_mean":3.1,"primitive_hits":[%s,0,0,0,0,0,0,0,0,0,0,0,0,0],"reference_agreement":%s,"reference_disagreement":%s,"results_fnv1a64":"0123456789abcdef","wall_ms":12.5,"launch_ms":0.4,"timings":{"scene_ms":0.1,"upload_ms":0.2,"launch_ms":0.4,"download_ms":0.2,"reference_ms":0.2,"compare_ms":0.1},"module_cache":{"requested":"%s","enabled":%s,"location":"%s"},"gpu":{"context_created":true,"gas_built":true,"pipeline_created":true,"launch_completed":true,"optix_version":90100,"gas_bytes":4096,"device_name":"NVIDIA GeForce RTX 4070 Ti","device_index":%s}}}\n' \
+            "$version" "$request_id" "$served" "$request_allocated" "$((requests - served))" "$scene" "$query_set" \
             "$rays" "$hits" "$misses" "$hits" "$agree" "$disagree" "$module_cache" \
             "$cache_enabled" "$cache_location" "$device"
         [ "$served" -ge "$requests" ] && { reason=request_limit; break; }

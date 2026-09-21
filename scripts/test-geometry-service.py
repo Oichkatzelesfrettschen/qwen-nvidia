@@ -41,15 +41,15 @@ SERVICE = SCRIPTS / "geometry-service.py"
 # admits device memory held between requests and names a session the service
 # has no loop for.
 _ROWS = (
-    ("geometry-cube-test", "enabled", "validator-gated", "one-shot", "1", "n-a", "n-a", "n-a"),
-    ("geometry-cube-cold", "disabled", "validator-gated", "one-shot", "1", "n-a", "n-a", "n-a"),
-    ("geometry-cube-refused", "enabled", "refused", "one-shot", "1", "n-a", "n-a", "n-a"),
-    ("geometry-cube-resident", "enabled", "validator-gated", "bounded-resident", "4", "60", "5", "512"),
+    ("geometry-cube-test", "enabled", "validator-gated", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-cold", "disabled", "validator-gated", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-refused", "enabled", "refused", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-resident", "enabled", "validator-gated", "bounded-resident", "4", "60", "5", "512", "64"),
 )
 LEDGER = "# " + "\t".join(protocol.PROFILE_COLUMNS) + "\n" + "".join(
     "\t".join((profile_id, "cube-and-plane", "orbit", "4096", "3", policy, "0", cache,
-                residency, requests, seconds, idle, budget)) + "\n"
-    for profile_id, cache, policy, residency, requests, seconds, idle, budget in _ROWS)
+                residency, requests, seconds, idle, budget, application)) + "\n"
+    for profile_id, cache, policy, residency, requests, seconds, idle, budget, application in _ROWS)
 
 
 class Harness:
