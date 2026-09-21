@@ -92,9 +92,12 @@ that consumes it. That is what makes the first reusable for unchanged inputs
 without weakening the second: every ray is still compared against an
 independently computed answer, and nothing cached is a previous device result.
 
-**The reference is 95.5 percent of the stage.** Eighteen runs give that share a
-mean of 95.47 percent with a standard deviation of 0.44 and a range of 94.77 to
-96.18. It is the only thing about these two stages that has held still.
+**The reference is 95.5 percent of the stage.** The seventeen runs that retain
+both columns -- eleven in `reference-split.tsv` and six in `clock-samples.tsv`
+-- give that share a mean of 95.46 percent with a standard deviation of 0.45
+and a range of 94.77 to 96.18. It is the only thing about these two stages that
+has held still. The two runs at load 24 enter the `reference_ms` set below and
+not this one, because their `compare_ms` was not captured.
 
 `reference_ms` is 82.00 ms with a standard deviation of 3.37 over nineteen runs
 and a range of 77.285 to 88.597, and **what moves it is not established.** Host
@@ -119,6 +122,14 @@ both. The clock is the same at both ends, so it does not explain a timing
 difference between them -- and there is less of a difference to explain than
 the earlier reading of this file claimed.
 
+The sampler reads the mean and maximum across all cores from `/proc/cpuinfo`
+every tenth of a second for the length of the request, so what it bounds is the
+band the package sat in while the run happened. It does not name the frequency
+the thread computing the reference was given, and an 80 ms stage fits between
+two samples, so a stage time divided by one of these means is not a cycle
+count. Refuting a package-wide difference between two load bands is the claim
+it was built for and the only one it carries.
+
 That leaves the absolute timing varying by 14 percent for reasons this
 instrument set does not reach, and the share stable at 95.5 through three
 revisions of the explanation. The share is what step one needed and what a
@@ -131,13 +142,22 @@ back to back in one process, which is why their ratio survives whatever the
 machine is doing to their absolute cost.
 
 The one departure is a `compare_ms` of 21.929 on the first run against a freshly
-allocated reference vector, against 3.4 to 4.8 on every later run. Eight megabytes
-of first-touch page faults land in that stage, and they land there once.
+allocated reference vector, against 3.4 to 4.8 on every later run, and it is
+unexplained. First touch of the reference vector is not the cause: the vector is
+constructed and every entry written inside the reference span, so its eight
+megabytes of faults are charged to `reference_ms` and cannot land in the
+comparison. The comparison's own allocation is `primitive_hits`, one counter
+per triangle.
 
-The merged captures report 88.719 ms of combined `validate_ms` against 84.812 ms
-for the two stages summed here. The difference is the materialized vector: the
-reference used to be computed inside the comparison loop and consumed
-immediately, and it is now written to memory and read back.
+Materializing the reference costs something the retained captures do not
+measure. The merged combined `validate_ms` is 88.719 ms and the two stages here
+sum to 84.812, but those are different runs, the split total is the lower of
+the two, and both sit inside the 14 percent the absolute moves by on this host,
+so that subtraction isolates nothing. What the change does is write a
+`RayResult` per ray to memory and read it back, eight megabytes per million
+rays, where the reference used to be consumed in register. On fourteen
+triangles the traffic is small; it scales with the ray count, and a paired
+measurement is what would price it.
 
 So caching the reference removes about 82 ms of the roughly 119 ms a resident
 worker would leave per query, with a 77 to 89 ms range this instrument set does

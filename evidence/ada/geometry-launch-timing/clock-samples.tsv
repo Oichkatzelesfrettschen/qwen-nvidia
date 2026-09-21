@@ -3,6 +3,11 @@
 # cores and the highest any core reached, sampled every tenth of a second for
 # the interval the compute clients are sampled; samples is how many that was.
 #
+# These bound the band the package sat in for the whole request. They do not
+# name the frequency the thread computing the reference was given, and an 80 ms
+# stage fits between two samples, so dividing a stage time by mean_mhz is not a
+# cycle count.
+#
 # The clock is the same at load 4 as at load 15, which refutes the hypothesis
 # that a sustained load holds a package clock an idle machine lets fall.
 #
