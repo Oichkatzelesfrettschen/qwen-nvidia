@@ -10,8 +10,9 @@ the eight megabytes a million per-ray results occupy, ran in the statement that
 assembles the JSON, after `wall_ms` was taken, so about seven milliseconds of
 this runtime's work fell outside both the table and the wall it was checked
 against. It runs inside the compare stage now, which moves `compare_ms` from
-4.03 ms to 11.00 and the reference's share of validation from 95.5 percent to
-87.0; `../geometry-resident-session/README.md` carries the corrected figures.
+4.03 ms to about 11 and the reference's share of validation from 95.5 percent
+to 87.1; `../geometry-resident-session/README.md` carries the corrected
+figures.
 
 Measured on the RTX 4070 Ti at 1,048,576 rays over `cube-and-plane`, both arms
 accepted at 28 of 28, retained under `warm/` and `cold/`. Protocol 2.
@@ -39,10 +40,14 @@ percent of it and everything else is process construction and host arithmetic.
 
 That 2.43 ms is mostly not the ray trace. `../geometry-resident-session/README.md`
 runs several launches against one pipeline and finds the second and later
-launches at 0.28 to 0.32 ms, with the first at 2.5: **the trace is about 0.3 ms
-and the 2.2 ms beside it is a pipeline's first launch, which a one-shot query
-pays again every time.** Every run in this file is a first launch, which is why
-none of them could separate the two.
+launches at 0.214 to 0.243 ms at this ray count, with the first at 2.4:
+**about a fifth of a millisecond is what a repeated launch costs, and the 2.2
+ms beside it is first-use cost a one-shot query pays again every time.** Every
+run in this file is a first launch, which is why none of them could separate
+the two. What that interval times is `optixLaunch` and the synchronization
+after it, and a session reuses its context, module, pipeline and inputs
+together, so it separates first use from subsequent use without assigning the
+whole difference to pipeline initialization.
 
 **The disk cache governs the module stage and nothing else.** `module_ms` is
 33.5 ms with the cache disabled and 0.32 ms with it enabled, a hundredfold, and
@@ -63,9 +68,9 @@ measurement's first false claim.
 2.428 and 2.434 across six runs, a 1.2 percent spread, while the context stages
 move by a fifth between repeats. What holds that still is a pipeline's first
 launch rather than the trace: the resident measurement puts the second launch
-on one pipeline at 0.28 to 0.32 ms, so a change claiming to make ray tracing
-faster has a third of a millisecond to clear and this figure is the warm-up it
-would leave alone.
+on one pipeline at 0.214 to 0.243 ms, so a change claiming to make ray tracing
+faster has a quarter of a millisecond to clear and this figure is the first-use
+cost it would leave alone.
 
 **The cache location is declared rather than defaulted.** `optix_host.h` gives
 the Linux default as `/var/tmp/OptixCache_<username>`, which names the account
@@ -110,7 +115,7 @@ without weakening the second: every ray is still compared against an
 independently computed answer, and nothing cached is a previous device result.
 
 **The reference is 95.5 percent of the stage as these runs measured it, and
-87.0 percent once the digest is inside the comparison they were measured
+87.1 percent once the digest is inside the comparison they were measured
 against.** The seventeen runs that retain both columns -- eleven in `reference-split.tsv` and six in `clock-samples.tsv`
 -- give that share a mean of 95.46 percent with a standard deviation of 0.45
 and a range of 94.77 to 96.18. It is the only thing about these two stages that
@@ -178,8 +183,8 @@ triangles the traffic is small; it scales with the ray count, and a paired
 measurement is what would price it.
 
 A resident worker has since run: `../geometry-resident-session/README.md`
-measures the query it leaves at 113.37 ms rather than the 119 projected here,
-with the reference at 74.50 of it.
+measures the query it leaves at 110.52 ms rather than the 119 projected here,
+with the reference at 73.85 of it.
 
 So caching the reference removes about 82 ms of the roughly 119 ms a resident
 worker would leave per query, with a 77 to 89 ms range this instrument set does
