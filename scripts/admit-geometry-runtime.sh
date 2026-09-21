@@ -69,7 +69,10 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 "$script_directory/gpu-state-latch.sh" require-clear
-"$script_directory/gpu-state-latch.sh" status | tee "$output_directory/latch.txt"
+# The latch names its taint file by absolute path, so the retained copy takes
+# the same scrub every other capture here does; sanitize-public-artifact.py
+# refuses a tracked capture carrying a home path.
+"$script_directory/gpu-state-latch.sh" status | scrub_home | tee "$output_directory/latch.txt"
 "$script_directory/build-geometry-runtime.sh" "$output_directory/optix-ray-runtime" |
     tee "$output_directory/build.txt"
 runtime_sha256=$(sed -n 's/^geometry_runtime_sha256=//p' "$output_directory/build.txt")
@@ -152,7 +155,10 @@ sample_clients >"$output_directory/clients-during.raw" 9>&- &
 sampler_pid=$!
 
 request_started=$(date +%s.%N)
-python3 - "$socket_path" "$profile_id" "$rays" "$script_directory" >"$output_directory/reply.json" <<'PY'
+# The reply is scrubbed on the way in like every other capture: it carries
+# paths the runtime read off the driver, and a retained one has to survive
+# sanitize-public-artifact.py --check.
+python3 - "$socket_path" "$profile_id" "$rays" "$script_directory" <<'PY' | scrub_home >"$output_directory/reply.json"
 import json, socket, sys
 path, profile, rays = sys.argv[1], sys.argv[2], int(sys.argv[3])
 # The device admission uses the same version authority as the service.
@@ -208,6 +214,13 @@ facts["t_range"] = "%s..%s" % (result.get("t_min"), result.get("t_max"))
 facts["results_fnv1a64"] = result.get("results_fnv1a64", "-")
 facts["launch_ms"] = str(result.get("launch_ms"))
 facts["wall_ms"] = str(result.get("wall_ms"))
+timings = result.get("timings") or {}
+for key in sorted(timings):
+    facts["stage_" + key] = str(timings[key])
+facts["stage_sum_ms"] = "%.3f" % sum(timings.values()) if timings else "-"
+cache = result.get("module_cache") or {}
+facts["module_cache_requested"] = cache.get("requested", "-")
+facts["module_cache_enabled"] = str(cache.get("enabled")).lower()
 facts["runtime_sha256"] = result.get("runtime_sha256", "-")
 for key, value in facts.items():
     print("%s\t%s" % (key, value))
@@ -236,6 +249,19 @@ record t_range "$(fact t_range)"
 record results_fnv1a64 "$(fact results_fnv1a64)"
 record launch_ms "$(fact launch_ms)"
 record runtime_wall_ms "$(fact wall_ms)"
+# The cache decides what the module stage measures and the environment can
+# close a cache the row asked for, so the request and the readback are checked
+# against the ledger rather than against each other alone.
+module_cache=$(awk -F '\t' -v id="$profile_id" '!/^#/ && $1 == id { print $8 }' \
+    "$output_directory/geometry-profiles.tsv")
+record profile_module_cache "$module_cache"
+check reply_module_cache_requested "$(fact module_cache_requested)" "$module_cache"
+expected_cache=$([ "$module_cache" = enabled ] && printf true || printf false)
+check module_cache_enabled "$(fact module_cache_enabled)" "$expected_cache"
+for stage in accel cuda_context download launch module optix_context pipeline sbt scene teardown upload validate; do
+    record "stage_${stage}_ms" "$(fact "stage_${stage}_ms")"
+done
+record stage_sum_ms "$(fact stage_sum_ms)"
 check reply_runtime_sha256 "$(fact runtime_sha256)" "$runtime_sha256"
 
 # The during-run record keeps the runtime's client rows and the lease state

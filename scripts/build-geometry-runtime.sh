@@ -44,7 +44,7 @@ with open(sys.argv[2], "w", encoding="ascii") as out:
         out.write("    " + ",".join("0x%02x" % b for b in ptx[i:i+16]) + ",\n")
     out.write("    0x00\n};\n")
 PY
-"$host_cxx" -std=c++17 -O2 -DNDEBUG -Wall -Wextra -o "$output" \
+"$host_cxx" -std=c++17 -O2 -DNDEBUG -Wall -Wextra -Werror -o "$output" \
     "$source_directory/optix-ray-runtime.cpp" \
     -I"$optix_include" -I"$cuda_prefix/include" -I"$source_directory" -I"$work" \
     -L"$cuda_prefix/lib64" -lcudart -lcuda -ldl -lpthread \

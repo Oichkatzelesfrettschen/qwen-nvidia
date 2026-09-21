@@ -161,6 +161,9 @@ def load_profiles(path):
             row = dict(zip(header, fields))
             try:
                 protocol._identifier(row["profile_id"], "profile_id")
+                if row["module_cache"] not in protocol.MODULE_CACHES:
+                    raise ValueError("module_cache %s is not one the runtime carries"
+                                     % row["module_cache"])
                 if row["scene"] not in SCENES:
                     raise ValueError("scene %s is not one the runtime carries" % row["scene"])
                 if row["query_set"] not in QUERY_SETS:
@@ -339,10 +342,13 @@ class GeometryService:
     def execute(self, request_id, profile, rays):
         argv = [
             PRIORITY_WRAPPER, self.settings["runtime"], profile["scene"], profile["query_set"],
-            str(rays), str(profile["device_index"]),
+            str(rays), str(profile["device_index"]), profile["module_cache"],
         ]
+        # The cache state changes what the module stage measures, so the digest
+        # that names a run carries it the way the scene and the ray count do.
         scene_sha256 = hashlib.sha256(json.dumps(
-            {"scene": profile["scene"], "query_set": profile["query_set"], "rays": rays},
+            {"scene": profile["scene"], "query_set": profile["query_set"], "rays": rays,
+             "module_cache": profile["module_cache"]},
             sort_keys=True).encode()).hexdigest()
         environment = {
             "PATH": "/usr/bin:/bin",
@@ -350,6 +356,19 @@ class GeometryService:
             "CUDA_VISIBLE_DEVICES": str(profile["device_index"]),
             "CUDA_MODULE_LOADING": "LAZY",
         }
+        # optix_host.h states OPTIX_CACHE_MAXSIZE takes precedence over
+        # optixDeviceContextSetCacheEnabled, so a disabled row closes the cache
+        # here as well and the runtime reads the state back off the context
+        # rather than trusting either setting.
+        if profile["module_cache"] == "disabled":
+            environment["OPTIX_CACHE_MAXSIZE"] = "0"
+        else:
+            # optix_host.h gives the Linux default as /var/tmp/OptixCache_<username>,
+            # which names the account and is not the same directory for two
+            # callers, so a warm timing would depend on who ran it. OPTIX_CACHE_PATH
+            # takes precedence over the API and declares one location instead.
+            environment["OPTIX_CACHE_PATH"] = os.path.join(
+                os.environ.get("HOME", "/tmp"), ".cache", "qwen-optix-module")
         # The runtime is spawned with a closed descriptor set: the lease and
         # the listener stay with this process. close_fds is the mechanism.
         try:

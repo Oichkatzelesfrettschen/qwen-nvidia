@@ -35,8 +35,8 @@ PHYSICS_LEDGER = (
     "physics-d6-test\td6-chain-4\t0.0166667\t600\t9.81\tyes\tyes\t5\tvalidator-gated\t0\treadback\n"
 )
 GEOMETRY_LEDGER = (
-    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\n"
-    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\n"
+    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\tmodule_cache\n"
+    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled\n"
 )
 
 

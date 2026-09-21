@@ -40,6 +40,32 @@
 
 namespace {
 
+using Clock = std::chrono::steady_clock;
+
+double elapsed_ms(Clock::time_point from, Clock::time_point to) {
+    return std::chrono::duration<double, std::milli>(to - from).count();
+}
+
+// One number per stage rather than one wall figure, because the stages answer
+// different questions: what a first launch costs, what a resident worker could
+// keep, and what every query pays whatever is cached. optixModuleCreate is the
+// stage the disk cache governs, so it is separated from the pipeline link it
+// used to sit beside.
+struct Stages {
+    double scene_ms = 0.0;
+    double cuda_context_ms = 0.0;
+    double optix_context_ms = 0.0;
+    double accel_ms = 0.0;
+    double module_ms = 0.0;
+    double pipeline_ms = 0.0;
+    double sbt_ms = 0.0;
+    double upload_ms = 0.0;
+    double launch_ms = 0.0;
+    double download_ms = 0.0;
+    double validate_ms = 0.0;
+    double teardown_ms = 0.0;
+};
+
 struct Triangle {
     float a[3];
     float b[3];
@@ -181,25 +207,31 @@ struct Empty { int unused; };
 } // namespace
 
 int main(int argc, char ** argv) {
-    if (argc != 5) {
-        std::fprintf(stderr, "usage: optix-ray-runtime SCENE QUERY_SET RAY_COUNT DEVICE_INDEX\n");
+    if (argc != 6) {
+        std::fprintf(stderr, "usage: optix-ray-runtime SCENE QUERY_SET RAY_COUNT DEVICE_INDEX MODULE_CACHE\n");
         return 2;
     }
     const std::string scene_name = argv[1];
     const std::string query_name = argv[2];
     const long ray_count_long = std::strtol(argv[3], nullptr, 10);
     const int device_index = std::atoi(argv[4]);
+    const std::string module_cache = argv[5];
     if (ray_count_long < 1 || ray_count_long > 1048576 || device_index < 0) {
         return 2;
     }
+    if (module_cache != "enabled" && module_cache != "disabled") return fail("unknown_module_cache");
+    const int cache_requested = module_cache == "enabled" ? 1 : 0;
     const unsigned int ray_count = (unsigned int) ray_count_long;
     const float t_max = 100.0f;
+    Stages stages;
 
-    const auto wall_start = std::chrono::steady_clock::now();
+    const auto wall_start = Clock::now();
     std::vector<Triangle> triangles = build_scene(scene_name);
     if (triangles.empty()) return fail("unknown_scene");
     std::vector<Ray> rays;
     if (!build_rays(query_name, ray_count, rays)) return fail("unknown_query_set");
+    auto mark = Clock::now();
+    stages.scene_ms = elapsed_ms(wall_start, mark);
 
     bool context_created = false, gas_built = false, pipeline_created = false, launch_completed = false;
 
@@ -209,6 +241,8 @@ int main(int argc, char ** argv) {
     CUDA_CHECK(cudaFree(nullptr), "cuda_context_invalid");
     CUcontext cu_context = nullptr;
     if (cuCtxGetCurrent(&cu_context) != CUDA_SUCCESS || cu_context == nullptr) return fail("cuda_context_invalid");
+    stages.cuda_context_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
 
     OPTIX_CHECK(optixInit(), "optix_init_failed");
     OptixDeviceContextOptions options = {};
@@ -217,6 +251,24 @@ int main(int argc, char ** argv) {
     OptixDeviceContext context = nullptr;
     OPTIX_CHECK(optixDeviceContextCreate(cu_context, &options, &context), "optix_context_failed");
     context_created = true;
+
+    // The disk cache is what decides whether optixModuleCreate compiles the
+    // PTX or reads a compiled module back, and optix_host.h states there is no
+    // in-memory cache, so a module timing taken without pinning it measures
+    // run history. OPTIX_CACHE_MAXSIZE=0 in the environment takes precedence
+    // over this call and can disable the cache but not enable it, so the state
+    // is read back off the context rather than assumed from the request.
+    OPTIX_CHECK(optixDeviceContextSetCacheEnabled(context, cache_requested), "optix_cache_failed");
+    int cache_enabled = -1;
+    OPTIX_CHECK(optixDeviceContextGetCacheEnabled(context, &cache_enabled), "optix_cache_failed");
+    if (cache_requested == 0 && cache_enabled != 0) return fail("module_cache_not_disabled");
+    char cache_location[512] = {};
+    if (cache_enabled) {
+        OPTIX_CHECK(optixDeviceContextGetCacheLocation(context, cache_location, sizeof cache_location),
+                    "optix_cache_failed");
+    }
+    stages.optix_context_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
 
     // geometry acceleration structure over the fixture's triangles
     std::vector<float> vertices;
@@ -252,6 +304,9 @@ int main(int argc, char ** argv) {
     CUDA_CHECK(cudaDeviceSynchronize(), "optix_gas_build_failed");
     gas_built = true;
 
+    stages.accel_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
+
     // module, program groups, pipeline from the compiled-in PTX
     OptixModuleCompileOptions module_options = {};
     module_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
@@ -269,6 +324,8 @@ int main(int argc, char ** argv) {
     OptixModule module = nullptr;
     OPTIX_CHECK(optixModuleCreate(context, &module_options, &pipeline_options, optix_ray_programs_ptx,
                                   sizeof(optix_ray_programs_ptx) - 1, log, &log_size, &module), "optix_module_failed");
+    stages.module_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
     OptixProgramGroupOptions group_options = {};
     OptixProgramGroupDesc descs[3] = {};
     descs[0].kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
@@ -290,6 +347,8 @@ int main(int argc, char ** argv) {
     OPTIX_CHECK(optixPipelineCreate(context, &pipeline_options, &link_options, groups, 3, log, &log_size, &pipeline), "optix_pipeline_failed");
     OPTIX_CHECK(optixPipelineSetStackSize(pipeline, 0, 0, 2048, 1), "optix_pipeline_failed");
     pipeline_created = true;
+    stages.pipeline_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
 
     // shader binding table
     SbtRecord<Empty> raygen_record = {}, miss_record = {}, hit_record = {};
@@ -311,6 +370,8 @@ int main(int argc, char ** argv) {
     sbt.hitgroupRecordBase = d_hit;
     sbt.hitgroupRecordStrideInBytes = sizeof hit_record;
     sbt.hitgroupRecordCount = 1;
+    stages.sbt_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
 
     // rays in, results out, one launch
     CUdeviceptr d_rays = 0, d_results = 0, d_params = 0;
@@ -325,13 +386,17 @@ int main(int argc, char ** argv) {
     params.ray_count = ray_count;
     params.t_max = t_max;
     CUDA_CHECK(cudaMemcpy((void *) d_params, &params, sizeof params, cudaMemcpyHostToDevice), "cuda_copy_failed");
-    const auto launch_start = std::chrono::steady_clock::now();
+    stages.upload_ms = elapsed_ms(mark, Clock::now());
+    const auto launch_start = Clock::now();
     OPTIX_CHECK(optixLaunch(pipeline, nullptr, d_params, sizeof(LaunchParams), &sbt, ray_count, 1, 1), "optix_launch_failed");
     CUDA_CHECK(cudaDeviceSynchronize(), "optix_launch_failed");
-    const auto launch_end = std::chrono::steady_clock::now();
+    stages.launch_ms = elapsed_ms(launch_start, Clock::now());
     launch_completed = true;
+    mark = Clock::now();
     std::vector<RayResult> results(ray_count);
     CUDA_CHECK(cudaMemcpy(results.data(), (void *) d_results, results.size() * sizeof(RayResult), cudaMemcpyDeviceToHost), "cuda_copy_failed");
+    stages.download_ms = elapsed_ms(mark, Clock::now());
+    mark = Clock::now();
 
     // summary and reference agreement
     std::vector<uint64_t> primitive_hits(triangles.size(), 0);
@@ -361,9 +426,23 @@ int main(int argc, char ** argv) {
             ++misses;
         }
     }
-    const auto wall_end = std::chrono::steady_clock::now();
-    const double launch_ms = std::chrono::duration<double, std::milli>(launch_end - launch_start).count();
-    const double wall_ms = std::chrono::duration<double, std::milli>(wall_end - wall_start).count();
+    stages.validate_ms = elapsed_ms(mark, Clock::now());
+
+    // Teardown is timed, so it runs before the reply is assembled rather than
+    // after it is printed: a stage nobody measures is a stage a resident
+    // worker cannot be shown to save.
+    mark = Clock::now();
+    optixPipelineDestroy(pipeline);
+    for (auto & g : groups) optixProgramGroupDestroy(g);
+    optixModuleDestroy(module);
+    optixDeviceContextDestroy(context);
+    cudaFree((void *) d_rays); cudaFree((void *) d_results); cudaFree((void *) d_params);
+    cudaFree((void *) d_raygen); cudaFree((void *) d_miss); cudaFree((void *) d_hit);
+    cudaFree((void *) d_temp); cudaFree((void *) d_gas); cudaFree((void *) d_vertices);
+    stages.teardown_ms = elapsed_ms(mark, Clock::now());
+
+    const auto wall_end = Clock::now();
+    const double wall_ms = elapsed_ms(wall_start, wall_end);
 
     char buffer[128];
     std::string out = "{";
@@ -381,8 +460,38 @@ int main(int argc, char ** argv) {
     out += ",\"reference_agreement\":" + std::to_string(agree) + ",\"reference_disagreement\":" + std::to_string(disagree);
     std::snprintf(buffer, sizeof buffer, ",\"results_fnv1a64\":\"%016llx\"", (unsigned long long) digest(results));
     out += buffer;
-    std::snprintf(buffer, sizeof buffer, ",\"wall_ms\":%.3f,\"launch_ms\":%.3f", wall_ms, launch_ms);
+    std::snprintf(buffer, sizeof buffer, ",\"wall_ms\":%.3f,\"launch_ms\":%.3f", wall_ms, stages.launch_ms);
     out += buffer;
+    // Each stage stands on its own because they answer different questions: a
+    // resident worker keeps the context, module, pipeline and acceleration
+    // structure, and every query still pays the upload, the launch, the
+    // download and the validation.
+    out += ",\"timings\":{";
+    const struct { const char * name; double value; } timed[] = {
+        {"scene", stages.scene_ms},
+        {"cuda_context", stages.cuda_context_ms},
+        {"optix_context", stages.optix_context_ms},
+        {"accel", stages.accel_ms},
+        {"module", stages.module_ms},
+        {"pipeline", stages.pipeline_ms},
+        {"sbt", stages.sbt_ms},
+        {"upload", stages.upload_ms},
+        {"launch", stages.launch_ms},
+        {"download", stages.download_ms},
+        {"validate", stages.validate_ms},
+        {"teardown", stages.teardown_ms},
+    };
+    for (size_t i = 0; i < sizeof timed / sizeof timed[0]; ++i) {
+        std::snprintf(buffer, sizeof buffer, "%s\"%s_ms\":%.3f", i ? "," : "", timed[i].name, timed[i].value);
+        out += buffer;
+    }
+    out += "}";
+    // The request and the readback both travel: OPTIX_CACHE_MAXSIZE=0 in the
+    // environment can disable a cache this asked for, and a module timing read
+    // without that distinction is not reproducible.
+    out += ",\"module_cache\":{\"requested\":\"" + module_cache + "\"";
+    out += ",\"enabled\":" + std::string(cache_enabled ? "true" : "false");
+    out += ",\"location\":\"" + std::string(cache_location) + "\"}";
     out += ",\"gpu\":{";
     out += std::string("\"context_created\":") + (context_created ? "true" : "false");
     out += std::string(",\"gas_built\":") + (gas_built ? "true" : "false");
@@ -393,13 +502,5 @@ int main(int argc, char ** argv) {
     out += ",\"device_name\":\"" + std::string(prop.name) + "\",\"device_index\":" + std::to_string(device_index) + "}";
     out += "}";
     std::printf("%s\n", out.c_str());
-
-    optixPipelineDestroy(pipeline);
-    for (auto & g : groups) optixProgramGroupDestroy(g);
-    optixModuleDestroy(module);
-    optixDeviceContextDestroy(context);
-    cudaFree((void *) d_rays); cudaFree((void *) d_results); cudaFree((void *) d_params);
-    cudaFree((void *) d_raygen); cudaFree((void *) d_miss); cudaFree((void *) d_hit);
-    cudaFree((void *) d_temp); cudaFree((void *) d_gas); cudaFree((void *) d_vertices);
     return 0;
 }

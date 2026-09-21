@@ -36,9 +36,10 @@ FAKE = SCRIPTS / "test-fixtures" / "fake-optix-runtime.sh"
 SERVICE = SCRIPTS / "geometry-service.py"
 
 LEDGER = (
-    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\n"
-    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\n"
-    "geometry-cube-refused\tcube-and-plane\torbit\t4096\t3\trefused\t0\n"
+    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\tmodule_cache\n"
+    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled\n"
+    "geometry-cube-cold\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tdisabled\n"
+    "geometry-cube-refused\tcube-and-plane\torbit\t4096\t3\trefused\t0\tenabled\n"
 )
 
 
@@ -129,6 +130,24 @@ def main():
             check(reply.get("result", {}).get("runtime_sha256") == harness.runtime_sha256,
                   "the result names the runtime digest the service announced")
             check(reply.get("result", {}).get("rays") == 1024, "the result reports the requested rays")
+            warm = reply.get("result", {})
+            check(set(warm.get("timings", {})) == protocol.STAGE_KEYS,
+                  "the completed reply decomposes the launch into its stages")
+            check(warm.get("module_cache", {}).get("requested") == "enabled"
+                  and warm.get("module_cache", {}).get("enabled") is True,
+                  "a warm row reports the disk cache it asked for, read back")
+
+            # The two rows differ in the cache alone, which is the stage the
+            # cache governs; the digest that names a run carries it.
+            cold = harness.exchange(request(profile="geometry-cube-cold")).get("result", {})
+            check(cold.get("module_cache", {}).get("requested") == "disabled"
+                  and cold.get("module_cache", {}).get("enabled") is False
+                  and cold.get("module_cache", {}).get("location") == "",
+                  "a cold row reports the cache disabled and names no location")
+            check(cold.get("timings", {}).get("module_ms", 0) > warm.get("timings", {}).get("module_ms", 0),
+                  "the cold row pays more in the module stage than the warm row")
+            check(cold.get("scene_sha256") != warm.get("scene_sha256"),
+                  "the cache state changes the digest that names the run")
             try:
                 protocol.parse_reply(json.dumps(reply))
                 check(True, "the reply parses under the protocol")
@@ -165,16 +184,23 @@ def main():
         finally:
             harness.stop()
 
-        for mode, reason, description in (("cpu", "gpu_fallback", "a runtime without the GPU proof fails"),
-                                          ("disagree", "reference_disagreement",
-                                           "a runtime the host reference contradicts fails"),
-                                          ("crash", "runtime_failed", "a crashing runtime fails"),
-                                          ("prose", "runtime_failed", "a runtime printing prose fails"),
-                                          ("flood", "runtime_failed", "a runtime flooding stdout is ended and fails"),
-                                          ("hang", "runtime_timeout", "a hanging runtime times out")):
+        for mode, profile, reason, description in (
+                ("cpu", "geometry-cube-test", "gpu_fallback",
+                 "a runtime without the GPU proof fails"),
+                ("disagree", "geometry-cube-test", "reference_disagreement",
+                 "a runtime the host reference contradicts fails"),
+                ("crash", "geometry-cube-test", "runtime_failed", "a crashing runtime fails"),
+                ("prose", "geometry-cube-test", "runtime_failed", "a runtime printing prose fails"),
+                ("flood", "geometry-cube-test", "runtime_failed",
+                 "a runtime flooding stdout is ended and fails"),
+                ("hang", "geometry-cube-test", "runtime_timeout", "a hanging runtime times out"),
+                ("stage-sum", "geometry-cube-test", "runtime_failed",
+                 "stage timings that sum past the wall time they were taken inside fail"),
+                ("cache-claim", "geometry-cube-cold", "runtime_failed",
+                 "a run claiming the disk cache it disabled fails")):
             harness = Harness(state, mode=mode)
             try:
-                reply = harness.exchange(request())
+                reply = harness.exchange(request(profile=profile))
                 check(reply["status"] == "failed" and reply.get("reason") == reason, description)
                 if mode == "hang":
                     left = subprocess.run(["pgrep", "-f", "fake-optix-runtime.sh cube-and-plane"],
