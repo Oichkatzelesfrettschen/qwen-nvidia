@@ -4,9 +4,12 @@ The crux collector's acceptance rule is the object under test, so the stub
 holds every other variable fixed and varies only the reply. QWEN_STUB_MODE
 selects good (every requested id, summarized), blank (every requested id, no
 summary), mixed (the first requested id summarized), foreign (the bare symbol
-name in place of the canonical id, no summary) or foreign-summarized (the bare
-name, summarized). A foreign mode carries an id the request never named, which
-is what a model returns when it answers with the symbol rather than the node.
+name in place of the canonical id, no summary), foreign-summarized (the bare
+name, summarized) or echoed (the whole target line as the id, summarized). A
+foreign mode carries an id the request never named, which is what a model
+returns when it answers with the symbol rather than the node. The echoed mode
+is what qwen3-4b-instruct-2507 returns on this appliance: the id followed by
+the kind and span the request printed beside it.
 Each record_symbols request appends one line to QWEN_STUB_LOG, which is the
 measurement.
 """
@@ -20,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 MODE = os.environ.get("QWEN_STUB_MODE", "blank")
 LOG = os.environ["QWEN_STUB_LOG"]
 ID_LINE = re.compile(r"^- id=(\S+) \|", re.M)
+TARGET_LINE = re.compile(r"^- id=(.+)$", re.M)
 
 
 def foreign_id(node_id):
@@ -38,10 +42,17 @@ def foreign_id(node_id):
 
 def crux_arguments(user_text):
     ids = ID_LINE.findall(user_text)
+    echoed = TARGET_LINE.findall(user_text) if MODE == "echoed" else []
     symbols = []
     for index, node_id in enumerate(ids):
-        summarized = MODE in ("good", "foreign-summarized") or (MODE == "mixed" and index == 0)
-        answered = foreign_id(node_id) if MODE.startswith("foreign") else node_id
+        summarized = (MODE in ("good", "foreign-summarized", "echoed")
+                      or (MODE == "mixed" and index == 0))
+        if MODE == "echoed":
+            answered = echoed[index]
+        elif MODE.startswith("foreign"):
+            answered = foreign_id(node_id)
+        else:
+            answered = node_id
         symbols.append({
             "id": answered,
             "summary": "Adds two integers." if summarized else "",
