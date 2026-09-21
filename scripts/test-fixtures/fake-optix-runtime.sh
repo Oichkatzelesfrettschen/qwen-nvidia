@@ -20,8 +20,14 @@ set -eu
 # claims a supervisor cannot check any other way: `resident-bounds` reads back
 # a session other than the one it was given, `resident-protocol` speaks a
 # version this tree does not, `resident-holds` retires still holding device
-# memory, `resident-served` retires having served more than it was sent, and
-# `resident-disagree` answers with one ray the host reference contradicts.
+# memory, `resident-served` retires having served more than it was sent,
+# `resident-disagree` answers with one ray the host reference contradicts,
+# `resident-silent-retire` destroys on reaching its own bound without asking
+# for the lease that destruction runs under, and `resident-unauthorized`
+# announces the retirement and destroys without waiting for the answer, and
+# `resident-early-retire` reaches its idle interval after one request, which
+# is the bound a supervisor meets between requests rather than in answer to
+# one.
 
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 mode=ok
@@ -86,13 +92,34 @@ if [ "${3:-}" = resident ]; then
             "$rays" "$hits" "$misses" "$hits" "$agree" "$disagree" "$module_cache" \
             "$cache_enabled" "$cache_location" "$device"
         [ "$served" -ge "$requests" ] && { reason=request_limit; break; }
+        [ "$mode" = resident-early-retire ] && { reason=idle_timeout; break; }
     done
+    # Destroying device state is compute, and a session that reaches a bound
+    # of its own reaches it while the supervisor holds no lease. So it
+    # announces the retirement it wants and waits for the shutdown line the
+    # supervisor sends holding that lease; a retirement the supervisor asked
+    # for is authorized already.
+    authorized=false
+    [ "$reason" = shutdown ] && authorized=true
+    if [ "$authorized" = false ] && [ "$mode" != resident-silent-retire ]; then
+        printf '{"protocol":%s,"event":"retiring","reason":"%s","requests_served":%s,"session_age_s":2.0}\n' \
+            "$version" "$reason" "$served"
+        # A request the supervisor sent before it read the notice is already
+        # on the wire, so lines are read until the shutdown arrives or the
+        # pipe closes. Such a query goes unanswered: the session is over.
+        if [ "$mode" != resident-unauthorized ]; then
+            while IFS= read -r line; do
+                action=$(printf '%s' "$line" | sed -n 's/.*"action":"\([A-Za-z0-9_-]*\)".*/\1/p')
+                [ "$action" = shutdown ] && { authorized=true; break; }
+            done
+        fi
+    fi
     retired_bytes=0
     [ "$mode" = resident-holds ] && retired_bytes=16777216
     retired_served=$served
     [ "$mode" = resident-served ] && retired_served=$((served + 1))
-    printf '{"protocol":%s,"event":"retired","reason":"%s","requests_served":%s,"session_age_s":2.5,"timings":{"teardown_ms":7.5},"device_allocated_bytes":%s}\n' \
-        "$version" "$reason" "$retired_served" "$retired_bytes"
+    printf '{"protocol":%s,"event":"retired","reason":"%s","requests_served":%s,"session_age_s":2.5,"timings":{"teardown_ms":7.5},"device_allocated_bytes":%s,"authorized":%s}\n' \
+        "$version" "$reason" "$retired_served" "$retired_bytes" "$authorized"
     exit 0
 fi
 

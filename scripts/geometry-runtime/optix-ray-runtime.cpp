@@ -238,6 +238,13 @@ struct Empty { int unused; };
 #ifndef GEOMETRY_PROTOCOL_VERSION
 #error "GEOMETRY_PROTOCOL_VERSION is defined by build-geometry-runtime.sh from geometry_protocol.py"
 #endif
+// The interval a worker that announced its retirement waits for the
+// supervisor's shutdown line before destroying unauthorized. Both ends read
+// geometry_protocol.RETIREMENT_AUTHORIZATION_S, so a supervisor cannot be
+// slower to authorize than the worker is willing to wait.
+#ifndef GEOMETRY_RETIREMENT_AUTHORIZATION_S
+#error "GEOMETRY_RETIREMENT_AUTHORIZATION_S is defined by build-geometry-runtime.sh from geometry_protocol.py"
+#endif
 
 namespace {
 
@@ -298,14 +305,23 @@ bool json_uint_field(const std::string & line, const char * key, unsigned long &
     return true;
 }
 
-// One line from the supervisor, or the reason none arrived. The idle interval
-// and what the session has left are the same deadline seen from two ends, so
-// the caller passes whichever is nearer and names the bound it was.
+// One line from the supervisor, or the reason none arrived. The caller passes
+// the moment the wait ends rather than its length: a byte read restarts the
+// loop, so a relative timeout would be renewed per byte and a sender dripping
+// an unfinished line would hold the session open past the wall bound the loop
+// checks only between requests. poll() takes an int of milliseconds, so a
+// remaining interval longer than a day waits in day-length steps.
 enum class LineOutcome { line, closed, timeout, interrupted, overlong };
 
-LineOutcome read_line(std::string & line, int timeout_ms) {
+const int POLL_WAIT_CEILING_MS = 86400000;
+
+LineOutcome read_line(std::string & line, Clock::time_point deadline) {
     line.clear();
     for (;;) {
+        const double remaining_ms = elapsed_ms(Clock::now(), deadline);
+        if (remaining_ms <= 0.0) return LineOutcome::timeout;
+        const int timeout_ms = remaining_ms > (double) POLL_WAIT_CEILING_MS
+                               ? POLL_WAIT_CEILING_MS : (int) remaining_ms;
         struct pollfd waiting = {0, POLLIN, 0};
         const int ready = poll(&waiting, 1, timeout_ms);
         if (ready < 0) return errno == EINTR ? LineOutcome::interrupted : LineOutcome::closed;
@@ -788,20 +804,29 @@ int resident(Session & session, unsigned long session_requests, unsigned long se
     char buffer[512];
     unsigned long served = 0;
     const char * retirement = "shutdown";
+    // Whether the supervisor named this retirement, and whether the worker
+    // reached it on a bound of its own. The first decides whether destruction
+    // runs under an owner; the second decides whether there is anybody left
+    // to ask, because a closed pipe, a signal and a malformed line are each
+    // the supervisor already gone or already distrusted.
+    bool authorized = false;
+    bool reached_own_bound = false;
     for (;;) {
         if (stop_requested) break;
         const double age_s = elapsed_ms(session_start, Clock::now()) / 1000.0;
-        if (served >= session_requests) { retirement = "request_limit"; break; }
-        if (age_s >= (double) session_seconds) { retirement = "session_limit"; break; }
+        if (served >= session_requests) { retirement = "request_limit"; reached_own_bound = true; break; }
+        if (age_s >= (double) session_seconds) { retirement = "session_limit"; reached_own_bound = true; break; }
         // Whichever bound is nearer decides how long this waits: the idle
         // interval with no request in hand, or what the session has left.
         const double remaining_s = (double) session_seconds - age_s;
         const bool idle_is_nearer = (double) idle_seconds < remaining_s;
         const double wait_s = idle_is_nearer ? (double) idle_seconds : remaining_s;
         std::string line;
-        const LineOutcome outcome = read_line(line, (int) (wait_s * 1000.0));
+        const LineOutcome outcome = read_line(
+            line, Clock::now() + std::chrono::microseconds((long long) (wait_s * 1000000.0)));
         if (outcome == LineOutcome::timeout) {
             retirement = idle_is_nearer ? "idle_timeout" : "session_limit";
+            reached_own_bound = true;
             break;
         }
         if (outcome != LineOutcome::line) {
@@ -822,7 +847,7 @@ int resident(Session & session, unsigned long session_requests, unsigned long se
             std::fprintf(stderr, "optix_runtime=rejected reason=malformed_request\n");
             break;
         }
-        if (action_name == "shutdown") break;
+        if (action_name == "shutdown") { authorized = true; break; }
         unsigned long rays_requested = 0;
         if (action_name != "query" || !json_uint_field(line, "rays", rays_requested) ||
             rays_requested < 1 || rays_requested > 1048576) {
@@ -849,6 +874,7 @@ int resident(Session & session, unsigned long session_requests, unsigned long se
             // session rather than shrinking the request: a worker that served
             // the next request would hold memory nothing admitted.
             retirement = "budget_exceeded";
+            reached_own_bound = true;
             break;
         }
         if (outcome_code != 0) return outcome_code;
@@ -877,14 +903,53 @@ int resident(Session & session, unsigned long session_requests, unsigned long se
         reply += "}";
         emit(reply);
     }
+    // Destruction is compute: it frees device allocations, tears down an
+    // acceleration structure, a pipeline and a context, and it runs under the
+    // same compute lease a request runs under. A session ending on a bound of
+    // its own reaches that moment while the supervisor holds no lease, so it
+    // announces the retirement it wants and waits for the shutdown line the
+    // supervisor sends holding the lease. The worker acquires no lease itself,
+    // so a supervisor holding one never waits on a child that wants one.
+    if (reached_own_bound && !stop_requested) {
+        std::snprintf(buffer, sizeof buffer,
+                      "{\"protocol\":%d,\"event\":\"retiring\",\"reason\":\"%s\","
+                      "\"requests_served\":%lu,\"session_age_s\":%.3f}",
+                      GEOMETRY_PROTOCOL_VERSION, retirement, served,
+                      elapsed_ms(session_start, Clock::now()) / 1000.0);
+        emit(buffer);
+        // A supervisor that answers nothing would otherwise leave this process
+        // holding its device memory for as long as it lives, so the wait ends
+        // and the retired line reports destruction the supervisor never named.
+        // A request the supervisor sent before it read the notice is already
+        // on the wire, so lines are read until the shutdown arrives or the
+        // deadline does. A query read here goes unanswered by construction:
+        // the session is over, and its reply would be a request served after
+        // the bound that ended it.
+        std::string line;
+        const auto authorize_by = Clock::now() +
+            std::chrono::seconds(GEOMETRY_RETIREMENT_AUTHORIZATION_S);
+        while (!authorized && read_line(line, authorize_by) == LineOutcome::line) {
+            unsigned long line_protocol = 0;
+            std::string request_id, action_name;
+            authorized = json_uint_field(line, "protocol", line_protocol) &&
+                         line_protocol == (unsigned long) GEOMETRY_PROTOCOL_VERSION &&
+                         json_string_field(line, "action", action_name) &&
+                         json_string_field(line, "request_id", request_id) &&
+                         action_name == "shutdown";
+        }
+        if (!authorized) {
+            std::fprintf(stderr, "optix_runtime=emergency reason=retirement_unauthorized bound=%s\n",
+                         retirement);
+        }
+    }
     const double teardown_ms = session.teardown();
     std::snprintf(buffer, sizeof buffer,
                   "{\"protocol\":%d,\"event\":\"retired\",\"reason\":\"%s\",\"requests_served\":%lu,"
                   "\"session_age_s\":%.3f,\"timings\":{\"teardown_ms\":%.3f},"
-                  "\"device_allocated_bytes\":%zu}",
+                  "\"device_allocated_bytes\":%zu,\"authorized\":%s}",
                   GEOMETRY_PROTOCOL_VERSION, retirement, served,
                   elapsed_ms(session_start, Clock::now()) / 1000.0, teardown_ms,
-                  session.allocated_bytes);
+                  session.allocated_bytes, authorized ? "true" : "false");
     emit(buffer);
     return 0;
 }

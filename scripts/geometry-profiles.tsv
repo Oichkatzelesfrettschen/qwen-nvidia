@@ -52,7 +52,17 @@
 #
 # The three columns only a session has read n-a on a one-shot row.
 #
+# The two calibration rows carry bounds a measurement row is deliberately too
+# generous to reach: geometry-cube-orbit-a-resident serves sixteen requests
+# over three hundred seconds, so a run that measures what residency costs
+# retires on the supervisor's word and never on its own. Reaching the idle
+# interval, the request count and the wall bound is what proves destruction
+# runs under the compute lease at each of them, and that needs a session
+# small enough to end by itself inside a harness run.
+#
 # profile_id	scene	query_set	max_rays	timeout_s	execution_policy	device_index	module_cache	residency	session_requests	session_seconds	idle_timeout_s	residency_budget_mib
 geometry-cube-orbit-a	cube-and-plane	orbit	1048576	60	refused	0	enabled	one-shot	1	n-a	n-a	n-a
 geometry-cube-orbit-a-cold	cube-and-plane	orbit	1048576	60	refused	0	disabled	one-shot	1	n-a	n-a	n-a
 geometry-cube-orbit-a-resident	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	300	15	512
+geometry-cube-orbit-a-retire	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	2	120	3	512
+geometry-cube-orbit-a-wall	cube-and-plane	orbit	1048576	60	refused	0	enabled	bounded-resident	16	8	6	512

@@ -25,6 +25,7 @@ sys.path.insert(0, str(SCRIPTS))
 import geometry_protocol as protocol  # noqa: E402
 
 FAKE = SCRIPTS / "test-fixtures" / "fake-optix-runtime.sh"
+PROBE = SCRIPTS / "test-fixtures" / "fake-residency-probe.sh"
 DRIVER = SCRIPTS / "geometry-resident-driver.py"
 
 _ROWS = (
@@ -60,14 +61,15 @@ class Harness:
         self.lease.touch()
 
     def run(self, mode="resident", profile="geometry-cube-resident", requests=2, rays=1024,
-            environment=None):
+            environment=None, probe="held"):
         record = self.root / ("record-%s.tsv" % mode)
         stderr = self.root / ("runtime-%s.err" % mode)
         argv = [sys.executable, str(DRIVER), "--profiles", str(self.ledger),
                 "--profile-id", profile, "--runtime", str(self.runtime),
                 "--state-dir", str(self.state), "--record", str(record),
                 "--stderr", str(stderr), "--mode", mode, "--requests", str(requests),
-                "--rays", str(rays), "--run-id", "test", "--lease-wait-s", "2"]
+                "--rays", str(rays), "--run-id", "test", "--lease-wait-s", "2",
+                "--residency-probe", "%s %s {pid}" % (PROBE, probe)]
         env = dict(os.environ)
         env["QWEN_GPU_COMPUTE_LEASE"] = str(self.lease)
         if environment:
@@ -154,6 +156,70 @@ def main():
                 ("resident-budget", "a worker refusing a request against its residency ceiling")):
             completed, _ = Harness(root / mode, mode=mode).run(requests=2)
             check(completed.returncode != 0, "%s is refused" % label)
+
+        # The residency allowance is enforced by a reading, so a probe that
+        # answers nothing leaves it enforcing nothing: the run ends rather
+        # than continuing against an allowance never tested.
+        completed, record = Harness(root / "unread").run(requests=2, probe="unread")
+        check(completed.returncode != 0,
+              "a residency probe that answers nothing ends the session")
+        rows = [line.split("\t") for line in record.read_text().splitlines()]
+        check(any(row[0] == "resident-idle-before" and row[-1] == "residency_unread"
+                  for row in rows[1:]),
+              "the record names the reading it did not get rather than leaving the cell empty")
+        completed, _ = Harness(root / "overbudget").run(requests=2, probe="over")
+        check(completed.returncode != 0,
+              "a worker resident past the row's allowance ends the session")
+        completed, _ = Harness(root / "absent").run(requests=2, probe="absent")
+        check(completed.returncode == 0,
+              "a pid the driver does not list holds nothing, which is inside every allowance")
+
+        # Destroying device state is compute. A worker that reaches a bound of
+        # its own asks for the lease that destruction runs under; one that
+        # destroys at the moment its bound expires did it owning nothing.
+        for mode, label in (
+                ("resident-silent-retire", "a worker destroying on its own bound without asking"),
+                ("resident-unauthorized", "a worker destroying without waiting for the answer")):
+            completed, _ = Harness(root / mode, mode=mode).run(requests=4)
+            check(completed.returncode != 0, "%s is refused" % label)
+
+        harness = Harness(root / "early", mode="resident-early-retire")
+        completed, record = harness.run(requests=4)
+        rows = [line.split("\t") for line in record.read_text().splitlines()]
+        check(completed.returncode == 0 and "retirement_authorized=True" in completed.stdout,
+              "a worker announcing a bound of its own is authorized rather than killed")
+        check([row[0] for row in rows[1:]] == [
+            "resident-startup", "resident-idle-before", "resident", "resident-retiring",
+            "resident-idle-after", "resident-retire"],
+              "the notice stops the requests and the record names the bound it cited")
+
+        # A request that fails may have left a launch in flight, so the worker
+        # is ended and reaped before the ownership protecting that work goes.
+        # A failure found after the reply arrived owns nothing in flight, so
+        # that path takes the lease again to destroy under it. Either way the
+        # row naming the ownership is written before the lease is released.
+        for mode, note, label in (
+                ("resident-budget", "owned-request",
+                 "a request that fails ends the worker under the lease that covered it"),
+                ("resident-disagree", "owned",
+                 "a reply that fails its check ends the worker under a lease taken to do it")):
+            harness = Harness(root / ("reaped-" + mode), mode=mode)
+            completed, record = harness.run(requests=2)
+            rows = [line.split("\t") for line in record.read_text().splitlines()]
+            check(completed.returncode != 0 and rows[-1][0] == "resident-terminated"
+                  and rows[-1][-1] == note, label)
+            check(subprocess.run(["pgrep", "-f", str(harness.runtime)], capture_output=True,
+                                 check=False).returncode != 0,
+                  "no worker outlives the run that spawned it on %s" % mode)
+        descriptor = os.open(str(harness.lease), os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            check(True, "the lease is free once the run that held it has ended")
+        except OSError:
+            check(False, "the lease is free once the run that held it has ended")
+        finally:
+            os.close(descriptor)
 
         completed, _ = Harness(root / "unnamed").run(
             requests=1, environment={"QWEN_GPU_COMPUTE_LEASE": ""})

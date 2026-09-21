@@ -52,8 +52,12 @@ PY
 protocol_version=$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); import geometry_protocol; print(geometry_protocol.PROTOCOL_VERSION)' "$script_directory")
 case $protocol_version in '' | *[!0-9]*) printf 'geometry_protocol.PROTOCOL_VERSION is not an integer: %s\n' "$protocol_version" >&2; exit 1 ;; esac
 printf 'geometry_protocol_version=%s\n' "$protocol_version"
+authorization_s=$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); import geometry_protocol; print(geometry_protocol.RETIREMENT_AUTHORIZATION_S)' "$script_directory")
+case $authorization_s in '' | *[!0-9]*) printf 'geometry_protocol.RETIREMENT_AUTHORIZATION_S is not an integer: %s\n' "$authorization_s" >&2; exit 1 ;; esac
+printf 'geometry_retirement_authorization_s=%s\n' "$authorization_s"
 "$host_cxx" -std=c++17 -O2 -DNDEBUG -Wall -Wextra -Werror \
-    -DGEOMETRY_PROTOCOL_VERSION="$protocol_version" -o "$output" \
+    -DGEOMETRY_PROTOCOL_VERSION="$protocol_version" \
+    -DGEOMETRY_RETIREMENT_AUTHORIZATION_S="$authorization_s" -o "$output" \
     "$source_directory/optix-ray-runtime.cpp" \
     -I"$optix_include" -I"$cuda_prefix/include" -I"$source_directory" -I"$work" \
     -L"$cuda_prefix/lib64" -lcudart -lcuda -ldl -lpthread \

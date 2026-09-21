@@ -224,9 +224,26 @@ idle_positive=$(printf '%s\n' "$idle_readings" | awk '$1 + 0 > 0' | wc -l)
 record idle_residency_readings "$idle_rows"
 record idle_residency_mib "$(printf '%s ' $idle_readings)"
 check residency_observed_without_the_lease "$([ "$idle_rows" -gt 0 ] && [ "$idle_positive" -eq "$idle_rows" ] && printf yes || printf no)" yes
-peak_mib=$(awk -F '\t' '$3 ~ /optix-ray-runtime/ { split($3, f, " "); if (f[2] + 0 > peak) peak = f[2] + 0 } END { print peak + 0 }' "$output_directory/residency-during.tsv")
-record peak_runtime_residency_mib "$peak_mib"
-check residency_within_budget "$([ "$peak_mib" -le "$residency_budget_mib" ] && printf yes || printf no)" yes
+
+# Three readings of one ceiling, none of them an instantaneous maximum. The
+# sampler's is the largest the ten-hertz capture happened to catch; the
+# driver's are taken at the two moments it can name, after the session is
+# ready and after its last request; the worker's own counts what it asked
+# cudaMalloc for and sees neither the CUDA context nor the OptiX module and
+# pipeline the driver put beside it. The allowance is held against all three,
+# and the largest observed is what each names rather than a peak over the run.
+peak_sampled_mib=$(awk -F '\t' '$3 ~ /optix-ray-runtime/ { split($3, f, " "); if (f[2] + 0 > peak) peak = f[2] + 0 } END { print peak + 0 }' "$output_directory/residency-during.tsv")
+record peak_runtime_residency_sampled_mib "$peak_sampled_mib"
+peak_idle_mib=$(printf '%s\n' "$idle_readings" | awk '$1 + 0 > peak { peak = $1 + 0 } END { print peak + 0 }')
+record peak_idle_residency_observed_mib "$peak_idle_mib"
+peak_allocated=$(awk -F '\t' '$1 == "resident" && $11 + 0 > peak { peak = $11 + 0 } END { print peak + 0 }' "$output_directory"/record-resident-*.tsv)
+record peak_worker_allocated_bytes "$peak_allocated"
+peak_allocated_mib=$((peak_allocated / 1048576))
+record peak_worker_allocated_mib "$peak_allocated_mib"
+check residency_within_budget \
+    "$([ "$peak_sampled_mib" -le "$residency_budget_mib" ] &&
+        [ "$peak_idle_mib" -le "$residency_budget_mib" ] &&
+        [ "$peak_allocated_mib" -le "$residency_budget_mib" ] && printf yes || printf no)" yes
 
 check teardown "$("$script_directory/geometry-teardown-check.sh" "$output_directory/state" |
     scrub_home | tee "$output_directory/teardown.txt" |

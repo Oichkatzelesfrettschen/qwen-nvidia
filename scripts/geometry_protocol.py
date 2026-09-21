@@ -104,7 +104,19 @@ if set().union(*_RESIDENT_PARTITION) != STAGE_KEYS or sum(
 # enlarge.
 RETIREMENT_REASONS = ("shutdown", "request_limit", "session_limit", "idle_timeout",
                       "budget_exceeded")
-RESIDENT_EVENTS = ("ready", "result", "refused", "retired")
+# The four a worker reaches by itself. Destroying device resources is compute,
+# so a worker that reaches one announces it and waits for the supervisor's
+# shutdown line rather than destroying at the moment its own bound expires;
+# only `shutdown` is the supervisor's own word.
+SELF_RETIREMENT_REASONS = tuple(reason for reason in RETIREMENT_REASONS if reason != "shutdown")
+# How long a worker that has announced its retirement waits for that
+# authorization before destroying unauthorized. The bound exists because a
+# supervisor that died holding no lease would otherwise leave device memory
+# held by a process nothing drives. The build passes it to the runtime and
+# geometry-resident-driver.py refuses a lease wait that could outlast it, so
+# the two ends read one number.
+RETIREMENT_AUTHORIZATION_S = 30
+RESIDENT_EVENTS = ("ready", "result", "refused", "retiring", "retired")
 # The ready line proves the device state the session retains. It carries no
 # launch, because no request has run; every request reply carries the full
 # proof block including its own completed launch.
@@ -118,8 +130,9 @@ RESIDENT_RESULT_KEYS = {"event", "request_id", "residency", "result"}
 RESIDENT_RESIDENCY_KEYS = {"request_index", "session_age_s", "device_allocated_bytes",
                            "requests_remaining"}
 RESIDENT_REFUSED_KEYS = {"event", "request_id", "reason", "detail"}
+RESIDENT_RETIRING_KEYS = {"event", "reason", "requests_served", "session_age_s"}
 RESIDENT_RETIRED_KEYS = {"event", "reason", "requests_served", "session_age_s", "timings",
-                         "device_allocated_bytes"}
+                         "device_allocated_bytes", "authorized"}
 MODULE_CACHE_KEYS = {"requested", "enabled", "location"}
 MAX_LINE_BYTES = 65536
 ACTIONS = ("geometry_ray_query", "status")
@@ -507,9 +520,34 @@ def validate_resident_refused(message, request_id):
     return message
 
 
+def validate_resident_retiring(message, requests_served):
+    """The notice that a worker has reached one of its own bounds.
+
+    It carries no timings and no allocation figure, because nothing has been
+    destroyed: the worker is asking for the lease under which destruction may
+    run. A supervisor reading this stops sending requests and authorizes.
+    """
+    _resident_keys(message, RESIDENT_RETIRING_KEYS, "retiring")
+    if message["reason"] not in SELF_RETIREMENT_REASONS:
+        raise ProtocolError("a retirement notice cites %r, which is not one of %s"
+                            % (message["reason"], ", ".join(SELF_RETIREMENT_REASONS)))
+    served = _count(message["requests_served"], "requests_served")
+    if served != requests_served:
+        raise ProtocolError("the worker announces retirement having served %d where the "
+                            "supervisor sent %d" % (served, requests_served))
+    _number(message["session_age_s"], "session_age_s")
+    return message
+
+
 def validate_resident_retired(message, bounds, requests_served):
     """The line that says every device resource the session held is released."""
     _resident_keys(message, RESIDENT_RETIRED_KEYS, "retired")
+    # Whether the supervisor authorized this destruction, rather than the
+    # worker reaching its authorization deadline with nothing answering. The
+    # supervisor holds the compute lease when it authorizes, so an
+    # unauthorized retirement is device state released under no ownership.
+    if message["authorized"] is not True and message["authorized"] is not False:
+        raise ProtocolError("authorized is not a boolean")
     if message["reason"] not in RETIREMENT_REASONS:
         raise ProtocolError("retirement reason is not one of %s" % ", ".join(RETIREMENT_REASONS))
     served = _count(message["requests_served"], "requests_served")
