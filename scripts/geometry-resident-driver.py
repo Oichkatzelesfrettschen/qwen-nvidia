@@ -250,14 +250,44 @@ def require_lease_free(lease):
         os.close(descriptor)
 
 
+def device_residency_mib(pid):
+    """What the driver says a process holds on the device, or None if unread.
+
+    The worker counts what it asked cudaMalloc for and cannot count the CUDA
+    context the driver put beside it, so the residency a ceiling is held to is
+    read here instead. It is read at a moment when this process holds no lease
+    and no request is in flight, which is what makes the number residency
+    rather than the footprint of a running query, and a sampler ticking beside
+    the run cannot resolve that moment: the gap between two requests is shorter
+    than any interval it could sample at.
+    """
+    try:
+        completed = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) == 2 and fields[0] == str(pid):
+            return int(fields[1])
+    return 0
+
+
 def record_row(handle, fields):
     handle.write("\t".join(str(field) for field in fields) + "\n")
     handle.flush()
 
 
+# device_allocated_bytes is the worker's own accounting and device_resident_mib
+# is the driver's reading of the same process; the second is filled only on the
+# rows where this process held no lease and had no request in flight, because
+# that is the only moment at which the number means residency.
 COLUMNS = ("arm", "request", "client_ms", "lease_wait_ms", "wall_ms", "rays", "hits",
            "reference_agreement", "reference_disagreement", "results_fnv1a64",
-           "device_allocated_bytes") + tuple(sorted(protocol.STAGE_KEYS))
+           "device_allocated_bytes", "device_resident_mib") + tuple(sorted(protocol.STAGE_KEYS))
 
 
 def stage_columns(timings):
@@ -268,6 +298,25 @@ def stage_columns(timings):
     than as a stage that took no time.
     """
     return [("%.3f" % timings[key]) if key in timings else "" for key in sorted(protocol.STAGE_KEYS)]
+
+
+def observe_idle_residency(worker, lease, bounds, record, arm):
+    """Read the worker's device residency at a moment nothing is in flight.
+
+    The lease is checked free first, so the reading is taken under the state
+    the claim is about: a process holding device memory while it owns no
+    compute. The ceiling is held against this reading as well as against the
+    worker's own, because neither sees what the other does.
+    """
+    require_lease_free(lease)
+    observed = device_residency_mib(worker.process.pid)
+    record_row(record, [arm, 0, "", "", "", "", "", "", "", "",
+                        worker.ready["device_allocated_bytes"],
+                        "" if observed is None else observed] + stage_columns({}))
+    if observed is not None and observed > bounds["residency_budget_mib"]:
+        raise DriverError("the worker holds %d MiB against a ceiling of %d MiB"
+                          % (observed, bounds["residency_budget_mib"]))
+    return observed
 
 
 def run_resident(arguments, profile, bounds, runtime_sha256, record, log):
@@ -284,8 +333,9 @@ def run_resident(arguments, profile, bounds, runtime_sha256, record, log):
     finally:
         lease.release()
     record_row(record, ["resident-startup", 0, "%.3f" % worker.startup_ms, "", "%.3f" % worker.startup_ms,
-                        "", "", "", "", "", ready["device_allocated_bytes"]] +
+                        "", "", "", "", "", ready["device_allocated_bytes"], ""] +
                stage_columns(ready["timings"]))
+    idle_before = observe_idle_residency(worker, lease, bounds, record, "resident-idle-before")
     try:
         for index in range(1, arguments.requests + 1):
             require_lease_free(lease)
@@ -312,9 +362,9 @@ def run_resident(arguments, profile, bounds, runtime_sha256, record, log):
                                 "%.3f" % result["wall_ms"], result["rays"], result["hits"],
                                 result["reference_agreement"], result["reference_disagreement"],
                                 result["results_fnv1a64"],
-                                message["residency"]["device_allocated_bytes"]] +
+                                message["residency"]["device_allocated_bytes"], ""] +
                        stage_columns(result["timings"]))
-        require_lease_free(lease)
+        idle_after = observe_idle_residency(worker, lease, bounds, record, "resident-idle-after")
         # Destruction is compute too, so retirement runs under the lease and
         # the check that nothing is held comes after the worker has gone.
         lease.acquire("%s-retire" % arguments.run_id)
@@ -327,11 +377,13 @@ def run_resident(arguments, profile, bounds, runtime_sha256, record, log):
     require_lease_free(lease)
     record_row(record, ["resident-retire", 0, "%.3f" % retired["timings"]["teardown_ms"], "",
                         "%.3f" % retired["timings"]["teardown_ms"], "", "", "", "", "",
-                        retired["device_allocated_bytes"]] + stage_columns(retired["timings"]))
+                        retired["device_allocated_bytes"], ""] + stage_columns(retired["timings"]))
     return {"mode": "resident", "requests": worker.served, "startup_ms": worker.startup_ms,
             "retirement": retired["reason"], "teardown_ms": retired["timings"]["teardown_ms"],
             "session_s": time.monotonic() - session_started,
-            "device_allocated_bytes": ready["device_allocated_bytes"]}
+            "device_allocated_bytes": ready["device_allocated_bytes"],
+            "idle_resident_mib_before": "unread" if idle_before is None else idle_before,
+            "idle_resident_mib_after": "unread" if idle_after is None else idle_after}
 
 
 def run_one_shot(arguments, profile, runtime_sha256, record, log):
@@ -362,7 +414,7 @@ def run_one_shot(arguments, profile, runtime_sha256, record, log):
         record_row(record, ["one-shot", index, "%.3f" % client_ms, "%.3f" % lease_wait_ms,
                             "%.3f" % result["wall_ms"], result["rays"], result["hits"],
                             result["reference_agreement"], result["reference_disagreement"],
-                            result["results_fnv1a64"], 0] + stage_columns(result["timings"]))
+                            result["results_fnv1a64"], 0, ""] + stage_columns(result["timings"]))
     require_lease_free(lease)
     return {"mode": "one-shot", "requests": served, "startup_ms": 0.0, "retirement": "per-request",
             "teardown_ms": 0.0, "session_s": time.monotonic() - session_started,

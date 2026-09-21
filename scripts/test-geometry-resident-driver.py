@@ -100,10 +100,11 @@ def main():
         arms = [row[0] for row in rows[1:]]
         check(header[:1] == ["arm"] and protocol.STAGE_KEYS.issubset(header),
               "the record carries a header naming the arm and every stage")
-        check(arms == ["resident-startup", "resident", "resident", "resident-retire"],
-              "the record names the startup, each request, and the retirement")
-        if len(rows) > 2:
-            columns = dict(zip(header, rows[2]))
+        check(arms == ["resident-startup", "resident-idle-before", "resident", "resident",
+                       "resident-idle-after", "resident-retire"],
+              "the record names the startup, each idle reading, each request, and the retirement")
+        if len(rows) > 4:
+            columns = dict(zip(header, rows[3]))
             paid = {key for key in sorted(protocol.STAGE_KEYS) if columns.get(key)}
             check(paid == set(protocol.RESIDENT_REQUEST_STAGE_KEYS),
                   "a resident request records the six stages it pays and no others")
@@ -111,7 +112,7 @@ def main():
             startup_paid = {key for key in sorted(protocol.STAGE_KEYS) if startup.get(key)}
             check(startup_paid == set(protocol.RESIDENT_STARTUP_STAGE_KEYS),
                   "the session records the six stages it pays once")
-            retire = dict(zip(header, rows[4] if len(rows) > 4 else rows[-1]))
+            retire = dict(zip(header, rows[-1]))
             retire_paid = {key for key in sorted(protocol.STAGE_KEYS) if retire.get(key)}
             check(retire_paid == set(protocol.RESIDENT_RETIRE_STAGE_KEYS),
                   "the retirement records teardown alone")

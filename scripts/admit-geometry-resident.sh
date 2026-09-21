@@ -24,8 +24,13 @@ set -eu
 #
 # gpu-ownership: acquires the owner lock for its whole run.
 
+# The output directory holds a build, six records and a sampler capture per
+# run, none of which is tracked: .local-artifacts/ is where the checkout keeps
+# a capture, and the retained form is what evidence/ada/geometry-resident-session
+# carries.
 usage() {
     printf 'usage: %s OUTPUT_DIRECTORY [RAYS] [REQUESTS] [BLOCKS]\n' "$0" >&2
+    printf '       the output directory belongs under .local-artifacts/\n' >&2
     exit 2
 }
 [ "$#" -ge 1 ] && [ "$#" -le 4 ] || usage
@@ -120,6 +125,13 @@ scrub_ownership <"$output_directory/ownership-before.raw" >"$output_directory/ow
 rm -f "$output_directory/ownership-before.raw"
 "$script_directory/device-environment-identity.sh" "$output_directory/device-environment.tsv"
 
+# The conditions a run carried. A stage's absolute timing on this host has
+# resisted three explanations, so what the arms are compared on is their ratio
+# to each other inside one run; the load and the utilization either side say
+# whether a run belongs beside another at all.
+record host_load_1m_before "$(cut -d ' ' -f 1 /proc/loadavg)"
+record gpu_utilization_before_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i 0)"
+
 QWEN_GPU_COMPUTE_LEASE=$output_directory/state/vulkan-workload.lock
 export QWEN_GPU_COMPUTE_LEASE
 : >"$QWEN_GPU_COMPUTE_LEASE"
@@ -171,6 +183,9 @@ while [ "$block" -le "$blocks" ]; do
 done
 kill "$sampler_pid" 2>/dev/null || :; wait "$sampler_pid" 2>/dev/null || :; sampler_pid=''
 
+record host_load_1m_after "$(cut -d ' ' -f 1 /proc/loadavg)"
+record gpu_utilization_after_percent "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i 0)"
+
 # The sampler's raw capture names process paths, so it takes the same scrub
 # both other device harnesses take before anything reads it.
 . "$script_directory/compute-client-record.sh"
@@ -195,12 +210,20 @@ check retired_holding_device_memory "$holding" 0
 # lease free in an interval where only the control ran would be a process
 # neither arm accounts for.
 idle_clients=$(awk -F '\t' '$2 == "free" && $3 ~ /optix-ray-runtime/ { print $3 }' "$output_directory/residency-during.tsv" | wc -l)
-record runtime_clients_observed_with_lease_free "$idle_clients"
-# This is the experiment's own claim read off the driver rather than off the
-# worker: a process holding device memory at a moment when the compute lease
-# is free is memory residency without compute ownership. A run that never
-# observed one proved residency of nothing.
-check residency_observed_without_the_lease "$([ "$idle_clients" -gt 0 ] && printf yes || printf no)" yes
+record runtime_clients_observed_with_lease_free_sampled "$idle_clients"
+
+# The experiment's own claim, read off the driver: a process holding device
+# memory at a moment when the compute lease is free is memory residency
+# without compute ownership. The sampler beside this run cannot decide it --
+# the gap between two requests is shorter than the interval it samples at --
+# so the driver takes the reading itself, with the lease checked free and no
+# request in flight, and every such reading is a row here.
+idle_readings=$(awk -F '\t' '$1 ~ /^resident-idle/ && $12 != "" { print $12 }' "$output_directory"/record-resident-*.tsv)
+idle_rows=$(printf '%s\n' "$idle_readings" | grep -c '[0-9]' || :)
+idle_positive=$(printf '%s\n' "$idle_readings" | awk '$1 + 0 > 0' | wc -l)
+record idle_residency_readings "$idle_rows"
+record idle_residency_mib "$(printf '%s ' $idle_readings)"
+check residency_observed_without_the_lease "$([ "$idle_rows" -gt 0 ] && [ "$idle_positive" -eq "$idle_rows" ] && printf yes || printf no)" yes
 peak_mib=$(awk -F '\t' '$3 ~ /optix-ray-runtime/ { split($3, f, " "); if (f[2] + 0 > peak) peak = f[2] + 0 } END { print peak + 0 }' "$output_directory/residency-during.tsv")
 record peak_runtime_residency_mib "$peak_mib"
 check residency_within_budget "$([ "$peak_mib" -le "$residency_budget_mib" ] && printf yes || printf no)" yes
