@@ -32,7 +32,7 @@
 #   QWEN_SYMBOLS_SOURCE  the DiscoBSD tree
 #   QWEN_SYMBOLS_FILES   space-separated probe files
 set -eu
-PYTHON=${PYTHON:-python3}
+: "${PYTHON:?Select the intended Python interpreter}"
 # Thirteen graded columns sit between the file name and the outcome, which
 # record-symbols-contract.py prints as its own header.
 EMPTY='	-	-	-	-	-	-	-	-	-	-	-	-	-'
@@ -65,22 +65,34 @@ for f in $FILES; do
 done
 
 "$PYTHON" "$CONTRACT" columns >"$OUT/symbols.tsv"
-trap '"$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true' EXIT
+active_model=''
+header=''
+cleanup_server() {
+    if [ -n "$header" ]; then
+        rm -f -- "$header"
+        header=''
+    fi
+    [ -n "$active_model" ] || return 0
+    "$Q/scripts/qwen-teardown.sh" >"$OUT/$active_model.teardown" 2>&1
+    active_model=''
+}
+trap cleanup_server EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 for id in $IDS; do
     row=$("$Q/scripts/model-registry.sh" id "$id")
     file=$(printf '%s\n' "$row" | sed -n 's/^model_file=//p')
-    "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
-    if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=512 QWEN_CONTEXT_SIZE=16384 \
+    cleanup_server
+    if ! QWEN_REQUIRE_API_KEY=1 QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=512 QWEN_CONTEXT_SIZE=16384 \
         QWEN_MODEL_PATH=$HOME/models/$file "$Q/scripts/qwen-launch.sh" default \
         >"$OUT/$id.launch" 2>&1; then
         for f in $FILES; do
-            printf '%s\t%s%s\tlaunch_failed\n' "$id" "$f" "$EMPTY" >>"$OUT/symbols.tsv"
+            printf '%s\t%s%b\tlaunch_failed\n' "$id" "$f" "$EMPTY" >>"$OUT/symbols.tsv"
         done
         continue
     fi
+    active_model=$id
     header=$(mktemp "${TMPDIR:-/tmp}/symbols.XXXXXX")
     printf 'header = "Authorization: Bearer %s"\n' "$(tr -d '\n' <"$STATE/api.key")" >"$header"
     for f in $FILES; do
@@ -88,7 +100,7 @@ for id in $IDS; do
         [ -s "$stem.request.json" ] || continue
         answer=$OUT/$id.$(basename "$f").symbols.json
         s=$("$PYTHON" -c 'import time; print(time.monotonic_ns()//1000000)')
-        status=$(curl --silent --max-time "$TIMEOUT" --config "$header" --output "$answer" \
+        status=$(curl --user-agent 'Mozilla/5.0' --silent --max-time "$TIMEOUT" --config "$header" --output "$answer" \
             --write-out '%{http_code}' -H 'Content-Type: application/json' \
             --data-binary "@$stem.request.json" \
             "http://127.0.0.1:$PORT/v1/chat/completions") || status=transport
@@ -98,4 +110,7 @@ for id in $IDS; do
     done
     rm -f "$header"
 done
+cleanup_server
 printf 'symbols_done\n' >>"$OUT/symbols.tsv"
+awk -F '\t' 'NR > 1 && $0 != "symbols_done" { rows++; if ($NF != "pass") failed=1 }
+    END { exit (failed || rows == 0) }' "$OUT/symbols.tsv"

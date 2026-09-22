@@ -40,7 +40,11 @@ serving_cpu_list=${QWEN_SERVING_CPU_LIST:-$(cat /sys/devices/system/cpu/online 2
 # the session that started this process can read back what to require of it.
 # A discrete card decodes while the host waits on it, so the server runs at the
 # desktop's own priority across every core rather than pinned to one.
-renice -n "$serving_nice" -p $$ >/dev/null 2>&1 || {
+chrt --other --pid 0 $$ >/dev/null 2>&1 || {
+    printf 'setting SCHED_OTHER failed\n' >&2
+    exit 1
+}
+renice --priority "$serving_nice" -p $$ >/dev/null 2>&1 || {
     printf 'renice to %s failed\n' "$serving_nice" >&2
     exit 1
 }

@@ -1194,6 +1194,17 @@ set -- "$@" \
 if [ "$chat_tools" = on ]; then
     set -- "$@" --jinja
 fi
+if [ -n "${QWEN_GRAFT_MCP_CONFIG:-}" ]; then
+    if [ "$router_enabled" = 1 ] || [ "$chat_tools" != on ] || \
+       [ "${QWEN_REQUIRE_API_KEY:-0}" != 1 ] || \
+       [ "${QWEN_WEB_BROKER:-0}" != 1 ] || \
+       [ "${QWEN_BIND_HOST:-127.0.0.1}" != 127.0.0.1 ] || \
+       [ ! -r "$QWEN_GRAFT_MCP_CONFIG" ]; then
+        printf 'Graft MCP requires authenticated loopback standalone tool serving and the broker\n' >&2
+        exit 2
+    fi
+    set -- "$@" --mcp-servers-config "$QWEN_GRAFT_MCP_CONFIG"
+fi
 if [ "$chat_reasoning" != auto ]; then
     set -- "$@" --reasoning "$chat_reasoning"
 fi

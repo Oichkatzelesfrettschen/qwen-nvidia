@@ -100,6 +100,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-coding-agent-service.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/coding-mcp/test-coding-mcp.py
 scripts/test-coding-agent-launch.sh
 scripts/test-graft-consumer-env.sh
+"${PYTHON:?Select the intended Python interpreter}" scripts/test-graft-workflow.py
+"$PYTHON" scripts/test-graft-launch-config.py
+"$PYTHON" scripts/test-graft-admission.py
+"$PYTHON" scripts/test-serving-startup-regressions.py
+"$PYTHON" scripts/test-graft-cpu-retirement.py
+"$PYTHON" scripts/test-workload-lease-teardown-observation.py
+node scripts/test-native-graft-grant.mjs
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-graft-deep-evidence.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-record-symbols-contract.py
 scripts/test-write-artifact-manifest.sh

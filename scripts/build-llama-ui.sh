@@ -24,7 +24,7 @@ llama_source=${QWEN_LLAMA_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 source_directory=${QWEN_UI_SOURCE:-"$llama_source/tools/ui"}
 destination=${1:-"$repository_root/webui-llama-ui"}
 
-for required in node npm tar; do
+for required in node npm tar patch; do
     command -v "$required" >/dev/null 2>&1 || {
         printf 'the front end build needs %s on this host\n' "$required" >&2
         exit 1
@@ -44,7 +44,8 @@ if [ -e "$destination" ] && [ ! -f "$destination/index.html" ]; then
     exit 1
 fi
 
-work_directory=$(mktemp -d)
+mkdir -p "$repository_root/.local-artifacts"
+work_directory=$(mktemp -d "${TMPDIR:-$repository_root/.local-artifacts}/build-llama-ui.XXXXXX")
 staging=$work_directory/install
 cleanup() {
     rm -rf "$work_directory"
@@ -55,6 +56,13 @@ printf 'copying front end sources from %s\n' "$source_directory"
 mkdir -p "$work_directory/source"
 ( cd "$source_directory" && tar -cf - --exclude=node_modules --exclude=dist . ) |
     ( cd "$work_directory/source" && tar -xf - )
+
+printf 'applying the native Graft approval hook\n'
+patch --batch --forward --fuzz=0 --strip=1 --directory="$work_directory/source" \
+    <"$repository_root/patches/llama-ui-graft-approval.patch"
+mkdir -p "$work_directory/source/src/lib/services"
+cp "$repository_root/scripts/llama-ui/qwen-graft-grant.js" \
+    "$work_directory/source/src/lib/services/qwen-graft-grant.js"
 
 printf 'installing dependencies\n'
 ( cd "$work_directory/source" && npm ci --no-audit --no-fund >/dev/null )

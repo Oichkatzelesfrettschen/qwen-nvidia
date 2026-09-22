@@ -1,0 +1,59 @@
+diff --git a/src/lib/stores/agentic/index.svelte.ts b/src/lib/stores/agentic/index.svelte.ts
+--- a/src/lib/stores/agentic/index.svelte.ts
++++ b/src/lib/stores/agentic/index.svelte.ts
+@@ -30,6 +30,7 @@
+ } from '$lib/enums';
+ import { ChatService } from '$lib/services';
++import { authorizeGraftTool } from '$lib/services/qwen-graft-grant';
+ import { ReadMediaService } from '$lib/services/read-media.service';
+ import { SandboxService } from '$lib/services/sandbox.service';
+ import { ToolsService } from '$lib/services/tools.service';
+ // direct imports between stores, not via the barrel, to avoid circular deps
+@@ -83,6 +84,7 @@
+ 	getAudioInputFormat,
+ 	isAbortError
+ } from '$lib/utils';
++import { getAuthHeaders } from '$lib/utils/api-headers';
+ import { SvelteMap } from 'svelte/reactivity';
+ 
+ function createDefaultSession(): AgenticSession {
+@@ -808,7 +810,18 @@
+ 						} else if (toolSource === ToolSource.SERVER) {
+ 							const args = this.parseToolArguments(toolCall.function.arguments);
+ 							const cwd = conversationsStore.activeConversation?.cwd;
+-							const executionResult = await ToolsService.executeTool(toolName, args, signal, cwd);
++							const executionArgs = await authorizeGraftTool(
++								toolName,
++								args,
++								getAuthHeaders(),
++								signal
++							);
++							const executionResult = await ToolsService.executeTool(
++								toolName,
++								executionArgs,
++								signal,
++								cwd
++							);
+ 
+ 							result = executionResult.content;
+ 
+diff --git a/src/lib/stores/tools.svelte.ts b/src/lib/stores/tools.svelte.ts
+--- a/src/lib/stores/tools.svelte.ts
++++ b/src/lib/stores/tools.svelte.ts
+@@ -25,6 +25,7 @@
+ 	ToolCallType,
+ 	ToolSource
+ } from '$lib/enums';
++import { graftToolForModel } from '$lib/services/qwen-graft-grant';
+ import { ToolsService } from '$lib/services/tools.service';
+ // direct imports between stores, not via the barrel, to avoid circular deps
+ import { mcpStore } from '$lib/stores/mcp/index.svelte';
+@@ -297,7 +298,7 @@
+ 			result.push(def);
+ 		};
+ 
+-		for (const def of this._serverTools) take(def);
++		for (const def of this._serverTools) take(graftToolForModel(def));
+ 		for (const def of this.browserTools) take(def);
+ 		// mcpEntries() over mcpStore directly so wire shape stays normalized and aligned with the tools UI.
+ 		for (const entry of this.mcpEntries()) take(entry.definition);

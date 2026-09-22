@@ -12,7 +12,8 @@ permissions:
 jobs:
   clone-local:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Include dependency bootstrap and the exhaustive process-lifecycle gates.
+    timeout-minutes: 25
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -26,13 +27,45 @@ jobs:
       - name: Install pinned analysis tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes shellcheck tmux
+          sudo apt-get install --yes bubblewrap shellcheck tmux build-essential libcap-dev meson ninja-build pkg-config
           python3 -m venv .local-artifacts/ci/venv
           .local-artifacts/ci/venv/bin/pip install ruff==0.14.11
+
+      - name: Fetch pinned descriptor-mount sandbox
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Ubuntu 24.04 ships 0.9.0, which lacks the required --ro-bind-fd.
+          # Pin the release bytes; pathname mounts cannot preserve source identity.
+          mkdir -p .local-artifacts/ci/bubblewrap
+          gh release download v0.12.0 --repo containers/bubblewrap \
+            --pattern bubblewrap-0.12.0.tar.xz --dir .local-artifacts/ci/bubblewrap
+          printf '%s\n' '9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314  .local-artifacts/ci/bubblewrap/bubblewrap-0.12.0.tar.xz' | sha256sum --check --strict
+          tar -xf .local-artifacts/ci/bubblewrap/bubblewrap-0.12.0.tar.xz -C .local-artifacts/ci/bubblewrap
+
+      - name: Build and verify descriptor-mount sandbox
+        timeout-minutes: 3
+        env:
+          PYTHON: /usr/bin/python3
+        run: |
+          meson setup .local-artifacts/ci/bubblewrap/build .local-artifacts/ci/bubblewrap/bubblewrap-0.12.0 \
+            --buildtype=release --prefix=/usr/local -Dwerror=true -Dpython="$PYTHON" \
+            -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled -Dtests=false
+          meson compile -C .local-artifacts/ci/bubblewrap/build
+          sudo install -m 0755 .local-artifacts/ci/bubblewrap/build/bwrap /usr/local/bin/bwrap
+          # Match upstream ci/enable-userns.sh on this disposable hosted VM.
+          # This runtime-only policy change leaves the workstation policy untouched.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          test "$(command -v bwrap)" = /usr/local/bin/bwrap
+          test "$(bwrap --version)" = 'bubblewrap 0.12.0'
+          bwrap --unshare-user --ro-bind / / --ro-bind-fd 3 /mnt \
+            -- /usr/bin/test -d /mnt 3<.local-artifacts/tmp
 
       - name: Run clone-local gates
         env:
           TMPDIR: ${{ github.workspace }}/.local-artifacts/tmp
           PATH: ${{ github.workspace }}/.local-artifacts/ci/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           QWEN_GATE_HOST_ROLE: runner
+          PYTHON: /usr/bin/python3
         run: scripts/repository-quality-gates.sh

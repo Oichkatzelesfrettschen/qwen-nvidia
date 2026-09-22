@@ -146,6 +146,7 @@ case $action in
                               QWEN_WEB_TOKEN_KEY_FILE QWEN_WEB_PROFILE \
                               QWEN_WEB_PROVIDER QWEN_WEB_PROFILES \
                               QWEN_WEB_BROKER_ORIGIN \
+                              QWEN_GRAFT_CONFIG QWEN_GRAFT_MCP_CONFIG \
                               QWEN_REQUIRE_API_KEY \
                               QWEN_WEB_AUTHORIZER_READY \
                               QWEN_IMAGE_SERVICE QWEN_IMAGE_SERVICE_PROGRAM \

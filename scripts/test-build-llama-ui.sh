@@ -37,7 +37,7 @@ check() {
 system_bin=$work_directory/system-bin
 fake_bin=$work_directory/fake-bin
 mkdir -p "$system_bin" "$fake_bin"
-for utility in mktemp tar rm mkdir mv cp dirname; do
+for utility in mktemp tar rm mkdir mv cp dirname patch; do
     path=$(command -v "$utility")
     ln -s "$path" "$system_bin/$utility"
 done
@@ -55,6 +55,9 @@ case ${1:-} in
         mkdir -p dist
         printf '<!doctype html><title>llama-ui</title>\n' >dist/index.html
         cp package.json dist/built-from.json
+        cp src/lib/stores/agentic/index.svelte.ts dist/agentic-source.txt
+        cp src/lib/stores/tools.svelte.ts dist/tools-source.txt
+        cp src/lib/services/qwen-graft-grant.js dist/graft-grant.js
         exit 0
         ;;
 esac
@@ -63,10 +66,49 @@ NPM
 chmod +x "$fake_bin/node" "$fake_bin/npm"
 
 source_directory=$work_directory/ui-source
-mkdir -p "$source_directory/src"
+mkdir -p "$source_directory/src/lib/stores/agentic"
 printf '{"name":"llama-ui","scripts":{"build":"vite build"}}\n' \
     >"$source_directory/package.json"
 printf '{}\n' >"$source_directory/package-lock.json"
+cat >"$source_directory/src/lib/stores/agentic/index.svelte.ts" <<'AGENTIC'
+} from '$lib/enums';
+import { ChatService } from '$lib/services';
+import { ReadMediaService } from '$lib/services/read-media.service';
+import { SandboxService } from '$lib/services/sandbox.service';
+import { ToolsService } from '$lib/services/tools.service';
+// direct imports between stores, not via the barrel, to avoid circular deps
+
+	getAudioInputFormat,
+	isAbortError
+} from '$lib/utils';
+import { SvelteMap } from 'svelte/reactivity';
+
+function createDefaultSession(): AgenticSession {
+
+						} else if (toolSource === ToolSource.SERVER) {
+							const args = this.parseToolArguments(toolCall.function.arguments);
+							const cwd = conversationsStore.activeConversation?.cwd;
+							const executionResult = await ToolsService.executeTool(toolName, args, signal, cwd);
+
+							result = executionResult.content;
+
+AGENTIC
+cat >"$source_directory/src/lib/stores/tools.svelte.ts" <<'TOOLS'
+	ToolCallType,
+	ToolSource
+} from '$lib/enums';
+import { ToolsService } from '$lib/services/tools.service';
+// direct imports between stores, not via the barrel, to avoid circular deps
+import { mcpStore } from '$lib/stores/mcp/index.svelte';
+
+			result.push(def);
+		};
+
+		for (const def of this._serverTools) take(def);
+		for (const def of this.browserTools) take(def);
+		// mcpEntries() over mcpStore directly so wire shape stays normalized and aligned with the tools UI.
+		for (const entry of this.mcpEntries()) take(entry.definition);
+TOOLS
 
 run_builder() {
     target=$1
@@ -74,6 +116,7 @@ run_builder() {
     env -i \
         PATH="$fake_bin:$system_bin" \
         HOME="$work_directory" \
+        TMPDIR="$work_directory" \
         QWEN_UI_SOURCE="$source_directory" \
         "$@" \
         /bin/sh "$builder" "$target"
@@ -84,6 +127,19 @@ if run_builder "$destination" >"$work_directory/out" 2>"$work_directory/err"; th
     check builder_exits_zero pass
 else
     check builder_exits_zero fail "$(cat "$work_directory/err")"
+fi
+if grep -q 'authorizeGraftTool(' "$destination/agentic-source.txt" \
+    && [ -f "$destination/graft-grant.js" ] \
+    && ! grep -q 'authorizeGraftTool' "$source_directory/src/lib/stores/agentic/index.svelte.ts"; then
+    check graft_hook_installed_on_copy pass
+else
+    check graft_hook_installed_on_copy fail
+fi
+if grep -q 'take(graftToolForModel(def))' "$destination/tools-source.txt" \
+    && ! grep -q 'graftToolForModel' "$source_directory/src/lib/stores/tools.svelte.ts"; then
+    check model_schema_hook_installed_on_copy pass
+else
+    check model_schema_hook_installed_on_copy fail
 fi
 if [ -f "$destination/index.html" ] && [ -f "$destination/built-from.json" ]; then
     check install_carries_build pass
@@ -160,6 +216,19 @@ elif grep -q 'it holds no index.html' "$work_directory/err" \
     check foreign_destination_refused pass
 else
     check foreign_destination_refused fail "$(cat "$work_directory/err")"
+fi
+
+# A changed upstream call site requires an updated patch before installation.
+printf 'upstream hook moved\n' >"$source_directory/src/lib/stores/agentic/index.svelte.ts"
+if run_builder "$destination" >"$work_directory/out" 2>"$work_directory/err"; then
+    check incompatible_source_refused fail "accepted"
+else
+    check incompatible_source_refused pass
+fi
+if [ -f "$destination/index.html" ] && [ -f "$destination/graft-grant.js" ]; then
+    check incompatible_source_keeps_install pass
+else
+    check incompatible_source_keeps_install fail
 fi
 
 printf 'checks_total=%s checks_failed=%s\n' "$checks_total" "$checks_failed"

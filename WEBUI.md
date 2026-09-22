@@ -1,5 +1,9 @@
 # Web UI
 
+The native UI can start signed Graft repository jobs, poll their status and
+retrieve context. [GRAFT.md](GRAFT.md) documents the standalone launch,
+existing-tool composition, package, model choices and validation boundaries.
+
 ## Deployment boundary
 
 The workstation runs one `llama-server` process, the runtime monitor, and no
