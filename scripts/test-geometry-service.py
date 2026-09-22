@@ -35,12 +35,21 @@ import sidecar_grant  # noqa: E402
 FAKE = SCRIPTS / "test-fixtures" / "fake-optix-runtime.sh"
 SERVICE = SCRIPTS / "geometry-service.py"
 
-LEDGER = (
-    "# profile_id\tscene\tquery_set\tmax_rays\ttimeout_s\texecution_policy\tdevice_index\tmodule_cache\n"
-    "geometry-cube-test\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tenabled\n"
-    "geometry-cube-cold\tcube-and-plane\torbit\t4096\t3\tvalidator-gated\t0\tdisabled\n"
-    "geometry-cube-refused\tcube-and-plane\torbit\t4096\t3\trefused\t0\tenabled\n"
+# The fixture ledger is built from the protocol's own column tuple, so a column
+# added there reaches this file as a named default rather than as a row of the
+# wrong width. geometry-cube-resident is the row this service refuses: it
+# admits device memory held between requests and names a session the service
+# has no loop for.
+_ROWS = (
+    ("geometry-cube-test", "enabled", "validator-gated", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-cold", "disabled", "validator-gated", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-refused", "enabled", "refused", "one-shot", "1", "n-a", "n-a", "n-a", "n-a"),
+    ("geometry-cube-resident", "enabled", "validator-gated", "bounded-resident", "4", "60", "5", "512", "64"),
 )
+LEDGER = "# " + "\t".join(protocol.PROFILE_COLUMNS) + "\n" + "".join(
+    "\t".join((profile_id, "cube-and-plane", "orbit", "4096", "3", policy, "0", cache,
+                residency, requests, seconds, idle, budget, application)) + "\n"
+    for profile_id, cache, policy, residency, requests, seconds, idle, budget, application in _ROWS)
 
 
 class Harness:
@@ -164,6 +173,16 @@ def main():
             reply = harness.exchange(request(profile="geometry-cube-refused"))
             check(reply["status"] == "refused" and reply.get("reason") == "profile_refused",
                   "a refused row is refused by name")
+            # The runtime writes its stderr capture on every spawn, so the
+            # last completed job's record still standing is what proves the
+            # resident row reached no runtime rather than ran one under none
+            # of the bounds it declares.
+            before_resident = (state / "runtime-stderr.txt").read_text()
+            reply = harness.exchange(request(profile="geometry-cube-resident"))
+            check(reply["status"] == "refused" and reply.get("reason") == "profile_refused",
+                  "a bounded-resident row is refused by the one-shot service")
+            check((state / "runtime-stderr.txt").read_text() == before_resident,
+                  "the refused resident row spawned no runtime")
             reply = harness.exchange(request(profile="geometry-cube-absent"))
             check(reply["status"] == "refused" and reply.get("reason") == "profile_refused",
                   "an unknown row is refused")

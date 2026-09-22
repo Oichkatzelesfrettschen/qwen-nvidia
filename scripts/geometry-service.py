@@ -179,6 +179,11 @@ def load_profiles(path):
                 row["device_index"] = int(row["device_index"])
                 if not 0 <= row["device_index"] <= 15:
                     raise ValueError("device_index is outside [0, 15]")
+                # The residency columns are read here so a malformed session
+                # bound is refused with the rest of the ledger rather than at
+                # the moment a supervisor acts on it. This service runs the
+                # one-shot path alone; execute() refuses a resident row.
+                row["residency_bounds"] = protocol.residency_bounds(row)
             except (ValueError, protocol.ProtocolError) as error:
                 raise ProfileRefused("geometry-profiles.tsv line %d: %s" % (number, error)) from None
             if row["profile_id"] in profiles:
@@ -289,6 +294,13 @@ class GeometryService:
                 raise ProfileRefused("profile %s is not in the ledger" % profile_id)
             if profile["execution_policy"] != "validator-gated":
                 raise ProfileRefused("profile %s reads %s" % (profile_id, profile["execution_policy"]))
+            # A bounded-resident row admits device memory held between requests
+            # and names a session this service has no loop for. It is refused
+            # ahead of the lease, because a row this service will not serve has
+            # no reason to serialize against one it will.
+            if profile["residency"] != "one-shot":
+                raise ProfileRefused("profile %s reads residency %s, which this service does not serve"
+                                     % (profile_id, profile["residency"]))
             if rays > profile["max_rays"]:
                 raise InvalidArgument("rays %d exceeds the profile ceiling %d" % (rays, profile["max_rays"]))
             # A service launched with a signing key revalidates the grant the

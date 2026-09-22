@@ -18,6 +18,7 @@ usage() {
 [ "$#" -eq 1 ] || usage
 output=$1
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PYTHON=${PYTHON:-python3}
 optix_include=${QWEN_OPTIX_INCLUDE:-/usr/include/optix}
 cuda_prefix=${QWEN_CUDA_PREFIX:-/opt/cuda}
 host_cxx=${QWEN_HOST_COMPILER:-/usr/bin/g++-15}
@@ -34,7 +35,7 @@ trap 'rm -rf "$work"' EXIT
     -o "$work/optix-ray-programs.ptx" "$source_directory/optix-ray-programs.cu"
 # the PTX travels inside the binary as one string constant, so the binary's
 # digest covers the device programs
-python3 - "$work/optix-ray-programs.ptx" "$work/optix-ray-programs-ptx.h" <<'PY'
+"$PYTHON" - "$work/optix-ray-programs.ptx" "$work/optix-ray-programs-ptx.h" <<'PY'
 import sys
 ptx = open(sys.argv[1], "rb").read()
 with open(sys.argv[2], "w", encoding="ascii") as out:
@@ -44,7 +45,19 @@ with open(sys.argv[2], "w", encoding="ascii") as out:
         out.write("    " + ",".join("0x%02x" % b for b in ptx[i:i+16]) + ",\n")
     out.write("    0x00\n};\n")
 PY
-"$host_cxx" -std=c++17 -O2 -DNDEBUG -Wall -Wextra -Werror -o "$output" \
+# The runtime speaks the resident line protocol scripts/geometry_protocol.py
+# defines, so the version is read out of that module and compiled in rather
+# than written twice. A protocol change moves the binary's digest, which is
+# what a supervisor compares before it sends a request.
+protocol_version=$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); import geometry_protocol; print(geometry_protocol.PROTOCOL_VERSION)' "$script_directory")
+case $protocol_version in '' | *[!0-9]*) printf 'geometry_protocol.PROTOCOL_VERSION is not an integer: %s\n' "$protocol_version" >&2; exit 1 ;; esac
+printf 'geometry_protocol_version=%s\n' "$protocol_version"
+authorization_s=$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); import geometry_protocol; print(geometry_protocol.RETIREMENT_AUTHORIZATION_S)' "$script_directory")
+case $authorization_s in '' | *[!0-9]*) printf 'geometry_protocol.RETIREMENT_AUTHORIZATION_S is not an integer: %s\n' "$authorization_s" >&2; exit 1 ;; esac
+printf 'geometry_retirement_authorization_s=%s\n' "$authorization_s"
+"$host_cxx" -std=c++17 -O2 -DNDEBUG -Wall -Wextra -Werror \
+    -DGEOMETRY_PROTOCOL_VERSION="$protocol_version" \
+    -DGEOMETRY_RETIREMENT_AUTHORIZATION_S="$authorization_s" -o "$output" \
     "$source_directory/optix-ray-runtime.cpp" \
     -I"$optix_include" -I"$cuda_prefix/include" -I"$source_directory" -I"$work" \
     -L"$cuda_prefix/lib64" -lcudart -lcuda -ldl -lpthread \
