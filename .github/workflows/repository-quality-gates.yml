@@ -27,7 +27,7 @@ jobs:
       - name: Install pinned analysis tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bubblewrap shellcheck tmux build-essential libcap-dev meson ninja-build pkg-config
+          sudo apt-get install --yes bubblewrap shellcheck tmux build-essential libcap-dev meson ninja-build pkg-config nodejs
           python3 -m venv .local-artifacts/ci/venv
           .local-artifacts/ci/venv/bin/pip install ruff==0.14.11
 
@@ -61,6 +61,13 @@ jobs:
           test "$(bwrap --version)" = 'bubblewrap 0.12.0'
           bwrap --unshare-user --ro-bind / / --ro-bind-fd 3 /mnt \
             -- /usr/bin/test -d /mnt 3<.local-artifacts/tmp
+          # Graft queries execute /usr/bin/node inside the /usr-only sandbox;
+          # the hosted image's separate Node installation does not supply that path.
+          test -x /usr/bin/node
+          bwrap --unshare-all --ro-bind /usr /usr --symlink usr/bin /bin \
+            --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev \
+            -- /usr/bin/node --input-type=module -e \
+            'import assert from "node:assert/strict"; import fs from "node:fs"; assert.equal(typeof fs.readFileSync, "function"); console.log(process.execPath, process.version);'
 
       - name: Run clone-local gates
         env:
