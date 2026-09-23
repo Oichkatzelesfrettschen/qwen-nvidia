@@ -8,7 +8,7 @@ model to return structured records, including the named `record_symbols`
 function. Graft supplies repository context; an agent still decides and applies
 code changes through its separately authorized editing tools.
 
-The [local package recipe](https://github.com/Oichkatzelesfrettschen/PKGBUILDS/tree/main/local/graft)
+The [local package recipe](https://github.com/Oichkatzelesfrettschen/PKGBUILDS/tree/4076a6cccf7ee7d190607e218ca7d2d167d233db/local/graft)
 lives in the PKGBUILDS repository at `local/graft`; the installed patched package
 is `graft 0.18.0-3`.
 It pins published 0.18.0 at `de8456e892bad5aeee11403e47fb2227773eb27e`.
