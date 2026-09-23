@@ -4,8 +4,9 @@ The private operator profile at `.local-artifacts/graft-discobsd/config.json`
 sets both `discobsd.allowed_paths` and `discobsd_snapshot.allowed_paths` to
 `[]`, with a bounded 28800-second job limit. `discobsd` names the live checkout;
 `discobsd_snapshot` names a detached worktree at a fixed source commit. The
-profile keeps the OpenAI-compatible model endpoint at loopback and uses
-Graft's installed 0.18.0-2 package. The selected model is
+profile keeps the OpenAI-compatible model endpoint at loopback. Attempts
+1-3 used Graft 0.18.0-2; the installed package is now 0.18.0-3, whose
+`-j 1` bound reaches both the concept and symbol passes. The selected model is
 Qwen3.8-4B-Distill Q4_K_M under CUDA closure `39a6bc778ef4`; the model
 comparison and its semantic caveats are in
 `evidence/ada/graft-model-comparison/README.md`.
