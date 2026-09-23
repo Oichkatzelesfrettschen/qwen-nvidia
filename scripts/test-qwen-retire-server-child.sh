@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+: "${PYTHON:?Select the intended Python interpreter}"
 
 script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 retire_child=$script_directory/qwen-retire-server-child.sh
@@ -26,9 +27,19 @@ start_fixture() {
             trap on_term TERM
             wait_pipe=$1.wait
             mkfifo "$wait_pipe"
+            printf ready >"$1.ready"
             while :; do read -r wait_value <"$wait_pipe" || true; done
         ' sh "$fixture_log" >"$fixture_log" 2>&1 &
     fixture_pid=$!
+    attempt=0
+    while [ ! -f "$fixture_log.ready" ] && [ "$attempt" -lt 300 ]; do
+        attempt=$((attempt + 1))
+        sleep 0.01
+    done
+    [ -f "$fixture_log.ready" ] || {
+        printf 'retirement fixture did not establish its session and signal handler\n' >&2
+        exit 1
+    }
     fixture_start=$(sed 's/^.*) //' "/proc/$fixture_pid/stat" | awk '{ print $20 }')
 }
 
@@ -113,14 +124,15 @@ printf '%s\n' "$router_output" | grep -qx 'teardown: held=yes'
 
 orphan_log=$temporary_directory/orphan.log
 orphan_marker=$temporary_directory/orphan.pid
-QWEN_TEST_ORPHAN_MARKER=$orphan_marker setsid python3 -c '
+QWEN_TEST_ORPHAN_MARKER=$orphan_marker setsid "$PYTHON" -c '
 import os
 import signal
 import subprocess
+import sys
 import time
 
 child = subprocess.Popen(
-    ["python3", "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(300)"]
+    [sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(300)"]
 )
 with open(os.environ["QWEN_TEST_ORPHAN_MARKER"], "w", encoding="ascii") as marker:
     marker.write(str(child.pid) + "\n")

@@ -32,7 +32,7 @@
 #   QWEN_SYMBOLS_SOURCE  the DiscoBSD tree
 #   QWEN_SYMBOLS_FILES   space-separated probe files
 set -eu
-PYTHON=${PYTHON:-python3}
+: "${PYTHON:?Select the intended Python interpreter}"
 # Thirteen graded columns sit between the file name and the outcome, which
 # record-symbols-contract.py prints as its own header.
 EMPTY='	-	-	-	-	-	-	-	-	-	-	-	-	-'
@@ -65,19 +65,69 @@ for f in $FILES; do
 done
 
 "$PYTHON" "$CONTRACT" columns >"$OUT/symbols.tsv"
-trap '"$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true' EXIT
+attempt_model=''
+attempt_nonce=''
+nonce_file=''
+launch_pid=''
+header=''
+cleanup_server() {
+    if [ -n "$launch_pid" ]; then
+        kill -TERM -- "-$launch_pid" 2>/dev/null || true
+        wait "$launch_pid" 2>/dev/null || true
+        launch_pid=''
+    fi
+    if [ -n "$header" ]; then
+        rm -f -- "$header"
+        header=''
+    fi
+    if [ -n "$attempt_nonce" ]; then
+        expected="QWEN_LAUNCH_ATTEMPT_NONCE=$attempt_nonce"
+        observed=''
+        attempt=0
+        while [ "$attempt" -lt 20 ]; do
+            observed=$(tmux -L qwen-runtime show-environment -t qwen-webui \
+                QWEN_LAUNCH_ATTEMPT_NONCE 2>/dev/null) || observed=''
+            [ "$observed" = "$expected" ] && break
+            if tmux -L qwen-runtime has-session -t qwen-webui 2>/dev/null; then
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep 0.1
+        done
+        if [ "$observed" = "$expected" ]; then
+            "$Q/scripts/qwen-teardown.sh" >"$OUT/$attempt_model.teardown" 2>&1
+        fi
+    fi
+    attempt_model=''
+    attempt_nonce=''
+    if [ -n "$nonce_file" ]; then
+        rm -f -- "$nonce_file"
+        nonce_file=''
+    fi
+}
+trap cleanup_server EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 for id in $IDS; do
     row=$("$Q/scripts/model-registry.sh" id "$id")
     file=$(printf '%s\n' "$row" | sed -n 's/^model_file=//p')
-    "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
-    if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=512 QWEN_CONTEXT_SIZE=16384 \
+    cleanup_server
+    nonce_file=$(mktemp "$OUT/.session-attempt.XXXXXX")
+    attempt_nonce=${nonce_file##*/}
+    attempt_model=$id
+    setsid env QWEN_LAUNCH_ATTEMPT_NONCE=$attempt_nonce \
+        QWEN_REQUIRE_API_KEY=1 QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=512 QWEN_CONTEXT_SIZE=16384 \
         QWEN_MODEL_PATH=$HOME/models/$file "$Q/scripts/qwen-launch.sh" default \
-        >"$OUT/$id.launch" 2>&1; then
+        >"$OUT/$id.launch" 2>&1 &
+    launch_pid=$!
+    launch_status=0
+    wait "$launch_pid" || launch_status=$?
+    launch_pid=''
+    if [ "$launch_status" -ne 0 ]; then
+        cleanup_server
         for f in $FILES; do
-            printf '%s\t%s%s\tlaunch_failed\n' "$id" "$f" "$EMPTY" >>"$OUT/symbols.tsv"
+            printf '%s\t%s%b\tlaunch_failed\n' "$id" "$f" "$EMPTY" >>"$OUT/symbols.tsv"
         done
         continue
     fi
@@ -88,7 +138,7 @@ for id in $IDS; do
         [ -s "$stem.request.json" ] || continue
         answer=$OUT/$id.$(basename "$f").symbols.json
         s=$("$PYTHON" -c 'import time; print(time.monotonic_ns()//1000000)')
-        status=$(curl --silent --max-time "$TIMEOUT" --config "$header" --output "$answer" \
+        status=$(curl --user-agent 'Mozilla/5.0' --silent --max-time "$TIMEOUT" --config "$header" --output "$answer" \
             --write-out '%{http_code}' -H 'Content-Type: application/json' \
             --data-binary "@$stem.request.json" \
             "http://127.0.0.1:$PORT/v1/chat/completions") || status=transport
@@ -98,4 +148,7 @@ for id in $IDS; do
     done
     rm -f "$header"
 done
+cleanup_server
 printf 'symbols_done\n' >>"$OUT/symbols.tsv"
+awk -F '\t' 'NR > 1 && $0 != "symbols_done" { rows++; if ($NF != "pass") failed=1 }
+    END { exit (failed || rows == 0) }' "$OUT/symbols.tsv"

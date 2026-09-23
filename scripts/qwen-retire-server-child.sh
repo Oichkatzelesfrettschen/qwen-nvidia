@@ -66,14 +66,21 @@ if [ "$server_session_id" != "$server_pid" ]; then
 fi
 
 serving_session_members() {
+    # A host can have thousands of unrelated processes. Parse each stat row
+    # with shell builtins so retirement cost follows proc reads, not forks.
     for member_stat in /proc/[0-9]*/stat; do
+        set -f
         [ -r "$member_stat" ] || continue
-        member_fields=$(sed 's/^.*) //' "$member_stat" 2>/dev/null) || continue
-        [ "$(printf '%s\n' "$member_fields" | awk '{ print $4 }')" = "$server_session_id" ] || continue
+        IFS= read -r member_line <"$member_stat" 2>/dev/null || continue
+        member_fields=${member_line##*) }
+        set -- $member_fields
+        [ "$#" -ge 20 ] || continue
+        [ "$4" = "$server_session_id" ] || continue
         member_pid=${member_stat#/proc/}
         member_pid=${member_pid%/stat}
-        member_start=$(printf '%s\n' "$member_fields" | awk '{ print $20 }')
-        member_state=$(printf '%s\n' "$member_fields" | awk '{ print $1 }')
+        member_state=$1
+        shift 19
+        member_start=$1
         [ "$member_state" = Z ] || [ "$member_state" = X ] ||
             printf '%s:%s\n' "$member_pid" "$member_start"
     done
@@ -112,10 +119,43 @@ if [ -f "$server_log" ]; then
         ' "$server_log")
     fi
 fi
+graft_cpu_identities=
+graft_cpu_proof=1
+if [ "${QWEN_ROUTER:-0}" != 1 ] && [ -n "${QWEN_GRAFT_CONFIG:-}" ] &&
+   [ -n "${QWEN_GRAFT_MCP_CONFIG:-}" ]; then
+    script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+    if [ -z "${PYTHON:-}" ]; then
+        printf 'graft_cpu_retirement=refused reason=python_unselected\n' >&2
+        graft_cpu_proof=0
+    elif graft_cpu_record=$(PYTHONDONTWRITEBYTECODE=1 "$PYTHON" "$script_directory/graft-retire-cpu-children.py" \
+            "$server_pid" "$server_start_time" --deadline-ms "$escalation_ms"); then
+        printf '%s\n' "$graft_cpu_record"
+        graft_cpu_identities=$(printf '%s\n' "$graft_cpu_record" | sed -n 's/^graft_cpu_identity=//p' | tr '\n' ' ')
+    else
+        graft_cpu_proof=0
+    fi
+fi
+# The Graft helper validates live worker generations before cancellation. A
+# separate earlier tree capture can retain a short Git child that exits before
+# the helper starts, leaving only an unprovable historical PID. One post-helper
+# capture makes the validated identities and escalation inventory share the
+# same observation boundary while still refusing every live unknown child.
 capture_tree "$server_pid"
+unattributed_processes=
+for owned_identity in $owned_processes; do
+    owned_process_alive "$owned_identity" || continue
+    case " $graft_cpu_identities " in
+        *" $owned_identity "*) ;;
+        *) unattributed_processes="$unattributed_processes $owned_identity" ;;
+    esac
+done
 
-
-kill -TERM "$server_pid" 2>/dev/null || true
+if [ -r "/proc/$server_pid/stat" ] && ! process_identity_matches; then
+    printf 'server_retirement=refused reason=identity_changed_during_cpu_retirement pid=%s\n' \
+        "$server_pid" >&2
+    exit 1
+fi
+process_identity_matches && kill -TERM "$server_pid" 2>/dev/null || true
 waited_ms=0
 while ! process_has_terminated && [ "$waited_ms" -lt "$escalation_ms" ]; do
     sleep 0.05
@@ -208,7 +248,8 @@ $router_generations
 EOF
     fi
     if { [ "${QWEN_ROUTER:-0}" = 1 ] && [ "$router_proof" -eq 1 ]; } ||
-       { [ "${QWEN_ROUTER:-0}" != 1 ] && [ -z "$owned_processes" ] &&
+       { [ "${QWEN_ROUTER:-0}" != 1 ] && [ -z "$unattributed_processes" ] &&
+         [ "$graft_cpu_proof" -eq 1 ] &&
          [ "$teardown_no" -eq 0 ] && [ "$teardown_yes" -eq 1 ]; }; then
         printf 'teardown: held=yes\n'
     elif [ "$teardown_no" -gt 0 ]; then

@@ -47,7 +47,10 @@ if [ "$preset" = --rollback ]; then
     exit 0
 fi
 
-build_directory=$source_directory/build-$preset
+# ldd resolves a linked build's library paths through its physical directory.
+# Resolve the build once so the manifest and load-closure checks name the same
+# directory even when an isolated build is registered through a symlink.
+build_directory=$(readlink -f "$source_directory/build-$preset")
 manifest_path=$build_directory/artifact-manifest.tsv
 server_path=$build_directory/bin/llama-server
 client_path=$build_directory/bin/llama-cli
@@ -326,6 +329,7 @@ run_multimodal_smoke() {
     multimodal_output=$(nice -n 19 "$multimodal_path" \
         --model "$promotion_vision_model" --mmproj "$promotion_projector" \
         --image "$promotion_image" --device "$smoke_device" --n-gpu-layers all \
+        --override-tensor ".*=$smoke_device" \
         --ctx-size 4096 --batch-size 128 --ubatch-size 32 --threads 1 \
         --n-predict 64 --temp 0 --seed 1 \
         --prompt 'Name the colours of the shapes in this image.' 2>&1) || {

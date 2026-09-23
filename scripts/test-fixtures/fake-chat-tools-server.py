@@ -5,14 +5,16 @@ must refuse: a call to another function, no call at all, arguments that do
 not parse, ok recorded as false, a reply cut at the token cap, an HTTP
 error, and prose that quotes the field name.
 
-usage: fake-chat-tools-server.py PORT API_KEY MODE
-MODE: jinja | prose | wrong_function | empty_calls | bad_arguments |
+usage: fake-chat-tools-server.py PORT API_KEY_FILE MODE
+MODE: jinja | string_only | auto_probe | prose | wrong_function | empty_calls | bad_arguments |
       ok_false | truncated | http_error | quoted_field
 """
 
 import http.server
 import json
+import os
 import sys
+from pathlib import Path
 
 REQUEST_BODY_BYTE_CAP = 65536
 
@@ -47,6 +49,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         length = min(int(self.headers.get("Content-Length", "0")), REQUEST_BODY_BYTE_CAP)
         request = json.loads(self.rfile.read(length) or b"{}")
+        if self.headers.get("User-Agent") != "Mozilla/5.0":
+            self._send(400, {"error": "expected Mozilla user agent"})
+            return
+        if request.get("model") != os.environ.get("FIXTURE_EXPECTED_MODEL", "qwen-nvidia"):
+            self._send(400, {"error": "unexpected model alias"})
+            return
         if self.mode == "http_error":
             self._send(500, {"error": {"message": "slot unavailable", "tool_calls": []}})
             return
@@ -68,20 +76,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(400, {"error": {"message":
                            "tool_choice names a function the request offers no tool for"}})
                 return
-            forced = True
+            forced = self.mode != "string_only"
+        if self.mode == "jinja" and (
+            choice not in ("auto", {"type": "function", "function": {"name": "record_probe"}})
+            or offered != ["record_graph", "record_probe"]
+            or request.get("messages") != [{"role": "user", "content":
+                "Call record_graph with ok set to true. Do not call record_probe."}]
+        ):
+            self._send(400, {"error": "expected paired choice probe with conflicting prompt"})
+            return
         finish = "stop"
-        if self.mode == "jinja" and request.get("tools") and forced:
+        expected = "record_graph" if choice == "auto" else "record_probe"
+        if self.mode == "auto_probe":
             message = call("record_probe", "{\"ok\":true}")
+        elif self.mode in ("jinja", "string_only") and request.get("tools"):
+            message = call("record_probe" if forced else "record_graph", "{\"ok\":true}")
         elif self.mode == "wrong_function":
             message = call("record_graph", "{\"ok\":true}")
         elif self.mode == "empty_calls":
             message = {"role": "assistant", "content": None, "tool_calls": []}
         elif self.mode == "bad_arguments":
-            message = call("record_probe", "{\"ok\":")
+            message = call(expected, "{\"ok\":")
         elif self.mode == "ok_false":
-            message = call("record_probe", "{\"ok\":false}")
+            message = call(expected, "{\"ok\":false}")
         elif self.mode == "truncated":
-            message = call("record_probe", "{\"ok\":true}")
+            message = call(expected, "{\"ok\":true}")
             finish = "length"
         elif self.mode == "quoted_field":
             message = {"role": "assistant", "content": "I would put \"tool_calls\" here."}
@@ -99,7 +118,7 @@ def call(name, arguments):
     }
 
 
-MODES = ("jinja", "prose", "wrong_function", "empty_calls", "bad_arguments",
+MODES = ("jinja", "string_only", "auto_probe", "prose", "wrong_function", "empty_calls", "bad_arguments",
          "ok_false", "truncated", "http_error", "quoted_field")
 
 
@@ -107,7 +126,7 @@ def main():
     if len(sys.argv) != 4 or sys.argv[3] not in MODES:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         sys.exit(2)
-    Handler.api_key = sys.argv[2]
+    Handler.api_key = Path(sys.argv[2]).read_text().strip()
     Handler.mode = sys.argv[3]
     http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
 

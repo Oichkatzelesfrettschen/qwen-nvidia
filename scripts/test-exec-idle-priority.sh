@@ -5,10 +5,13 @@ set -eu
 # before the process it belongs to executes, and that it is absolute rather than
 # an offset against whatever launched it.
 #
-# Every arm calls the subject from nice 5, so a relative increment and an
-# absolute value are distinguishable in the arms that can distinguish them. The
-# arm that runs from a negative nice is unrun here, because lowering a nice
-# value requires privilege this test declines to take;
+# Every arm establishes absolute nice 5 in a SCHED_OTHER child and checks that
+# precondition before calling the subject. Relative `nice -n 5` saturates at 19
+# under an already-niced test runner and makes a removed renice look correct.
+# SCHED_IDLE displays a dash in ps's NI column, so the child establishes the
+# scheduler class whose numeric read-back the subject consumes. A host that
+# refuses either fixture precondition reports that prerequisite explicitly.
+# The arm that runs from a negative nice is unrun here;
 # evidence/exec-idle-priority.md records that gap and what the remaining arms
 # establish without it.
 
@@ -18,6 +21,26 @@ fake_runtime=$script_directory/test-fixtures/fake-image-runtime.sh
 
 work_directory=$(mktemp -d)
 trap 'rm -rf "$work_directory"' EXIT
+
+cat >"$work_directory/caller.sh" <<'CALLER'
+#!/bin/sh
+set -eu
+if ! /usr/bin/renice --priority 5 --pid "$$" >/dev/null 2>&1; then
+    printf 'fixture prerequisite refused: establish absolute nice 5\n' >&2
+    exit 124
+fi
+if ! /usr/bin/chrt --other --pid 0 "$$" 2>/dev/null; then
+    printf 'fixture prerequisite refused: establish SCHED_OTHER\n' >&2
+    exit 124
+fi
+observed_nice=$(LC_ALL=C /usr/bin/ps -o ni= -p "$$" | /usr/bin/awk '{print $1}')
+if [ "$observed_nice" != 5 ]; then
+    printf 'fixture prerequisite refused: expected nice=5 observed=%s\n' "$observed_nice" >&2
+    exit 124
+fi
+exec "$@"
+CALLER
+chmod +x "$work_directory/caller.sh"
 
 failures=0
 check() {
@@ -34,14 +57,20 @@ record_priority() {
     shift
     rm -f "$record"
     QWEN_FAKE_IMAGE_PRIORITY_RECORD=$record \
-        nice -n 5 "$@" "$fake_runtime" \
+        "$work_directory/caller.sh" "$@" "$fake_runtime" \
         --output "$work_directory/arm.png" --width 8 --height 8 --seed 1 \
         >"$work_directory/arm.out" 2>"$work_directory/arm.err"
 }
 
 # A caller at nice 5 reaches the runtime's first instruction at nice 19 and in
 # the idle I/O class.
-record_priority "$work_directory/plain.txt" "$wrapper"
+if record_priority "$work_directory/plain.txt" "$wrapper"; then
+    :
+else
+    initial_status=$?
+    cat "$work_directory/arm.err" >&2
+    exit "$initial_status"
+fi
 check 'runtime state under the wrapper' 'nice=19 ioclass=idle' \
     "$(cat "$work_directory/plain.txt" 2>/dev/null || printf unrecorded)"
 check 'wrapper announces readiness' 1 \

@@ -92,8 +92,8 @@ deadline as an argument and 0 names exactly that -- rather than the load's
 deadline, because a shutdown blocked behind a 300 second generation would
 outlive the absence qwen-teardown.sh proves, while a free that overlaps a holder
 costs that holder a device synchronize rather than correctness. The teardown
-line names which of the two happened, so a free outside the lease is recorded
-rather than assumed away.
+line reports ownership before every free, including teardown that retains an
+active pass's lease. A free outside the lease records held=no.
 
 The release reports what the kernel confirmed. flock(LOCK_UN) fails before it
 changes anything -- EBADF or EINVAL on the descriptor, never a partial release
@@ -443,13 +443,13 @@ index a9edbd7..4d08fd3 100644
 +        // rather than the load's deadline: a shutdown blocked behind a 300
 +        // second generation would outlive the absence qwen-teardown.sh proves,
 +        // and a free that overlaps a holder costs that holder a device
-+        // synchronize rather than correctness. The line names which of the two
-+        // this teardown did.
++        // synchronize rather than correctness. Every teardown reports ownership,
++        // including an active pass's retained lease, before freeing buffers.
 +        if (!workload_lease_held) {
 +            workload_lease_acquire_bounded(0);
-+            SRV_INF("vulkan workload lease teardown: held=%s\n",
-+                    workload_lease_held ? "yes" : "no");
 +        }
++        SRV_INF("vulkan workload lease teardown: held=%s\n",
++                workload_lease_held ? "yes" : "no");
 +
 +        workload_lease_sync_device();
 +

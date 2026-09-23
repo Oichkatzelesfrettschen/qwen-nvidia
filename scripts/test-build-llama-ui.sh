@@ -37,7 +37,7 @@ check() {
 system_bin=$work_directory/system-bin
 fake_bin=$work_directory/fake-bin
 mkdir -p "$system_bin" "$fake_bin"
-for utility in mktemp tar rm mkdir mv cp dirname; do
+for utility in mktemp tar rm mkdir mv cp dirname patch sed grep; do
     path=$(command -v "$utility")
     ln -s "$path" "$system_bin/$utility"
 done
@@ -53,8 +53,11 @@ case ${1:-} in
     run)
         [ "${FAKE_NPM_EMPTY_BUILD:-0}" = 1 ] && exit 0
         mkdir -p dist
-        printf '<!doctype html><title>llama-ui</title>\n' >dist/index.html
+        printf '<!doctype html><html><head><title>llama-ui</title></head></html>\n' >dist/index.html
         cp package.json dist/built-from.json
+        cp src/lib/stores/agentic/index.svelte.ts dist/agentic-source.txt
+        cp src/lib/stores/tools.svelte.ts dist/tools-source.txt
+        cp src/lib/services/qwen-graft-grant.js dist/graft-grant.js
         exit 0
         ;;
 esac
@@ -63,10 +66,49 @@ NPM
 chmod +x "$fake_bin/node" "$fake_bin/npm"
 
 source_directory=$work_directory/ui-source
-mkdir -p "$source_directory/src"
+mkdir -p "$source_directory/src/lib/stores/agentic"
 printf '{"name":"llama-ui","scripts":{"build":"vite build"}}\n' \
     >"$source_directory/package.json"
 printf '{}\n' >"$source_directory/package-lock.json"
+cat >"$source_directory/src/lib/stores/agentic/index.svelte.ts" <<'AGENTIC'
+} from '$lib/enums';
+import { ChatService } from '$lib/services';
+import { ReadMediaService } from '$lib/services/read-media.service';
+import { SandboxService } from '$lib/services/sandbox.service';
+import { ToolsService } from '$lib/services/tools.service';
+// direct imports between stores, not via the barrel, to avoid circular deps
+
+	getAudioInputFormat,
+	isAbortError
+} from '$lib/utils';
+import { SvelteMap } from 'svelte/reactivity';
+
+function createDefaultSession(): AgenticSession {
+
+						} else if (toolSource === ToolSource.SERVER) {
+							const args = this.parseToolArguments(toolCall.function.arguments);
+							const cwd = conversationsStore.activeConversation?.cwd;
+							const executionResult = await ToolsService.executeTool(toolName, args, signal, cwd);
+
+							result = executionResult.content;
+
+AGENTIC
+cat >"$source_directory/src/lib/stores/tools.svelte.ts" <<'TOOLS'
+	ToolCallType,
+	ToolSource
+} from '$lib/enums';
+import { ToolsService } from '$lib/services/tools.service';
+// direct imports between stores, not via the barrel, to avoid circular deps
+import { mcpStore } from '$lib/stores/mcp/index.svelte';
+
+			result.push(def);
+		};
+
+		for (const def of this._serverTools) take(def);
+		for (const def of this.browserTools) take(def);
+		// mcpEntries() over mcpStore directly so wire shape stays normalized and aligned with the tools UI.
+		for (const entry of this.mcpEntries()) take(entry.definition);
+TOOLS
 
 run_builder() {
     target=$1
@@ -74,6 +116,7 @@ run_builder() {
     env -i \
         PATH="$fake_bin:$system_bin" \
         HOME="$work_directory" \
+        TMPDIR="$work_directory" \
         QWEN_UI_SOURCE="$source_directory" \
         "$@" \
         /bin/sh "$builder" "$target"
@@ -85,10 +128,29 @@ if run_builder "$destination" >"$work_directory/out" 2>"$work_directory/err"; th
 else
     check builder_exits_zero fail "$(cat "$work_directory/err")"
 fi
+if grep -q 'authorizeGraftTool(' "$destination/agentic-source.txt" \
+    && [ -f "$destination/graft-grant.js" ] \
+    && ! grep -q 'authorizeGraftTool' "$source_directory/src/lib/stores/agentic/index.svelte.ts"; then
+    check graft_hook_installed_on_copy pass
+else
+    check graft_hook_installed_on_copy fail
+fi
+if grep -q 'take(graftToolForModel(def))' "$destination/tools-source.txt" \
+    && ! grep -q 'graftToolForModel' "$source_directory/src/lib/stores/tools.svelte.ts"; then
+    check model_schema_hook_installed_on_copy pass
+else
+    check model_schema_hook_installed_on_copy fail
+fi
 if [ -f "$destination/index.html" ] && [ -f "$destination/built-from.json" ]; then
     check install_carries_build pass
 else
     check install_carries_build fail "$(find "$destination" -mindepth 1 -maxdepth 1 2>&1 | tr '\n' ' ')"
+fi
+if grep -q 'name="qwen-graft-broker-origin" content="http://127.0.0.1:8571"' \
+    "$destination/index.html"; then
+    check default_broker_origin_is_serve_configured pass
+else
+    check default_broker_origin_is_serve_configured fail
 fi
 if [ ! -e "$source_directory/node_modules" ] && [ ! -e "$source_directory/dist" ]; then
     check pinned_checkout_untouched pass
@@ -107,11 +169,56 @@ fi
 if [ -d "$destination" ]; then
     printf 'stale\n' >"$destination/stale.txt"
 fi
-run_builder "$destination" >/dev/null 2>&1 || true
-if [ -f "$destination/index.html" ] && [ ! -e "$destination/stale.txt" ]; then
+run_builder "$destination" QWEN_WEB_BROKER_PORT=9000 >/dev/null 2>&1 || true
+if [ -f "$destination/index.html" ] && [ ! -e "$destination/stale.txt" ] \
+    && grep -q 'name="qwen-graft-broker-origin" content="http://127.0.0.1:9000"' \
+        "$destination/index.html"; then
     check reinstall_replaces_tree pass
 else
     check reinstall_replaces_tree fail "$(find "$destination" -mindepth 1 -maxdepth 1 | tr '\n' ' ')"
+fi
+
+stale_ui=$work_directory/stale-ui
+mkdir -p "$stale_ui"
+printf '<!doctype html><html><head></head></html>\n' >"$stale_ui/index.html"
+if env -i PATH=/usr/bin:/bin HOME="$work_directory" PYTHON="${PYTHON:?Select the intended Python interpreter}" \
+    QWEN_STATIC_PATH="$stale_ui" QWEN_WEB_BROKER_PORT=8571 \
+    "$script_directory/qwen-graft-launch.sh" "$work_directory/absent-config" \
+    >"$work_directory/out" 2>"$work_directory/err"; then
+    check stale_native_ui_refused fail accepted
+elif grep -q 'native UI lacks matching Graft broker metadata' "$work_directory/err"; then
+    check stale_native_ui_refused pass
+else
+    check stale_native_ui_refused fail "$(cat "$work_directory/err")"
+fi
+if env -i PATH=/usr/bin:/bin HOME="$work_directory" PYTHON="$PYTHON" \
+    QWEN_STATIC_PATH="$destination" QWEN_WEB_BROKER_PORT=8571 \
+    "$script_directory/qwen-graft-launch.sh" "$work_directory/absent-config" \
+    >"$work_directory/out" 2>"$work_directory/err"; then
+    check mismatched_native_ui_broker_refused fail accepted
+elif grep -q 'native UI lacks matching Graft broker metadata' "$work_directory/err"; then
+    check mismatched_native_ui_broker_refused pass
+else
+    check mismatched_native_ui_broker_refused fail "$(cat "$work_directory/err")"
+fi
+if env -i PATH=/usr/bin:/bin HOME="$work_directory" PYTHON="$PYTHON" \
+    QWEN_STATIC_PATH="$destination" QWEN_WEB_BROKER_PORT=9000 \
+    "$script_directory/qwen-graft-launch.sh" "$work_directory/absent-config" \
+    >"$work_directory/out" 2>"$work_directory/err"; then
+    check matching_native_ui_broker_reaches_config fail accepted
+elif grep -q 'Graft launch configuration refused' "$work_directory/err"; then
+    check matching_native_ui_broker_reaches_config pass
+else
+    check matching_native_ui_broker_reaches_config fail "$(cat "$work_directory/err")"
+fi
+
+if run_builder "$work_directory/invalid-port" QWEN_WEB_BROKER_PORT=99999 \
+    >/dev/null 2>"$work_directory/err"; then
+    check invalid_broker_port_refused fail accepted
+elif grep -q 'between 1 and 65535' "$work_directory/err"; then
+    check invalid_broker_port_refused pass
+else
+    check invalid_broker_port_refused fail "$(cat "$work_directory/err")"
 fi
 
 if run_builder "$work_directory/absent-source" \
@@ -160,6 +267,19 @@ elif grep -q 'it holds no index.html' "$work_directory/err" \
     check foreign_destination_refused pass
 else
     check foreign_destination_refused fail "$(cat "$work_directory/err")"
+fi
+
+# A changed upstream call site requires an updated patch before installation.
+printf 'upstream hook moved\n' >"$source_directory/src/lib/stores/agentic/index.svelte.ts"
+if run_builder "$destination" >"$work_directory/out" 2>"$work_directory/err"; then
+    check incompatible_source_refused fail "accepted"
+else
+    check incompatible_source_refused pass
+fi
+if [ -f "$destination/index.html" ] && [ -f "$destination/graft-grant.js" ]; then
+    check incompatible_source_keeps_install pass
+else
+    check incompatible_source_keeps_install fail
 fi
 
 printf 'checks_total=%s checks_failed=%s\n' "$checks_total" "$checks_failed"

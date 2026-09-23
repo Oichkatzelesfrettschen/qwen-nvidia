@@ -125,9 +125,9 @@ case $action in
         # router-parent speculation argument; forwarding them here would hand
         # the refusal something to refuse instead of leaving the registry's
         # per-checkpoint speculation_profile column in control.
-        for forwarded_name in QWEN_SERVING_BACKEND QWEN_CUDA_DEVICES \
+        for forwarded_name in PYTHON QWEN_SERVING_BACKEND QWEN_CUDA_DEVICES \
                               QWEN_SERVING_NICE QWEN_SERVING_CPU_LIST \
-                              QWEN_SERVING_THREADS \
+                              QWEN_SERVING_THREADS QWEN_SWAPIN_HEADROOM_KIB \
                               QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
                               QWEN_INFERENCE_CPU \
                               QWEN_BACKEND_SAMPLING \
@@ -146,6 +146,7 @@ case $action in
                               QWEN_WEB_TOKEN_KEY_FILE QWEN_WEB_PROFILE \
                               QWEN_WEB_PROVIDER QWEN_WEB_PROFILES \
                               QWEN_WEB_BROKER_ORIGIN \
+                              QWEN_GRAFT_CONFIG QWEN_GRAFT_MCP_CONFIG \
                               QWEN_REQUIRE_API_KEY \
                               QWEN_WEB_AUTHORIZER_READY \
                               QWEN_IMAGE_SERVICE QWEN_IMAGE_SERVICE_PROGRAM \
@@ -161,6 +162,7 @@ case $action in
                               QWEN_GEOMETRY_PROFILES QWEN_GEOMETRY_RUNTIME \
                               QWEN_GEOMETRY_PROFILE QWEN_GEOMETRY_STATE_DIR \
                               QWEN_GEOMETRY_SERVICE_SOCKET \
+                              QWEN_CODING_PROFILE \
                               QWEN_SIDECAR_TOKEN_KEY_FILE \
                               QWEN_VULKAN_LATENCY_PROBE \
                               QWEN_VULKAN_ICD; do
@@ -198,8 +200,14 @@ case $action in
             "$state_directory" "$profile"; do
             session_command="$session_command $(shell_quote "$session_argument")"
         done
-        tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
-            "$session_command"
+        if [ -n "${QWEN_LAUNCH_ATTEMPT_NONCE:-}" ]; then
+            tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
+                -e "QWEN_LAUNCH_ATTEMPT_NONCE=$QWEN_LAUNCH_ATTEMPT_NONCE" \
+                "$session_command"
+        else
+            tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
+                "$session_command"
+        fi
         printf 'started tmux_socket=%s tmux_session=%s profile=%s host=%s port=%s context=%s latency_mode=%s model=%s server=%s\n' \
             "$tmux_socket" "$tmux_session" "$profile" "$bind_host" \
             "$server_port" "$context_size" "$latency_mode" "$model_path" \

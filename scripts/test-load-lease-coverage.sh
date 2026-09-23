@@ -157,14 +157,11 @@ record_outcome() {
         sanitize_text >>"$evidence_directory/outcomes.tsv"
 }
 
-# The patch logs the teardown state inside `if (!workload_lease_held)`, so the
-# line is written on the reacquire path alone: held=yes is a teardown that took
-# the lease back and held=no is a teardown that freed beside another holder. A
-# teardown that arrived already holding the lease writes nothing there and frees
-# inside it, and a process ended by default disposition never reaches destroy()
-# at all, and the log tells those two apart from each other in no way -- the
-# idle release and the teardown release print the same string. The absence is
-# therefore reported as `unattributed` rather than resolved by inference.
+# The teardown marker reports ownership before freeing buffers. An absent
+# marker remains unattributed: default signal disposition can bypass destroy(),
+# and a closure with conditional observation omits the marker when an active
+# pass retains its lease. The shared idle/teardown release string establishes
+# neither path by itself.
 teardown_state() {
     teardown_line=$(grep -m1 'workload lease teardown: held=' "$1" || true)
     if [ -z "$teardown_line" ]; then

@@ -48,6 +48,7 @@ import argparse
 import hashlib
 import hmac
 import http.server
+import importlib.util
 import json
 import os
 import secrets
@@ -58,6 +59,7 @@ import stat
 import sys
 import threading
 import time
+from pathlib import Path
 
 BROKER_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 if BROKER_DIRECTORY not in sys.path:
@@ -73,6 +75,7 @@ SESSION_SECRET_FILE_NAME = "authorize-session.secret"
 SESSION_SECRET_BYTES = 32
 SESSION_HEADER = "X-Qwen-Web-Session"
 REQUEST_BODY_BYTE_CAP = 16384
+GRAFT_REQUEST_BODY_BYTE_CAP = 262144
 REQUEST_READ_TIMEOUT_DEFAULT_SECONDS = 5.0
 REQUEST_READ_TIMEOUT_MAX_SECONDS = 30.0
 AUTHORIZE_PER_MINUTE_DEFAULT = 6
@@ -82,6 +85,7 @@ CODE_PLAN_GRANT_PATH = "/grant-code-plan"
 CODE_APPLY_GRANT_PATH = "/grant-code-apply"
 PHYSICS_GRANT_PATH = "/grant-physics"
 GEOMETRY_GRANT_PATH = "/grant-geometry"
+GRAFT_GRANT_PATH = "/grant-graft"
 SESSION_PATH = "/session"
 HEALTH_PATH = "/health"
 KEY_MODE_FORBIDDEN_BITS = 0o077
@@ -248,6 +252,69 @@ class BrokerSettings:
         self.session_secret = ""
         self.signing_key_sha256 = ""
         self.start_time = 0
+        self.graft_config_path = getattr(arguments, "graft_config", "")
+        self.graft_config = None
+        self.graft_workflow = None
+        if self.graft_config_path:
+            specification = importlib.util.spec_from_file_location(
+                "qwen_graft_workflow", Path(BROKER_DIRECTORY).parent / "graft-workflow.py"
+            )
+            self.graft_workflow = importlib.util.module_from_spec(specification)
+            sys.modules[specification.name] = self.graft_workflow
+            specification.loader.exec_module(self.graft_workflow)
+            self.graft_config = self.graft_workflow.load_config(self.graft_config_path)
+            graft_signing_key(self)
+
+
+def graft_signing_key(settings):
+    """Match private bounded key bytes for every issuance and key rotation."""
+    workflow_key = settings.graft_workflow.read_key(
+        settings.graft_config["authorization_key_file"]
+    )
+    broker_key = settings.graft_workflow.read_key(settings.token_key_file)
+    if not hmac.compare_digest(workflow_key, broker_key):
+        raise ValueError("Graft and broker authorization keys differ")
+    return broker_key
+
+
+def parse_graft_request(payload):
+    """Accept one exact operation without accepting caller-supplied authority."""
+    if not isinstance(payload, dict) or set(payload) != {"tool", "arguments"}:
+        raise server.InvalidArgument("Graft grant requires tool and arguments")
+    if payload["tool"] not in ("graft_start_build", "graft_cancel_build", "graft_resume_build"):
+        raise server.InvalidArgument("Graft grant names an unsupported operation")
+    if not isinstance(payload["arguments"], dict) or "authorization" in payload["arguments"]:
+        raise server.InvalidArgument("Graft grant requires arguments without authorization")
+    return payload
+
+
+def issue_graft_for_request(settings, fields):
+    """Use the workflow's normalization and sign its exact configuration."""
+    if settings.graft_config is None:
+        raise server.InvalidArgument("Graft workflow is outside the broker configuration")
+    issuer = {
+        "graft_start_build": settings.graft_workflow.issue_start_authorization,
+        "graft_cancel_build": settings.graft_workflow.issue_cancel_authorization,
+        "graft_resume_build": settings.graft_workflow.issue_resume_authorization,
+    }[fields["tool"]]
+    try:
+        return issuer(settings.graft_config, fields["arguments"], graft_signing_key(settings))
+    except (ValueError, OSError) as error:
+        raise server.InvalidArgument(str(error)) from error
+
+
+def graft_audit_row(settings, fields, status, started_at):
+    """Record the operation and argument digest while retaining grants privately."""
+    now = time.time()
+    return {
+        "recorded_at": server.utc_timestamp(now), "profile": settings.profile,
+        "operation": "authorize-graft", "query_sha256": hashlib.sha256(
+            json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest() if fields else "", "domains": "", "result_count": 0,
+        "fetched_host": "", "provider_bytes": 0, "returned_characters": 0,
+        "latency_ms": int((now - started_at) * 1000), "status": status,
+        "recorded_epoch": int(now),
+    }
 
 
 def parse_request_arguments(payload):
@@ -747,15 +814,17 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
             )
 
     def read_body(self):
+        body_cap = (GRAFT_REQUEST_BODY_BYTE_CAP if self.path.split("?", 1)[0] == GRAFT_GRANT_PATH
+                    else REQUEST_BODY_BYTE_CAP)
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             raise server.InvalidArgument(
                 "Content-Length is not an integer"
             ) from None
-        if length < 0 or length > REQUEST_BODY_BYTE_CAP:
+        if length < 0 or length > body_cap:
             raise server.InvalidArgument(
-                f"the request body exceeds the {REQUEST_BODY_BYTE_CAP} byte cap"
+                f"the request body exceeds the {body_cap} byte cap"
             )
         try:
             body = self.rfile.read(length)
@@ -891,6 +960,7 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
         # apply over one plan hash -- and each claim carries its own action
         # and field set, so no token verifies as another.
         contexts = {
+            GRAFT_GRANT_PATH: (parse_graft_request, issue_graft_for_request, graft_audit_row),
             GRANT_PATH: (parse_request_arguments, issue_for_request,
                          audit_row),
             IMAGE_GRANT_PATH: (image_grant.parse_image_request,
@@ -1008,6 +1078,7 @@ def build_parser():
         "--api-key-file", default=os.environ.get("QWEN_WEBUI_API_KEY_FILE", "")
     )
     parser.add_argument("--state-dir", default=os.environ.get("QWEN_WEB_STATE_DIR", ""))
+    parser.add_argument("--graft-config", default=os.environ.get("QWEN_GRAFT_CONFIG", ""))
     parser.add_argument("--provider", default=os.environ.get("QWEN_WEB_PROVIDER", "exa"))
     parser.add_argument(
         "--profile", default=os.environ.get("QWEN_WEB_PROFILE", "default"),
@@ -1080,7 +1151,11 @@ def run(argv):
     except server.ToolError as error:
         sys.stderr.write(f"the broker cannot read the Web UI API key: {error}\n")
         return 2
-    settings = BrokerSettings(arguments)
+    try:
+        settings = BrokerSettings(arguments)
+    except (OSError, ValueError) as error:
+        sys.stderr.write(f"the broker cannot load the Graft configuration: {error}\n")
+        return 2
     settings.api_key = api_key
     settings.signing_key_sha256 = signing_key_sha256
     settings.start_time = process_start_time(entry_time)

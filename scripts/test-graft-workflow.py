@@ -1,0 +1,939 @@
+"""Exercise Graft job lifecycle and sandbox boundaries with a fixture runtime.
+
+The fixture is an operator-selected executable. Tests use real bubblewrap;
+namespace refusal fails the test instead of substituting a host execution.
+The fixture writes a small graph and makes deliberate prohibited source writes.
+The suite starts neither a model nor the installed Graft CLI.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest import mock
+
+
+HERE = Path(__file__).resolve().parent
+SPEC = importlib.util.spec_from_file_location("graft_workflow", HERE / "graft-workflow.py")
+WORKFLOW = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(WORKFLOW)
+
+FIXTURE = r'''
+import json
+import os
+from pathlib import Path
+import sys
+import time
+import subprocess
+
+control = json.loads(Path('/repo/sys/control.json').read_text())
+graph = Path('/graph')
+probe = {'argv': sys.argv[1:], 'ci': os.environ.get('CI'),
+         'tracking': os.environ.get('DO_NOT_TRACK'),
+         'lease_present': 'QWEN_GPU_COMPUTE_LEASE' in os.environ,
+         'provider': os.environ.get('GRAFT_PROVIDER'),
+         'model': os.environ.get('GRAFT_MODEL')}
+probe['inherited_fds'] = []
+for descriptor_name in os.listdir('/proc/self/fd'):
+    descriptor = int(descriptor_name)
+    if descriptor > 2:
+        try:
+            os.fstat(descriptor)
+        except OSError:
+            continue
+        probe['inherited_fds'].append(descriptor)
+try:
+    Path('/repo/sys/sentinel').write_text('overwritten')
+    probe['source_write'] = 'succeeded'
+except OSError:
+    probe['source_write'] = 'refused'
+probe['outside_scope_visible'] = Path('/repo/outside-scope').exists()
+try:
+    Path('/unapproved-output').write_text('bad')
+    probe['root_write'] = 'succeeded'
+except OSError:
+    probe['root_write'] = 'refused'
+probe['key_file_visible'] = Path(control['key_file']).exists()
+(graph / 'probe.json').write_text(json.dumps(probe))
+secret = os.environ.get('GRAFT_API_KEY', '')
+if secret:
+    for letter in secret:
+        sys.stdout.write(letter)
+        sys.stdout.flush()
+        time.sleep(0.002)
+    print()
+print('x' * control.get('log_bytes', 0), flush=True)
+if control.get('descendant'):
+    subprocess.Popen([sys.executable, '-c',
+        "import time; from pathlib import Path; time.sleep(1); Path('/graph/orphan-survived').write_text('bad')"],
+        start_new_session=True)
+time.sleep(control.get('sleep', 0))
+if control.get('graph', True):
+    (graph / '.graph').mkdir(exist_ok=True)
+    nodes = [{'id': 'sys/main.c', 'kind': 'file', 'path': 'sys/main.c',
+              'summary_state': 'ready', 'summary': 'Fixture source.'},
+             {'id': 'sys/main.c#main', 'kind': 'function', 'path': 'sys/main.c',
+              'summary_state': control.get('summary_state', 'ready'),
+              'summary': control.get('summary', 'Fixture entry point.')}]
+    if control.get('empty_graph'):
+        nodes = []
+    (graph / '.graph/wiring.json').write_text(json.dumps({'nodes': nodes, 'edges': []}))
+sys.exit(control.get('exit_code', 0))
+'''
+
+
+class WorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.previous_umask = os.umask(0o077)
+        git_environment = mock.patch.dict(os.environ, {
+            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
+        git_environment.start()
+        self.addCleanup(git_environment.stop)
+        output = HERE.parent / ".local-artifacts" / "graft-workflow-tests"
+        output.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="fixture-", dir=output)
+        self.root = Path(self.temporary.name)
+        self.repository = self.root / "source"
+        (self.repository / "sys").mkdir(parents=True)
+        (self.repository / "sys/main.c").write_text("int main(void) { return 0; }\n")
+        (self.repository / "sys/sentinel").write_text("original\n")
+        (self.repository / "outside-scope").write_text("outside approved scope\n")
+        self.key = self.root / "api-key"
+        self.key.write_bytes(b"fixture-api-key-kept-private")
+        self.authorization_key = self.root / "authorization-key"
+        self.authorization_key.write_bytes(b"fixture-authorization-key-exact-bytes\n")
+        self.control = {"key_file": str(self.key)}
+        self.write_control()
+        for command in (["init", "--quiet", "--template="],
+                        ["config", "core.fsmonitor", "false"],
+                        ["config", "commit.gpgsign", "false"], ["add", "."],
+                        ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                         "commit", "--quiet", "-m", "fixture"]):
+            subprocess.run(["git", "-C", str(self.repository), *command],
+                           check=True, capture_output=True)
+        self.executable = self.root / "fixture-graft"
+        self.executable.write_text("#!" + sys.executable + "\n" + FIXTURE)
+        self.executable.chmod(0o700)
+        sandbox = shutil.which("bwrap")
+        self.assertIsNotNone(sandbox, "bubblewrap package is required")
+        self.config_path = self.root / "config.json"
+        self.config = {
+            "version": 1, "artifact_root": str(self.root / "jobs-output"),
+            "graft_executable": str(self.executable), "bwrap_executable": sandbox,
+            "authorization_key_file": str(self.authorization_key),
+            "repositories": {"fixture": {"path": str(self.repository), "allowed_paths": ["sys"]}},
+            "model": {"base_url": "http://127.0.0.1:65530/v1", "name": "fixture-model",
+                      "api_key_file": str(self.key)},
+            "limits": {"seconds": 5, "log_bytes": 1024, "maximum_paths": 4},
+        }
+        self.save_config()
+        self.jobs = []
+
+    def tearDown(self):
+        for identifier in self.jobs:
+            try:
+                state = WORKFLOW.build_status(self.config, identifier)
+                if state["state"] not in WORKFLOW.TERMINAL:
+                    token = WORKFLOW.issue_cancel_authorization(
+                        self.config, {"job_id": identifier}, self.authorization_key.read_bytes())
+                    WORKFLOW.cancel_build(self.config, identifier, token)
+                    self.wait_terminal(identifier)
+            except (OSError, ValueError):
+                pass
+        for process in WORKFLOW.CHILDREN[:]:
+            process.wait(timeout=5)
+            WORKFLOW.CHILDREN.remove(process)
+        self.temporary.cleanup()
+        os.umask(self.previous_umask)
+
+    def save_config(self):
+        self.config_path.write_text(json.dumps(self.config))
+        self.config = WORKFLOW.load_config(self.config_path)
+
+    def write_control(self):
+        (self.repository / "sys/control.json").write_text(json.dumps(self.control))
+
+    def request(self, mode="structural"):
+        return {"repository": "fixture", "mode": mode, "paths": ["sys"]}
+
+    def start(self, mode="structural"):
+        request = self.request(mode)
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        state = WORKFLOW.start_build(self.config, request, token)
+        self.jobs.append(state["job_id"])
+        return state
+
+    def wait_terminal(self, identifier):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            state = WORKFLOW.build_status(self.config, identifier)
+            if state["state"] in WORKFLOW.TERMINAL:
+                return state
+            time.sleep(0.05)
+        self.fail("job exceeded fixture wait deadline")
+
+    def test_source_read_only_and_structural_command(self):
+        before = hashlib.sha256((self.repository / "sys/sentinel").read_bytes()).hexdigest()
+        initial = self.start()
+        state = self.wait_terminal(initial["job_id"])
+        self.assertEqual(state["state"], "completed", state)
+        probe = json.loads((Path(state["graph_directory"]) / "probe.json").read_text())
+        self.assertEqual(probe["source_write"], "refused")
+        self.assertEqual(probe["root_write"], "refused")
+        self.assertFalse(probe["outside_scope_visible"])
+        self.assertFalse(probe["key_file_visible"])
+        self.assertFalse(probe["lease_present"])
+        self.assertEqual(probe["inherited_fds"], [])
+        self.assertIsNone(probe["provider"])
+        self.assertEqual(probe["ci"], "1")
+        self.assertEqual(probe["tracking"], "1")
+        self.assertEqual(probe["argv"], ["--dir", "/graph", "build", "/repo", "-j", "1",
+                                         "--no-gitignore", "--no-ignore", "--only-dir", "sys"])
+        self.assertEqual(before, hashlib.sha256((self.repository / "sys/sentinel").read_bytes()).hexdigest())
+
+    def test_fixture_git_disables_fsmonitor(self):
+        result = subprocess.run(["git", "-C", str(self.repository), "config", "core.fsmonitor"],
+                                text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout.strip(), "false")
+        self.assertFalse((self.repository / ".git/fsmonitor--daemon.ipc").exists())
+
+    def test_maximum_valid_scope_uses_bounded_authorization(self):
+        paths = [f"scope-{index:02d}-" + "x" * 90 for index in range(64)]
+        for path in paths:
+            (self.repository / path).mkdir()
+        self.config["limits"]["maximum_paths"] = 64
+        self.config["repositories"]["fixture"]["allowed_paths"] = []
+        self.save_config()
+        request = {"repository": "fixture", "mode": "deep", "paths": paths}
+        normalized = WORKFLOW.normalize_start(self.config, request)
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        self.assertLessEqual(len(token), 16384)
+        self.assertEqual(len(WORKFLOW.verify_authorization(
+            self.config, {"action": "start", **normalized}, token)), 32)
+        changed = {"action": "start", **normalized, "mode": "structural"}
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "invalid_or_stale"):
+            WORKFLOW.verify_authorization(self.config, changed, token)
+
+    def assert_key_read_refused_within_deadline(self, expected):
+        program = (
+            "import importlib.util, sys\n"
+            "spec = importlib.util.spec_from_file_location('workflow', sys.argv[1])\n"
+            "workflow = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(workflow)\n"
+            "try:\n"
+            "    workflow.read_key(sys.argv[2], strip=True)\n"
+            "except (workflow.Refusal, OSError) as error:\n"
+            "    print(str(error) if isinstance(error, workflow.Refusal) else type(error).__name__)\n"
+            "else:\n"
+            "    raise SystemExit('unsafe key accepted')\n")
+        result = subprocess.run([sys.executable, "-c", program, str(HERE / "graft-workflow.py"),
+                                 str(self.authorization_key)], text=True, capture_output=True,
+                                check=True, timeout=2)
+        self.assertEqual(result.stdout.strip(), expected)
+
+    def test_key_reader_preserves_authorization_bytes(self):
+        key = b"  exact-signing-bytes-with-whitespace\n"
+        self.authorization_key.write_bytes(key)
+        self.assertEqual(WORKFLOW.read_key(self.authorization_key), key)
+        self.assertEqual(WORKFLOW.read_key(self.authorization_key, strip=True), key.strip())
+
+    def test_key_reader_refuses_fifo_replacement_within_deadline(self):
+        self.authorization_key.unlink()
+        os.mkfifo(self.authorization_key, mode=0o600)
+        self.assert_key_read_refused_within_deadline("key_file_requires_private_permissions")
+
+    def test_key_reader_refuses_symlink_replacement_within_deadline(self):
+        self.authorization_key.unlink()
+        self.authorization_key.symlink_to(self.key)
+        self.assert_key_read_refused_within_deadline("OSError")
+
+    def test_key_reader_refuses_oversized_file_before_stripping(self):
+        self.authorization_key.write_bytes(b" " + b"k" * 8192)
+        self.assert_key_read_refused_within_deadline("key_file_length_invalid")
+
+    def test_key_reader_refuses_public_permissions_within_deadline(self):
+        self.authorization_key.chmod(0o644)
+        self.assert_key_read_refused_within_deadline("key_file_requires_private_permissions")
+
+    def test_detached_cli_build_survives_parent_exit(self):
+        self.control["sleep"] = 0.4
+        self.write_control()
+        result = subprocess.run([sys.executable, str(HERE / "graft-workflow.py"),
+                                 "--config", str(self.config_path), "start", "--repository",
+                                 "fixture", "--mode", "structural"], capture_output=True,
+                                check=True, timeout=3)
+        initial = json.loads(result.stdout)
+        self.jobs.append(initial["job_id"])
+        self.assertEqual(initial["state"], "queued")
+        self.assertEqual(self.wait_terminal(initial["job_id"])["state"], "completed")
+
+    def test_single_repo_lock_and_preserved_job_outputs(self):
+        self.control["sleep"] = 0.5
+        self.write_control()
+        first = self.start()
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "repository_build_busy"):
+            self.start()
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "completed")
+        second = self.start()
+        self.assertEqual(self.wait_terminal(second["job_id"])["state"], "completed")
+        self.assertNotEqual(first["graph_directory"], second["graph_directory"])
+        self.assertTrue(Path(first["graph_directory"]).is_dir())
+
+    def test_start_spawn_failure_records_terminal_status(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        actual_popen = subprocess.Popen
+
+        def refuse_worker(*args, **kwargs):
+            if "_worker" in args[0]:
+                raise OSError("fixture spawn refusal")
+            return actual_popen(*args, **kwargs)
+
+        with (mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=refuse_worker),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_spawn_failed:") as failure):
+            WORKFLOW.start_build(self.config, request, token)
+        identifier = str(failure.exception).split(":", 1)[1]
+        state = WORKFLOW.build_status(self.config, identifier)
+        self.assertEqual(state["state"], "failed")
+        self.assertEqual(state["reason"], "supervisor_spawn_failed")
+        self.assertIn("finished_at", state)
+        self.assertEqual(len(list((self.root / "jobs-output/jobs").iterdir())), 1)
+
+    def test_storage_refuses_symlinked_subdirectories(self):
+        storage = self.root / "jobs-output"
+        storage.mkdir(mode=0o700)
+        outside = self.root / "outside-storage"
+        outside.mkdir(mode=0o700)
+        for name in ("jobs", "locks", "grants"):
+            with self.subTest(name=name):
+                link = storage / name
+                link.symlink_to(outside, target_is_directory=True)
+                with self.assertRaisesRegex(WORKFLOW.Refusal,
+                                            "artifact_subdirectory_requires_private_permissions"):
+                    WORKFLOW.initialize_storage(self.config)
+                link.unlink()
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_start_owner_write_failure_retires_supervisor(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        actual_atomic_json = WORKFLOW.atomic_json
+
+        def fail_owner(path, value):
+            if Path(path).name == "owner.json":
+                time.sleep(0.25)
+                self.assertEqual(len(list((self.root / "jobs-output/jobs").iterdir())), 1)
+                raise OSError("fixture owner write refusal")
+            return actual_atomic_json(path, value)
+
+        with (mock.patch.object(WORKFLOW, "atomic_json", side_effect=fail_owner),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_owner_publish_failed:") as failure):
+            WORKFLOW.start_build(self.config, request, token)
+        identifier = str(failure.exception).split(":", 1)[1]
+        state = WORKFLOW.build_status(self.config, identifier)
+        self.assertEqual(state["state"], "failed")
+        self.assertEqual(state["reason"], "supervisor_owner_publish_failed")
+        self.assertFalse(Path(state["graph_directory"], "probe.json").exists())
+        lock = os.open(self.root / "jobs-output/locks/fixture.lock", os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            WORKFLOW.fcntl.flock(lock, WORKFLOW.fcntl.LOCK_EX | WORKFLOW.fcntl.LOCK_NB)
+        finally:
+            os.close(lock)
+
+    def test_deep_partial_redaction_and_log_cap(self):
+        self.control.update(summary_state="pending", log_bytes=8000)
+        self.write_control()
+        state = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(state["state"], "partial", state)
+        self.assertEqual(state["coverage"]["pending"], 1)
+        log = (Path(state["graph_directory"]).parent / "build.log").read_bytes()
+        self.assertLessEqual(len(log), 1024)
+        self.assertNotIn(self.key.read_bytes(), log)
+        self.assertIn(b"[redacted]", log)
+        probe = json.loads((Path(state["graph_directory"]) / "probe.json").read_text())
+        self.assertEqual(probe["provider"], "openai")
+        self.assertEqual(probe["model"], "fixture-model")
+        self.assertIn("--deep", probe["argv"])
+
+    def test_resume_partial_deep_job_reuses_graph_and_retains_attempt_log(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(first["state"], "partial")
+        directory = Path(first["graph_directory"]).parent
+        marker = directory / "graph" / "cache-marker"
+        marker.write_text("retained\n")
+        first_log = (directory / "build.log").read_bytes()
+        # A terminal supervisor can remain live briefly after releasing the
+        # repository lock; the lock, not its PID, gates the next attempt.
+        WORKFLOW.atomic_json(directory / "owner.json", WORKFLOW.process_identity(os.getpid()))
+        self.control.update(summary_state="ready", exit_code=0)
+        self.write_control()
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        resumed = WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(resumed["graph_directory"], first["graph_directory"])
+        completed = self.wait_terminal(first["job_id"])
+        self.assertEqual(completed["state"], "completed", completed)
+        self.assertEqual(completed["attempt"], 2)
+        self.assertEqual(completed["log_file"], "build-attempt-2.log")
+        self.assertEqual(marker.read_text(), "retained\n")
+        self.assertEqual((directory / "build.log").read_bytes(), first_log)
+        self.assertEqual(WORKFLOW.read_json(directory / "status-attempt-1.json"), first)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "start_authorization_invalid_or_stale"):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+
+    def test_resume_refuses_changed_source_head(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        (self.repository / "sys/main.c").write_text("int changed(void) { return 1; }\n")
+        subprocess.run(["git", "-C", str(self.repository), "add", "sys/main.c"], check=True)
+        subprocess.run(["git", "-C", str(self.repository), "-c", "user.name=Fixture",
+                        "-c", "user.email=fixture@example.invalid", "commit", "--quiet",
+                        "-m", "changed"], check=True)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "approved_source"):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+
+    def test_resume_grant_is_bound_to_approved_partial_attempt(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        first_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        second_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        old_cancel_token = WORKFLOW.issue_cancel_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], first_token)["attempt"], 2)
+        second = self.wait_terminal(first["job_id"])
+        self.assertEqual(second["state"], "partial")
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.resume_build(self.config, first["job_id"], second_token)
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.cancel_build(self.config, first["job_id"], old_cancel_token)
+        fresh_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], fresh_token)["attempt"], 3)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+
+    def test_resume_archives_prior_publications_and_cancellation(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        directory = Path(first["graph_directory"]).parent
+        prior = {name: (directory / f"{name}.json").read_bytes()
+                 for name in ("owner", "child", "source-fds")}
+        WORKFLOW.atomic_json(directory / "cancel.json", {"requested": True})
+        self.control["sleep"] = 0.5
+        self.write_control()
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], token)["attempt"], 2)
+        WORKFLOW.atomic_json(directory / "cancel.json", {"requested": True, "attempt": 1})
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+        for name, content in prior.items():
+            self.assertEqual((directory / f"{name}-attempt-1.json").read_bytes(), content)
+        self.assertEqual(WORKFLOW.read_json(directory / "cancel-attempt-1.json"), {"requested": True})
+        self.assertEqual(WORKFLOW.read_json(directory / "cancel.json")["attempt"], 1)
+
+    def test_manual_resume_retires_previous_session_provenance(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        request = self.request("deep")
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        first = WORKFLOW.start_build(self.config, request, token, session_generation="1:1")
+        self.jobs.append(first["job_id"])
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+        directory = Path(first["graph_directory"]).parent
+        resume_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        WORKFLOW.resume_build(self.config, first["job_id"], resume_token)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+        self.assertFalse((directory / "session.json").exists())
+        self.assertEqual(WORKFLOW.read_json(directory / "session-attempt-1.json"),
+                         {"generation": "1:1", "attempt": 1})
+
+    def test_cancel_waits_for_resumed_owner_publication(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.control["sleep"] = 5
+        self.write_control()
+        resume_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        entered = threading.Event()
+        release = threading.Event()
+        actual_launch_worker = WORKFLOW.launch_worker
+        outcomes = {}
+
+        def pause_launch(*arguments):
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError("resume publication was not released")
+            return actual_launch_worker(*arguments)
+
+        def resume():
+            try:
+                outcomes["resume"] = WORKFLOW.resume_build(self.config, first["job_id"], resume_token)
+            except Exception as error:
+                outcomes["resume_error"] = error
+
+        def cancel(token):
+            try:
+                outcomes["cancel"] = WORKFLOW.cancel_build(self.config, first["job_id"], token)
+            except Exception as error:
+                outcomes["cancel_error"] = error
+
+        with mock.patch.object(WORKFLOW, "launch_worker", side_effect=pause_launch):
+            resume_thread = threading.Thread(target=resume)
+            resume_thread.start()
+            self.assertTrue(entered.wait(3))
+            cancel_token = WORKFLOW.issue_cancel_authorization(
+                self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+            cancel_thread = threading.Thread(target=cancel, args=(cancel_token,))
+            cancel_thread.start()
+            try:
+                cancel_thread.join(timeout=0.1)
+                self.assertTrue(cancel_thread.is_alive())
+            finally:
+                release.set()
+            resume_thread.join(timeout=3)
+            cancel_thread.join(timeout=3)
+        self.assertFalse(resume_thread.is_alive())
+        self.assertFalse(cancel_thread.is_alive())
+        self.assertNotIn("resume_error", outcomes)
+        self.assertNotIn("cancel_error", outcomes)
+        self.assertEqual(outcomes["resume"]["attempt"], 2)
+        self.assertEqual(outcomes["cancel"]["cancellation"], "requested")
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "cancelled")
+
+    def test_resume_spawn_failure_restores_partial_job(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(first["state"], "partial")
+        directory = Path(first["graph_directory"]).parent
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        actual_popen = subprocess.Popen
+
+        def refuse_worker(*args, **kwargs):
+            if "_worker" in args[0]:
+                raise OSError("fixture spawn refusal")
+            return actual_popen(*args, **kwargs)
+
+        with (mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=refuse_worker),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_spawn_failed")):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+        self.assertFalse((directory / "status-attempt-1.json").exists())
+        retry_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], retry_token)["attempt"], 2)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+
+    def test_resume_owner_write_failure_restores_partial_job(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        directory = Path(first["graph_directory"]).parent
+        graph_path = Path(first["graph_directory"]) / ".graph/wiring.json"
+        original_graph_digest = hashlib.sha256(graph_path.read_bytes()).hexdigest()
+        previous_owner = (directory / "owner.json").read_bytes()
+        WORKFLOW.atomic_json(directory / "cancel.json", {"requested": True})
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        actual_atomic_json = WORKFLOW.atomic_json
+
+        def fail_owner(path, value):
+            if Path(path).name == "owner.json":
+                time.sleep(0.25)
+                self.assertEqual(WORKFLOW.read_json(directory / "status.json")["state"], "queued")
+                self.assertEqual(hashlib.sha256(graph_path.read_bytes()).hexdigest(), original_graph_digest)
+                raise OSError("fixture owner write refusal")
+            return actual_atomic_json(path, value)
+
+        with (mock.patch.object(WORKFLOW, "atomic_json", side_effect=fail_owner),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_owner_publish_failed")):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+        self.assertFalse((directory / "status-attempt-1.json").exists())
+        self.assertEqual(hashlib.sha256(graph_path.read_bytes()).hexdigest(), original_graph_digest)
+        self.assertFalse((directory / "build-attempt-2.log").exists())
+        self.assertEqual((directory / "owner.json").read_bytes(), previous_owner)
+        self.assertEqual(WORKFLOW.read_json(directory / "cancel.json"), {"requested": True})
+        retry_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], retry_token)["attempt"], 2)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+
+    def test_failure_and_timeout(self):
+        self.control.update(graph=False, exit_code=7)
+        self.write_control()
+        self.assertEqual(self.wait_terminal(self.start()["job_id"])["state"], "failed")
+        self.control.update(graph=True, empty_graph=True)
+        self.write_control()
+        empty = self.wait_terminal(self.start()["job_id"])
+        self.assertEqual(empty["state"], "failed", empty)
+        self.assertEqual(empty["coverage"]["nodes"], 0)
+        self.control.update(sleep=30)
+        self.write_control()
+        self.config["limits"]["seconds"] = 1
+        self.save_config()
+        self.assertEqual(self.wait_terminal(self.start()["job_id"])["state"], "timed_out")
+
+    def test_signed_cancellation(self):
+        self.control["sleep"] = 30
+        self.control["descendant"] = True
+        self.write_control()
+        initial = self.start()
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.cancel_build(self.config, initial["job_id"], "invalid")
+        token = WORKFLOW.issue_cancel_authorization(
+            self.config, {"job_id": initial["job_id"]}, self.authorization_key.read_bytes())
+        deadline = time.monotonic() + 3
+        while not (Path(initial["graph_directory"]) / "probe.json").exists():
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.02)
+        WORKFLOW.cancel_build(self.config, initial["job_id"], token)
+        self.assertEqual(self.wait_terminal(initial["job_id"])["state"], "cancelled")
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "spent"):
+            WORKFLOW.cancel_build(self.config, initial["job_id"], token)
+        time.sleep(1.1)
+        self.assertFalse((Path(initial["graph_directory"]) / "orphan-survived").exists())
+
+    def test_cancellation_refuses_changed_process_identity(self):
+        self.control["sleep"] = 1
+        self.write_control()
+        initial = self.start()
+        owner_path = Path(initial["graph_directory"]).parent / "owner.json"
+        owner = WORKFLOW.read_json(owner_path)
+        WORKFLOW.atomic_json(owner_path, {**owner, "start_ticks": "0"})
+        token = WORKFLOW.issue_cancel_authorization(
+            self.config, {"job_id": initial["job_id"]}, self.authorization_key.read_bytes())
+        try:
+            result = WORKFLOW.cancel_build(self.config, initial["job_id"], token)
+            self.assertEqual(result["reason"], "supervisor_exited")
+        finally:
+            WORKFLOW.atomic_json(owner_path, owner)
+        self.assertEqual(self.wait_terminal(initial["job_id"])["state"], "completed")
+
+    def test_cancellation_refuses_changed_job_configuration(self):
+        initial = self.wait_terminal(self.start()["job_id"])
+        self.config["limits"]["seconds"] += 1
+        self.save_config()
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "approved_configuration_changed"):
+            WORKFLOW.issue_cancel_authorization(
+                self.config, {"job_id": initial["job_id"]}, self.authorization_key.read_bytes())
+
+    def test_approval_replay_and_changed_request(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(self.config, request, self.authorization_key.read_bytes())
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.start_build(self.config, self.request("deep"), token)
+        state = WORKFLOW.start_build(self.config, request, token)
+        self.jobs.append(state["job_id"])
+        self.wait_terminal(state["job_id"])
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "spent"):
+            WORKFLOW.start_build(self.config, request, token)
+
+    def test_approval_binds_config_and_head(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(self.config, request, self.authorization_key.read_bytes())
+        self.config["limits"]["seconds"] = 4
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.start_build(self.config, request, token)
+        self.config["limits"]["seconds"] = 5
+        subprocess.run(["git", "-C", str(self.repository), "-c", "user.name=Fixture",
+                        "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty",
+                        "--quiet", "-m", "changed"], check=True)
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.start_build(self.config, request, token)
+
+    def test_git_head_timeout_reports_bounded_refusal(self):
+        timeout = subprocess.TimeoutExpired(["git", "rev-parse"], 10)
+        with mock.patch.object(WORKFLOW.subprocess, "run", side_effect=timeout):
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "repository_head_unavailable"):
+                WORKFLOW.source_head(self.repository)
+
+    def test_approval_binds_scope_directory_identity(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(self.config, request, self.authorization_key.read_bytes())
+        normalized = WORKFLOW.normalize_start(self.config, request)
+        before = len(list(Path("/proc/self/fd").iterdir()))
+        original = self.repository / "original-sys"
+        (self.repository / "sys").rename(original)
+        shutil.copytree(original, self.repository / "sys")
+        self.assertEqual(WORKFLOW.source_head(self.repository), normalized["source_head"])
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "identity_changed"):
+            WORKFLOW.pin_request_sources(self.config, normalized)
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.start_build(self.config, request, token)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+
+    def test_approval_refuses_retargeted_scope_symlink(self):
+        (self.repository / "sys/link").symlink_to(".", target_is_directory=True)
+        request = {**self.request(), "paths": ["sys/link"]}
+        normalized = WORKFLOW.normalize_start(self.config, request)
+        (self.repository / "sys/other").mkdir()
+        (self.repository / "sys/link").unlink()
+        (self.repository / "sys/link").symlink_to("other", target_is_directory=True)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "identity_changed"):
+            WORKFLOW.pin_request_sources(self.config, normalized)
+
+    def assert_pinned_mount_survives_path_replacement(self, replace_root):
+        request = WORKFLOW.normalize_start(self.config, self.request())
+        before = len(list(Path("/proc/self/fd").iterdir()))
+        descriptors = WORKFLOW.pin_request_sources(self.config, request)
+        try:
+            source = self.repository if replace_root else self.repository / "sys"
+            source.rename(self.root / "approved-directory")
+            replacement = self.root / "outside-directory"
+            replacement.mkdir()
+            (replacement / "sentinel").write_text("outside approved source\n")
+            source.symlink_to(replacement, target_is_directory=True)
+            directory = self.root / "mount-probe"
+            (directory / "graph").mkdir(parents=True)
+            (directory / "scratch/tmp").mkdir(parents=True)
+            command = WORKFLOW.sandbox_base(self.config, request, directory, source_fds=descriptors)
+            command.extend(["--", "/usr/bin/cat", "/repo/sys/sentinel"])
+            result = subprocess.run(command, pass_fds=WORKFLOW.sandbox_pass_fds(request, descriptors),
+                                    env={"PATH": "/usr/bin:/bin"}, capture_output=True,
+                                    text=True, timeout=3, check=True)
+            self.assertEqual(result.stdout, "original\n")
+            for name, identity in WORKFLOW.source_directory_identities(request).items():
+                self.assertEqual(WORKFLOW.descriptor_identity(descriptors[name]), identity)
+        finally:
+            WORKFLOW.close_source_fds(descriptors)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+
+    def test_root_descriptor_closes_validation_to_mount_race(self):
+        self.assert_pinned_mount_survives_path_replacement(replace_root=True)
+
+    def test_scope_descriptor_closes_validation_to_mount_race(self):
+        self.assert_pinned_mount_survives_path_replacement(replace_root=False)
+
+    def test_linked_worktree_metadata_uses_pinned_descriptors(self):
+        linked = self.root / "linked-source"
+        subprocess.run(["git", "-C", str(self.repository), "worktree", "add", "--quiet",
+                        "--detach", str(linked)], check=True, capture_output=True)
+        self.config["repositories"]["fixture"]["path"] = str(linked)
+        self.save_config()
+        request = WORKFLOW.normalize_start(self.config, self.request())
+        self.assertEqual(set(request["git_mounts"]), {"/git", "/gitdir", "/commondir"})
+        before = len(list(Path("/proc/self/fd").iterdir()))
+        descriptors = WORKFLOW.pin_request_sources(self.config, request, check_head=True)
+        try:
+            directory = self.root / "linked-probe"
+            (directory / "graph").mkdir(parents=True)
+            (directory / "scratch/tmp").mkdir(parents=True)
+            command = WORKFLOW.sandbox_base(self.config, request, directory, source_fds=descriptors)
+            command.extend(["--", "/usr/bin/git", "-C", "/repo", "rev-parse", "HEAD"])
+            result = subprocess.run(command, pass_fds=WORKFLOW.sandbox_pass_fds(request, descriptors),
+                                    env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null",
+                                         "GIT_CONFIG_NOSYSTEM": "1"},
+                                    capture_output=True, text=True, timeout=3, check=True)
+            self.assertEqual(result.stdout.strip(), request["source_head"])
+        finally:
+            WORKFLOW.close_source_fds(descriptors)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+        gitdir = Path(request["git_mounts"]["/gitdir"]["destination"])
+        gitdir.rename(gitdir.with_name("replaced-metadata"))
+        gitdir.mkdir()
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "identity_changed"):
+            WORKFLOW.pin_request_sources(self.config, request)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+
+    def test_whole_linked_worktree_keeps_git_file_selection(self):
+        linked = self.root / "whole-linked-source"
+        subprocess.run(["git", "-C", str(self.repository), "worktree", "add", "--quiet",
+                        "--detach", str(linked)], check=True, capture_output=True)
+        self.config["repositories"]["fixture"] = {"path": str(linked), "allowed_paths": []}
+        self.save_config()
+        request = WORKFLOW.normalize_start(self.config, {"repository": "fixture",
+                                                        "mode": "structural", "paths": []})
+        self.assertEqual(request["paths"], [])
+        self.assertEqual(set(request["git_mounts"]), {"/git", "/gitdir", "/commondir"})
+        descriptors = WORKFLOW.pin_request_sources(self.config, request, check_head=True)
+        try:
+            directory = self.root / "whole-linked-probe"
+            (directory / "graph").mkdir(parents=True)
+            (directory / "scratch/tmp").mkdir(parents=True)
+            command = WORKFLOW.sandbox_base(self.config, request, directory, source_fds=descriptors)
+            command.extend(["--", "/usr/bin/git", "-C", "/repo", "ls-files", "sys/sentinel"])
+            result = subprocess.run(command, pass_fds=WORKFLOW.sandbox_pass_fds(request, descriptors),
+                                    env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null",
+                                         "GIT_CONFIG_NOSYSTEM": "1"},
+                                    capture_output=True, text=True, timeout=3, check=True)
+            self.assertEqual(result.stdout.strip(), "sys/sentinel")
+        finally:
+            WORKFLOW.close_source_fds(descriptors)
+
+    def configure_query_fixture(self):
+        package = self.root / "query-package"
+        (package / "dist/mcp").mkdir(parents=True)
+        (package / "package.json").write_text(json.dumps({"name": "@nanonets/graft", "type": "module"}))
+        (package / "dist/mcp/tools.js").write_text(
+            "import fs from 'node:fs'; export async function callTool(root) {"
+            "return {text:fs.readFileSync(root+'/sys/sentinel','utf8')};}")
+        self.config["graft_package_root"] = str(package)
+        self.save_config()
+        state = self.wait_terminal(self.start()["job_id"])
+        self.assertEqual(state["state"], "completed", state)
+        return {"job_id": state["job_id"], "operation": "graft_find_code", "arguments": {"query": "fixture"}}
+
+    def test_query_allows_in_place_bytes_and_refuses_replaced_root(self):
+        arguments = self.configure_query_fixture()
+        (self.repository / "sys/sentinel").write_text("edited in place\n")
+        result = WORKFLOW.query_graph(self.config, arguments)
+        self.assertEqual(result["result"]["text"], "edited in place\n")
+        self.repository.rename(self.root / "original-source")
+        shutil.copytree(self.root / "original-source", self.repository)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "identity_changed"):
+            WORKFLOW.query_graph(self.config, arguments)
+
+    def test_query_refuses_root_symlink_and_closes_spawn_failure_descriptors(self):
+        arguments = self.configure_query_fixture()
+        before = len(list(Path("/proc/self/fd").iterdir()))
+        with mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=OSError("fixture spawn refusal")):
+            with self.assertRaises(OSError):
+                WORKFLOW.query_graph(self.config, arguments)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+        original = self.root / "original-source"
+        self.repository.rename(original)
+        self.repository.symlink_to(original, target_is_directory=True)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "identity_changed"):
+            WORKFLOW.query_graph(self.config, arguments)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+
+    def test_query_holds_repository_lock_against_resume(self):
+        package = self.root / "graft-package"
+        (package / "dist/mcp").mkdir(parents=True)
+        (package / "package.json").write_text(json.dumps({"name": "@nanonets/graft", "type": "module"}))
+        (package / "dist/mcp/tools.js").write_text(
+            "export async function callTool() { return {text:'stable graph'}; }\n")
+        self.config["graft_package_root"] = str(package)
+        self.save_config()
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(first["state"], "partial")
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        lock_path = Path(first["graph_directory"]).parent / "graph.lock"
+        lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            WORKFLOW.fcntl.flock(lock_descriptor, WORKFLOW.fcntl.LOCK_EX | WORKFLOW.fcntl.LOCK_NB)
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "graph_build_busy"):
+                WORKFLOW.query_graph(self.config, {"job_id": first["job_id"],
+                                                   "operation": "graft_repo_map", "arguments": {}})
+        finally:
+            os.close(lock_descriptor)
+        actual_popen = subprocess.Popen
+
+        def spawn_query(*args, **kwargs):
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "graph_query_busy"):
+                WORKFLOW.resume_build(self.config, first["job_id"], token)
+            return actual_popen(*args, **kwargs)
+
+        with mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=spawn_query):
+            result = WORKFLOW.query_graph(self.config, {"job_id": first["job_id"],
+                                                       "operation": "graft_repo_map", "arguments": {}})
+        self.assertEqual(result["result"]["text"], "stable graph")
+        self.control.update(summary_state="ready", exit_code=0, sleep=0.5)
+        self.write_control()
+        second = self.start()
+        result = WORKFLOW.query_graph(self.config, {"job_id": first["job_id"],
+                                                   "operation": "graft_repo_map", "arguments": {}})
+        self.assertEqual(result["result"]["text"], "stable graph")
+        self.assertEqual(self.wait_terminal(second["job_id"])["state"], "completed")
+        self.control.update(summary_state="pending", exit_code=1, sleep=0)
+        self.write_control()
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], token)["attempt"], 2)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+
+    def test_model_roots_scopes_and_extra_fields_rejected(self):
+        for path in ("../", "/", "--flag", "."):
+            with self.assertRaises(WORKFLOW.Refusal):
+                WORKFLOW.normalize_start(self.config, {**self.request(), "paths": [path]})
+        (self.repository / "sys/escape").symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.normalize_start(self.config, {**self.request(), "paths": ["sys/escape"]})
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.normalize_start(self.config, {**self.request(), "command": "true"})
+        self.config["model"]["base_url"] = "http://example.invalid/v1"
+        self.config_path.write_text(json.dumps(self.config))
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.load_config(self.config_path)
+
+    def test_mcp_protocol_and_authorization_required(self):
+        messages = [{"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                    {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+                        "name": "graft_start_build", "arguments": self.request()}}]
+        result = subprocess.run([sys.executable, str(HERE / "graft-workflow.py"), "--config",
+                                 str(self.config_path), "mcp"],
+                                input="\n".join(json.dumps(message) for message in messages) + "\n",
+                                text=True, capture_output=True, timeout=3, check=True)
+        replies = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(len(replies), 3)
+        self.assertEqual(len(replies[1]["result"]["tools"]), 5)
+        self.assertTrue(replies[2]["result"]["isError"])
+        self.assertNotIn(self.authorization_key.read_text().strip(), result.stdout)
+
+    def test_read_only_query_import_and_operation_validation(self):
+        package = self.root / "graft-package"
+        (package / "dist/mcp").mkdir(parents=True)
+        (package / "package.json").write_text(json.dumps({"name": "@nanonets/graft", "type": "module"}))
+        (package / "dist/mcp/tools.js").write_text(
+            "import fs from 'node:fs';\n"
+            "export async function callTool(root, op, args, graph) {\n"
+            " let write='succeeded'; try {fs.writeFileSync(graph+'/query-write','bad')}"
+            " catch {write='refused'};\n"
+            " return {text:JSON.stringify({root,op,args,graph,write,refresh:process.env.GRAFT_NO_REFRESH})};}\n")
+        self.config["graft_package_root"] = str(package)
+        self.save_config()
+        state = self.wait_terminal(self.start()["job_id"])
+        self.assertEqual(state["state"], "completed", state)
+        for operation in WORKFLOW.QUERY_FIELDS:
+            params = {"graft_find_code": {"query": "entry"}, "graft_file_api": {"file": "sys/main.c"},
+                      "graft_trace_calls": {"symbol": "main"}, "graft_find_all": {"pattern": "main"}}.get(operation, {})
+            result = WORKFLOW.query_graph(self.config, {"job_id": state["job_id"],
+                                                       "operation": operation, "arguments": params})
+            probe = json.loads(result["result"]["text"])
+            self.assertEqual(probe["write"], "refused")
+            self.assertEqual(probe["refresh"], "1")
+            self.assertEqual(result["source_view"], "live_read_only")
+        graph_path = Path(state["graph_directory"]) / ".graph/wiring.json"
+        graph = WORKFLOW.read_json(graph_path)
+        WORKFLOW.atomic_json(graph_path, {**graph, "nodes": []})
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "query_requires_terminal_graph"):
+            WORKFLOW.query_graph(self.config, {"job_id": state["job_id"],
+                                               "operation": "graft_repo_map", "arguments": {}})
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.query_graph(self.config, {"job_id": state["job_id"], "operation": "graft_file_api",
+                                               "arguments": {"file": "../../api-key"}})
+
+
+if __name__ == "__main__":
+    unittest.main()

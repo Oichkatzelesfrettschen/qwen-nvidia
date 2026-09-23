@@ -35,6 +35,13 @@ done
 umask 077
 mkdir -p "$state_directory"
 
+# tmux inherits the caller's scheduler class. SCHED_IDLE survives renice and
+# starves the server and its guards even with a stored nice value of zero.
+chrt --other --pid 0 $$ >/dev/null 2>&1 || {
+    printf 'session cannot establish SCHED_OTHER; check CAP_SYS_NICE or RLIMIT_NICE\n' >&2
+    exit 1
+}
+
 # This session is the top-level GPU owner and it takes the owner authority from
 # scripts/gpu-workload-ownership.sh before it starts anything. It owns the
 # serving lifetime: it outlives llama-server, tears down the broker, the image
@@ -63,6 +70,7 @@ gpu_ownership_require || exit $?
 unset QWEN_GPU_OWNERSHIP_FD
 
 server_log=$state_directory/server.log
+retirement_log=$state_directory/server-retirement.log
 telemetry_log=$state_directory/telemetry.log
 graphics_latency_log=$state_directory/graphics-latency.log
 kernel_hazard_log=$state_directory/kernel-hazards.log
@@ -84,6 +92,8 @@ router_preset_snapshot=''
 cleanup_started=0
 drain_record=$state_directory/session-drain.record
 session_start_time=$(sed 's/^.*) //' "/proc/$$/stat" | awk '{ print $20 }')
+QWEN_GRAFT_SESSION_GENERATION="$$:$session_start_time"
+export QWEN_GRAFT_SESSION_GENERATION
 # The approval broker signs one search grant per human approval and holds no
 # device, so it is a guarded child of this session the way the probe, the
 # monitor, and the kernel-hazard watcher are. qwen-web-launch.sh sets
@@ -157,6 +167,8 @@ export QWEN_GPU_ADMISSION_IDENTITY
 # prevents a prior successful run from certifying a later failed or killed one.
 : >"$drain_record"
 chmod 600 "$drain_record"
+: >"$retirement_log"
+chmod 600 "$retirement_log"
 
 cleanup() {
     [ "$cleanup_started" -eq 0 ] || return 0
@@ -167,11 +179,13 @@ cleanup() {
                 --keep-quiescing --barrier-identity "$session_barrier_identity" \
                 --record "$drain_record" -- \
                 "$script_directory/qwen-retire-server-child.sh" \
-                    "$server_pid" "$server_start_time" "$server_log" || retirement_status=$?
+                    "$server_pid" "$server_start_time" "$server_log" \
+                    >>"$retirement_log" 2>&1 || retirement_status=$?
         if process_running "$server_pid"; then
             QWEN_DRAIN_MODE=emergency \
                 "$script_directory/qwen-retire-server-child.sh" \
-                    "$server_pid" "$server_start_time" "$server_log" || retirement_status=1
+                    "$server_pid" "$server_start_time" "$server_log" \
+                    >>"$retirement_log" 2>&1 || retirement_status=1
         fi
     fi
     if [ -n "$server_pid" ]; then
@@ -414,6 +428,7 @@ if [ "$broker_enabled" = 1 ]; then
         --image-profile "${QWEN_IMAGE_PROFILE:-}" \
         --physics-profile "${QWEN_PHYSICS_PROFILE:-}" \
         --geometry-profile "${QWEN_GEOMETRY_PROFILE:-}" \
+        --coding-profile "${QWEN_CODING_PROFILE:-}" \
         --provider "${QWEN_WEB_PROVIDER:-exa}" \
         --api-key-file "$api_key_file" \
         >"$broker_log" 2>&1 9>&- &
@@ -708,10 +723,12 @@ if [ "$ready_for_monitor" -ne 1 ]; then
         "$server_log" 2>/dev/null; then
         server_failure_reason=gpu_ownership_refused
     fi
-    printf 'state=failed reason=%s utc=%s\n' \
-        "$server_failure_reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
-    wait "$server_pid" 2>/dev/null || true
-    server_pid=""
+    printf 'state=failed reason=%s session_pid=%s session_start_time=%s server_pid=%s server_start_time=%s affinity=%s expected_affinity=%s nice=%s expected_nice=%s utc=%s\n' \
+        "$server_failure_reason" "$$" "$session_start_time" "$server_pid" \
+        "$server_start_time" "${affinity:-unavailable}" "$expected_affinity" \
+        "${nice_value:-unavailable}" "$expected_nice" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$status_file"
+    # The EXIT handler drains and retires the live child before waiting.
     exit 1
 fi
 

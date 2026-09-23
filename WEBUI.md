@@ -1,5 +1,9 @@
 # Web UI
 
+The native UI can start signed Graft repository jobs, poll their status and
+retrieve context. [GRAFT.md](GRAFT.md) documents the standalone launch,
+existing-tool composition, package, model choices and validation boundaries.
+
 ## Deployment boundary
 
 The workstation runs one `llama-server` process, the runtime monitor, and no
@@ -45,6 +49,10 @@ With `--parallel 1` the slot serves one request at a time. A second person
 waits for the first to finish. Raising `--parallel` divides the KV cache
 between slots and lowers the context each person gets, so the single slot
 stands.
+
+The tmux server needs `CAP_SYS_NICE` or sufficient `RLIMIT_NICE` to move an
+inherited `SCHED_IDLE` session to `SCHED_OTHER`. The session exits before
+startup when the host denies that scheduler transition.
 
 A queue-priority probe measures whether the desktop's own graphics work
 preempts inference the way the server's queue setting asks it to.

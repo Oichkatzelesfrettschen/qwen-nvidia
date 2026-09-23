@@ -23,8 +23,19 @@ repository_root=$(pwd)
 llama_source=${QWEN_LLAMA_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 source_directory=${QWEN_UI_SOURCE:-"$llama_source/tools/ui"}
 destination=${1:-"$repository_root/webui-llama-ui"}
+broker_port=${QWEN_WEB_BROKER_PORT:-8571}
+case $broker_port in
+    '' | *[!0-9]*)
+        printf 'QWEN_WEB_BROKER_PORT must be a decimal port\n' >&2
+        exit 2
+        ;;
+esac
+if [ "$broker_port" -lt 1 ] || [ "$broker_port" -gt 65535 ]; then
+    printf 'QWEN_WEB_BROKER_PORT must be between 1 and 65535\n' >&2
+    exit 2
+fi
 
-for required in node npm tar; do
+for required in node npm tar patch sed grep; do
     command -v "$required" >/dev/null 2>&1 || {
         printf 'the front end build needs %s on this host\n' "$required" >&2
         exit 1
@@ -44,7 +55,8 @@ if [ -e "$destination" ] && [ ! -f "$destination/index.html" ]; then
     exit 1
 fi
 
-work_directory=$(mktemp -d)
+mkdir -p "$repository_root/.local-artifacts"
+work_directory=$(mktemp -d "${TMPDIR:-$repository_root/.local-artifacts}/build-llama-ui.XXXXXX")
 staging=$work_directory/install
 cleanup() {
     rm -rf "$work_directory"
@@ -55,6 +67,13 @@ printf 'copying front end sources from %s\n' "$source_directory"
 mkdir -p "$work_directory/source"
 ( cd "$source_directory" && tar -cf - --exclude=node_modules --exclude=dist . ) |
     ( cd "$work_directory/source" && tar -xf - )
+
+printf 'applying the native Graft approval hook\n'
+patch --batch --forward --fuzz=0 --strip=1 --directory="$work_directory/source" \
+    <"$repository_root/patches/llama-ui-graft-approval.patch"
+mkdir -p "$work_directory/source/src/lib/services"
+cp "$repository_root/scripts/llama-ui/qwen-graft-grant.js" \
+    "$work_directory/source/src/lib/services/qwen-graft-grant.js"
 
 printf 'installing dependencies\n'
 ( cd "$work_directory/source" && npm ci --no-audit --no-fund >/dev/null )
@@ -73,6 +92,13 @@ printf 'installing into %s\n' "$destination"
 mkdir -p "$staging"
 ( cd "$work_directory/source/dist" && tar -cf - . ) |
     ( cd "$staging" && tar -xf - )
+if ! grep -q '<head>' "$staging/index.html"; then
+    printf 'the build produced no HTML head for broker configuration\n' >&2
+    exit 1
+fi
+sed "s@<head>@<head><meta name=\"qwen-graft-broker-origin\" content=\"http://127.0.0.1:$broker_port\" />@" \
+    "$staging/index.html" >"$staging/index.html.configured"
+mv "$staging/index.html.configured" "$staging/index.html"
 if [ -d "$destination" ]; then
     mv "$destination" "$work_directory/replaced"
 fi
