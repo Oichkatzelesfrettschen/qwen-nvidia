@@ -217,6 +217,7 @@ class GraftLaunchTest(unittest.TestCase):
         request = workflow.normalize_start(loaded, {
             "repository": "fixture", "mode": "deep", "paths": []})
         workflow.atomic_json(directory / "request.json", request)
+        workflow.atomic_json(directory / "status.json", {"state": "partial", "attempt": 1})
         broker, headers = self.launch_broker()
         status, _, body = broker.request("POST", "/grant-graft", json.dumps({
             "tool": "graft_resume_build", "arguments": {"job_id": identifier}}), headers)
@@ -228,6 +229,9 @@ class GraftLaunchTest(unittest.TestCase):
             workflow.verify_authorization(
                 loaded, {**workflow.normalize_resume(loaded, identifier),
                          "source_head": "0" * 40}, token)
+        workflow.atomic_json(directory / "status.json", {"state": "partial", "attempt": 2})
+        with self.assertRaisesRegex(workflow.Refusal, "start_authorization_invalid_or_stale"):
+            workflow.verify_authorization(loaded, workflow.normalize_resume(loaded, identifier), token)
 
     def test_grants_refuse_missing_session(self):
         broker, headers = self.launch_broker()
