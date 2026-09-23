@@ -112,6 +112,8 @@ class GraftCPURetirementTests(unittest.TestCase):
                     stream.close()
 
     def publication_fixture(self):
+        self.assertEqual([], RETIREMENT.children(os.getpid()),
+                         "publication fixture inherited a child from another test")
         self.fixture.control["sleep"] = 4
         self.fixture.write_control()
         workflow = FIXTURE_MODULE.WORKFLOW

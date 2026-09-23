@@ -150,6 +150,9 @@ class WorkflowTests(unittest.TestCase):
                     self.wait_terminal(identifier)
             except (OSError, ValueError):
                 pass
+        for process in WORKFLOW.CHILDREN[:]:
+            process.wait(timeout=5)
+            WORKFLOW.CHILDREN.remove(process)
         self.temporary.cleanup()
         os.umask(self.previous_umask)
 
