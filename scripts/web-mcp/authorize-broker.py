@@ -75,6 +75,7 @@ SESSION_SECRET_FILE_NAME = "authorize-session.secret"
 SESSION_SECRET_BYTES = 32
 SESSION_HEADER = "X-Qwen-Web-Session"
 REQUEST_BODY_BYTE_CAP = 16384
+GRAFT_REQUEST_BODY_BYTE_CAP = 262144
 REQUEST_READ_TIMEOUT_DEFAULT_SECONDS = 5.0
 REQUEST_READ_TIMEOUT_MAX_SECONDS = 30.0
 AUTHORIZE_PER_MINUTE_DEFAULT = 6
@@ -813,15 +814,17 @@ class BrokerHandler(http.server.BaseHTTPRequestHandler):
             )
 
     def read_body(self):
+        body_cap = (GRAFT_REQUEST_BODY_BYTE_CAP if self.path.split("?", 1)[0] == GRAFT_GRANT_PATH
+                    else REQUEST_BODY_BYTE_CAP)
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             raise server.InvalidArgument(
                 "Content-Length is not an integer"
             ) from None
-        if length < 0 or length > REQUEST_BODY_BYTE_CAP:
+        if length < 0 or length > body_cap:
             raise server.InvalidArgument(
-                f"the request body exceeds the {REQUEST_BODY_BYTE_CAP} byte cap"
+                f"the request body exceeds the {body_cap} byte cap"
             )
         try:
             body = self.rfile.read(length)

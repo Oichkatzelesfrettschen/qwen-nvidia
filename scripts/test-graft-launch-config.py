@@ -245,6 +245,27 @@ class GraftLaunchTest(unittest.TestCase):
         with self.assertRaisesRegex(workflow.Refusal, "start_authorization_invalid_or_stale"):
             workflow.verify_authorization(loaded, {"action": "start", **changed}, token)
 
+    def test_maximum_scope_grant_crosses_default_body_cap(self):
+        source = Path(self.config["repositories"]["fixture"]["path"])
+        paths = [f"scope-{index:02d}-" + "x" * 180 + "/" + "y" * 150
+                 for index in range(64)]
+        for path in paths:
+            (source / path).mkdir(parents=True)
+        self.config["limits"]["maximum_paths"] = 64
+        self.write_config()
+        arguments = {"repository": "fixture", "mode": "deep", "paths": paths}
+        payload = json.dumps({"tool": "graft_start_build", "arguments": arguments})
+        self.assertGreater(len(payload.encode()), broker_test.broker_module.REQUEST_BODY_BYTE_CAP)
+        broker, headers = self.launch_broker()
+        status, _, body = broker.request("POST", "/grant-graft", payload, headers)
+        self.assertEqual(status, 200, body)
+        loaded = workflow.load_config(self.config_path)
+        normalized = workflow.normalize_start(loaded, arguments)
+        token = json.loads(body)["authorization"]
+        self.assertLessEqual(len(token), 16384)
+        self.assertTrue(workflow.verify_authorization(
+            loaded, {"action": "start", **normalized}, token))
+
     def test_resume_grant_binds_retained_job(self):
         loaded = workflow.load_config(self.config_path)
         root = workflow.initialize_storage(loaded)
