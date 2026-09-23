@@ -111,8 +111,9 @@ abort or completion.
 Attempt 3 ended `partial` at 2026-09-23T05:47:16Z with exit status 1.
 The resource monitor measured `MemAvailable=3617212` KiB at 05:47:05Z,
 below the 4194304-KiB hard reserve, and stopped serving. The last
-telemetry sample recorded Graft RSS of 183388 KiB, GPU activity of 93%,
-and 5315231744 bytes of device memory in use; those fields do not account
+telemetry sample recorded llama-server RSS of 183388 KiB, a process peak
+of 2875072 KiB, GPU activity of 93%, and 5315231744 bytes of device
+memory in use; those fields do not account
 for other host processes. The graph still reports 26019 nodes, 51 ready
 and 25968 pending. The retained cache holds 2663 file summaries and 45
 synthesis batches. A subsequent host probe found an unrelated Android
