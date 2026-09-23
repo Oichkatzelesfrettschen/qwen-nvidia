@@ -426,6 +426,7 @@ if [ "$broker_enabled" = 1 ]; then
         --image-profile "${QWEN_IMAGE_PROFILE:-}" \
         --physics-profile "${QWEN_PHYSICS_PROFILE:-}" \
         --geometry-profile "${QWEN_GEOMETRY_PROFILE:-}" \
+        --coding-profile "${QWEN_CODING_PROFILE:-}" \
         --provider "${QWEN_WEB_PROVIDER:-exa}" \
         --api-key-file "$api_key_file" \
         >"$broker_log" 2>&1 9>&- &

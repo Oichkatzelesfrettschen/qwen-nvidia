@@ -162,6 +162,7 @@ case $action in
                               QWEN_GEOMETRY_PROFILES QWEN_GEOMETRY_RUNTIME \
                               QWEN_GEOMETRY_PROFILE QWEN_GEOMETRY_STATE_DIR \
                               QWEN_GEOMETRY_SERVICE_SOCKET \
+                              QWEN_CODING_PROFILE \
                               QWEN_SIDECAR_TOKEN_KEY_FILE \
                               QWEN_VULKAN_LATENCY_PROBE \
                               QWEN_VULKAN_ICD; do

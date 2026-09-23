@@ -144,17 +144,54 @@ class GraftLaunchTest(unittest.TestCase):
     def test_base_signing_keys_require_identical_bytes(self):
         different_key = Path(self.workspace.name) / "different.key"
         different_key.write_bytes(b"other-signing-key-material")
+        different_key.chmod(0o600)
         for field in ("QWEN_WEB_TOKEN_KEY_FILE", "QWEN_IMAGE_TOKEN_KEY_FILE", "QWEN_SIDECAR_TOKEN_KEY_FILE"):
             with self.subTest(field=field):
                 base = self.write_base({"retained": {"env": {field: str(different_key)}}})
                 with self.assertRaisesRegex(ValueError, "signing-key mismatch"):
                     launcher.prepare(self.config_path, base)
         different_key.write_bytes(Path(self.token_key_path).read_bytes())
+        different_key.chmod(0o600)
         base = self.write_base({"retained": {"env": {"QWEN_WEB_TOKEN_KEY_FILE": str(different_key)}}})
         self.assertEqual(launcher.prepare(self.config_path, base)["QWEN_WEB_PROFILE"], "graft")
+        different_key.chmod(0o644)
+        with self.assertRaisesRegex(ValueError, "private ownership and mode"):
+            launcher.prepare(self.config_path, base)
+        different_key.chmod(0o600)
         different_key.write_bytes(Path(self.token_key_path).read_bytes().rstrip(b"\n"))
         with self.assertRaisesRegex(ValueError, "signing-key mismatch"):
             launcher.prepare(self.config_path, base)
+
+    def test_retained_tools_export_distinct_broker_settings(self):
+        base = self.write_base({
+            "web": {"env": {"QWEN_WEB_PROVIDER": "fake"}},
+            "image": {"env": {"QWEN_IMAGE_PROFILE": "image-a"}},
+            "coding": {"env": {"QWEN_CODING_PROFILE": "code-a"}},
+            "physics": {"env": {"QWEN_SIDECAR_SERVICE": "physics",
+                                "QWEN_SIDECAR_PROFILE": "physics-a"}},
+            "geometry": {"env": {"QWEN_SIDECAR_SERVICE": "geometry",
+                                 "QWEN_SIDECAR_PROFILE": "geometry-a"}},
+        })
+        environment = launcher.prepare(self.config_path, base)
+        self.assertEqual({field: environment[field] for field in (
+            "QWEN_WEB_PROVIDER", "QWEN_IMAGE_PROFILE", "QWEN_CODING_PROFILE",
+            "QWEN_PHYSICS_PROFILE", "QWEN_GEOMETRY_PROFILE")}, {
+                "QWEN_WEB_PROVIDER": "fake", "QWEN_IMAGE_PROFILE": "image-a",
+                "QWEN_CODING_PROFILE": "code-a", "QWEN_PHYSICS_PROFILE": "physics-a",
+                "QWEN_GEOMETRY_PROFILE": "geometry-a"})
+        for change in ({"QWEN_WEB_PROVIDER": "searxng"},
+                       {"QWEN_CODING_PROFILE": "code-b"}):
+            conflicting = self.write_base({"first": {"env": change}, "second": {"env": {
+                next(iter(change)): "fake" if "QWEN_WEB_PROVIDER" in change else "code-a"}}})
+            with self.assertRaisesRegex(ValueError, "contradictory"):
+                launcher.prepare(self.config_path, conflicting)
+        invalid = self.write_base({"sidecar": {"env": {"QWEN_SIDECAR_SERVICE": "unknown",
+                                                             "QWEN_SIDECAR_PROFILE": "profile-a"}}})
+        with self.assertRaisesRegex(ValueError, "sidecar service"):
+            launcher.prepare(self.config_path, invalid)
+        incomplete = self.write_base({"sidecar": {"env": {"QWEN_SIDECAR_SERVICE": "physics"}}})
+        with self.assertRaisesRegex(ValueError, "QWEN_SIDECAR_PROFILE"):
+            launcher.prepare(self.config_path, incomplete)
 
     def test_composed_profile_signs_web_and_graft_grants(self):
         base = self.write_base({"web": {"command": "/usr/bin/true", "env": {

@@ -17,8 +17,11 @@ def signing_key_bytes(path):
     """Read a bounded regular key file without waiting on special files."""
     descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+        metadata = os.fstat(handle.fileno())
+        if not stat.S_ISREG(metadata.st_mode):
             raise ValueError("MCP composition signing key must be a regular file")
+        if metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+            raise ValueError("MCP composition signing key requires private ownership and mode")
         content = handle.read(8193)
         if not 16 <= len(content) <= 8192:
             raise ValueError("MCP composition signing key length is invalid")
@@ -65,6 +68,40 @@ def composed_profile(mcp, authorization_key_file, selected_profile=None):
     return next(iter(labels), "graft")
 
 
+def retained_broker_settings(mcp):
+    """Carry the retained tool identities into the authorization broker."""
+    settings = {}
+    direct_fields = ("QWEN_WEB_PROVIDER", "QWEN_IMAGE_PROFILE", "QWEN_CODING_PROFILE")
+    sidecar_fields = {"physics": "QWEN_PHYSICS_PROFILE", "geometry": "QWEN_GEOMETRY_PROFILE"}
+    for server_name, server in mcp["mcpServers"].items():
+        environment = server.get("env", {})
+        for field in direct_fields:
+            if field not in environment:
+                continue
+            value = environment[field]
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"MCP composition requires {server_name}.{field}")
+            if field in settings and settings[field] != value:
+                raise ValueError(f"MCP composition has contradictory {field}")
+            settings[field] = value
+        if "QWEN_SIDECAR_SERVICE" in environment or "QWEN_SIDECAR_PROFILE" in environment:
+            service = environment.get("QWEN_SIDECAR_SERVICE")
+            if service not in sidecar_fields:
+                raise ValueError(f"MCP composition requires a sidecar service in {server_name}")
+            field = sidecar_fields[service]
+            value = environment.get("QWEN_SIDECAR_PROFILE")
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"MCP composition requires {server_name}.QWEN_SIDECAR_PROFILE")
+            if field in settings and settings[field] != value:
+                raise ValueError(f"MCP composition has contradictory {field}")
+            settings[field] = value
+    for field in ("QWEN_IMAGE_PROFILE", "QWEN_CODING_PROFILE",
+                  "QWEN_PHYSICS_PROFILE", "QWEN_GEOMETRY_PROFILE"):
+        if field in settings and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", settings[field]):
+            raise ValueError(f"MCP composition requires a valid {field}")
+    return settings
+
+
 def prepare(config_path, base_mcp_path=None, web_profile=None):
     scripts = Path(__file__).resolve().parent
     specification = importlib.util.spec_from_file_location(
@@ -95,6 +132,7 @@ def prepare(config_path, base_mcp_path=None, web_profile=None):
         mcp, config["authorization_key_file"],
         os.environ.get("QWEN_WEB_PROFILE") if web_profile is None else web_profile,
     )
+    broker_settings = retained_broker_settings(mcp)
     workflow.initialize_storage(config)
     config_path = Path(config["artifact_root"]) / (
         "session-config-" + workflow.hashlib.sha256(workflow.canonical(config)).hexdigest() + ".json"
@@ -128,6 +166,7 @@ def prepare(config_path, base_mcp_path=None, web_profile=None):
         "QWEN_WEB_BROKER": "1", "QWEN_WEB_PROFILE": profile,
         "QWEN_WEB_TOKEN_KEY_FILE": config["authorization_key_file"],
         "QWEN_WEB_STATE_DIR": str(state_directory / "web"),
+        **broker_settings,
     }
 
 
