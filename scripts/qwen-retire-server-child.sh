@@ -66,14 +66,21 @@ if [ "$server_session_id" != "$server_pid" ]; then
 fi
 
 serving_session_members() {
+    # A host can have thousands of unrelated processes. Parse each stat row
+    # with shell builtins so retirement cost follows proc reads, not forks.
     for member_stat in /proc/[0-9]*/stat; do
+        set -f
         [ -r "$member_stat" ] || continue
-        member_fields=$(sed 's/^.*) //' "$member_stat" 2>/dev/null) || continue
-        [ "$(printf '%s\n' "$member_fields" | awk '{ print $4 }')" = "$server_session_id" ] || continue
+        IFS= read -r member_line <"$member_stat" 2>/dev/null || continue
+        member_fields=${member_line##*) }
+        set -- $member_fields
+        [ "$#" -ge 20 ] || continue
+        [ "$4" = "$server_session_id" ] || continue
         member_pid=${member_stat#/proc/}
         member_pid=${member_pid%/stat}
-        member_start=$(printf '%s\n' "$member_fields" | awk '{ print $20 }')
-        member_state=$(printf '%s\n' "$member_fields" | awk '{ print $1 }')
+        member_state=$1
+        shift 19
+        member_start=$1
         [ "$member_state" = Z ] || [ "$member_state" = X ] ||
             printf '%s:%s\n' "$member_pid" "$member_start"
     done
