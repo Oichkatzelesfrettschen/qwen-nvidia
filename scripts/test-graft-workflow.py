@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -357,7 +358,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(marker.read_text(), "retained\n")
         self.assertEqual((directory / "build.log").read_bytes(), first_log)
         self.assertEqual(WORKFLOW.read_json(directory / "status-attempt-1.json"), first)
-        with self.assertRaisesRegex(WORKFLOW.Refusal, "resume_requires_partial_deep_job"):
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "start_authorization_invalid_or_stale"):
             WORKFLOW.resume_build(self.config, first["job_id"], token)
 
     def test_resume_refuses_changed_source_head(self):
@@ -374,6 +375,102 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(WORKFLOW.Refusal, "approved_source"):
             WORKFLOW.resume_build(self.config, first["job_id"], token)
         self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+
+    def test_resume_grant_is_bound_to_approved_partial_attempt(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        first_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        second_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        old_cancel_token = WORKFLOW.issue_cancel_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], first_token)["attempt"], 2)
+        second = self.wait_terminal(first["job_id"])
+        self.assertEqual(second["state"], "partial")
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.resume_build(self.config, first["job_id"], second_token)
+        with self.assertRaises(WORKFLOW.Refusal):
+            WORKFLOW.cancel_build(self.config, first["job_id"], old_cancel_token)
+        fresh_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], fresh_token)["attempt"], 3)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+
+    def test_resume_archives_prior_publications_and_cancellation(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        directory = Path(first["graph_directory"]).parent
+        prior = {name: (directory / f"{name}.json").read_bytes()
+                 for name in ("owner", "child", "source-fds")}
+        WORKFLOW.atomic_json(directory / "cancel.json", {"requested": True})
+        self.control["sleep"] = 0.5
+        self.write_control()
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], token)["attempt"], 2)
+        WORKFLOW.atomic_json(directory / "cancel.json", {"requested": True, "attempt": 1})
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+        for name, content in prior.items():
+            self.assertEqual((directory / f"{name}-attempt-1.json").read_bytes(), content)
+        self.assertEqual(WORKFLOW.read_json(directory / "cancel-attempt-1.json"), {"requested": True})
+        self.assertEqual(WORKFLOW.read_json(directory / "cancel.json")["attempt"], 1)
+
+    def test_cancel_waits_for_resumed_owner_publication(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.control["sleep"] = 5
+        self.write_control()
+        resume_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        entered = threading.Event()
+        release = threading.Event()
+        actual_launch_worker = WORKFLOW.launch_worker
+        outcomes = {}
+
+        def pause_launch(*arguments):
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError("resume publication was not released")
+            return actual_launch_worker(*arguments)
+
+        def resume():
+            try:
+                outcomes["resume"] = WORKFLOW.resume_build(self.config, first["job_id"], resume_token)
+            except Exception as error:
+                outcomes["resume_error"] = error
+
+        def cancel(token):
+            try:
+                outcomes["cancel"] = WORKFLOW.cancel_build(self.config, first["job_id"], token)
+            except Exception as error:
+                outcomes["cancel_error"] = error
+
+        with mock.patch.object(WORKFLOW, "launch_worker", side_effect=pause_launch):
+            resume_thread = threading.Thread(target=resume)
+            resume_thread.start()
+            self.assertTrue(entered.wait(3))
+            cancel_token = WORKFLOW.issue_cancel_authorization(
+                self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+            cancel_thread = threading.Thread(target=cancel, args=(cancel_token,))
+            cancel_thread.start()
+            try:
+                cancel_thread.join(timeout=0.1)
+                self.assertTrue(cancel_thread.is_alive())
+            finally:
+                release.set()
+            resume_thread.join(timeout=3)
+            cancel_thread.join(timeout=3)
+        self.assertFalse(resume_thread.is_alive())
+        self.assertFalse(cancel_thread.is_alive())
+        self.assertNotIn("resume_error", outcomes)
+        self.assertNotIn("cancel_error", outcomes)
+        self.assertEqual(outcomes["resume"]["attempt"], 2)
+        self.assertEqual(outcomes["cancel"]["cancellation"], "requested")
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "cancelled")
 
     def test_resume_spawn_failure_restores_partial_job(self):
         self.control.update(summary_state="pending", exit_code=1)
@@ -407,6 +504,8 @@ class WorkflowTests(unittest.TestCase):
         directory = Path(first["graph_directory"]).parent
         graph_path = Path(first["graph_directory"]) / ".graph/wiring.json"
         original_graph_digest = hashlib.sha256(graph_path.read_bytes()).hexdigest()
+        previous_owner = (directory / "owner.json").read_bytes()
+        WORKFLOW.atomic_json(directory / "cancel.json", {"requested": True})
         token = WORKFLOW.issue_resume_authorization(
             self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
         actual_atomic_json = WORKFLOW.atomic_json
@@ -426,6 +525,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse((directory / "status-attempt-1.json").exists())
         self.assertEqual(hashlib.sha256(graph_path.read_bytes()).hexdigest(), original_graph_digest)
         self.assertFalse((directory / "build-attempt-2.log").exists())
+        self.assertEqual((directory / "owner.json").read_bytes(), previous_owner)
+        self.assertEqual(WORKFLOW.read_json(directory / "cancel.json"), {"requested": True})
         retry_token = WORKFLOW.issue_resume_authorization(
             self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
         self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], retry_token)["attempt"], 2)
@@ -481,6 +582,14 @@ class WorkflowTests(unittest.TestCase):
         finally:
             WORKFLOW.atomic_json(owner_path, owner)
         self.assertEqual(self.wait_terminal(initial["job_id"])["state"], "completed")
+
+    def test_cancellation_refuses_changed_job_configuration(self):
+        initial = self.wait_terminal(self.start()["job_id"])
+        self.config["limits"]["seconds"] += 1
+        self.save_config()
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "approved_configuration_changed"):
+            WORKFLOW.issue_cancel_authorization(
+                self.config, {"job_id": initial["job_id"]}, self.authorization_key.read_bytes())
 
     def test_approval_replay_and_changed_request(self):
         request = self.request()

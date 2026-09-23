@@ -516,6 +516,7 @@ def normalize_resume(config, identifier):
     return {"action": "resume", "job_id": identifier,
             "config_sha256": hashlib.sha256(canonical(config)).hexdigest(),
             "request_sha256": hashlib.sha256((directory / "request.json").read_bytes()).hexdigest(),
+            "status_sha256": hashlib.sha256((directory / "status.json").read_bytes()).hexdigest(),
             "source_head": request["source_head"]}
 
 
@@ -532,6 +533,7 @@ def resume_build(config, identifier, authorization):
     lock_path = Path(config["artifact_root"]) / "locks" / (request["repository"] + ".lock")
     lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
     graph_lock_descriptor = None
+    attempt_lock_descriptor = None
     try:
         try:
             fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -543,9 +545,14 @@ def resume_build(config, identifier, authorization):
             fcntl.flock(graph_lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise Refusal("graph_query_busy") from None
+        attempt_lock_descriptor = os.open(directory / "attempt.lock",
+                                          os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(attempt_lock_descriptor, fcntl.LOCK_EX)
         state = read_json(directory / "status.json")
         if state["state"] != "partial" or request["mode"] != "deep":
             raise Refusal("resume_requires_partial_deep_job")
+        if normalize_resume(config, identifier) != normalized:
+            raise Refusal("approved_resume_attempt_changed")
         # The previous supervisor publishes terminal status before it exits.
         # Acquiring the repository lock proves its finalizer has closed the
         # lock descriptor, including during that short live-process interval.
@@ -565,15 +572,29 @@ def resume_build(config, identifier, authorization):
         atomic_json(previous_status, state)
         queued = {**state, "state": "queued", "attempt": attempt}
         queued.pop("finished_at", None)
-        atomic_json(directory / "status.json", queued)
+        archived = []
         try:
+            for name in ("owner", "child", "source-fds", "cancel"):
+                current = directory / f"{name}.json"
+                prior = directory / f"{name}-attempt-{attempt - 1}.json"
+                if current.exists():
+                    if prior.exists():
+                        raise Refusal("prior_attempt_publication_exists")
+                    current.replace(prior)
+                    archived.append((current, prior))
+            atomic_json(directory / "status.json", queued)
             launch_worker(directory, identifier, lock_descriptor, graph_lock_descriptor)
-        except Refusal:
+        except (OSError, Refusal):
             atomic_json(directory / "status.json", state)
+            (directory / "owner.json").unlink(missing_ok=True)
+            for current, prior in reversed(archived):
+                prior.replace(current)
             previous_status.unlink()
             raise
         return queued
     finally:
+        if attempt_lock_descriptor is not None:
+            os.close(attempt_lock_descriptor)
         if graph_lock_descriptor is not None:
             os.close(graph_lock_descriptor)
         os.close(lock_descriptor)
@@ -582,7 +603,11 @@ def resume_build(config, identifier, authorization):
 def normalize_cancel(config, arguments):
     closed_fields(arguments, {"job_id"}, {"job_id"})
     directory = job_directory(config, arguments["job_id"])
+    if canonical(read_json(directory / "config.json")) != canonical(config):
+        raise Refusal("approved_configuration_changed")
+    state = read_json(directory / "status.json")
     return {"action": "cancel", "job_id": arguments["job_id"],
+            "attempt": state.get("attempt", 1),
             "config_sha256": hashlib.sha256(canonical(config)).hexdigest(),
             "request_sha256": hashlib.sha256((directory / "request.json").read_bytes()).hexdigest()}
 
@@ -592,8 +617,19 @@ def issue_cancel_authorization(config, arguments, key):
 
 
 def cancel_build(config, identifier, authorization):
-    nonce = verify_authorization(config, normalize_cancel(config, {"job_id": identifier}), authorization)
     directory = job_directory(config, identifier)
+    descriptor = os.open(directory / "attempt.lock",
+                         os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        return _cancel_build_locked(config, identifier, authorization, directory)
+    finally:
+        os.close(descriptor)
+
+
+def _cancel_build_locked(config, identifier, authorization, directory):
+    normalized = normalize_cancel(config, {"job_id": identifier})
+    nonce = verify_authorization(config, normalized, authorization)
     try:
         descriptor = os.open(Path(config["artifact_root"]) / "grants" / nonce,
                              os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -601,12 +637,14 @@ def cancel_build(config, identifier, authorization):
         raise Refusal("cancellation_authorization_spent") from None
     os.close(descriptor)
     state = build_status(config, identifier)
+    if state.get("attempt", 1) != normalized["attempt"]:
+        raise Refusal("approved_cancel_attempt_changed")
     if state["state"] in TERMINAL:
         return state
     owner = read_json(directory / "owner.json")
     if not identity_matches(owner, require_live=True):
         raise Refusal("supervisor_identity_changed")
-    atomic_json(directory / "cancel.json", {"requested": True})
+    atomic_json(directory / "cancel.json", {"requested": True, "attempt": normalized["attempt"]})
     if state["state"] == "queued":
         return {**state, "cancellation": "requested"}
     # pidfd binds signalling to one process lifetime after the start-time check.
@@ -620,6 +658,14 @@ def cancel_build(config, identifier, authorization):
     finally:
         os.close(descriptor)
     return {**state, "cancellation": "requested"}
+
+
+def cancellation_requested(directory, attempt):
+    path = directory / "cancel.json"
+    if not path.exists():
+        return False
+    marker = read_json(path)
+    return marker.get("requested") is True and marker.get("attempt") == attempt
 
 
 def sandbox_base(config, request, directory, graph_read_only=False, source_fds=None):
@@ -772,7 +818,7 @@ def run_worker(config, identifier, lock_descriptor, graph_lock_descriptor, ready
         arguments = {name: request[name] for name in ("repository", "mode", "paths")}
         if normalize_start(config, arguments) != request:
             raise Refusal("approved_source_or_configuration_changed")
-        if cancelled or (directory / "cancel.json").exists():
+        if cancelled or cancellation_requested(directory, state.get("attempt", 1)):
             state.update(state="cancelled")
             return
         source_fds = pin_request_sources(config, request, check_head=True)
@@ -804,7 +850,7 @@ def run_worker(config, identifier, lock_descriptor, graph_lock_descriptor, ready
         log_name = "build.log" if state.get("attempt", 1) == 1 else f"build-attempt-{state['attempt']}.log"
         with (directory / log_name).open("wb") as log:
             while selector.get_map():
-                if cancelled or (directory / "cancel.json").exists():
+                if cancelled or cancellation_requested(directory, state.get("attempt", 1)):
                     reason = "cancelled"
                 elif time.monotonic() >= deadline:
                     reason = "timed_out"
