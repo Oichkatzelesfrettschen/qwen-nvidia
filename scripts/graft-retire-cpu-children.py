@@ -362,6 +362,7 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
         admitted.extend(cancel_verified_jobs(
             entry, workflow_path, config_path, workflow, config, candidate, jobs, deadline))
         admitted.append(candidate)
+    detached_jobs = []
     for session_path in (Path(config["artifact_root"]) / "jobs").glob("*/session.json"):
         if time.monotonic() >= deadline:
             raise Refusal("job_retirement_deadline")
@@ -383,9 +384,9 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
         request = verified_worker_request(
             workflow, config, directory, worker, entry["command"], workflow_path)
         captured = observe_worker_publication(workflow, config, request, directory, worker, deadline)
-        admitted.extend(cancel_verified_jobs(
-            entry, workflow_path, config_path, workflow, config, None,
-            [(directory.name, captured)], deadline))
+        detached_jobs.append((directory.name, captured))
+    admitted.extend(cancel_verified_jobs(
+        entry, workflow_path, config_path, workflow, config, None, detached_jobs, deadline))
     for child in direct_children:
         command_matches = [(expected, executable, environment)
                            for expected, executable, environment in retained_commands
