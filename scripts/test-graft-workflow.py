@@ -269,6 +269,54 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(first["graph_directory"], second["graph_directory"])
         self.assertTrue(Path(first["graph_directory"]).is_dir())
 
+    def test_start_spawn_failure_records_terminal_status(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        actual_popen = subprocess.Popen
+
+        def refuse_worker(*args, **kwargs):
+            if "_worker" in args[0]:
+                raise OSError("fixture spawn refusal")
+            return actual_popen(*args, **kwargs)
+
+        with (mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=refuse_worker),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_spawn_failed:") as failure):
+            WORKFLOW.start_build(self.config, request, token)
+        identifier = str(failure.exception).split(":", 1)[1]
+        state = WORKFLOW.build_status(self.config, identifier)
+        self.assertEqual(state["state"], "failed")
+        self.assertEqual(state["reason"], "supervisor_spawn_failed")
+        self.assertIn("finished_at", state)
+        self.assertEqual(len(list((self.root / "jobs-output/jobs").iterdir())), 1)
+
+    def test_start_owner_write_failure_retires_supervisor(self):
+        request = self.request()
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        actual_atomic_json = WORKFLOW.atomic_json
+
+        def fail_owner(path, value):
+            if Path(path).name == "owner.json":
+                time.sleep(0.25)
+                self.assertEqual(len(list((self.root / "jobs-output/jobs").iterdir())), 1)
+                raise OSError("fixture owner write refusal")
+            return actual_atomic_json(path, value)
+
+        with (mock.patch.object(WORKFLOW, "atomic_json", side_effect=fail_owner),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_owner_publish_failed:") as failure):
+            WORKFLOW.start_build(self.config, request, token)
+        identifier = str(failure.exception).split(":", 1)[1]
+        state = WORKFLOW.build_status(self.config, identifier)
+        self.assertEqual(state["state"], "failed")
+        self.assertEqual(state["reason"], "supervisor_owner_publish_failed")
+        self.assertFalse(Path(state["graph_directory"], "probe.json").exists())
+        lock = os.open(self.root / "jobs-output/locks/fixture.lock", os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            WORKFLOW.fcntl.flock(lock, WORKFLOW.fcntl.LOCK_EX | WORKFLOW.fcntl.LOCK_NB)
+        finally:
+            os.close(lock)
+
     def test_deep_partial_redaction_and_log_cap(self):
         self.control.update(summary_state="pending", log_bytes=8000)
         self.write_control()
@@ -326,6 +374,62 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(WORKFLOW.Refusal, "approved_source"):
             WORKFLOW.resume_build(self.config, first["job_id"], token)
         self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+
+    def test_resume_spawn_failure_restores_partial_job(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(first["state"], "partial")
+        directory = Path(first["graph_directory"]).parent
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        actual_popen = subprocess.Popen
+
+        def refuse_worker(*args, **kwargs):
+            if "_worker" in args[0]:
+                raise OSError("fixture spawn refusal")
+            return actual_popen(*args, **kwargs)
+
+        with (mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=refuse_worker),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_spawn_failed")):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+        self.assertFalse((directory / "status-attempt-1.json").exists())
+        retry_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], retry_token)["attempt"], 2)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+
+    def test_resume_owner_write_failure_restores_partial_job(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        directory = Path(first["graph_directory"]).parent
+        graph_path = Path(first["graph_directory"]) / ".graph/wiring.json"
+        original_graph_digest = hashlib.sha256(graph_path.read_bytes()).hexdigest()
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        actual_atomic_json = WORKFLOW.atomic_json
+
+        def fail_owner(path, value):
+            if Path(path).name == "owner.json":
+                time.sleep(0.25)
+                self.assertEqual(WORKFLOW.read_json(directory / "status.json")["state"], "queued")
+                self.assertEqual(hashlib.sha256(graph_path.read_bytes()).hexdigest(), original_graph_digest)
+                raise OSError("fixture owner write refusal")
+            return actual_atomic_json(path, value)
+
+        with (mock.patch.object(WORKFLOW, "atomic_json", side_effect=fail_owner),
+              self.assertRaisesRegex(WORKFLOW.Refusal, "supervisor_owner_publish_failed")):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
+        self.assertFalse((directory / "status-attempt-1.json").exists())
+        self.assertEqual(hashlib.sha256(graph_path.read_bytes()).hexdigest(), original_graph_digest)
+        self.assertFalse((directory / "build-attempt-2.log").exists())
+        retry_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], retry_token)["attempt"], 2)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
 
     def test_failure_and_timeout(self):
         self.control.update(graph=False, exit_code=7)
@@ -557,6 +661,52 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(WORKFLOW.Refusal, "identity_changed"):
             WORKFLOW.query_graph(self.config, arguments)
         self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
+
+    def test_query_holds_repository_lock_against_resume(self):
+        package = self.root / "graft-package"
+        (package / "dist/mcp").mkdir(parents=True)
+        (package / "package.json").write_text(json.dumps({"name": "@nanonets/graft", "type": "module"}))
+        (package / "dist/mcp/tools.js").write_text(
+            "export async function callTool() { return {text:'stable graph'}; }\n")
+        self.config["graft_package_root"] = str(package)
+        self.save_config()
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(first["state"], "partial")
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        lock_path = Path(first["graph_directory"]).parent / "graph.lock"
+        lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            WORKFLOW.fcntl.flock(lock_descriptor, WORKFLOW.fcntl.LOCK_EX | WORKFLOW.fcntl.LOCK_NB)
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "graph_build_busy"):
+                WORKFLOW.query_graph(self.config, {"job_id": first["job_id"],
+                                                   "operation": "graft_repo_map", "arguments": {}})
+        finally:
+            os.close(lock_descriptor)
+        actual_popen = subprocess.Popen
+
+        def spawn_query(*args, **kwargs):
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "graph_query_busy"):
+                WORKFLOW.resume_build(self.config, first["job_id"], token)
+            return actual_popen(*args, **kwargs)
+
+        with mock.patch.object(WORKFLOW.subprocess, "Popen", side_effect=spawn_query):
+            result = WORKFLOW.query_graph(self.config, {"job_id": first["job_id"],
+                                                       "operation": "graft_repo_map", "arguments": {}})
+        self.assertEqual(result["result"]["text"], "stable graph")
+        self.control.update(summary_state="ready", exit_code=0, sleep=0.5)
+        self.write_control()
+        second = self.start()
+        result = WORKFLOW.query_graph(self.config, {"job_id": first["job_id"],
+                                                   "operation": "graft_repo_map", "arguments": {}})
+        self.assertEqual(result["result"]["text"], "stable graph")
+        self.assertEqual(self.wait_terminal(second["job_id"])["state"], "completed")
+        self.control.update(summary_state="pending", exit_code=1, sleep=0)
+        self.write_control()
+        self.assertEqual(WORKFLOW.resume_build(self.config, first["job_id"], token)["attempt"], 2)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
 
     def test_model_roots_scopes_and_extra_fields_rejected(self):
         for path in ("../", "/", "--flag", "."):

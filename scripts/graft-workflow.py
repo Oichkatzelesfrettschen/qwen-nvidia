@@ -426,12 +426,50 @@ def build_status(config, identifier):
     return state
 
 
+def launch_worker(directory, identifier, lock_descriptor, graph_lock_descriptor):
+    """Publish the owner before releasing a worker to mutate its graph."""
+    ready_read, ready_write = os.pipe()
+    try:
+        try:
+            process = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), "--config",
+                 str(directory / "config.json"), "_worker", identifier,
+                 "--lock-fd", str(lock_descriptor),
+                 "--graph-lock-fd", str(graph_lock_descriptor),
+                 "--ready-fd", str(ready_read)], start_new_session=True,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                pass_fds=(lock_descriptor, graph_lock_descriptor, ready_read),
+                env={"PATH": "/usr/bin:/bin", "PYTHONUNBUFFERED": "1"})
+        except OSError:
+            raise Refusal("supervisor_spawn_failed") from None
+        try:
+            owner = process_identity(process.pid)
+            if owner is None:
+                raise Refusal("supervisor_identity_unavailable")
+            atomic_json(directory / "owner.json", owner)
+            if os.write(ready_write, b"1") != 1:
+                raise Refusal("supervisor_ready_signal_failed")
+        except (OSError, Refusal):
+            os.close(ready_write)
+            ready_write = None
+            retire_unpublished_supervisor(process)
+            raise Refusal("supervisor_owner_publish_failed") from None
+        CHILDREN.append(process)
+        return process
+    finally:
+        os.close(ready_read)
+        if ready_write is not None:
+            os.close(ready_write)
+
+
 def start_build(config, arguments, authorization):
     normalized = normalize_start(config, arguments)
     nonce = verify_authorization(config, {"action": "start", **normalized}, authorization)
     root = initialize_storage(config)
     lock_path = root / "locks" / (normalized["repository"] + ".lock")
     lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    graph_lock_descriptor = None
     try:
         try:
             fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -446,6 +484,9 @@ def start_build(config, arguments, authorization):
         identifier = secrets.token_hex(16)
         directory = root / "jobs" / identifier
         directory.mkdir(mode=0o700)
+        graph_lock_descriptor = os.open(directory / "graph.lock",
+                                        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(graph_lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         for name in ("graph", "scratch"):
             (directory / name).mkdir(mode=0o700)
         atomic_json(directory / "config.json", config)
@@ -455,17 +496,17 @@ def start_build(config, arguments, authorization):
                    "source_head": normalized["source_head"], "state": "queued",
                    "graph_directory": str(directory / "graph")}
         atomic_json(directory / "status.json", initial)
-        process = subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()), "--config",
-             str(directory / "config.json"), "_worker", identifier,
-             "--lock-fd", str(lock_descriptor)], start_new_session=True,
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, pass_fds=(lock_descriptor,),
-            env={"PATH": "/usr/bin:/bin", "PYTHONUNBUFFERED": "1"})
-        atomic_json(directory / "owner.json", process_identity(process.pid))
-        CHILDREN.append(process)
+        try:
+            launch_worker(directory, identifier, lock_descriptor, graph_lock_descriptor)
+        except Refusal as error:
+            initial.update(state="failed", reason=str(error),
+                           finished_at=int(time.time()))
+            atomic_json(directory / "status.json", initial)
+            raise Refusal(f"{error}:{identifier}") from None
         return initial
     finally:
+        if graph_lock_descriptor is not None:
+            os.close(graph_lock_descriptor)
         os.close(lock_descriptor)
 
 
@@ -490,11 +531,18 @@ def resume_build(config, identifier, authorization):
     request = read_json(directory / "request.json")
     lock_path = Path(config["artifact_root"]) / "locks" / (request["repository"] + ".lock")
     lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+    graph_lock_descriptor = None
     try:
         try:
             fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise Refusal("repository_build_busy") from None
+        graph_lock_descriptor = os.open(directory / "graph.lock",
+                                        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(graph_lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Refusal("graph_query_busy") from None
         state = read_json(directory / "status.json")
         if state["state"] != "partial" or request["mode"] != "deep":
             raise Refusal("resume_requires_partial_deep_job")
@@ -513,21 +561,21 @@ def resume_build(config, identifier, authorization):
             raise Refusal("resume_authorization_spent") from None
         os.close(descriptor)
         attempt = state.get("attempt", 1) + 1
-        atomic_json(directory / f"status-attempt-{attempt - 1}.json", state)
-        state.update(state="queued", attempt=attempt)
-        state.pop("finished_at", None)
-        atomic_json(directory / "status.json", state)
-        process = subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()), "--config",
-             str(directory / "config.json"), "_worker", identifier,
-             "--lock-fd", str(lock_descriptor)], start_new_session=True,
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, pass_fds=(lock_descriptor,),
-            env={"PATH": "/usr/bin:/bin", "PYTHONUNBUFFERED": "1"})
-        atomic_json(directory / "owner.json", process_identity(process.pid))
-        CHILDREN.append(process)
-        return state
+        previous_status = directory / f"status-attempt-{attempt - 1}.json"
+        atomic_json(previous_status, state)
+        queued = {**state, "state": "queued", "attempt": attempt}
+        queued.pop("finished_at", None)
+        atomic_json(directory / "status.json", queued)
+        try:
+            launch_worker(directory, identifier, lock_descriptor, graph_lock_descriptor)
+        except Refusal:
+            atomic_json(directory / "status.json", state)
+            previous_status.unlink()
+            raise
+        return queued
     finally:
+        if graph_lock_descriptor is not None:
+            os.close(graph_lock_descriptor)
         os.close(lock_descriptor)
 
 
@@ -669,7 +717,26 @@ def stop_child(process, identity):
         process.wait(timeout=3)
 
 
-def run_worker(config, identifier, lock_descriptor):
+def retire_unpublished_supervisor(process):
+    """Stop a worker whose owner record could not be published before returning."""
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=3)
+    else:
+        process.wait(timeout=3)
+
+
+def run_worker(config, identifier, lock_descriptor, graph_lock_descriptor, ready_descriptor):
     directory = job_directory(config, identifier)
     request = read_json(directory / "request.json")
     lock_path = Path(config["artifact_root"]) / "locks" / (request["repository"] + ".lock")
@@ -677,6 +744,16 @@ def run_worker(config, identifier, lock_descriptor):
     if (descriptor_stat.st_dev, descriptor_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino):
         raise Refusal("worker_lock_identity_invalid")
     fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    graph_lock_path = directory / "graph.lock"
+    descriptor_stat, path_stat = os.fstat(graph_lock_descriptor), graph_lock_path.stat()
+    if (descriptor_stat.st_dev, descriptor_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino):
+        raise Refusal("worker_graph_lock_identity_invalid")
+    fcntl.flock(graph_lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        if os.read(ready_descriptor, 1) != b"1":
+            raise Refusal("supervisor_owner_unpublished")
+    finally:
+        os.close(ready_descriptor)
     cancelled = False
 
     def request_cancel(_signum, _frame):
@@ -779,6 +856,7 @@ def run_worker(config, identifier, lock_descriptor):
             atomic_json(directory / "status.json", state)
         finally:
             close_source_fds(source_fds)
+            os.close(graph_lock_descriptor)
             os.close(lock_descriptor)
 
 
@@ -824,6 +902,20 @@ def query_graph(config, arguments):
     if not config.get("graft_package_root"):
         raise Refusal("query_requires_graft_package_root")
     directory = job_directory(config, arguments["job_id"])
+    graph_lock_descriptor = os.open(directory / "graph.lock",
+                                    os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(graph_lock_descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Refusal("graph_build_busy") from None
+        return _query_graph_locked(config, arguments, operation, params, directory)
+    finally:
+        os.close(graph_lock_descriptor)
+
+
+def _query_graph_locked(config, arguments, operation, params, directory):
+    """Read a terminal graph while the repository lock excludes a new writer."""
     state = build_status(config, arguments["job_id"])
     coverage = graph_coverage(directory)
     if (state["state"] not in ("completed", "partial") or not coverage
@@ -1051,11 +1143,14 @@ def main():
     worker = commands.add_parser("_worker", help=argparse.SUPPRESS)
     worker.add_argument("job_id")
     worker.add_argument("--lock-fd", type=int, required=True)
+    worker.add_argument("--graph-lock-fd", type=int, required=True)
+    worker.add_argument("--ready-fd", type=int, required=True)
     arguments = parser.parse_args()
     try:
         config = load_config(arguments.config)
         if arguments.command == "_worker":
-            run_worker(config, arguments.job_id, arguments.lock_fd)
+            run_worker(config, arguments.job_id, arguments.lock_fd,
+                       arguments.graph_lock_fd, arguments.ready_fd)
             return 0
         if arguments.command == "mcp":
             serve_mcp(config)
