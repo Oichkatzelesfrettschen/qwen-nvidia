@@ -291,6 +291,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("finished_at", state)
         self.assertEqual(len(list((self.root / "jobs-output/jobs").iterdir())), 1)
 
+    def test_storage_refuses_symlinked_subdirectories(self):
+        storage = self.root / "jobs-output"
+        storage.mkdir(mode=0o700)
+        outside = self.root / "outside-storage"
+        outside.mkdir(mode=0o700)
+        for name in ("jobs", "locks", "grants"):
+            with self.subTest(name=name):
+                link = storage / name
+                link.symlink_to(outside, target_is_directory=True)
+                with self.assertRaisesRegex(WORKFLOW.Refusal,
+                                            "artifact_subdirectory_requires_private_permissions"):
+                    WORKFLOW.initialize_storage(self.config)
+                link.unlink()
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_start_owner_write_failure_retires_supervisor(self):
         request = self.request()
         token = WORKFLOW.issue_start_authorization(

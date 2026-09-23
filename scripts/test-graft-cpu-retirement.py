@@ -306,6 +306,42 @@ class GraftCPURetirementTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("\nteardown: held=yes\n", result.stdout)
 
+    def test_retained_mcp_children_with_shared_command_use_environment(self):
+        self.mcp["mcpServers"]["retained"] = {
+            "command": "/usr/bin/sleep", "args": ["300"],
+            "env": {"QWEN_SIDECAR_SERVICE": "physics"},
+        }
+        self.mcp["mcpServers"]["geometry"] = {
+            "command": "/usr/bin/sleep", "args": ["300"],
+            "env": {"QWEN_SIDECAR_SERVICE": "geometry"},
+        }
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        self.start_server(retained=True)
+        result = self.retire()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_all_jobs_receive_cancellation_before_terminal_wait(self):
+        cancelled = []
+        jobs = [("first", [{"pid": 11}]), ("second", [{"pid": 12}])]
+
+        def record_cancel(command, **_kwargs):
+            cancelled.append(command[-1])
+            return subprocess.CompletedProcess(command, 0)
+
+        def terminal_status(_config, _identifier):
+            self.assertEqual(cancelled, ["first", "second"])
+            return {"state": "cancelled"}
+
+        with (mock.patch.object(RETIREMENT.subprocess, "run", side_effect=record_cancel),
+              mock.patch.object(RETIREMENT, "live", side_effect=lambda record: record["pid"] == 10),
+              mock.patch.object(FIXTURE_MODULE.WORKFLOW, "build_status", side_effect=terminal_status)):
+            admitted = RETIREMENT.cancel_verified_jobs(
+                {"command": sys.executable}, SCRIPTS / "graft-workflow.py", self.config_path,
+                FIXTURE_MODULE.WORKFLOW, self.fixture.config, {"pid": 10}, jobs,
+                time.monotonic() + 5)
+        self.assertEqual(admitted, [{"pid": 11}, {"pid": 12}])
+
     def test_path_resolved_retained_mcp_child_preserves_teardown_proof(self):
         self.mcp["mcpServers"]["retained"] = {"command": "sleep", "args": ["300"]}
         self.mcp_path.write_text(json.dumps(self.mcp))

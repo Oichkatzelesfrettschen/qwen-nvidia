@@ -241,6 +241,34 @@ def observe_worker_publication(workflow, config, request, directory, worker, dea
     raise Refusal("worker_publication_deadline")
 
 
+def cancel_verified_jobs(entry, workflow_path, config_path, workflow, config, candidate, jobs, deadline):
+    """Signal every verified worker before awaiting any terminal state."""
+    for identifier, _captured in jobs:
+        if not live(candidate):
+            raise Refusal("mcp_identity_changed")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise Refusal("job_retirement_deadline")
+        result = subprocess.run(
+            [entry["command"], str(workflow_path), "--config", str(config_path), "cancel", identifier],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=remaining, check=False,
+            env={"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        if result.returncode:
+            raise Refusal("job_cancellation_refused")
+    admitted = []
+    for identifier, captured in jobs:
+        while any(live(record) for record in captured):
+            if time.monotonic() >= deadline:
+                raise Refusal("job_retirement_deadline")
+            time.sleep(0.02)
+        if workflow.build_status(config, identifier)["state"] not in workflow.TERMINAL:
+            raise Refusal("job_terminal_state_unproven")
+        admitted.extend(captured)
+    return admitted
+
+
 def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
     started = time.monotonic()
     deadline = started + deadline_ms / 1000
@@ -301,43 +329,26 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
             request = read_json(directory / "request.json")
             captured = observe_worker_publication(workflow, config, request, directory, worker, deadline)
             jobs.append((identifier, captured))
-        # Validate the complete MCP child set before issuing any cancellation.
-        for identifier, captured in jobs:
-            if not live(candidate):
-                raise Refusal("mcp_identity_changed")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise Refusal("job_retirement_deadline")
-            result = subprocess.run(
-                [entry["command"], str(workflow_path), "--config", str(config_path), "cancel", identifier],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=remaining, check=False,
-                env={"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"},
-            )
-            if result.returncode:
-                raise Refusal("job_cancellation_refused")
-            while any(live(record) for record in captured):
-                if time.monotonic() >= deadline:
-                    raise Refusal("job_retirement_deadline")
-                time.sleep(0.02)
-            if workflow.build_status(config, identifier)["state"] not in workflow.TERMINAL:
-                raise Refusal("job_terminal_state_unproven")
-            admitted.extend(captured)
+        admitted.extend(cancel_verified_jobs(
+            entry, workflow_path, config_path, workflow, config, candidate, jobs, deadline))
         admitted.append(candidate)
     for child in direct_children:
+        command_matches = [(expected, executable, environment)
+                           for expected, executable, environment in retained_commands
+                           if exact_command(child, expected, executable)]
+        if not command_matches:
+            continue
+        observed_environment = process_environment(child["pid"])
         matches = [(expected, executable, environment)
-                   for expected, executable, environment in retained_commands
-                   if exact_command(child, expected, executable)]
+                   for expected, executable, environment in command_matches
+                   if all(observed_environment.get(key) == value for key, value in environment.items())]
         if len(matches) > 1:
             raise Refusal("configured_retained_mcp_command_ambiguous")
         if not matches:
-            continue
+            raise Refusal("retained_mcp_environment_mismatch")
         expected, executable, environment = matches[0]
         if not live(child) or not exact_command(child, expected, executable):
             raise Refusal("retained_mcp_identity_changed")
-        observed_environment = process_environment(child["pid"])
-        if any(observed_environment.get(key) != value for key, value in environment.items()):
-            raise Refusal("retained_mcp_environment_mismatch")
         admitted.append(child)
     return admitted
 

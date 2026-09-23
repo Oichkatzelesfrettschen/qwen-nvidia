@@ -374,10 +374,17 @@ def verify_authorization(config, normalized, token):
 def initialize_storage(config):
     root = Path(config["artifact_root"])
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if root.stat().st_uid != os.getuid() or root.stat().st_mode & 0o077:
+    metadata = root.lstat()
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or metadata.st_mode & 0o077):
         raise Refusal("artifact_root_requires_private_permissions")
     for name in ("jobs", "locks", "grants"):
-        (root / name).mkdir(mode=0o700, exist_ok=True)
+        directory = root / name
+        directory.mkdir(mode=0o700, exist_ok=True)
+        metadata = directory.lstat()
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077):
+            raise Refusal("artifact_subdirectory_requires_private_permissions")
     return root
 
 
