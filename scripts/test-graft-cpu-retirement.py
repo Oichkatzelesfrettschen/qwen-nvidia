@@ -7,8 +7,10 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 import time
 import unittest
+from unittest import mock
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -16,6 +18,10 @@ RETIRE_SCRIPT = SCRIPTS / "qwen-retire-server-child.sh"
 SPEC = importlib.util.spec_from_file_location("graft_retirement_fixture", SCRIPTS / "test-graft-workflow.py")
 FIXTURE_MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIXTURE_MODULE)
+RETIREMENT_SPEC = importlib.util.spec_from_file_location(
+    "graft_cpu_retirement", SCRIPTS / "graft-retire-cpu-children.py")
+RETIREMENT = importlib.util.module_from_spec(RETIREMENT_SPEC)
+RETIREMENT_SPEC.loader.exec_module(RETIREMENT)
 
 SERVER = r'''
 import json, os, signal, subprocess, sys, time
@@ -74,6 +80,93 @@ class GraftCPURetirementTests(unittest.TestCase):
         self.server = None
         self.log = None
         self.addCleanup(self.stop_server)
+        self.probe_processes = []
+        self.addCleanup(self.stop_probe_processes)
+
+    def stop_probe_processes(self):
+        for process in reversed(self.probe_processes):
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+
+    def publication_fixture(self):
+        self.fixture.control["sleep"] = 4
+        self.fixture.write_control()
+        workflow = FIXTURE_MODULE.WORKFLOW
+        request = workflow.normalize_start(self.fixture.config, self.fixture.request())
+        descriptors = workflow.pin_request_sources(self.fixture.config, request)
+        self.addCleanup(workflow.close_source_fds, descriptors)
+        directory = self.root / "publication-probe"
+        (directory / "graph").mkdir(parents=True)
+        (directory / "scratch/tmp").mkdir(parents=True)
+        return request, descriptors, directory, RETIREMENT.process(os.getpid())
+
+    def launch_probe_sandbox(self, request, descriptors, directory):
+        workflow = FIXTURE_MODULE.WORKFLOW
+        workflow.atomic_json(directory / "source-fds.json", descriptors)
+        command = workflow.sandbox_command(self.fixture.config, request, directory, source_fds=descriptors)
+        child = subprocess.Popen(command, pass_fds=workflow.sandbox_pass_fds(request, descriptors),
+                                 env={"PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.probe_processes.append(child)
+        self.wait_for(lambda: RETIREMENT.exact_command(RETIREMENT.process(child.pid), command))
+        return child
+
+    def launch_blocked_head_probe(self, descriptors):
+        fifo = self.root / "git-include.fifo"
+        os.mkfifo(fifo, 0o600)
+        config_path = self.fixture.repository / ".git/config"
+        original_config = config_path.read_text()
+        config_path.write_text(original_config + f"\n[include]\n\tpath = {fifo}\n")
+        self.addCleanup(config_path.write_text, original_config)
+        child = subprocess.Popen(
+            ["/usr/bin/git", "--no-optional-locks", "-C", f"/proc/self/fd/{descriptors['.']}",
+             "rev-parse", "--verify", "HEAD"], pass_fds=(descriptors["."],),
+            env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"},
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.probe_processes.append(child)
+        return child, fifo
+
+    def observe_publication(self, request, directory, worker, seconds=3):
+        return RETIREMENT.observe_worker_publication(
+            FIXTURE_MODULE.WORKFLOW, self.fixture.config, request, directory, worker,
+            time.monotonic() + seconds)
+
+    def launch_pending_sandbox(self, request, descriptors, directory):
+        workflow = FIXTURE_MODULE.WORKFLOW
+        workflow.atomic_json(directory / "source-fds.json", descriptors)
+        command = workflow.sandbox_command(self.fixture.config, request, directory, source_fds=descriptors)
+        ready_read, ready_write = os.pipe()
+        child_pid = os.fork()
+        if child_pid == 0:
+            try:
+                os.close(ready_write)
+                os.read(ready_read, 1)
+                os.close(ready_read)
+                for descriptor in workflow.sandbox_pass_fds(request, descriptors):
+                    os.set_inheritable(descriptor, True)
+                os.execve(command[0], command, {"PATH": "/usr/bin:/bin"})
+            finally:
+                os._exit(127)
+        os.close(ready_read)
+
+        def stop_child():
+            try:
+                os.kill(child_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            os.waitpid(child_pid, 0)
+            os.close(ready_write)
+
+        self.addCleanup(stop_child)
+        return child_pid, ready_write, command
 
     def stop_server(self):
         if self.server and self.server.poll() is None:
@@ -249,6 +342,158 @@ class GraftCPURetirementTests(unittest.TestCase):
         result = self.retire()
         self.assertIn("worker_source_descriptor_identity_mismatch", result.stderr + result.stdout)
         self.assertNotIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_queued_git_probe_reobserves_published_sandbox(self):
+        request, descriptors, directory, worker = self.publication_fixture()
+        git_child, fifo = self.launch_blocked_head_probe(descriptors)
+        inspected = threading.Event()
+        exited_seen = threading.Event()
+        observer_done = threading.Event()
+        errors = []
+        published = {}
+        original_classifier = RETIREMENT.source_head_child
+        original_process = RETIREMENT.process
+
+        def process(pid):
+            result = original_process(pid)
+            if pid == git_child.pid and result and result["state"] == "Z":
+                exited_seen.set()
+            return result
+
+        def classify(*arguments):
+            result = original_classifier(*arguments)
+            if result:
+                inspected.set()
+            return result
+
+        def publish():
+            try:
+                if not inspected.wait(2):
+                    raise AssertionError("Git startup was not inspected")
+                with fifo.open("w"):
+                    pass
+                if not exited_seen.wait(2):
+                    raise AssertionError("Git zombie was not inspected")
+                git_child.wait(timeout=2)
+                sandbox = self.launch_probe_sandbox(request, descriptors, directory)
+                published["pid"] = sandbox.pid
+                FIXTURE_MODULE.WORKFLOW.atomic_json(directory / "child.json", RETIREMENT.identity(
+                    RETIREMENT.process(sandbox.pid)))
+                # PR_SET_PDEATHSIG follows the spawning thread, so the fixture
+                # keeps that thread alive for the sandbox observation.
+                observer_done.wait(4)
+            except BaseException as error:
+                errors.append(error)
+
+        publisher = threading.Thread(target=publish, daemon=True)
+        publisher.start()
+        try:
+            with mock.patch.object(RETIREMENT, "source_head_child", side_effect=classify), \
+                    mock.patch.object(RETIREMENT, "process", side_effect=process):
+                captured = self.observe_publication(request, directory, worker)
+        finally:
+            observer_done.set()
+            publisher.join(timeout=4)
+        self.assertFalse(publisher.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIn(git_child.pid, [record["pid"] for record in captured])
+        self.assertIn(published["pid"], [record["pid"] for record in captured])
+
+    def test_bwrap_waits_for_child_identity_publication(self):
+        request, descriptors, directory, worker = self.publication_fixture()
+        sandbox = self.launch_probe_sandbox(request, descriptors, directory)
+        inspected = threading.Event()
+        original_match = RETIREMENT.exact_command
+
+        def match(record, command):
+            result = original_match(record, command)
+            if result and record["pid"] == sandbox.pid:
+                inspected.set()
+            return result
+
+        def publish():
+            if inspected.wait(2):
+                FIXTURE_MODULE.WORKFLOW.atomic_json(directory / "child.json", RETIREMENT.identity(
+                    RETIREMENT.process(sandbox.pid)))
+
+        publisher = threading.Thread(target=publish, daemon=True)
+        publisher.start()
+        try:
+            with mock.patch.object(RETIREMENT, "exact_command", side_effect=match):
+                captured = self.observe_publication(request, directory, worker)
+        finally:
+            publisher.join(timeout=3)
+        self.assertFalse(publisher.is_alive())
+        self.assertTrue(inspected.is_set())
+        self.assertIn(sandbox.pid, [record["pid"] for record in captured])
+
+    def test_unpublished_sandbox_has_bounded_wait(self):
+        request, descriptors, directory, worker = self.publication_fixture()
+        self.launch_probe_sandbox(request, descriptors, directory)
+        started = time.monotonic()
+        with self.assertRaisesRegex(RETIREMENT.Refusal, "worker_publication_deadline"):
+            self.observe_publication(request, directory, worker, seconds=0.1)
+        self.assertLess(time.monotonic() - started, 1)
+
+    def test_inherited_worker_image_waits_for_exact_sandbox_exec(self):
+        request, descriptors, directory, worker = self.publication_fixture()
+        child_pid, ready_write, command = self.launch_pending_sandbox(request, descriptors, directory)
+        inspected = threading.Event()
+        errors = []
+        original_match = RETIREMENT.exact_command
+
+        def match(record, expected):
+            result = original_match(record, expected)
+            if result and record["pid"] == child_pid and record["args"] == worker["args"]:
+                inspected.set()
+            return result
+
+        def publish():
+            try:
+                if not inspected.wait(2):
+                    raise AssertionError("Inherited worker image was not inspected")
+                os.write(ready_write, b"1")
+                self.wait_for(lambda: original_match(RETIREMENT.process(child_pid), command))
+                FIXTURE_MODULE.WORKFLOW.atomic_json(directory / "child.json", RETIREMENT.identity(
+                    RETIREMENT.process(child_pid)))
+            except BaseException as error:
+                errors.append(error)
+
+        publisher = threading.Thread(target=publish, daemon=True)
+        publisher.start()
+        try:
+            with mock.patch.object(RETIREMENT, "exact_command", side_effect=match):
+                captured = self.observe_publication(request, directory, worker)
+        finally:
+            publisher.join(timeout=3)
+        self.assertFalse(publisher.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIn(child_pid, [record["pid"] for record in captured])
+
+    def test_inherited_worker_image_requires_exec_before_deadline(self):
+        request, descriptors, directory, worker = self.publication_fixture()
+        self.launch_pending_sandbox(request, descriptors, directory)
+        started = time.monotonic()
+        with self.assertRaisesRegex(RETIREMENT.Refusal, "worker_publication_deadline"):
+            self.observe_publication(request, directory, worker, seconds=0.1)
+        self.assertLess(time.monotonic() - started, 1)
+
+    def test_startup_git_requires_approved_root_descriptor(self):
+        request, descriptors, directory, worker = self.publication_fixture()
+        child, _fifo = self.launch_blocked_head_probe(descriptors)
+        self.wait_for(lambda: RETIREMENT.exact_command(RETIREMENT.process(child.pid), child.args))
+        with self.assertRaisesRegex(RETIREMENT.Refusal, "startup_git_source_descriptor_mismatch"):
+            self.observe_publication({**request, "repository_inode": 0}, directory, worker)
+
+    def test_unknown_startup_child_refuses_without_waiting(self):
+        request, _descriptors, directory, worker = self.publication_fixture()
+        child = subprocess.Popen(["/usr/bin/sleep", "4"])
+        self.probe_processes.append(child)
+        self.wait_for(lambda: RETIREMENT.exact_command(RETIREMENT.process(child.pid), child.args))
+        started = time.monotonic()
+        with self.assertRaisesRegex(RETIREMENT.Refusal, "unrecognized_worker_startup_child"):
+            self.observe_publication(request, directory, worker)
+        self.assertLess(time.monotonic() - started, 1)
 
 
 if __name__ == "__main__":

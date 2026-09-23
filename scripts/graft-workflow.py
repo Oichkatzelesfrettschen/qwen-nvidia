@@ -226,7 +226,7 @@ def open_source_fds(config, repository_id, paths):
             if allowed and not any(resolved.is_relative_to((root_path / prefix).resolve())
                                    for prefix in allowed):
                 raise Refusal("scope_symlink_outside_operator_allowlist")
-        if paths and "." not in paths:
+        if (paths and "." not in paths) or (root_path / ".git").is_file():
             try:
                 git_descriptor = os.open(".git", os.O_PATH | os.O_NOFOLLOW, dir_fd=root_descriptor)
             except FileNotFoundError:
@@ -532,10 +532,10 @@ def sandbox_base(config, request, directory, graph_read_only=False, source_fds=N
         command.extend(["--dir", "/repo"])
         for prefix in request["paths"]:
             command.extend(["--ro-bind-fd", str(source_fds[prefix]), "/repo/" + prefix])
-        for name, mount in request["git_mounts"].items():
-            command.extend(["--ro-bind-fd", str(source_fds[name]), mount["destination"]])
     else:
         command.extend(["--ro-bind-fd", str(source_fds["."]), "/repo"])
+    for name, mount in request["git_mounts"].items():
+        command.extend(["--ro-bind-fd", str(source_fds[name]), mount["destination"]])
     command.extend(["--ro-bind" if graph_read_only else "--bind",
                     str(directory / "graph"), "/graph",
                     "--bind", str(directory / "scratch"), "/work",
@@ -550,7 +550,7 @@ def sandbox_pass_fds(request, source_fds):
     """Pass only mount-consumed FDs; an unused root FD bypasses scope mounts."""
     if request["paths"] and "." not in request["paths"]:
         return tuple(source_fds[name] for name in (*request["paths"], *request["git_mounts"]))
-    return (source_fds["."],)
+    return (source_fds["."], *(source_fds[name] for name in request["git_mounts"]))
 
 
 def sandbox_command(config, request, directory, source_fds=None):

@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -124,6 +125,89 @@ def terminal_worker(workflow, config, worker, deadline):
     return False
 
 
+def source_head_child(request, worker, child):
+    """Recognize only Git HEAD reads over the worker's approved root descriptor."""
+    arguments = [os.fsdecode(argument) for argument in child["args"]]
+    if (len(arguments) != 7 or arguments[:3] != ["/usr/bin/git", "--no-optional-locks", "-C"]
+            or arguments[4:] != ["rev-parse", "--verify", "HEAD"]):
+        return False
+    match = re.fullmatch(r"/proc/self/fd/([0-9]+)", arguments[3])
+    if not match or not exact_command(child, arguments):
+        return False
+    descriptor = int(match[1])
+    if descriptor < 3:
+        return False
+    expected = (request["repository_device"], request["repository_inode"])
+    for record in (worker, child):
+        metadata = Path(f"/proc/{record['pid']}/fd/{descriptor}").stat()
+        if (metadata.st_dev, metadata.st_ino) != expected:
+            raise Refusal("startup_git_source_descriptor_mismatch")
+    if children(child["pid"]):
+        raise Refusal("unrecognized_startup_git_children")
+    return True
+
+
+def observe_worker_publication(workflow, config, request, directory, worker, deadline):
+    """Wait for a known startup child to publish its sandbox identity or exit."""
+    captured = {(worker["pid"], worker["start_ticks"]): worker}
+    while time.monotonic() < deadline:
+        observed = process(worker["pid"])
+        if not observed or observed["state"] in {"Z", "X"}:
+            if terminal_worker(workflow, config, worker, deadline):
+                return list(captured.values())
+            raise Refusal("worker_terminal_identity_unproven")
+        if identity(observed) != identity(worker):
+            raise Refusal("worker_identity_changed_during_publication")
+        # A recognized Git probe can remain a zombie until the worker reaps it.
+        # Its generation stays attributed while publication advances past it.
+        descendants = [child for child in children(worker["pid"])
+                       if not ((child["pid"], child["start_ticks"]) in captured and not live(child))]
+        if len(descendants) > 1:
+            raise Refusal("unrecognized_worker_children")
+        if descendants:
+            child = descendants[0]
+            if ((not child["args"] and child["state"] not in {"Z", "X"})
+                    or (child["args"] == worker["args"] and exact_command(
+                        child, [os.fsdecode(argument) for argument in worker["args"]]))):
+                if children(child["pid"]):
+                    raise Refusal("unrecognized_worker_fork_children")
+                # fork() inherits the worker image; exec() can expose empty
+                # argv. Attribution waits for the exact Git or sandbox image.
+                time.sleep(min(0.02, max(0, deadline - time.monotonic())))
+                continue
+            try:
+                published = read_json(directory / "child.json")
+            except FileNotFoundError:
+                published = None
+            if published is None and source_head_child(request, worker, child):
+                captured[(child["pid"], child["start_ticks"])] = child
+            else:
+                if not (directory / "source-fds.json").exists():
+                    refreshed = process(child["pid"])
+                    if (refreshed and identity(refreshed) == identity(child)
+                            and refreshed["args"] != child["args"]):
+                        continue
+                    raise Refusal("unrecognized_worker_startup_child")
+                descriptors = source_descriptors(workflow, request, directory, worker)
+                if not exact_command(child, workflow.sandbox_command(
+                        config, request, directory, source_fds=descriptors)):
+                    refreshed = process(child["pid"])
+                    if (refreshed and identity(refreshed) == identity(child)
+                            and (refreshed["args"] != child["args"]
+                                 or ((child["pid"], child["start_ticks"]) in captured
+                                     and refreshed["state"] in {"Z", "X"}))):
+                        continue
+                    raise Refusal("sandbox_identity_or_command_mismatch")
+                for record in tree(child):
+                    captured[(record["pid"], record["start_ticks"])] = record
+                if published is not None:
+                    if published != identity(child):
+                        raise Refusal("sandbox_identity_or_command_mismatch")
+                    return list(captured.values())
+        time.sleep(min(0.02, max(0, deadline - time.monotonic())))
+    raise Refusal("worker_publication_deadline")
+
+
 def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
     started = time.monotonic()
     deadline = started + deadline_ms / 1000
@@ -168,17 +252,8 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
                     or workflow.load_config(directory / "config.json") != config):
                 raise Refusal("worker_identity_or_configuration_mismatch")
             request = read_json(directory / "request.json")
-            descendants = children(worker["pid"])
-            if len(descendants) > 1:
-                raise Refusal("unrecognized_worker_children")
-            if descendants:
-                sandbox = descendants[0]
-                descriptors = source_descriptors(workflow, request, directory, worker)
-                if (read_json(directory / "child.json") != identity(sandbox)
-                        or not exact_command(sandbox, workflow.sandbox_command(
-                            config, request, directory, source_fds=descriptors))):
-                    raise Refusal("sandbox_identity_or_command_mismatch")
-            jobs.append((identifier, tree(worker)))
+            captured = observe_worker_publication(workflow, config, request, directory, worker, deadline)
+            jobs.append((identifier, captured))
         # Validate the complete MCP child set before issuing any cancellation.
         for identifier, captured in jobs:
             if not live(candidate):

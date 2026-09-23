@@ -114,3 +114,20 @@ teardown-observation fixture passes both its positive and mutation tests.
 The existing coding-principal network probe reported `not-run` because the host
 egress table was absent; the gate's remaining principal checks passed. The task
 left that separate firewall policy unchanged.
+
+The corrected `39a6bc778ef4` CUDA closure completed an additional native
+replay using installed Graft. The deep job returned 137 ready nodes, the native
+file-API query returned its requested symbol, a fresh signed cancellation
+reached `cancelled`, and a third job entered inference before orderly shutdown.
+The retirement helper returned zero, read `teardown: held=yes`, proved orderly
+exclusion, and observed all 12 captured process identities exit. The accepted
+run recorded equal HEAD, index, refs, status and eight scoped file hashes.
+`evidence/ada/promotion-39a6bc778ef4/` records the promoted result.
+
+Two failed arms remain retained in ignored raw evidence. A host memory guard
+stopped one launch before the first tool request amid other compiler jobs. A
+later deep build and query succeeded while a separate writer advanced and
+pushed a DiscoBSD feature ref; the broad before/after ref assertion correctly
+refused that arm even though HEAD, index, status and scoped file hashes matched.
+The accepted shutdown run resumed from the completed graph after ref updates
+settled. Graft source mounting remained read-only throughout.

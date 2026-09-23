@@ -112,8 +112,6 @@ if [ -f "$server_log" ]; then
         ' "$server_log")
     fi
 fi
-capture_tree "$server_pid"
-
 graft_cpu_identities=
 graft_cpu_proof=1
 if [ "${QWEN_ROUTER:-0}" != 1 ] && [ -n "${QWEN_GRAFT_CONFIG:-}" ] &&
@@ -129,10 +127,13 @@ if [ "${QWEN_ROUTER:-0}" != 1 ] && [ -n "${QWEN_GRAFT_CONFIG:-}" ] &&
     else
         graft_cpu_proof=0
     fi
-    # Retain children that appeared during CPU-job retirement in the ordinary
-    # server-tree escalation and attribution checks.
-    capture_tree "$server_pid"
 fi
+# The Graft helper validates live worker generations before cancellation. A
+# separate earlier tree capture can retain a short Git child that exits before
+# the helper starts, leaving only an unprovable historical PID. One post-helper
+# capture makes the validated identities and escalation inventory share the
+# same observation boundary while still refusing every live unknown child.
+capture_tree "$server_pid"
 unattributed_processes=
 for owned_identity in $owned_processes; do
     case " $graft_cpu_identities " in

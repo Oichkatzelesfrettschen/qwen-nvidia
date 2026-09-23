@@ -112,8 +112,17 @@ The operator owns a JSON configuration with this shape:
 Add repository IDs to extend the workflow. An empty `allowed_paths` list admits
 the whole registered repository; an empty requested path list selects the
 configured allowance. Whole-repository admission should follow a bounded pilot.
-The wrapper uses explicit scope and bypasses ignore files inside that scope,
-so choose directories that exclude private inputs and irrelevant build output.
+Graft's `--no-gitignore` and `--no-ignore` options prevent writes to those
+ignore files; they do not bypass Git's source-file selection. Graft includes
+tracked files and non-ignored untracked files, while its built-in directory
+exclusions still apply. Review untracked source before admitting a repository.
+The saved DiscoBSD operator profile admits the live repository with an empty
+allowance. It also registers a detached, immutable `discobsd_snapshot`
+worktree for long deep builds: a concurrent fast-forward of the live checkout
+can otherwise mix source revisions during one job. The snapshot is a named
+revision, not an automatic refresh of live code.
+`evidence/ada/graft-whole-repository/` records both structural admissions
+and the bounded deep attempt.
 
 ```sh
 scripts/build-llama-ui.sh
@@ -159,12 +168,25 @@ uses a Mozilla user agent; GitHub source retrieval uses `gh`.
 
 ## Downloaded model choices
 
-The two additional candidates beyond the 4B and 7B-coder tests are
-**Qwenseer-2B Q4_K_M** and **Klear-AgentForge-8B Q6_K**. Both passed three fresh
-`record_symbols` requests covering seven canonical target IDs. Qwenseer is the
-interactive choice: the observed requests took 2.35-3.55 seconds versus
-15.23-59.86 seconds for Klear. These are functional-probe elapsed times under
-workstation load, rather than controlled comparative throughput benchmarks.
+The matched three-file probe selects **Qwen3.8-4B-Distill Q4_K_M** for the
+DiscoBSD Graft endpoint. It returned all seven canonical target IDs, with
+3.02-4.92 seconds per request. Qwenseer-2B Q4_K_M also returned all seven,
+in 2.43-3.55 seconds, but its six-question answers asserted that a refused
+`sbrk` returns the old break; the source returns `(void *)-1`. Both models
+passed four of six mechanical question checks. The distill correctly explained
+the heap refusal and the USB re-arm on the current source package. Its
+`flash_swap_append` answer still contradicted itself about an alignment check,
+so graph coverage cannot establish semantic accuracy. These elapsed times
+are functional observations under workstation load, not controlled rates.
+The comparison and its source-level caveats are recorded in
+`evidence/ada/graft-model-comparison/`.
+
+The earlier Klear-AgentForge-8B Q6_K probe returned all seven IDs with a
+6144-token reply cap, at 15.23-59.86 seconds per request. The new 2048-token
+probe did not rerun Klear. Qwen3-4B-Instruct-2507 emitted the tool call but
+copied target metadata into five IDs; Qwen2.5-Coder-7B reached the reply cap
+on its first request without a tool call. The coder's remaining transport
+failures followed a host swap-in guard termination and are ungraded.
 Two target spans in the older input graph were ungradeable; neither model was
 credited with proving those spans.
 
@@ -191,7 +213,7 @@ measured Q6_K/Q8_0 dispatch thresholds of 10/16. Forced cuBLAS or MMQ is not a
 universal improvement. Preserve those defaults until task-shaped measurements
 justify a change.
 
-The inspected promoted closure was `192d0663a533`, built from llama.cpp
+The earlier promoted closure was `192d0663a533`, built from llama.cpp
 `f280b26983ad0fdb705a0d9ebf0503e76f2899b0`, with nvcc 13.4.59 and g++-15.
 The fresh host reported driver 615.71.09. Older driver-bound performance records
 retain their original authority; the model contract probe does not revalidate
@@ -201,6 +223,13 @@ explicitly because renice alone preserves inherited SCHED_IDLE.
 The workload-lease patch also records ownership when teardown retains an
 active request's lease; the conditional log covered only idle reacquisition.
 The observation repair preserves acquisition, synchronization and release policy.
+The replacement closure `39a6bc778ef4` builds the same five executable targets
+with those settings. Static comparison verifies 28 manifest objects, 187 SM89
+cubins, zero PTX images and identical bytes in all 8,167 CUDA instruction
+sections after matching NVCC's internal section-name identifiers. Initialized
+device data differs in 116 sections, including source-path strings and ordering;
+whole libraries and embedded UI output also differ. Instruction identity supplies
+a bounded comparison, rather than whole-binary or performance equivalence.
 
 OptiX accelerates geometry/ray-query tools; PhysX supplies CUDA physics tools.
 Neither mechanism accelerates ordinary transformer inference. Their separately
@@ -232,4 +261,21 @@ the native server endpoint. UI schema/approval behavior has separate copied-sour
 type/lint and fixture evidence. That combination does not claim an attended
 browser-click test. The native production bundle also reports upstream npm
 deprecations and a chunk-size advisory; type/lint checks reported zero warnings.
+The replacement server's pinned embedded-UI dependency install reports 17 npm
+audit findings (one low, ten moderate and six high). The count establishes a
+dependency advisory inventory, not exploitability of the served static bundle.
+Dependency upgrades and bundle reachability analysis remain separate work.
 Retain each result within its measured boundary.
+
+The corrected `39a6bc778ef4` closure passed the native deep, query, signed
+cancel and active-inference shutdown sequence. The completed deep graph held
+137 ready nodes across eight scoped DiscoBSD files. The busy stop returned zero,
+recorded `teardown: held=yes` and orderly exclusion, and retired all 12 captured
+processes. The accepted replay's HEAD, index, refs, status and eight source
+hashes matched before and after. The standard promotion gate passed strict
+CUDA text and image smokes and retained `192d0663a533` for rollback. The image
+smoke requires `--override-tensor '.*=CUDA0'`: `--n-gpu-layers all` alone left
+`token_embd.weight` on CPU. The physical build directory must also be resolved
+before load-closure enumeration when a build is registered through a symlink.
+The replay and promotion records are summarized in
+`evidence/ada/promotion-39a6bc778ef4/`.

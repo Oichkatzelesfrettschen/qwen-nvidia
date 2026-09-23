@@ -72,6 +72,13 @@ if [ "${1:-}" = --version ]; then
     printf 'version 0 (fixture)\n'
     exit 0
 fi
+previous_argument=''
+override=''
+for argument; do
+    [ "$previous_argument" = --override-tensor ] && override=$argument
+    previous_argument=$argument
+done
+[ "$override" = '.*=CUDA0' ] || exit 1
 printf 'red square and green circle\n'
 MULTIMODAL
 chmod +x "$build_directory/bin/llama-cli" \
@@ -131,6 +138,27 @@ case $promotion_status:$promotion_output in
         report clean_manifest_promotes accepted ;;
     *) report clean_manifest_promotes rejected
        printf '%s\n' "$promotion_output" >&2 ;;
+esac
+
+# A build registered through a symlink must resolve to the physical directory
+# before load-closure enumeration and promotion. The served target names the
+# manifest's original build, keeping a later alias move from changing code.
+alias_directory=$work_directory/aliases
+mkdir -p "$alias_directory"
+ln -s "$build_directory" "$alias_directory/build-$preset"
+set +e
+alias_output=$("$promoter" "$preset" "$alias_directory" 2>&1)
+alias_status=$?
+set -e
+case $alias_status:$alias_output in
+    0:*strict_cuda=passed*multimodal_cuda=passed*backend_set=cuda*)
+        if [ "$(readlink "$alias_directory/build-appliance-current")" = "$build_directory" ]; then
+            report linked_build_resolves_physical_closure accepted
+        else
+            report linked_build_resolves_physical_closure rejected
+        fi ;;
+    *) report linked_build_resolves_physical_closure rejected
+       printf '%s\n' "$alias_output" >&2 ;;
 esac
 
 # A closure built at the builder's default arm carries PTX the ledger says a

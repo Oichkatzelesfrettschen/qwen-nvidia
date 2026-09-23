@@ -25,6 +25,7 @@
 #   QWEN_CONTRACT_MAX_TOKENS  reply cap, default 1024
 #   QWEN_CONTRACT_TIMEOUT   seconds per request, default 120
 set -eu
+: "${PYTHON:?Select the intended Python interpreter}"
 Q=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 OUT=${1:?usage: admit-contract-questions.sh OUTPUT_DIRECTORY}
 D=${QWEN_CONTRACT_SOURCE:-"${HOME:?}/Github/discobsd-2040-unofficial"}
@@ -139,7 +140,7 @@ for c in $CONTRACTS; do
     done
     # The identifier vocabulary the package licenses: every C identifier and
     # every path-like token in it. An answer naming anything else invented it.
-    python3 - "$OUT/$c.package" "$OUT/$c.vocab" <<'PY'
+    "$PYTHON" - "$OUT/$c.package" "$OUT/$c.vocab" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding='utf-8', errors='replace').read()
 words = set(re.findall(r'[A-Za-z_][A-Za-z0-9_]{2,}', text))
@@ -157,7 +158,7 @@ for id in $IDS; do
     row=$("$Q/scripts/model-registry.sh" id "$id")
     file=$(printf '%s\n' "$row" | sed -n 's/^model_file=//p')
     "$Q/scripts/qwen-teardown.sh" >/dev/null 2>&1 || true
-    if ! QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=512 QWEN_CONTEXT_SIZE=16384 \
+    if ! QWEN_REQUIRE_API_KEY=1 QWEN_CHAT_TOOLS=on QWEN_CHAT_REASONING_BUDGET=512 QWEN_CONTEXT_SIZE=16384 \
         QWEN_MODEL_PATH=$HOME/models/$file "$Q/scripts/qwen-launch.sh" default \
         >"$OUT/$id.launch" 2>&1; then
         for c in $CONTRACTS; do
@@ -173,12 +174,12 @@ for id in $IDS; do
             --argjson cap "$CAP" \
             '{model:"qwen-nvidia",temperature:0,max_tokens:$cap,messages:[{role:"user",content:($pkg+"\n\n"+$q)}]}' \
             >"$OUT/$id.$c.request.json"
-        s=$(python3 -c 'import time; print(time.monotonic_ns()//1000000)')
-        status=$(curl --silent --max-time "$TIMEOUT" --config "$header" --output "$answer" \
+        s=$("$PYTHON" -c 'import time; print(time.monotonic_ns()//1000000)')
+        status=$(curl --user-agent 'Mozilla/5.0' --silent --max-time "$TIMEOUT" --config "$header" --output "$answer" \
             --write-out '%{http_code}' -H 'Content-Type: application/json' \
             --data-binary "@$OUT/$id.$c.request.json" \
             "http://127.0.0.1:$PORT/v1/chat/completions") || status=transport
-        w=$(( $(python3 -c 'import time; print(time.monotonic_ns()//1000000)') - s ))
+        w=$(( $("$PYTHON" -c 'import time; print(time.monotonic_ns()//1000000)') - s ))
         if [ "$status" != 200 ] || ! jq -e '.choices[0].message' "$answer" >/dev/null 2>&1; then
             printf '%s\t%s\t%s\t-\t-\t-\t-\t-\t-\thttp_%s\n' "$id" "$c" "$w" "$status" >>"$OUT/contracts.tsv"
             continue
@@ -190,7 +191,7 @@ for id in $IDS; do
         draws=no; grep -E -q "$(contract_right "$c")" "$body" && draws=yes
         conf=no;  grep -E -qi "$(contract_wrong "$c")" "$body" && conf=yes
         # Identifiers the answer names that the package never contained.
-        python3 - "$body" "$OUT/$c.vocab" >"$OUT/$id.$c.invented" <<'PY'
+        "$PYTHON" - "$body" "$OUT/$c.vocab" >"$OUT/$id.$c.invented" <<'PY'
 import re, sys
 body = open(sys.argv[1], encoding='utf-8', errors='replace').read()
 vocab = set(open(sys.argv[2], encoding='utf-8').read().split())

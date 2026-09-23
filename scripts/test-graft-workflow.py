@@ -440,6 +440,31 @@ class WorkflowTests(unittest.TestCase):
             WORKFLOW.pin_request_sources(self.config, request)
         self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), before)
 
+    def test_whole_linked_worktree_keeps_git_file_selection(self):
+        linked = self.root / "whole-linked-source"
+        subprocess.run(["git", "-C", str(self.repository), "worktree", "add", "--quiet",
+                        "--detach", str(linked)], check=True, capture_output=True)
+        self.config["repositories"]["fixture"] = {"path": str(linked), "allowed_paths": []}
+        self.save_config()
+        request = WORKFLOW.normalize_start(self.config, {"repository": "fixture",
+                                                        "mode": "structural", "paths": []})
+        self.assertEqual(request["paths"], [])
+        self.assertEqual(set(request["git_mounts"]), {"/git", "/gitdir", "/commondir"})
+        descriptors = WORKFLOW.pin_request_sources(self.config, request, check_head=True)
+        try:
+            directory = self.root / "whole-linked-probe"
+            (directory / "graph").mkdir(parents=True)
+            (directory / "scratch/tmp").mkdir(parents=True)
+            command = WORKFLOW.sandbox_base(self.config, request, directory, source_fds=descriptors)
+            command.extend(["--", "/usr/bin/git", "-C", "/repo", "ls-files", "sys/sentinel"])
+            result = subprocess.run(command, pass_fds=WORKFLOW.sandbox_pass_fds(request, descriptors),
+                                    env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null",
+                                         "GIT_CONFIG_NOSYSTEM": "1"},
+                                    capture_output=True, text=True, timeout=3, check=True)
+            self.assertEqual(result.stdout.strip(), "sys/sentinel")
+        finally:
+            WORKFLOW.close_source_fds(descriptors)
+
     def configure_query_fixture(self):
         package = self.root / "query-package"
         (package / "dist/mcp").mkdir(parents=True)
