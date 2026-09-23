@@ -8,14 +8,16 @@ model to return structured records, including the named `record_symbols`
 function. Graft supplies repository context; an agent still decides and applies
 code changes through its separately authorized editing tools.
 
-The [local package recipe](https://github.com/Oichkatzelesfrettschen/PKGBUILDS/tree/3dc2efc1539dcac100c7f404679c82a9cdd108b4/local/graft)
+The [local package recipe](https://github.com/Oichkatzelesfrettschen/PKGBUILDS/tree/4076a6cccf7ee7d190607e218ca7d2d167d233db/local/graft)
 lives in the PKGBUILDS repository at `local/graft`; the installed patched package
-is `graft 0.18.0-2`.
+is `graft 0.18.0-3`.
 It pins published 0.18.0 at `de8456e892bad5aeee11403e47fb2227773eb27e`.
 Upstream main advertised 0.19.0 during research, while npm's published release
 remained 0.18.0. The recipe repairs blank-summary retries, echoed target IDs,
-and C pointer-declarator spans. Prototypes remain distinct nodes; same-name
-prototype/definition resolution remains an upstream limitation.
+and C pointer-declarator spans. The release 3 patch forwards `-j` to the
+concept worker pool as well as symbol enrichment, so a one-worker deep build
+has one model request in flight from either pass. Prototypes remain distinct
+nodes; same-name prototype/definition resolution remains an upstream limitation.
 
 ## Entry points and boundaries
 
