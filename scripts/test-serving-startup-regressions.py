@@ -229,7 +229,14 @@ except PermissionError:
             pass
 
     def prepare_campaign(self, outcome="pass", launch_status=0):
-        shutil.copy2(SCRIPTS / "admit-record-symbols.sh", self.scripts)
+        fixture_socket = self.root.name
+        campaign_source = (SCRIPTS / "admit-record-symbols.sh").read_text()
+        self.write("scripts/admit-record-symbols.sh", campaign_source.replace(
+            "tmux -L qwen-runtime", f"tmux -L {fixture_socket}"
+        ), executable=True)
+        self.addCleanup(subprocess.run, ["tmux", "-L", fixture_socket,
+                                        "kill-session", "-t", "qwen-webui"],
+                        check=False, capture_output=True)
         self.write("scripts/model-registry.sh", """
             #!/bin/sh
             printf 'model_file=fixture.gguf\n'
@@ -237,11 +244,16 @@ except PermissionError:
         self.write("scripts/qwen-launch.sh", f"""
             #!/bin/sh
             printf 'launch key=%s\\n' "${{QWEN_REQUIRE_API_KEY:-unset}}" >>"$QWEN_TEST_EVENTS"
+            if [ "{launch_status}" -eq 0 ]; then
+                tmux -L "$QWEN_TEST_TMUX_SOCKET" new-session -d -s qwen-webui \\
+                    -e "QWEN_LAUNCH_ATTEMPT_NONCE=$QWEN_LAUNCH_ATTEMPT_NONCE" 'sleep 120'
+            fi
             exit {launch_status}
         """, executable=True)
         self.write("scripts/qwen-teardown.sh", """
             #!/bin/sh
             printf 'teardown\n' >>"$QWEN_TEST_EVENTS"
+            tmux -L "$QWEN_TEST_TMUX_SOCKET" kill-session -t qwen-webui
         """, executable=True)
         self.write("scripts/record-symbols-contract.py", """
             import os, sys
@@ -273,6 +285,7 @@ except PermissionError:
             "QWEN_WEBUI_STATE_DIRECTORY": str(self.root / "state"),
             "QWEN_TEST_EVENTS": str(self.root / "events"),
             "QWEN_TEST_OUTCOME": outcome,
+            "QWEN_TEST_TMUX_SOCKET": fixture_socket,
             "PATH": f"{self.root / 'bin'}:{self.environment['PATH']}",
         })
         return [str(self.scripts / "admit-record-symbols.sh"), str(self.root / "output")]

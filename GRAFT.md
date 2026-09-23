@@ -61,7 +61,7 @@ status and job configuration. Each session keeps helper diagnostics in private
 `server-retirement.log`, state transitions in `session-drain.record`, and runtime
 messages in `server.log`.
 
-Only approved source directories and query graphs are mounted read-only.
+Approved source directories and query graphs are mounted read-only.
 Repository Git metadata is also mounted read-only for Graft's repository
 operations, including linked-worktree metadata. Source scope bounds the scan;
 the scope is not a confidentiality boundary around committed Git history.
@@ -121,7 +121,7 @@ allowance. It also registers a detached, immutable `discobsd_snapshot`
 worktree for long deep builds: a concurrent fast-forward of the live checkout
 can otherwise mix source revisions during one job. The snapshot is a named
 revision, not an automatic refresh of live code.
-`evidence/ada/graft-whole-repository/` records both structural admissions
+`evidence/ada/graft-whole-repository/` records the structural admissions
 and the bounded deep attempt.
 
 ```sh
@@ -132,8 +132,8 @@ QWEN_MODEL_PATH=/absolute/model.gguf QWEN_CONTEXT_SIZE=16384 \
 ```
 
 Enter the session API key in the native UI settings. Ask the agent to start a
-deep build for `discobsd` restricted to `sys/arch/rp2040/dev`, approve the exact
-proposal, then ask for status and context. The native UI keeps its existing
+structural or deep build for `discobsd` with no path restriction, approve the
+exact proposal, then ask for status and context. The native UI keeps its existing
 tools, permissions, attachments and model interface. Existing web/sidecar
 launch routes remain available. `QWEN_GRAFT_BASE_MCP_CONFIG` composes trusted
 MCP entries into the standalone Graft launch; profiles and signing keys must
@@ -143,8 +143,11 @@ can bypass the narrower Graft source boundary.
 
 The launcher freezes configuration and MCP JSON into content-named snapshots.
 It serves authenticated loopback traffic, enables Jinja tool parsing and uses
-the native UI. The broker defaults to port 8571. A custom broker port also
-requires the UI's `?broker=http://127.0.0.1:PORT` setting.
+the native UI. The broker defaults to port 8571. For a custom port, build the
+UI with `QWEN_WEB_BROKER_PORT=PORT` and launch with the same setting. The
+builder embeds the broker origin in the served page, and the launcher refuses
+a mismatch. A URL query cannot redirect native Graft approval credentials.
+The separate fallback-page driver retains its `--broker` route.
 
 Manual use shares the same job implementation:
 

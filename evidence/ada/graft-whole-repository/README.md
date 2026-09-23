@@ -44,6 +44,12 @@ the private 8-hour job bound. Its final coverage and semantic validity remain
 unmeasured until completion. The native UI served HTTP 200, `/v1/models` named
 `qwen-nvidia`, and native `/tools` listed the four `qwen_graft_` workflow
 tools. The current endpoint is loopback-only and key-protected.
+An intermediate cache spot-check found a semantic error in the selected
+model's `lib/libc/stdio/doscan.c` file summary. The summary says `_doscan`
+relies on `sysctl.c` for `kern.hostid` conversion; the source at `be592ce`
+says the shipped `sysctl -w` path reaches the scanner through `%ld`.
+The dependency direction is reversed. Cache progress and eventual ready-node
+counts must therefore remain distinct from source-verified claims.
 With all four native Graft tools exposed and `tool_choice=auto`, the selected
 4B distill emitted exactly one `qwen_graft_graft_build_status` call for the
 snapshot deep job ID. A native `/tools` execution of those arguments returned

@@ -6,7 +6,7 @@ not parse, ok recorded as false, a reply cut at the token cap, an HTTP
 error, and prose that quotes the field name.
 
 usage: fake-chat-tools-server.py PORT API_KEY_FILE MODE
-MODE: jinja | string_only | prose | wrong_function | empty_calls | bad_arguments |
+MODE: jinja | string_only | auto_probe | prose | wrong_function | empty_calls | bad_arguments |
       ok_false | truncated | http_error | quoted_field
 """
 
@@ -78,24 +78,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             forced = self.mode != "string_only"
         if self.mode == "jinja" and (
-            choice != {"type": "function", "function": {"name": "record_probe"}}
+            choice not in ("auto", {"type": "function", "function": {"name": "record_probe"}})
             or offered != ["record_graph", "record_probe"]
+            or request.get("messages") != [{"role": "user", "content":
+                "Call record_graph with ok set to true. Do not call record_probe."}]
         ):
-            self._send(400, {"error": "expected named probe with distractor"})
+            self._send(400, {"error": "expected paired choice probe with conflicting prompt"})
             return
         finish = "stop"
-        if self.mode in ("jinja", "string_only") and request.get("tools") and forced:
+        expected = "record_graph" if choice == "auto" else "record_probe"
+        if self.mode == "auto_probe":
             message = call("record_probe", "{\"ok\":true}")
+        elif self.mode in ("jinja", "string_only") and request.get("tools"):
+            message = call("record_probe" if forced else "record_graph", "{\"ok\":true}")
         elif self.mode == "wrong_function":
             message = call("record_graph", "{\"ok\":true}")
         elif self.mode == "empty_calls":
             message = {"role": "assistant", "content": None, "tool_calls": []}
         elif self.mode == "bad_arguments":
-            message = call("record_probe", "{\"ok\":")
+            message = call(expected, "{\"ok\":")
         elif self.mode == "ok_false":
-            message = call("record_probe", "{\"ok\":false}")
+            message = call(expected, "{\"ok\":false}")
         elif self.mode == "truncated":
-            message = call("record_probe", "{\"ok\":true}")
+            message = call(expected, "{\"ok\":true}")
             finish = "length"
         elif self.mode == "quoted_field":
             message = {"role": "assistant", "content": "I would put \"tool_calls\" here."}
@@ -113,7 +118,7 @@ def call(name, arguments):
     }
 
 
-MODES = ("jinja", "string_only", "prose", "wrong_function", "empty_calls", "bad_arguments",
+MODES = ("jinja", "string_only", "auto_probe", "prose", "wrong_function", "empty_calls", "bad_arguments",
          "ok_false", "truncated", "http_error", "quoted_field")
 
 

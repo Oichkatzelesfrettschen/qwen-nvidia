@@ -37,7 +37,7 @@ check() {
 system_bin=$work_directory/system-bin
 fake_bin=$work_directory/fake-bin
 mkdir -p "$system_bin" "$fake_bin"
-for utility in mktemp tar rm mkdir mv cp dirname patch; do
+for utility in mktemp tar rm mkdir mv cp dirname patch sed grep; do
     path=$(command -v "$utility")
     ln -s "$path" "$system_bin/$utility"
 done
@@ -53,7 +53,7 @@ case ${1:-} in
     run)
         [ "${FAKE_NPM_EMPTY_BUILD:-0}" = 1 ] && exit 0
         mkdir -p dist
-        printf '<!doctype html><title>llama-ui</title>\n' >dist/index.html
+        printf '<!doctype html><html><head><title>llama-ui</title></head></html>\n' >dist/index.html
         cp package.json dist/built-from.json
         cp src/lib/stores/agentic/index.svelte.ts dist/agentic-source.txt
         cp src/lib/stores/tools.svelte.ts dist/tools-source.txt
@@ -146,6 +146,12 @@ if [ -f "$destination/index.html" ] && [ -f "$destination/built-from.json" ]; th
 else
     check install_carries_build fail "$(find "$destination" -mindepth 1 -maxdepth 1 2>&1 | tr '\n' ' ')"
 fi
+if grep -q 'name="qwen-graft-broker-origin" content="http://127.0.0.1:8571"' \
+    "$destination/index.html"; then
+    check default_broker_origin_is_serve_configured pass
+else
+    check default_broker_origin_is_serve_configured fail
+fi
 if [ ! -e "$source_directory/node_modules" ] && [ ! -e "$source_directory/dist" ]; then
     check pinned_checkout_untouched pass
 else
@@ -163,11 +169,22 @@ fi
 if [ -d "$destination" ]; then
     printf 'stale\n' >"$destination/stale.txt"
 fi
-run_builder "$destination" >/dev/null 2>&1 || true
-if [ -f "$destination/index.html" ] && [ ! -e "$destination/stale.txt" ]; then
+run_builder "$destination" QWEN_WEB_BROKER_PORT=9000 >/dev/null 2>&1 || true
+if [ -f "$destination/index.html" ] && [ ! -e "$destination/stale.txt" ] \
+    && grep -q 'name="qwen-graft-broker-origin" content="http://127.0.0.1:9000"' \
+        "$destination/index.html"; then
     check reinstall_replaces_tree pass
 else
     check reinstall_replaces_tree fail "$(find "$destination" -mindepth 1 -maxdepth 1 | tr '\n' ' ')"
+fi
+
+if run_builder "$work_directory/invalid-port" QWEN_WEB_BROKER_PORT=99999 \
+    >/dev/null 2>"$work_directory/err"; then
+    check invalid_broker_port_refused fail accepted
+elif grep -q 'between 1 and 65535' "$work_directory/err"; then
+    check invalid_broker_port_refused pass
+else
+    check invalid_broker_port_refused fail "$(cat "$work_directory/err")"
 fi
 
 if run_builder "$work_directory/absent-source" \

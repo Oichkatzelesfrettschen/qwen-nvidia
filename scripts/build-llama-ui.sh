@@ -23,8 +23,19 @@ repository_root=$(pwd)
 llama_source=${QWEN_LLAMA_SOURCE:-"${HOME:?}/src/llama.cpp-qwen-nvidia"}
 source_directory=${QWEN_UI_SOURCE:-"$llama_source/tools/ui"}
 destination=${1:-"$repository_root/webui-llama-ui"}
+broker_port=${QWEN_WEB_BROKER_PORT:-8571}
+case $broker_port in
+    '' | *[!0-9]*)
+        printf 'QWEN_WEB_BROKER_PORT must be a decimal port\n' >&2
+        exit 2
+        ;;
+esac
+if [ "$broker_port" -lt 1 ] || [ "$broker_port" -gt 65535 ]; then
+    printf 'QWEN_WEB_BROKER_PORT must be between 1 and 65535\n' >&2
+    exit 2
+fi
 
-for required in node npm tar patch; do
+for required in node npm tar patch sed grep; do
     command -v "$required" >/dev/null 2>&1 || {
         printf 'the front end build needs %s on this host\n' "$required" >&2
         exit 1
@@ -81,6 +92,13 @@ printf 'installing into %s\n' "$destination"
 mkdir -p "$staging"
 ( cd "$work_directory/source/dist" && tar -cf - . ) |
     ( cd "$staging" && tar -xf - )
+if ! grep -q '<head>' "$staging/index.html"; then
+    printf 'the build produced no HTML head for broker configuration\n' >&2
+    exit 1
+fi
+sed "s@<head>@<head><meta name=\"qwen-graft-broker-origin\" content=\"http://127.0.0.1:$broker_port\" />@" \
+    "$staging/index.html" >"$staging/index.html.configured"
+mv "$staging/index.html.configured" "$staging/index.html"
 if [ -d "$destination" ]; then
     mv "$destination" "$work_directory/replaced"
 fi

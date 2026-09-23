@@ -89,15 +89,37 @@ else
     check string_only_required_control fail
 fi
 status=$(run_consumer)
-if [ "$status" = 1 ] && grep -q 'without tool_calls' "$work_directory/stderr" \
+if [ "$status" = 1 ] && grep -q 'named.*function_record_graph' "$work_directory/stderr" \
     && [ ! -s "$work_directory/stdout" ]; then
     check named_choice_downgrade_refused pass
 else
     check named_choice_downgrade_refused fail "status=$status"
 fi
 
-# Every answer that is not one completed record_probe(ok=true) is refused,
-# and the refusal names the shape it had rather than the absence of the field.
+# A downgraded endpoint can still select record_probe under auto. Its named
+# reply alone looks valid; the auto control must disqualify matching choices.
+start_fixture auto_probe
+curl --user-agent 'Mozilla/5.0' --silent --fail --max-time 5 \
+    --header "@$work_directory/header" --header 'Content-Type: application/json' \
+    --data '{"model":"qwen-nvidia","tools":[{"type":"function","function":{"name":"record_graph"}},{"type":"function","function":{"name":"record_probe"}}],"tool_choice":{"type":"function","function":{"name":"record_probe"}},"messages":[{"role":"user","content":"Record ok as true."}]}' \
+    "http://127.0.0.1:$port/v1/chat/completions" >"$work_directory/auto-probe-answer"
+if jq -e '.choices[0].message.tool_calls[0].function.name == "record_probe" and
+    (.choices[0].message.tool_calls[0].function.arguments | fromjson | .ok == true)' \
+    "$work_directory/auto-probe-answer" >/dev/null; then
+    check downgraded_auto_named_reply_control pass
+else
+    check downgraded_auto_named_reply_control fail
+fi
+status=$(run_consumer)
+if [ "$status" = 1 ] && grep -q 'auto.*function_record_probe' "$work_directory/stderr" \
+    && [ ! -s "$work_directory/stdout" ]; then
+    check auto_probe_downgrade_refused pass
+else
+    check auto_probe_downgrade_refused fail "status=$status"
+fi
+
+# Each arm requires one completed call to its expected function with ok=true.
+# The refusal names the answer's shape rather than the absence of the field.
 for shape in wrong_function:function_record_graph empty_calls:tool_calls_0 \
     bad_arguments:arguments_unparsed ok_false:arguments_ok_false \
     truncated:raise\ QWEN_PROBE_MAX_TOKENS http_error:HTTP\ 500 \
@@ -139,7 +161,7 @@ FIXTURE_EXPECTED_MODEL=$QWEN_GRAFT_MODEL
 # shellcheck disable=SC2090
 export QWEN_GRAFT_MODEL FIXTURE_EXPECTED_MODEL
 start_fixture jinja
-status=$(run_consumer)
+status=$(cd "$work_directory" && run_consumer)
 if [ "$status" = 0 ] && (
     cd "$work_directory"
     eval "$(cat "$work_directory/stdout")"

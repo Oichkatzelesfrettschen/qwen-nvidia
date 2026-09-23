@@ -34,9 +34,11 @@ export function graftToolForModel(definition) {
 	return projected;
 }
 
-/** Resolve the local broker before sending the Web UI credential. */
-export function graftBrokerOrigin(/** @type {string} */ pageUrl) {
-	const configured = new URL(pageUrl).searchParams.get('broker') || 'http://127.0.0.1:8571';
+/** Resolve the broker from served-page configuration, never from a shared URL. */
+export function graftBrokerOrigin() {
+	const configured =
+		globalThis.document?.querySelector('meta[name="qwen-graft-broker-origin"]')?.content ||
+		'http://127.0.0.1:8571';
 	const broker = new URL(configured);
 
 	if (
@@ -62,7 +64,7 @@ export function graftBrokerOrigin(/** @type {string} */ pageUrl) {
  * @param {Record<string, unknown>} args
  * @param {Record<string, string>} authHeaders
  * @param {AbortSignal | undefined} signal
- * @param {{request?: typeof fetch, approve?: (message: string) => boolean, pageUrl?: string}} options
+ * @param {{request?: typeof fetch, approve?: (message: string) => boolean}} options
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function authorizeGraftTool(toolName, args, authHeaders, signal, options = {}) {
@@ -77,10 +79,10 @@ export async function authorizeGraftTool(toolName, args, authHeaders, signal, op
 	}
 
 	const proposal = JSON.parse(JSON.stringify(args));
-	const broker = graftBrokerOrigin(options.pageUrl ?? window.location.href);
+	const broker = graftBrokerOrigin();
 	const approve = options.approve ?? ((message) => window.confirm(message));
 
-	if (!approve(`Approve one ${toolName} call?\n\n${JSON.stringify(proposal, null, 2)}`)) {
+	if (!approve(`Approve one ${toolName} call through ${broker}?\n\n${JSON.stringify(proposal, null, 2)}`)) {
 		throw new Error('The operator declined the Graft operation.');
 	}
 

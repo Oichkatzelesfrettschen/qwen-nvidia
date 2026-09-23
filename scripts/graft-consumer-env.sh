@@ -10,8 +10,8 @@ set -eu
 # forced `tool_choice`; a llama-server launched without --jinja ignores the
 # `tools` field and answers in prose, the 2B distill answers a forced call in
 # prose even under --jinja while the 4B distill records it, and graft then
-# leaves every node pending. The probe sends Graft's named-function choice
-# beside a distractor tool and requires a completed record_probe(ok=true).
+# leaves every node pending. An auto-choice control must select record_graph;
+# Graft's named-function choice must override that same prompt with record_probe.
 #
 # The key file's contents stay off argv and out of this script's output: the
 # emitted line reads the file at eval time, so `eval "$(graft-consumer-env.sh)"`
@@ -82,9 +82,9 @@ trap 'rm -f "$header_file"; if [ -n "$probe_answer_file" ]; then rm -f "$probe_a
 printf 'Authorization: Bearer %s\n' "$(tr -d '\n' <"$api_key_file")" \
     >"$header_file"
 
-# Graft's OpenAI adapter sends the named-function object. The server needs
-# llama-server-tool-choice-object.patch to retain that choice; the distractor
-# makes selecting any offered function insufficient to pass the probe.
+# Graft's OpenAI adapter sends the named-function object. A conflicting prompt
+# and an auto-choice control distinguish honoring that choice from a model
+# independently choosing record_probe after the server downgraded it to auto.
 #
 # The cap covers a reasoning preamble, because a model that thinks before it
 # calls spends the budget on tokens the call never reaches. At 128 this probe
@@ -102,60 +102,70 @@ probe_body=$(jq -cn --arg model "$served_model" --arg max_tokens "$probe_max_tok
          description: "Record the probe.", parameters: {type: "object",
          properties: {ok: {type: "boolean"}}, required: ["ok"]}}}],
      tool_choice: {type: "function", function: {name: "record_probe"}},
-     messages: [{role: "user", content: "Record ok as true."}]}')
+     messages: [{role: "user", content: "Call record_graph with ok set to true. Do not call record_probe."}]}')
 
 probe_answer_file=$(mktemp "${TMPDIR:-/tmp}/graft-consumer-env.XXXXXX")
-probe_status=$(curl --user-agent 'Mozilla/5.0' --silent --max-time 120 --header "@$header_file" \
-    --header 'Content-Type: application/json' --output "$probe_answer_file" \
-    --write-out '%{http_code}' \
-    --data "$probe_body" "$base_url/chat/completions") || {
-    printf 'the tool-call probe reached no answer on %s\n' "$base_url" >&2
-    exit 1
-}
-if [ "$probe_status" != 200 ]; then
-    printf 'the tool-call probe answered HTTP %s on %s: %s\n' "$probe_status" \
-        "$base_url" "$(head -c 300 "$probe_answer_file")" >&2
-    exit 1
-fi
-
-# The answer counts when it is one completed call to record_probe whose
-# arguments parse as JSON and carry ok=true. A body that merely mentions
-# tool_calls -- a null member, an empty array, another function, prose that
-# quotes the field, a truncated reply -- records nothing graft can use, so
-# each of those is refused with the shape it had.
-probe_verdict=$(jq -r '
-    if (.choices | type) != "array" or (.choices | length) == 0 then "no_choices"
-    elif .choices[0].finish_reason != "stop" and .choices[0].finish_reason != "tool_calls" then
-        "finish_" + ((.choices[0].finish_reason // "none") | tostring)
-    elif (.choices[0].message.tool_calls | type) != "array" then "no_tool_calls"
-    elif (.choices[0].message.tool_calls | length) != 1 then
-        "tool_calls_" + (.choices[0].message.tool_calls | length | tostring)
-    elif .choices[0].message.tool_calls[0].function.name != "record_probe" then
-        "function_" + ((.choices[0].message.tool_calls[0].function.name // "none") | tostring)
+for probe_mode in auto named; do
+    if [ "$probe_mode" = auto ]; then
+        expected_function=record_graph
+        request_body=$(printf '%s' "$probe_body" | jq -c '.tool_choice = "auto"')
     else
-        (.choices[0].message.tool_calls[0].function.arguments
-            | try (fromjson | if .ok == true then "ok" else "arguments_ok_" + (.ok | tostring) end)
-              catch "arguments_unparsed")
-    end' "$probe_answer_file" 2>/dev/null) || probe_verdict=body_unparsed
-case $probe_verdict in
-    ok) ;;
-    no_tool_calls)
-        printf 'the served llama-server answered a named tool choice without tool_calls; require named-function tool_choice support, QWEN_CHAT_TOOLS=on, and a model that completes record_probe(ok=true)\n' >&2
+        expected_function=record_probe
+        request_body=$probe_body
+    fi
+    probe_status=$(curl --user-agent 'Mozilla/5.0' --silent --max-time 120 --header "@$header_file" \
+        --header 'Content-Type: application/json' --output "$probe_answer_file" \
+        --write-out '%{http_code}' \
+        --data "$request_body" "$base_url/chat/completions") || {
+        printf 'the %s tool-call probe reached no answer on %s\n' "$probe_mode" "$base_url" >&2
         exit 1
-        ;;
-    finish_length)
-        # A reply the cap cut off says nothing about whether the model can
-        # record a call, so the refusal names the cap rather than the model.
-        printf 'the tool-call probe reached max_tokens %s before completing record_probe(ok=true); raise QWEN_PROBE_MAX_TOKENS, because a reply cut off mid-call is no evidence the model cannot make one\n' \
-            "$probe_max_tokens" >&2
+    }
+    if [ "$probe_status" != 200 ]; then
+        printf 'the tool-call probe answered HTTP %s on %s: %s\n' "$probe_status" \
+            "$base_url" "$(head -c 300 "$probe_answer_file")" >&2
         exit 1
-        ;;
-    *)
-        printf 'the tool-call probe did not complete record_probe(ok=true): %s\n' \
-            "$probe_verdict" >&2
-        exit 1
-        ;;
-esac
+    fi
+
+    # The answer counts when it is one completed call to the expected function whose
+    # arguments parse as JSON and carry ok=true. A body that merely mentions
+    # tool_calls -- a null member, an empty array, another function, prose that
+    # quotes the field, a truncated reply -- records nothing graft can use, so
+    # each of those is refused with the shape it had.
+    probe_verdict=$(jq -r --arg expected_function "$expected_function" '
+        if (.choices | type) != "array" or (.choices | length) == 0 then "no_choices"
+        elif .choices[0].finish_reason != "stop" and .choices[0].finish_reason != "tool_calls" then
+            "finish_" + ((.choices[0].finish_reason // "none") | tostring)
+        elif (.choices[0].message.tool_calls | type) != "array" then "no_tool_calls"
+        elif (.choices[0].message.tool_calls | length) != 1 then
+            "tool_calls_" + (.choices[0].message.tool_calls | length | tostring)
+        elif .choices[0].message.tool_calls[0].function.name != $expected_function then
+            "function_" + ((.choices[0].message.tool_calls[0].function.name // "none") | tostring)
+        else
+            (.choices[0].message.tool_calls[0].function.arguments
+                | try (fromjson | if .ok == true then "ok" else "arguments_ok_" + (.ok | tostring) end)
+                  catch "arguments_unparsed")
+        end' "$probe_answer_file" 2>/dev/null) || probe_verdict=body_unparsed
+    case $probe_verdict in
+        ok) ;;
+        no_tool_calls)
+            printf 'the served llama-server answered the %s tool choice without tool_calls; require named-function tool_choice support, QWEN_CHAT_TOOLS=on, and a model that completes %s(ok=true)\n' \
+                "$probe_mode" "$expected_function" >&2
+            exit 1
+            ;;
+        finish_length)
+            # A reply the cap cut off says nothing about whether the model can
+            # record a call, so the refusal names the cap rather than the model.
+            printf 'the %s tool-call probe reached max_tokens %s before completing %s(ok=true); raise QWEN_PROBE_MAX_TOKENS, because a reply cut off mid-call is no evidence the model cannot make one\n' \
+                "$probe_mode" "$probe_max_tokens" "$expected_function" >&2
+            exit 1
+            ;;
+        *)
+            printf 'the %s tool-call probe did not complete %s(ok=true): %s\n' \
+                "$probe_mode" "$expected_function" "$probe_verdict" >&2
+            exit 1
+            ;;
+    esac
+done
 
 printf 'export GRAFT_PROVIDER=openai\n'
 shell_quote() {

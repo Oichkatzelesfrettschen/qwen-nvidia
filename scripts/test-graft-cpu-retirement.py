@@ -106,6 +106,7 @@ class GraftCPURetirementTests(unittest.TestCase):
         directory = self.root / "publication-probe"
         (directory / "graph").mkdir(parents=True)
         (directory / "scratch/tmp").mkdir(parents=True)
+        workflow.atomic_json(directory / "status.json", {"state": "running"})
         return request, descriptors, directory, RETIREMENT.process(os.getpid())
 
     def launch_probe_sandbox(self, request, descriptors, directory):
@@ -435,6 +436,20 @@ class GraftCPURetirementTests(unittest.TestCase):
             self.observe_publication(request, directory, worker, seconds=0.1)
         self.assertLess(time.monotonic() - started, 1)
 
+    def test_childless_queued_worker_returns_for_cancellation(self):
+        request, _descriptors, directory, worker = self.publication_fixture()
+        FIXTURE_MODULE.WORKFLOW.atomic_json(directory / "status.json", {"state": "queued"})
+        with mock.patch.object(RETIREMENT.time, "sleep") as sleep:
+            captured = self.observe_publication(request, directory, worker, seconds=0.1)
+        self.assertEqual([RETIREMENT.identity(record) for record in captured],
+                         [RETIREMENT.identity(worker)])
+        sleep.assert_not_called()
+
+    def test_childless_running_worker_waits_for_publication(self):
+        request, _descriptors, directory, worker = self.publication_fixture()
+        with self.assertRaisesRegex(RETIREMENT.Refusal, "worker_publication_deadline"):
+            self.observe_publication(request, directory, worker, seconds=0.1)
+
     def test_inherited_worker_image_waits_for_exact_sandbox_exec(self):
         request, descriptors, directory, worker = self.publication_fixture()
         child_pid, ready_write, command = self.launch_pending_sandbox(request, descriptors, directory)
@@ -487,6 +502,7 @@ class GraftCPURetirementTests(unittest.TestCase):
 
     def test_unknown_startup_child_refuses_without_waiting(self):
         request, _descriptors, directory, worker = self.publication_fixture()
+        FIXTURE_MODULE.WORKFLOW.atomic_json(directory / "status.json", {"state": "queued"})
         child = subprocess.Popen(["/usr/bin/sleep", "4"])
         self.probe_processes.append(child)
         self.wait_for(lambda: RETIREMENT.exact_command(RETIREMENT.process(child.pid), child.args))

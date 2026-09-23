@@ -173,9 +173,10 @@ class GraftLaunchTest(unittest.TestCase):
         status, _, body = broker.request("POST", "/grant-graft", json.dumps({
             "tool": "graft_start_build", "arguments": arguments}), headers)
         self.assertEqual(status, 200, body)
-        normalized = workflow.normalize_start(self.config, arguments)
+        loaded = workflow.load_config(environment["QWEN_GRAFT_CONFIG"])
+        normalized = workflow.normalize_start(loaded, arguments)
         self.assertTrue(workflow.verify_authorization(
-            self.config, {"action": "start", **normalized}, json.loads(body)["authorization"]))
+            loaded, {"action": "start", **normalized}, json.loads(body)["authorization"]))
 
     def test_special_signing_key_and_malformed_environment_refused(self):
         pipe = Path(self.workspace.name) / "key-pipe"
@@ -200,11 +201,12 @@ class GraftLaunchTest(unittest.TestCase):
             "tool": "graft_start_build", "arguments": arguments}), headers)
         self.assertEqual(status, 200, body)
         token = json.loads(body)["authorization"]
-        normalized = workflow.normalize_start(self.config, arguments)
-        self.assertTrue(workflow.verify_authorization(self.config, {"action": "start", **normalized}, token))
-        changed = workflow.normalize_start(self.config, {**arguments, "mode": "deep"})
-        with self.assertRaises(ValueError):
-            workflow.verify_authorization(self.config, {"action": "start", **changed}, token)
+        loaded = workflow.load_config(self.config_path)
+        normalized = workflow.normalize_start(loaded, arguments)
+        self.assertTrue(workflow.verify_authorization(loaded, {"action": "start", **normalized}, token))
+        changed = workflow.normalize_start(loaded, {**arguments, "mode": "deep"})
+        with self.assertRaisesRegex(workflow.Refusal, "start_authorization_invalid_or_stale"):
+            workflow.verify_authorization(loaded, {"action": "start", **changed}, token)
 
     def test_grants_refuse_missing_session(self):
         broker, headers = self.launch_broker()

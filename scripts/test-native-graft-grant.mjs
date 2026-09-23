@@ -51,7 +51,6 @@ function fixture({
   const calls = [];
   const approvals = [];
   const options = {
-    pageUrl: "http://127.0.0.1:8080/",
     approve(message) {
       approvals.push(message);
       return approve;
@@ -91,6 +90,7 @@ for (const tool of [
     );
     assert.equal(approvals.length, 1);
     assert.ok(approvals[0].includes(tool));
+    assert.ok(approvals[0].includes("http://127.0.0.1:8571"));
     assert.ok(approvals[0].includes(JSON.stringify(args, null, 2)));
     assert.equal(calls.length, 2);
     assert.equal(calls[0].headers.Authorization, "Bearer ui-key");
@@ -202,28 +202,38 @@ for (const settings of [
   });
 }
 
-test("credential-bearing broker requests accept only literal loopback origins", () => {
-  assert.equal(
-    graftBrokerOrigin("http://127.0.0.1:8080/"),
-    "http://127.0.0.1:8571",
-  );
-  assert.equal(
-    graftBrokerOrigin("http://127.0.0.1:8080/?broker=http://[::1]:9000"),
-    "http://[::1]:9000",
-  );
-  for (const broker of [
-    "https://example.com",
-    "http://localhost:8571",
-    "http://user@127.0.0.1",
-    "http://127.0.0.1/path",
-    "file:///etc/passwd",
-    "http://127.0.0.1/?secret=x",
-    "http://127.0.0.1/#fragment",
-  ]) {
-    assert.throws(() =>
-      graftBrokerOrigin(
-        `http://127.0.0.1:8080/?broker=${encodeURIComponent(broker)}`,
-      ),
-    );
+test("broker origin comes from served metadata rather than a shared URL", async () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  try {
+    globalThis.window = { location: { href: "http://127.0.0.1:8080/?broker=http://127.0.0.1:9999" } };
+    globalThis.document = { querySelector: () => null };
+    assert.equal(graftBrokerOrigin(), "http://127.0.0.1:8571");
+    const defaultBroker = fixture();
+    await authorizeGraftTool("graft_start_build", {}, {}, undefined, defaultBroker.options);
+    assert.equal(defaultBroker.calls[0].url, "http://127.0.0.1:8571/session");
+
+    globalThis.document = { querySelector: () => ({ content: "http://[::1]:9000" }) };
+    assert.equal(graftBrokerOrigin(), "http://[::1]:9000");
+    const configuredBroker = fixture();
+    await authorizeGraftTool("graft_start_build", {}, {}, undefined, configuredBroker.options);
+    assert.equal(configuredBroker.calls[0].url, "http://[::1]:9000/session");
+    assert.ok(configuredBroker.approvals[0].includes("http://[::1]:9000"));
+
+    for (const broker of [
+      "https://example.com",
+      "http://localhost:8571",
+      "http://user@127.0.0.1",
+      "http://127.0.0.1/path",
+      "file:///etc/passwd",
+      "http://127.0.0.1/?secret=x",
+      "http://127.0.0.1/#fragment",
+    ]) {
+      globalThis.document = { querySelector: () => ({ content: broker }) };
+      assert.throws(() => graftBrokerOrigin());
+    }
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
   }
 });

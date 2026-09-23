@@ -109,6 +109,7 @@ scripts/test-graft-consumer-env.sh
 node scripts/test-native-graft-grant.mjs
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-graft-deep-evidence.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-record-symbols-contract.py
+scripts/test-admit-record-symbols-cleanup.sh
 scripts/test-write-artifact-manifest.sh
 if [ "$gate_host_role" = appliance ]; then
     scripts/test-coding-principal-path.sh

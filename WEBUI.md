@@ -50,6 +50,10 @@ waits for the first to finish. Raising `--parallel` divides the KV cache
 between slots and lowers the context each person gets, so the single slot
 stands.
 
+The tmux server needs `CAP_SYS_NICE` or sufficient `RLIMIT_NICE` to move an
+inherited `SCHED_IDLE` session to `SCHED_OTHER`. The session exits before
+startup when the host denies that scheduler transition.
+
 A queue-priority probe measures whether the desktop's own graphics work
 preempts inference the way the server's queue setting asks it to.
 `QWEN_LATENCY_MODE` selects what a missed deadline does: `observe`, the

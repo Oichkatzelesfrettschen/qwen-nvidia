@@ -204,6 +204,9 @@ def observe_worker_publication(workflow, config, request, directory, worker, dea
                     if published != identity(child):
                         raise Refusal("sandbox_identity_or_command_mismatch")
                     return list(captured.values())
+        elif read_json(directory / "status.json")["state"] == "queued":
+            # Queued cancellation publishes cancel.json before sandbox launch.
+            return list(captured.values())
         time.sleep(min(0.02, max(0, deadline - time.monotonic())))
     raise Refusal("worker_publication_deadline")
 

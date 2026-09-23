@@ -38,7 +38,7 @@ mkdir -p "$state_directory"
 # tmux inherits the caller's scheduler class. SCHED_IDLE survives renice and
 # starves the server and its guards even with a stored nice value of zero.
 chrt --other --pid 0 $$ >/dev/null 2>&1 || {
-    printf 'session cannot establish SCHED_OTHER\n' >&2
+    printf 'session cannot establish SCHED_OTHER; check CAP_SYS_NICE or RLIMIT_NICE\n' >&2
     exit 1
 }
 

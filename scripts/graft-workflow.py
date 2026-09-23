@@ -183,12 +183,15 @@ def load_config(path):
 
 def source_head(root, root_descriptor=None):
     checkout = str(root) if root_descriptor is None else f"/proc/self/fd/{root_descriptor}"
-    result = subprocess.run(
-        ["/usr/bin/git", "--no-optional-locks", "-C", checkout,
-         "rev-parse", "--verify", "HEAD"], check=False, capture_output=True,
-        pass_fds=() if root_descriptor is None else (root_descriptor,),
-        timeout=10, env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
-                         "GIT_CONFIG_GLOBAL": "/dev/null"})
+    try:
+        result = subprocess.run(
+            ["/usr/bin/git", "--no-optional-locks", "-C", checkout,
+             "rev-parse", "--verify", "HEAD"], check=False, capture_output=True,
+            pass_fds=() if root_descriptor is None else (root_descriptor,),
+            timeout=10, env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
+                             "GIT_CONFIG_GLOBAL": "/dev/null"})
+    except subprocess.TimeoutExpired as error:
+        raise Refusal("repository_head_unavailable") from error
     head = result.stdout.decode("ascii", errors="replace").strip()
     if result.returncode or not re.fullmatch(r"[a-f0-9]{40,64}", head):
         raise Refusal("repository_head_unavailable")
@@ -692,7 +695,7 @@ def run_worker(config, identifier, lock_descriptor):
         if reason:
             outcome = reason
         elif child.returncode != 0:
-            outcome = "partial" if coverage else "failed"
+            outcome = "partial" if coverage and coverage["nodes"] else "failed"
         elif not coverage or not coverage["nodes"] or coverage["other_state"] or coverage["empty_ready"]:
             outcome = "failed"
         elif request["mode"] == "deep" and (coverage["pending"] or coverage["stale"]):
@@ -758,7 +761,9 @@ def query_graph(config, arguments):
         raise Refusal("query_requires_graft_package_root")
     directory = job_directory(config, arguments["job_id"])
     state = build_status(config, arguments["job_id"])
-    if state["state"] not in ("completed", "partial") or not graph_coverage(directory):
+    coverage = graph_coverage(directory)
+    if (state["state"] not in ("completed", "partial") or not coverage
+            or not coverage["nodes"]):
         raise Refusal("query_requires_terminal_graph")
     request = read_json(directory / "request.json")
     if request["config_sha256"] != hashlib.sha256(canonical(config)).hexdigest():

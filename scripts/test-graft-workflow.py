@@ -84,6 +84,8 @@ if control.get('graph', True):
              {'id': 'sys/main.c#main', 'kind': 'function', 'path': 'sys/main.c',
               'summary_state': control.get('summary_state', 'ready'),
               'summary': control.get('summary', 'Fixture entry point.')}]
+    if control.get('empty_graph'):
+        nodes = []
     (graph / '.graph/wiring.json').write_text(json.dumps({'nodes': nodes, 'edges': []}))
 sys.exit(control.get('exit_code', 0))
 '''
@@ -286,6 +288,11 @@ class WorkflowTests(unittest.TestCase):
         self.control.update(graph=False, exit_code=7)
         self.write_control()
         self.assertEqual(self.wait_terminal(self.start()["job_id"])["state"], "failed")
+        self.control.update(graph=True, empty_graph=True)
+        self.write_control()
+        empty = self.wait_terminal(self.start()["job_id"])
+        self.assertEqual(empty["state"], "failed", empty)
+        self.assertEqual(empty["coverage"]["nodes"], 0)
         self.control.update(sleep=30)
         self.write_control()
         self.config["limits"]["seconds"] = 1
@@ -351,6 +358,12 @@ class WorkflowTests(unittest.TestCase):
                         "--quiet", "-m", "changed"], check=True)
         with self.assertRaises(WORKFLOW.Refusal):
             WORKFLOW.start_build(self.config, request, token)
+
+    def test_git_head_timeout_reports_bounded_refusal(self):
+        timeout = subprocess.TimeoutExpired(["git", "rev-parse"], 10)
+        with mock.patch.object(WORKFLOW.subprocess, "run", side_effect=timeout):
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "repository_head_unavailable"):
+                WORKFLOW.source_head(self.repository)
 
     def test_approval_binds_scope_directory_identity(self):
         request = self.request()
@@ -555,6 +568,12 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(probe["write"], "refused")
             self.assertEqual(probe["refresh"], "1")
             self.assertEqual(result["source_view"], "live_read_only")
+        graph_path = Path(state["graph_directory"]) / ".graph/wiring.json"
+        graph = WORKFLOW.read_json(graph_path)
+        WORKFLOW.atomic_json(graph_path, {**graph, "nodes": []})
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "query_requires_terminal_graph"):
+            WORKFLOW.query_graph(self.config, {"job_id": state["job_id"],
+                                               "operation": "graft_repo_map", "arguments": {}})
         with self.assertRaises(WORKFLOW.Refusal):
             WORKFLOW.query_graph(self.config, {"job_id": state["job_id"], "operation": "graft_file_api",
                                                "arguments": {"file": "../../api-key"}})
