@@ -13,14 +13,10 @@ if [ ! -f "$native_ui/index.html" ]; then
     exit 2
 fi
 broker_port=${QWEN_WEB_BROKER_PORT:-8571}
-if grep -q 'name="qwen-graft-broker-origin"' "$native_ui/index.html"; then
-    if ! grep -Fq "name=\"qwen-graft-broker-origin\" content=\"http://127.0.0.1:$broker_port\"" \
-        "$native_ui/index.html"; then
-        printf 'native UI broker origin differs from QWEN_WEB_BROKER_PORT; rebuild the UI\n' >&2
-        exit 2
-    fi
-elif [ "$broker_port" != 8571 ]; then
-    printf 'custom broker port requires a native UI built with QWEN_WEB_BROKER_PORT\n' >&2
+if ! grep -Fq "name=\"qwen-graft-broker-origin\" content=\"http://127.0.0.1:$broker_port\"" \
+    "$native_ui/index.html"; then
+    printf 'native UI lacks matching Graft broker metadata; rebuild it with QWEN_WEB_BROKER_PORT=%s\n' \
+        "$broker_port" >&2
     exit 2
 fi
 if [ "${QWEN_ROUTER:-0}" != 0 ]; then

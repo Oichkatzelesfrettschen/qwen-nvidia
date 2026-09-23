@@ -60,6 +60,9 @@ Exited unreaped workers require matching retained owner generations, terminal
 status and job configuration. Each session keeps helper diagnostics in private
 `server-retirement.log`, state transitions in `session-drain.record`, and runtime
 messages in `server.log`.
+Composed MCP sessions attribute direct retained tool children only when their
+command, executable and configured environment match the frozen MCP snapshot.
+Unknown descendants still withhold teardown proof.
 
 Approved source directories and query graphs are mounted read-only.
 Repository Git metadata is also mounted read-only for Graft's repository
@@ -146,7 +149,8 @@ It serves authenticated loopback traffic, enables Jinja tool parsing and uses
 the native UI. The broker defaults to port 8571. For a custom port, build the
 UI with `QWEN_WEB_BROKER_PORT=PORT` and launch with the same setting. The
 builder embeds the broker origin in the served page, and the launcher refuses
-a mismatch. A URL query cannot redirect native Graft approval credentials.
+a missing or mismatched marker even at the default port. A URL query cannot
+redirect native Graft approval credentials.
 The separate fallback-page driver retains its `--broker` route.
 
 Manual use shares the same job implementation:

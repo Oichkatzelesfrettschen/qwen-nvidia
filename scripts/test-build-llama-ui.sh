@@ -178,6 +178,40 @@ else
     check reinstall_replaces_tree fail "$(find "$destination" -mindepth 1 -maxdepth 1 | tr '\n' ' ')"
 fi
 
+stale_ui=$work_directory/stale-ui
+mkdir -p "$stale_ui"
+printf '<!doctype html><html><head></head></html>\n' >"$stale_ui/index.html"
+if env -i PATH=/usr/bin:/bin HOME="$work_directory" PYTHON="${PYTHON:?Select the intended Python interpreter}" \
+    QWEN_STATIC_PATH="$stale_ui" QWEN_WEB_BROKER_PORT=8571 \
+    "$script_directory/qwen-graft-launch.sh" "$work_directory/absent-config" \
+    >"$work_directory/out" 2>"$work_directory/err"; then
+    check stale_native_ui_refused fail accepted
+elif grep -q 'native UI lacks matching Graft broker metadata' "$work_directory/err"; then
+    check stale_native_ui_refused pass
+else
+    check stale_native_ui_refused fail "$(cat "$work_directory/err")"
+fi
+if env -i PATH=/usr/bin:/bin HOME="$work_directory" PYTHON="$PYTHON" \
+    QWEN_STATIC_PATH="$destination" QWEN_WEB_BROKER_PORT=8571 \
+    "$script_directory/qwen-graft-launch.sh" "$work_directory/absent-config" \
+    >"$work_directory/out" 2>"$work_directory/err"; then
+    check mismatched_native_ui_broker_refused fail accepted
+elif grep -q 'native UI lacks matching Graft broker metadata' "$work_directory/err"; then
+    check mismatched_native_ui_broker_refused pass
+else
+    check mismatched_native_ui_broker_refused fail "$(cat "$work_directory/err")"
+fi
+if env -i PATH=/usr/bin:/bin HOME="$work_directory" PYTHON="$PYTHON" \
+    QWEN_STATIC_PATH="$destination" QWEN_WEB_BROKER_PORT=9000 \
+    "$script_directory/qwen-graft-launch.sh" "$work_directory/absent-config" \
+    >"$work_directory/out" 2>"$work_directory/err"; then
+    check matching_native_ui_broker_reaches_config fail accepted
+elif grep -q 'Graft launch configuration refused' "$work_directory/err"; then
+    check matching_native_ui_broker_reaches_config pass
+else
+    check matching_native_ui_broker_reaches_config fail "$(cat "$work_directory/err")"
+fi
+
 if run_builder "$work_directory/invalid-port" QWEN_WEB_BROKER_PORT=99999 \
     >/dev/null 2>"$work_directory/err"; then
     check invalid_broker_port_refused fail accepted

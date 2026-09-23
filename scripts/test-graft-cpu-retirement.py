@@ -31,12 +31,21 @@ command = json.loads((root / "mcp.json").read_text())["mcpServers"]["qwen_graft"
 mcp = subprocess.Popen([command["command"], *command["args"]],
                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
                        env={**os.environ, **command.get("env", {})})
+retained = None
+if os.environ.get("TEST_RETAINED_CHILD"):
+    retained_command = json.loads((root / "mcp.json").read_text())["mcpServers"]["retained"]
+    retained = subprocess.Popen([retained_command["command"], *retained_command.get("args", [])],
+                                env={**os.environ, **retained_command.get("env", {})})
+    (root / "retained-ready").write_text(str(retained.pid))
 extra = None
 if os.environ.get("TEST_UNKNOWN_CHILD"):
     extra = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
 def retire(_signal, _frame):
     mcp.stdin.close()
     mcp.wait(timeout=3)
+    if retained:
+        retained.terminate()
+        retained.wait(timeout=3)
     if extra:
         extra.terminate()
         extra.wait(timeout=3)
@@ -188,7 +197,7 @@ class GraftCPURetirementTests(unittest.TestCase):
             time.sleep(0.02)
         self.fail("fixture readiness deadline")
 
-    def start_server(self, active=False, unknown=False):
+    def start_server(self, active=False, unknown=False, retained=False):
         if active:
             self.fixture.control["sleep"] = 4
             self.fixture.write_control()
@@ -204,10 +213,14 @@ class GraftCPURetirementTests(unittest.TestCase):
         environment.update(TEST_ROOT=str(self.root), PYTHON=sys.executable)
         if unknown:
             environment["TEST_UNKNOWN_CHILD"] = "1"
+        if retained:
+            environment["TEST_RETAINED_CHILD"] = "1"
         self.server = subprocess.Popen([sys.executable, str(self.root / "server.py")],
                                        stdout=self.log, stderr=self.log, env=environment,
                                        start_new_session=True)
         self.wait_for(lambda: (self.root / "server-ready").exists())
+        if retained:
+            self.wait_for(lambda: (self.root / "retained-ready").exists())
         if active:
             reply = json.loads((self.root / "reply.json").read_text())
             self.assertFalse(reply["result"]["isError"], reply)
@@ -280,6 +293,49 @@ class GraftCPURetirementTests(unittest.TestCase):
         self.start_server(unknown=True)
         result = self.retire()
         self.assertEqual(result.returncode, 4, result.stderr + result.stdout)
+        self.assertNotIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_configured_retained_mcp_child_preserves_teardown_proof(self):
+        self.mcp["mcpServers"]["retained"] = {
+            "command": "/usr/bin/sleep", "args": ["300"],
+            "env": {"QWEN_TEST_RETAINED_MARKER": "bound"},
+        }
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        self.start_server(retained=True)
+        result = self.retire()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_path_resolved_retained_mcp_child_preserves_teardown_proof(self):
+        self.mcp["mcpServers"]["retained"] = {"command": "sleep", "args": ["300"]}
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        self.start_server(retained=True)
+        result = self.retire()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_retained_mcp_command_mismatch_refuses_teardown_proof(self):
+        self.mcp["mcpServers"]["retained"] = {"command": "sleep", "args": ["300"]}
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        self.start_server(retained=True)
+        self.mcp["mcpServers"]["retained"]["args"] = ["301"]
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        result = self.retire()
+        self.assertEqual(result.returncode, 4, result.stderr + result.stdout)
+        self.assertNotIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_retained_mcp_environment_mismatch_refuses_teardown_proof(self):
+        self.mcp["mcpServers"]["retained"] = {
+            "command": "/usr/bin/sleep", "args": ["300"],
+            "env": {"QWEN_TEST_RETAINED_MARKER": "bound"},
+        }
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        self.start_server(retained=True)
+        self.mcp["mcpServers"]["retained"]["env"]["QWEN_TEST_RETAINED_MARKER"] = "changed"
+        self.mcp_path.write_text(json.dumps(self.mcp))
+        result = self.retire()
+        self.assertEqual(result.returncode, 4, result.stderr + result.stdout)
+        self.assertIn("retained_mcp_environment_mismatch", result.stderr + result.stdout)
         self.assertNotIn("\nteardown: held=yes\n", result.stdout)
 
     def test_configured_command_mismatch_keeps_teardown_unattributed(self):

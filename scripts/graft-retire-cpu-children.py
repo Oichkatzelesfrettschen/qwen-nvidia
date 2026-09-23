@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -64,10 +65,10 @@ def tree(record):
     return result
 
 
-def exact_command(record, command):
+def exact_command(record, command, executable=None):
     try:
         return (record["args"] == [os.fsencode(argument) for argument in command]
-                and Path(f"/proc/{record['pid']}/exe").samefile(command[0]))
+                and Path(f"/proc/{record['pid']}/exe").samefile(executable or command[0]))
     except OSError:
         return False
 
@@ -76,11 +77,40 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
+def process_environment(pid):
+    try:
+        fields = (Path(f"/proc/{pid}") / "environ").read_bytes().split(b"\0")
+    except OSError as error:
+        raise Refusal("mcp_environment_unavailable") from error
+    return {os.fsdecode(key): os.fsdecode(value)
+            for field in fields if b"=" in field
+            for key, value in [field.split(b"=", 1)]}
+
+
+def retained_mcp_command(entry, server_environment):
+    command = entry.get("command")
+    arguments = entry.get("args", [])
+    environment = entry.get("env", {})
+    if (not isinstance(command, str) or not command
+            or not isinstance(arguments, list) or any(not isinstance(value, str) for value in arguments)
+            or not isinstance(environment, dict)
+            or any(not isinstance(key, str) or not isinstance(value, str)
+                   for key, value in environment.items())):
+        raise Refusal("configured_retained_mcp_invalid")
+    if Path(command).is_absolute():
+        executable = command
+    elif "/" not in command:
+        executable = shutil.which(command, path=environment.get("PATH", server_environment.get("PATH", "")))
+    else:
+        raise Refusal("configured_retained_mcp_command_unresolvable")
+    if not executable or not Path(executable).is_absolute():
+        raise Refusal("configured_retained_mcp_command_unresolvable")
+    return [command, *arguments], executable, environment
+
+
 def require_closed_publication(candidate, entry, config):
     barrier = str(Path(config["model"]["api_key_file"]).parent)
-    environment = {os.fsdecode(key): os.fsdecode(value)
-                   for field in Path(f"/proc/{candidate['pid']}/environ").read_bytes().split(b"\0")
-                   if b"=" in field for key, value in [field.split(b"=", 1)]}
+    environment = process_environment(candidate["pid"])
     for name in ("QWEN_GRAFT_SESSION_BARRIER", "QWEN_GPU_ADMISSION_BARRIER"):
         if entry.get("env", {}).get(name) != barrier or environment.get(name) != barrier:
             raise Refusal("mcp_publication_barrier_mismatch")
@@ -218,14 +248,26 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
     if not server or server["start_ticks"] != server_start:
         raise Refusal("server_identity_changed")
     workflow_path = Path(__file__).resolve().with_name("graft-workflow.py")
-    entry = read_json(mcp_path)["mcpServers"]["qwen_graft"]
+    mcp_servers = read_json(mcp_path)["mcpServers"]
+    entry = mcp_servers["qwen_graft"]
     expected_args = [str(workflow_path), "--config", str(Path(config_path).resolve()), "mcp"]
     if entry["args"] != expected_args or not Path(entry["command"]).is_absolute():
         raise Refusal("configured_mcp_command_mismatch")
     command = [entry["command"], *expected_args]
-    candidates = [child for child in children(server_pid) if exact_command(child, command)]
-    if not candidates:
-        return []
+    direct_children = children(server_pid)
+    candidates = [child for child in direct_children if exact_command(child, command)]
+    retained_commands = []
+    if len(mcp_servers) > 1:
+        server_environment = process_environment(server_pid)
+        for name, retained_entry in mcp_servers.items():
+            if name == "qwen_graft":
+                continue
+            if not isinstance(retained_entry, dict):
+                raise Refusal("configured_retained_mcp_invalid")
+            retained_command = retained_mcp_command(retained_entry, server_environment)
+            if retained_command[0] == command:
+                raise Refusal("configured_retained_mcp_command_ambiguous")
+            retained_commands.append(retained_command)
     spec = importlib.util.spec_from_file_location("qwen_graft_retirement_workflow", workflow_path)
     workflow = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(workflow)
@@ -280,6 +322,21 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
                 raise Refusal("job_terminal_state_unproven")
             admitted.extend(captured)
         admitted.append(candidate)
+    for child in direct_children:
+        matches = [(expected, executable, environment)
+                   for expected, executable, environment in retained_commands
+                   if exact_command(child, expected, executable)]
+        if len(matches) > 1:
+            raise Refusal("configured_retained_mcp_command_ambiguous")
+        if not matches:
+            continue
+        expected, executable, environment = matches[0]
+        if not live(child) or not exact_command(child, expected, executable):
+            raise Refusal("retained_mcp_identity_changed")
+        observed_environment = process_environment(child["pid"])
+        if any(observed_environment.get(key) != value for key, value in environment.items()):
+            raise Refusal("retained_mcp_environment_mismatch")
+        admitted.append(child)
     return admitted
 
 
