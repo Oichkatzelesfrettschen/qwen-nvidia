@@ -280,7 +280,7 @@ def parse_graft_request(payload):
     """Accept one exact operation without accepting caller-supplied authority."""
     if not isinstance(payload, dict) or set(payload) != {"tool", "arguments"}:
         raise server.InvalidArgument("Graft grant requires tool and arguments")
-    if payload["tool"] not in ("graft_start_build", "graft_cancel_build"):
+    if payload["tool"] not in ("graft_start_build", "graft_cancel_build", "graft_resume_build"):
         raise server.InvalidArgument("Graft grant names an unsupported operation")
     if not isinstance(payload["arguments"], dict) or "authorization" in payload["arguments"]:
         raise server.InvalidArgument("Graft grant requires arguments without authorization")
@@ -291,11 +291,11 @@ def issue_graft_for_request(settings, fields):
     """Use the workflow's normalization and sign its exact configuration."""
     if settings.graft_config is None:
         raise server.InvalidArgument("Graft workflow is outside the broker configuration")
-    issuer = (
-        settings.graft_workflow.issue_start_authorization
-        if fields["tool"] == "graft_start_build"
-        else settings.graft_workflow.issue_cancel_authorization
-    )
+    issuer = {
+        "graft_start_build": settings.graft_workflow.issue_start_authorization,
+        "graft_cancel_build": settings.graft_workflow.issue_cancel_authorization,
+        "graft_resume_build": settings.graft_workflow.issue_resume_authorization,
+    }[fields["tool"]]
     try:
         return issuer(settings.graft_config, fields["arguments"], graft_signing_key(settings))
     except (ValueError, OSError) as error:

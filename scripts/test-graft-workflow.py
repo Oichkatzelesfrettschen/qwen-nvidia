@@ -78,7 +78,7 @@ if control.get('descendant'):
         start_new_session=True)
 time.sleep(control.get('sleep', 0))
 if control.get('graph', True):
-    (graph / '.graph').mkdir()
+    (graph / '.graph').mkdir(exist_ok=True)
     nodes = [{'id': 'sys/main.c', 'kind': 'file', 'path': 'sys/main.c',
               'summary_state': 'ready', 'summary': 'Fixture source.'},
              {'id': 'sys/main.c#main', 'kind': 'function', 'path': 'sys/main.c',
@@ -283,6 +283,46 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(probe["provider"], "openai")
         self.assertEqual(probe["model"], "fixture-model")
         self.assertIn("--deep", probe["argv"])
+
+    def test_resume_partial_deep_job_reuses_graph_and_retains_attempt_log(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        self.assertEqual(first["state"], "partial")
+        directory = Path(first["graph_directory"]).parent
+        marker = directory / "graph" / "cache-marker"
+        marker.write_text("retained\n")
+        first_log = (directory / "build.log").read_bytes()
+        self.control.update(summary_state="ready", exit_code=0)
+        self.write_control()
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        resumed = WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(resumed["graph_directory"], first["graph_directory"])
+        completed = self.wait_terminal(first["job_id"])
+        self.assertEqual(completed["state"], "completed", completed)
+        self.assertEqual(completed["attempt"], 2)
+        self.assertEqual(completed["log_file"], "build-attempt-2.log")
+        self.assertEqual(marker.read_text(), "retained\n")
+        self.assertEqual((directory / "build.log").read_bytes(), first_log)
+        self.assertEqual(WORKFLOW.read_json(directory / "status-attempt-1.json"), first)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "resume_requires_partial_deep_job"):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+
+    def test_resume_refuses_changed_source_head(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        first = self.wait_terminal(self.start("deep")["job_id"])
+        token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        (self.repository / "sys/main.c").write_text("int changed(void) { return 1; }\n")
+        subprocess.run(["git", "-C", str(self.repository), "add", "sys/main.c"], check=True)
+        subprocess.run(["git", "-C", str(self.repository), "-c", "user.name=Fixture",
+                        "-c", "user.email=fixture@example.invalid", "commit", "--quiet",
+                        "-m", "changed"], check=True)
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "approved_source"):
+            WORKFLOW.resume_build(self.config, first["job_id"], token)
+        self.assertEqual(WORKFLOW.build_status(self.config, first["job_id"]), first)
 
     def test_failure_and_timeout(self):
         self.control.update(graph=False, exit_code=7)
@@ -541,7 +581,7 @@ class WorkflowTests(unittest.TestCase):
                                 text=True, capture_output=True, timeout=3, check=True)
         replies = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(len(replies), 3)
-        self.assertEqual(len(replies[1]["result"]["tools"]), 4)
+        self.assertEqual(len(replies[1]["result"]["tools"]), 5)
         self.assertTrue(replies[2]["result"]["isError"])
         self.assertNotIn(self.authorization_key.read_text().strip(), result.stdout)
 

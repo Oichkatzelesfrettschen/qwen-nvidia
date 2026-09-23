@@ -469,6 +469,67 @@ def start_build(config, arguments, authorization):
         os.close(lock_descriptor)
 
 
+def normalize_resume(config, identifier):
+    directory = job_directory(config, identifier)
+    request = read_json(directory / "request.json")
+    return {"action": "resume", "job_id": identifier,
+            "config_sha256": hashlib.sha256(canonical(config)).hexdigest(),
+            "request_sha256": hashlib.sha256((directory / "request.json").read_bytes()).hexdigest(),
+            "source_head": request["source_head"]}
+
+
+def issue_resume_authorization(config, arguments, key):
+    closed_fields(arguments, {"job_id"}, {"job_id"})
+    return issue_authorization(normalize_resume(config, arguments["job_id"]), key)
+
+
+def resume_build(config, identifier, authorization):
+    normalized = normalize_resume(config, identifier)
+    nonce = verify_authorization(config, normalized, authorization)
+    directory = job_directory(config, identifier)
+    request = read_json(directory / "request.json")
+    lock_path = Path(config["artifact_root"]) / "locks" / (request["repository"] + ".lock")
+    lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Refusal("repository_build_busy") from None
+        state = read_json(directory / "status.json")
+        if state["state"] != "partial" or request["mode"] != "deep":
+            raise Refusal("resume_requires_partial_deep_job")
+        if identity_matches(read_json(directory / "owner.json"), require_live=True):
+            raise Refusal("previous_supervisor_still_running")
+        if canonical(read_json(directory / "config.json")) != canonical(config):
+            raise Refusal("approved_configuration_changed")
+        arguments = {name: request[name] for name in ("repository", "mode", "paths")}
+        if normalize_start(config, arguments) != request:
+            raise Refusal("approved_source_or_configuration_changed")
+        grant = Path(config["artifact_root"]) / "grants" / nonce
+        try:
+            descriptor = os.open(grant, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise Refusal("resume_authorization_spent") from None
+        os.close(descriptor)
+        attempt = state.get("attempt", 1) + 1
+        atomic_json(directory / f"status-attempt-{attempt - 1}.json", state)
+        state.update(state="queued", attempt=attempt)
+        state.pop("finished_at", None)
+        atomic_json(directory / "status.json", state)
+        process = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--config",
+             str(directory / "config.json"), "_worker", identifier,
+             "--lock-fd", str(lock_descriptor)], start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, pass_fds=(lock_descriptor,),
+            env={"PATH": "/usr/bin:/bin", "PYTHONUNBUFFERED": "1"})
+        atomic_json(directory / "owner.json", process_identity(process.pid))
+        CHILDREN.append(process)
+        return state
+    finally:
+        os.close(lock_descriptor)
+
+
 def normalize_cancel(config, arguments):
     closed_fields(arguments, {"job_id"}, {"job_id"})
     directory = job_directory(config, arguments["job_id"])
@@ -662,7 +723,8 @@ def run_worker(config, identifier, lock_descriptor):
         pending = b""
         selector = selectors.DefaultSelector()
         selector.register(child.stdout, selectors.EVENT_READ)
-        with (directory / "build.log").open("wb") as log:
+        log_name = "build.log" if state.get("attempt", 1) == 1 else f"build-attempt-{state['attempt']}.log"
+        with (directory / log_name).open("wb") as log:
             while selector.get_map():
                 if cancelled or (directory / "cancel.json").exists():
                     reason = "cancelled"
@@ -703,7 +765,8 @@ def run_worker(config, identifier, lock_descriptor):
         else:
             outcome = "completed"
         state.update(state=outcome, exit_code=child.returncode, coverage=coverage,
-                     log_bytes=stored, log_limit=config["limits"]["log_bytes"])
+                     log_bytes=stored, log_limit=config["limits"]["log_bytes"],
+                     log_file=log_name)
     except Exception as error:
         if child is not None:
             stop_child(child, identity)
@@ -852,6 +915,11 @@ def tool_definitions(config):
              "required": ["repository", "mode", "authorization"], "additionalProperties": False}},
         {"name": "graft_build_status", "description": "Read build state and retained graph coverage by job ID.",
          "inputSchema": job_schema},
+        {"name": "graft_resume_build", "description":
+         "Resume an approved partial deep build in its retained graph and extraction cache. The source and configuration must retain their approved identities.",
+         "inputSchema": {"type": "object", "properties": {
+             "job_id": {"type": "string"}, "authorization": {"type": "string"}},
+             "required": ["job_id", "authorization"], "additionalProperties": False}},
         {"name": "graft_cancel_build", "description": "Cancel the approved build and retain its partial output.",
          "inputSchema": {"type": "object", "properties": {
              "job_id": {"type": "string"}, "authorization": {"type": "string"}},
@@ -914,6 +982,10 @@ def call_tool(config, name, arguments):
     if name == "graft_cancel_build":
         closed_fields(arguments, {"job_id", "authorization"}, {"job_id", "authorization"})
         return cancel_build(config, arguments["job_id"], arguments["authorization"])
+    if name == "graft_resume_build":
+        closed_fields(arguments, {"job_id", "authorization"}, {"job_id", "authorization"})
+        return with_mcp_admission(
+            config, lambda: resume_build(config, arguments["job_id"], arguments["authorization"]))
     if name == "graft_query":
         return with_mcp_admission(config, lambda: query_graph(config, arguments))
     closed_fields(arguments, {"job_id"}, {"job_id"})
@@ -968,7 +1040,7 @@ def main():
     start.add_argument("--repository", required=True)
     start.add_argument("--mode", choices=("structural", "deep"), required=True)
     start.add_argument("--path", action="append", default=[])
-    for name in ("status", "cancel"):
+    for name in ("status", "cancel", "resume"):
         commands.add_parser(name).add_argument("job_id")
     query = commands.add_parser("query")
     query.add_argument("job_id")
@@ -997,6 +1069,10 @@ def main():
             result = query_graph(config, {"job_id": arguments.job_id,
                                          "operation": arguments.operation,
                                          "arguments": json.loads(arguments.arguments)})
+        elif arguments.command == "resume":
+            token = issue_resume_authorization(config, {"job_id": arguments.job_id},
+                                               read_key(config["authorization_key_file"]))
+            result = resume_build(config, arguments.job_id, token)
         else:
             token = issue_cancel_authorization(config, {"job_id": arguments.job_id},
                                                read_key(config["authorization_key_file"]))

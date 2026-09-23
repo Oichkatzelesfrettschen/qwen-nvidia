@@ -10,8 +10,9 @@ const { authorizeGraftTool, graftBrokerOrigin, graftToolForModel } = await impor
   `data:text/javascript;base64,${Buffer.from(helperSource).toString("base64")}`
 );
 
-for (const name of ['graft_start_build', 'graft_cancel_build',
-    'qwen_graft_graft_start_build', 'qwen_graft_graft_cancel_build']) {
+for (const name of ['graft_start_build', 'graft_cancel_build', 'graft_resume_build',
+    'qwen_graft_graft_start_build', 'qwen_graft_graft_cancel_build',
+    'qwen_graft_graft_resume_build']) {
   test(`${name} hides authorization only in its model-facing schema`, () => {
     const definition = {
       type: 'function', function: {name, description: 'Run the selected Graft operation.',
@@ -71,8 +72,10 @@ function fixture({
 for (const tool of [
   "graft_start_build",
   "graft_cancel_build",
+  "graft_resume_build",
   "qwen_graft_graft_start_build",
   "qwen_graft_graft_cancel_build",
+  "qwen_graft_graft_resume_build",
 ]) {
   test(`${tool} receives a fresh grant after exact-argument approval`, async () => {
     const { calls, approvals, options } = fixture();

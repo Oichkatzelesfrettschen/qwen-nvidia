@@ -127,7 +127,7 @@ case $action in
         # per-checkpoint speculation_profile column in control.
         for forwarded_name in QWEN_SERVING_BACKEND QWEN_CUDA_DEVICES \
                               QWEN_SERVING_NICE QWEN_SERVING_CPU_LIST \
-                              QWEN_SERVING_THREADS \
+                              QWEN_SERVING_THREADS QWEN_SWAPIN_HEADROOM_KIB \
                               QWEN_MMPROJ QWEN_MMPROJ_OFFLOAD QWEN_IMAGE_MAX_TOKENS \
                               QWEN_INFERENCE_CPU \
                               QWEN_BACKEND_SAMPLING \

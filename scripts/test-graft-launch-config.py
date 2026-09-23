@@ -208,6 +208,27 @@ class GraftLaunchTest(unittest.TestCase):
         with self.assertRaisesRegex(workflow.Refusal, "start_authorization_invalid_or_stale"):
             workflow.verify_authorization(loaded, {"action": "start", **changed}, token)
 
+    def test_resume_grant_binds_retained_job(self):
+        loaded = workflow.load_config(self.config_path)
+        root = workflow.initialize_storage(loaded)
+        identifier = "a" * 32
+        directory = root / "jobs" / identifier
+        directory.mkdir()
+        request = workflow.normalize_start(loaded, {
+            "repository": "fixture", "mode": "deep", "paths": []})
+        workflow.atomic_json(directory / "request.json", request)
+        broker, headers = self.launch_broker()
+        status, _, body = broker.request("POST", "/grant-graft", json.dumps({
+            "tool": "graft_resume_build", "arguments": {"job_id": identifier}}), headers)
+        self.assertEqual(status, 200, body)
+        token = json.loads(body)["authorization"]
+        self.assertTrue(workflow.verify_authorization(
+            loaded, workflow.normalize_resume(loaded, identifier), token))
+        with self.assertRaisesRegex(workflow.Refusal, "start_authorization_invalid_or_stale"):
+            workflow.verify_authorization(
+                loaded, {**workflow.normalize_resume(loaded, identifier),
+                         "source_head": "0" * 40}, token)
+
     def test_grants_refuse_missing_session(self):
         broker, headers = self.launch_broker()
         headers["X-Qwen-Web-Session"] = "wrong"

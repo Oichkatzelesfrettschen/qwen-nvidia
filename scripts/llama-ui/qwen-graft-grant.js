@@ -1,8 +1,10 @@
 const graftMutations = new Map([
 	['graft_start_build', 'graft_start_build'],
 	['graft_cancel_build', 'graft_cancel_build'],
+	['graft_resume_build', 'graft_resume_build'],
 	['qwen_graft_graft_start_build', 'graft_start_build'],
-	['qwen_graft_graft_cancel_build', 'graft_cancel_build']
+	['qwen_graft_graft_cancel_build', 'graft_cancel_build'],
+	['qwen_graft_graft_resume_build', 'graft_resume_build']
 ]);
 
 /**

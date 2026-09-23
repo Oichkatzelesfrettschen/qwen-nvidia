@@ -71,12 +71,34 @@ job remains fixed at `be592ce`. The API proof exercises the
 model, schema projection, broker and native execution, while an attended
 browser-click remains unmeasured.
 
-The server monitor's swap-in headroom was set to 4194304 KiB for this run,
-equal to its unchanged minimum-memory reserve. Earlier comparative 4B and
-7B sessions met the broader 8388608-KiB swap-in band alongside unrelated
-host work; this setting keeps the hard memory reserve and the
-64-MiB-per-sample swap-in limit at that reserve. The server's own telemetry
-and Graft job status remain the authorities for any later abort or completion.
+The first deep attempt ended `partial` after the monitor measured
+`MemAvailable=4179900` KiB below its 4194304-KiB hard reserve at
+2026-09-23T05:09:41Z and terminated llama-server. Graft retained 26019
+structural nodes, 51 ready meaning nodes, 2662 file-summary cache entries,
+and 45 synthesis batches. Its log names five consecutive connection errors
+after serving stopped. Host allocation by other processes was not captured
+per process at the breach, so the monitor identifies the stop condition, not
+the share attributable to each concurrent process.
+
+A restart at 05:22Z stopped separately on `swapin_rate_breached`: the monitor
+measured 84787200 swap-in bytes in one sample with 8147692 KiB available,
+below its default 8388608-KiB swap-in headroom. The host uses priority-100
+zram and had more than 4 GiB available; the sample alone does not establish
+disk thrashing. The prior note claiming a 4194304-KiB setting was incorrect:
+`qwen-webui-control.sh` did not forward `QWEN_SWAPIN_HEADROOM_KIB` through
+the tmux launch boundary. The launcher now forwards that policy variable. The
+next session's monitor records 6291456 KiB for swap-in headroom while keeping
+the 4194304-KiB hard reserve and 67108864-byte per-sample swap-in limit.
+
+Graft 0.18.0-2 reads its prior extraction cache and `wiring.json` meaning
+cache in the same graph directory. The workflow now resumes only a partial
+deep job under a fresh approval, the original source HEAD and configuration,
+and the repository lock. Attempt 2 started on the retained job ID at
+2026-09-23T05:25Z; `build.log` and `status-attempt-1.json` retain the first
+attempt while `build-attempt-2.log` records the continuation. Final coverage
+and semantic validity remain unmeasured until the resumed attempt finishes.
+The server's telemetry and Graft status remain the authorities for another
+abort or completion.
 
 Raw status, graph, telemetry, and server logs remain under the ignored
 `.local-artifacts/graft-discobsd/jobs/` and `.local-artifacts/graft-discobsd/state/`
