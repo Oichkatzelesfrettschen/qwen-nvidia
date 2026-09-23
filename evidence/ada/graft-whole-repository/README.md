@@ -94,9 +94,17 @@ Graft 0.18.0-2 reads its prior extraction cache and `wiring.json` meaning
 cache in the same graph directory. The workflow now resumes only a partial
 deep job under a fresh approval, the original source HEAD and configuration,
 and the repository lock. Attempt 2 started on the retained job ID at
-2026-09-23T05:25Z; `build.log` and `status-attempt-1.json` retain the first
-attempt while `build-attempt-2.log` records the continuation. Final coverage
-and semantic validity remain unmeasured until the resumed attempt finishes.
+2026-09-23T05:25Z. The recovery launcher set `QWEN_CONTEXT_SIZE=16384`, below
+the profile's validated 32768; a concept request carrying 11471 prompt tokens
+produced 4913 tokens and the server reported `truncated=1` at 16383 slot
+tokens. Graft retried that file instead of advancing its cache. The
+controller's stop drained admissions but reported `destroy=failed` after
+bounded retirement escalation; the recorded server PID and tmux session were
+absent afterward. Graft ended `partial` with the same 51 ready nodes. The next
+launch verified `n_ctx_slot=32768` in the server log and resumed attempt 3 at
+2026-09-23T05:32Z. `build.log`, `build-attempt-2.log`, and both prior status
+records remain retained. Final coverage and semantic validity remain
+unmeasured until attempt 3 finishes.
 The server's telemetry and Graft status remain the authorities for another
 abort or completion.
 

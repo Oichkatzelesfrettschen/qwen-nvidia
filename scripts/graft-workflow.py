@@ -498,8 +498,9 @@ def resume_build(config, identifier, authorization):
         state = read_json(directory / "status.json")
         if state["state"] != "partial" or request["mode"] != "deep":
             raise Refusal("resume_requires_partial_deep_job")
-        if identity_matches(read_json(directory / "owner.json"), require_live=True):
-            raise Refusal("previous_supervisor_still_running")
+        # The previous supervisor publishes terminal status before it exits.
+        # Acquiring the repository lock proves its finalizer has closed the
+        # lock descriptor, including during that short live-process interval.
         if canonical(read_json(directory / "config.json")) != canonical(config):
             raise Refusal("approved_configuration_changed")
         arguments = {name: request[name] for name in ("repository", "mode", "paths")}

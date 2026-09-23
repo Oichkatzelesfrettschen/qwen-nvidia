@@ -293,6 +293,9 @@ class WorkflowTests(unittest.TestCase):
         marker = directory / "graph" / "cache-marker"
         marker.write_text("retained\n")
         first_log = (directory / "build.log").read_bytes()
+        # A terminal supervisor can remain live briefly after releasing the
+        # repository lock; the lock, not its PID, gates the next attempt.
+        WORKFLOW.atomic_json(directory / "owner.json", WORKFLOW.process_identity(os.getpid()))
         self.control.update(summary_state="ready", exit_code=0)
         self.write_control()
         token = WORKFLOW.issue_resume_authorization(
