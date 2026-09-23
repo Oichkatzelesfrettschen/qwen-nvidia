@@ -345,7 +345,7 @@ def issue_start_authorization(config, arguments, key):
 
 
 def issue_authorization(request, key):
-    claim = {"request": request,
+    claim = {"request_sha256": hashlib.sha256(canonical(request)).hexdigest(),
              "expires": int(time.time()) + 120, "nonce": secrets.token_hex(16)}
     encoded = base64.urlsafe_b64encode(canonical(claim)).rstrip(b"=")
     signature = hmac.new(key, encoded, hashlib.sha256).hexdigest()
@@ -362,7 +362,9 @@ def verify_authorization(config, normalized, token):
         if not hmac.compare_digest(signature, expected):
             raise ValueError
         claim = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
-        if (claim["request"] != normalized or type(claim["expires"]) is not int
+        if (not hmac.compare_digest(
+                claim["request_sha256"], hashlib.sha256(canonical(normalized)).hexdigest())
+                or type(claim["expires"]) is not int
                 or not time.time() < claim["expires"] <= time.time() + 121
                 or not JOB_IDENTIFIER.fullmatch(claim["nonce"])):
             raise ValueError
@@ -470,7 +472,7 @@ def launch_worker(directory, identifier, lock_descriptor, graph_lock_descriptor)
             os.close(ready_write)
 
 
-def start_build(config, arguments, authorization):
+def start_build(config, arguments, authorization, session_generation=None):
     normalized = normalize_start(config, arguments)
     nonce = verify_authorization(config, {"action": "start", **normalized}, authorization)
     root = initialize_storage(config)
@@ -498,6 +500,8 @@ def start_build(config, arguments, authorization):
             (directory / name).mkdir(mode=0o700)
         atomic_json(directory / "config.json", config)
         atomic_json(directory / "request.json", normalized)
+        if session_generation is not None:
+            atomic_json(directory / "session.json", {"generation": session_generation, "attempt": 1})
         initial = {"job_id": identifier, "repository": normalized["repository"],
                    "mode": normalized["mode"], "paths": normalized["paths"],
                    "source_head": normalized["source_head"], "state": "queued",
@@ -532,7 +536,7 @@ def issue_resume_authorization(config, arguments, key):
     return issue_authorization(normalize_resume(config, arguments["job_id"]), key)
 
 
-def resume_build(config, identifier, authorization):
+def resume_build(config, identifier, authorization, session_generation=None):
     normalized = normalize_resume(config, identifier)
     nonce = verify_authorization(config, normalized, authorization)
     directory = job_directory(config, identifier)
@@ -581,7 +585,7 @@ def resume_build(config, identifier, authorization):
         queued.pop("finished_at", None)
         archived = []
         try:
-            for name in ("owner", "child", "source-fds", "cancel"):
+            for name in ("owner", "child", "source-fds", "cancel", "session"):
                 current = directory / f"{name}.json"
                 prior = directory / f"{name}-attempt-{attempt - 1}.json"
                 if current.exists():
@@ -589,11 +593,15 @@ def resume_build(config, identifier, authorization):
                         raise Refusal("prior_attempt_publication_exists")
                     current.replace(prior)
                     archived.append((current, prior))
+            if session_generation is not None:
+                atomic_json(directory / "session.json", {"generation": session_generation,
+                                                          "attempt": attempt})
             atomic_json(directory / "status.json", queued)
             launch_worker(directory, identifier, lock_descriptor, graph_lock_descriptor)
         except (OSError, Refusal):
             atomic_json(directory / "status.json", state)
             (directory / "owner.json").unlink(missing_ok=True)
+            (directory / "session.json").unlink(missing_ok=True)
             for current, prior in reversed(archived):
                 prior.replace(current)
             previous_status.unlink()
@@ -1112,9 +1120,20 @@ def with_mcp_admission(config, operation):
             if share._descriptor is None or barrier.verify_descriptor_identity(
                     share._descriptor, environment) != "match":
                 raise Refusal("mcp_session_barrier_identity_required")
+            mcp_session_generation()
             return operation()
     except barrier.AdmissionRefused as error:
         raise Refusal("mcp_session_" + error.reason) from None
+
+
+def mcp_session_generation():
+    value = os.environ.get("QWEN_GRAFT_SESSION_GENERATION", "")
+    if not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", value):
+        raise Refusal("mcp_session_generation_required")
+    process_id, start_ticks = value.split(":", 1)
+    if process_identity(int(process_id)) != {"pid": int(process_id), "start_ticks": start_ticks}:
+        raise Refusal("mcp_session_generation_changed")
+    return value
 
 
 def call_tool(config, name, arguments):
@@ -1123,7 +1142,8 @@ def call_tool(config, name, arguments):
                       {"repository", "mode", "authorization"})
         request = {field: value for field, value in arguments.items() if field != "authorization"}
         return with_mcp_admission(
-            config, lambda: start_build(config, request, arguments["authorization"])
+            config, lambda: start_build(config, request, arguments["authorization"],
+                                        session_generation=mcp_session_generation())
         )
     if name == "graft_cancel_build":
         closed_fields(arguments, {"job_id", "authorization"}, {"job_id", "authorization"})
@@ -1131,7 +1151,8 @@ def call_tool(config, name, arguments):
     if name == "graft_resume_build":
         closed_fields(arguments, {"job_id", "authorization"}, {"job_id", "authorization"})
         return with_mcp_admission(
-            config, lambda: resume_build(config, arguments["job_id"], arguments["authorization"]))
+            config, lambda: resume_build(config, arguments["job_id"], arguments["authorization"],
+                                         session_generation=mcp_session_generation()))
     if name == "graft_query":
         return with_mcp_admission(config, lambda: query_graph(config, arguments))
     closed_fields(arguments, {"job_id"}, {"job_id"})

@@ -59,6 +59,8 @@ class GraftAdmissionTest(unittest.TestCase):
         self.environment = {
             "QWEN_GRAFT_SESSION_BARRIER": str(self.directory),
             "QWEN_GPU_ADMISSION_BARRIER": str(self.directory),
+            "QWEN_GRAFT_SESSION_GENERATION": (
+                f"{os.getpid()}:{WORKFLOW.process_identity(os.getpid())['start_ticks']}"),
         }
         environment_patch = patch.dict(os.environ, self.environment)
         environment_patch.start()
@@ -109,13 +111,19 @@ class GraftAdmissionTest(unittest.TestCase):
 
     def test_missing_each_session_binding_refuses_before_operation(self):
         self.arm()
-        for field in self.environment:
+        for field in ("QWEN_GRAFT_SESSION_BARRIER", "QWEN_GPU_ADMISSION_BARRIER"):
             with self.subTest(field=field), patch.dict(os.environ):
                 os.environ.pop(field)
                 operation = Mock()
                 with self.assertRaisesRegex(WORKFLOW.Refusal, "binding_required"):
                     WORKFLOW.with_mcp_admission(self.config, operation)
                 operation.assert_not_called()
+        with patch.dict(os.environ):
+            os.environ.pop("QWEN_GRAFT_SESSION_GENERATION")
+            operation = Mock()
+            with self.assertRaisesRegex(WORKFLOW.Refusal, "generation_required"):
+                WORKFLOW.with_mcp_admission(self.config, operation)
+            operation.assert_not_called()
 
     def test_mismatched_bindings_and_config_directory_refuse(self):
         self.arm()
@@ -227,7 +235,7 @@ class GraftAdmissionTest(unittest.TestCase):
         ]
         for tool_name, implementation, arguments in cases:
             with self.subTest(tool=tool_name):
-                def operation(*_arguments):
+                def operation(*_arguments, **_keywords):
                     self.assert_drain_blocked(descriptor)
                     return {"fixture": tool_name}
 

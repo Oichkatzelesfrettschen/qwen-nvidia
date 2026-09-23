@@ -143,6 +143,7 @@ fi
 capture_tree "$server_pid"
 unattributed_processes=
 for owned_identity in $owned_processes; do
+    owned_process_alive "$owned_identity" || continue
     case " $graft_cpu_identities " in
         *" $owned_identity "*) ;;
         *) unattributed_processes="$unattributed_processes $owned_identity" ;;

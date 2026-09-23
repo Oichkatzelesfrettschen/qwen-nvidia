@@ -108,18 +108,23 @@ def retained_mcp_command(entry, server_environment):
     return [command, *arguments], executable, environment
 
 
-def require_closed_publication(candidate, entry, config):
+def require_session_drain(config):
     barrier = str(Path(config["model"]["api_key_file"]).parent)
-    environment = process_environment(candidate["pid"])
-    for name in ("QWEN_GRAFT_SESSION_BARRIER", "QWEN_GPU_ADMISSION_BARRIER"):
-        if entry.get("env", {}).get(name) != barrier or environment.get(name) != barrier:
-            raise Refusal("mcp_publication_barrier_mismatch")
     barrier_environment = {"QWEN_GPU_ADMISSION_BARRIER": barrier}
     if (os.environ.get("QWEN_DRAIN_MODE") != "orderly"
             or os.environ.get("QWEN_GPU_ADMISSION_BARRIER") != barrier
             or admission_barrier.verify_session_identity(barrier_environment) != "match"
             or admission_barrier.read_state(barrier_environment) != "quiescing"):
         raise Refusal("mcp_publication_not_drained")
+
+
+def require_closed_publication(candidate, entry, config):
+    barrier = str(Path(config["model"]["api_key_file"]).parent)
+    environment = process_environment(candidate["pid"])
+    for name in ("QWEN_GRAFT_SESSION_BARRIER", "QWEN_GPU_ADMISSION_BARRIER"):
+        if entry.get("env", {}).get(name) != barrier or environment.get(name) != barrier:
+            raise Refusal("mcp_publication_barrier_mismatch")
+    require_session_drain(config)
 
 
 def source_descriptors(workflow, request, directory, worker):
@@ -244,7 +249,7 @@ def observe_worker_publication(workflow, config, request, directory, worker, dea
 def cancel_verified_jobs(entry, workflow_path, config_path, workflow, config, candidate, jobs, deadline):
     """Signal every verified worker before awaiting any terminal state."""
     for identifier, _captured in jobs:
-        if not live(candidate):
+        if candidate is not None and not live(candidate):
             raise Refusal("mcp_identity_changed")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -269,12 +274,45 @@ def cancel_verified_jobs(entry, workflow_path, config_path, workflow, config, ca
     return admitted
 
 
+def verified_worker_request(workflow, config, directory, worker, command, workflow_path):
+    arguments = [os.fsdecode(argument) for argument in worker["args"]]
+    if (len(arguments) != 12 or arguments[1] != str(workflow_path)
+            or arguments[2] != "--config" or arguments[4] != "_worker"
+            or arguments[6] != "--lock-fd" or not arguments[7].isdigit()
+            or arguments[8] != "--graph-lock-fd" or not arguments[9].isdigit()
+            or arguments[10] != "--ready-fd" or not arguments[11].isdigit()
+            or not exact_command(worker, [command, *arguments[1:]])):
+        raise Refusal("unrecognized_mcp_child")
+    if (arguments[3] != str(directory / "config.json") or arguments[5] != directory.name
+            or read_json(directory / "owner.json") != identity(worker)
+            or workflow.load_config(directory / "config.json") != config):
+        raise Refusal("worker_identity_or_configuration_mismatch")
+    request = read_json(directory / "request.json")
+    digest = workflow.hashlib.sha256(workflow.canonical(config)).hexdigest()
+    if request.get("config_sha256") != digest:
+        raise Refusal("worker_request_configuration_mismatch")
+    return request
+
+
+def serving_generation(server):
+    value = process_environment(server["pid"]).get("QWEN_GRAFT_SESSION_GENERATION", "")
+    match = re.fullmatch(r"([1-9][0-9]*):([1-9][0-9]*)", value)
+    if not match:
+        raise Refusal("serving_session_generation_unavailable")
+    session = process(int(match[1]))
+    if (session is None or identity(session) != {"pid": int(match[1]), "start_ticks": match[2]}
+            or server["parent"] != session["pid"]):
+        raise Refusal("serving_session_generation_mismatch")
+    return value
+
+
 def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
     started = time.monotonic()
     deadline = started + deadline_ms / 1000
     server = process(server_pid)
     if not server or server["start_ticks"] != server_start:
         raise Refusal("server_identity_changed")
+    generation = serving_generation(server)
     workflow_path = Path(__file__).resolve().with_name("graft-workflow.py")
     mcp_servers = read_json(mcp_path)["mcpServers"]
     entry = mcp_servers["qwen_graft"]
@@ -300,6 +338,7 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
     workflow = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(workflow)
     config = workflow.load_config(config_path)
+    require_session_drain(config)
     admitted = []
     for candidate in candidates:
         if not live(candidate) or not exact_command(candidate, command):
@@ -312,26 +351,41 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
             if not live(worker) and terminal_worker(workflow, config, worker, deadline):
                 admitted.append(worker)
                 continue
-            arguments = [os.fsdecode(argument) for argument in worker["args"]]
-            if (len(arguments) != 12 or arguments[1] != str(workflow_path)
-                    or arguments[2] != "--config" or arguments[4] != "_worker"
-                    or arguments[6] != "--lock-fd" or not arguments[7].isdigit()
-                    or arguments[8] != "--graph-lock-fd" or not arguments[9].isdigit()
-                    or arguments[10] != "--ready-fd" or not arguments[11].isdigit()
-                    or not exact_command(worker, [entry["command"], *arguments[1:]])):
+            if len(worker["args"]) <= 5:
                 raise Refusal("unrecognized_mcp_child")
-            identifier = arguments[5]
+            identifier = os.fsdecode(worker["args"][5])
             directory = workflow.job_directory(config, identifier)
-            if (arguments[3] != str(directory / "config.json")
-                    or read_json(directory / "owner.json") != identity(worker)
-                    or workflow.load_config(directory / "config.json") != config):
-                raise Refusal("worker_identity_or_configuration_mismatch")
-            request = read_json(directory / "request.json")
+            request = verified_worker_request(
+                workflow, config, directory, worker, entry["command"], workflow_path)
             captured = observe_worker_publication(workflow, config, request, directory, worker, deadline)
             jobs.append((identifier, captured))
         admitted.extend(cancel_verified_jobs(
             entry, workflow_path, config_path, workflow, config, candidate, jobs, deadline))
         admitted.append(candidate)
+    for session_path in (Path(config["artifact_root"]) / "jobs").glob("*/session.json"):
+        if time.monotonic() >= deadline:
+            raise Refusal("job_retirement_deadline")
+        publication = read_json(session_path)
+        if publication.get("generation") != generation:
+            continue
+        directory = workflow.job_directory(config, session_path.parent.name)
+        status = read_json(directory / "status.json")
+        if publication.get("attempt") != status.get("attempt", 1):
+            raise Refusal("worker_session_attempt_mismatch")
+        if status["state"] in workflow.TERMINAL:
+            continue
+        owner = read_json(directory / "owner.json")
+        worker = process(owner["pid"])
+        if not worker or identity(worker) != owner or not live(worker):
+            raise Refusal("detached_worker_identity_unproven")
+        if any(identity(record) == owner for record in admitted):
+            continue
+        request = verified_worker_request(
+            workflow, config, directory, worker, entry["command"], workflow_path)
+        captured = observe_worker_publication(workflow, config, request, directory, worker, deadline)
+        admitted.extend(cancel_verified_jobs(
+            entry, workflow_path, config_path, workflow, config, None,
+            [(directory.name, captured)], deadline))
     for child in direct_children:
         command_matches = [(expected, executable, environment)
                            for expected, executable, environment in retained_commands

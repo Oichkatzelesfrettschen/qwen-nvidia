@@ -205,6 +205,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "false")
         self.assertFalse((self.repository / ".git/fsmonitor--daemon.ipc").exists())
 
+    def test_maximum_valid_scope_uses_bounded_authorization(self):
+        paths = [f"scope-{index:02d}-" + "x" * 90 for index in range(64)]
+        for path in paths:
+            (self.repository / path).mkdir()
+        self.config["limits"]["maximum_paths"] = 64
+        self.config["repositories"]["fixture"]["allowed_paths"] = []
+        self.save_config()
+        request = {"repository": "fixture", "mode": "deep", "paths": paths}
+        normalized = WORKFLOW.normalize_start(self.config, request)
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        self.assertLessEqual(len(token), 16384)
+        self.assertEqual(len(WORKFLOW.verify_authorization(
+            self.config, {"action": "start", **normalized}, token)), 32)
+        changed = {"action": "start", **normalized, "mode": "structural"}
+        with self.assertRaisesRegex(WORKFLOW.Refusal, "invalid_or_stale"):
+            WORKFLOW.verify_authorization(self.config, changed, token)
+
     def assert_key_read_refused_within_deadline(self, expected):
         program = (
             "import importlib.util, sys\n"
@@ -432,6 +450,24 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual((directory / f"{name}-attempt-1.json").read_bytes(), content)
         self.assertEqual(WORKFLOW.read_json(directory / "cancel-attempt-1.json"), {"requested": True})
         self.assertEqual(WORKFLOW.read_json(directory / "cancel.json")["attempt"], 1)
+
+    def test_manual_resume_retires_previous_session_provenance(self):
+        self.control.update(summary_state="pending", exit_code=1)
+        self.write_control()
+        request = self.request("deep")
+        token = WORKFLOW.issue_start_authorization(
+            self.config, request, self.authorization_key.read_bytes())
+        first = WORKFLOW.start_build(self.config, request, token, session_generation="1:1")
+        self.jobs.append(first["job_id"])
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+        directory = Path(first["graph_directory"]).parent
+        resume_token = WORKFLOW.issue_resume_authorization(
+            self.config, {"job_id": first["job_id"]}, self.authorization_key.read_bytes())
+        WORKFLOW.resume_build(self.config, first["job_id"], resume_token)
+        self.assertEqual(self.wait_terminal(first["job_id"])["state"], "partial")
+        self.assertFalse((directory / "session.json").exists())
+        self.assertEqual(WORKFLOW.read_json(directory / "session-attempt-1.json"),
+                         {"generation": "1:1", "attempt": 1})
 
     def test_cancel_waits_for_resumed_owner_publication(self):
         self.control.update(summary_state="pending", exit_code=1)

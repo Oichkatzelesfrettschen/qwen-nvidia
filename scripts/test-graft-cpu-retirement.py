@@ -41,7 +41,10 @@ extra = None
 if os.environ.get("TEST_UNKNOWN_CHILD"):
     extra = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
 def retire(_signal, _frame):
-    mcp.stdin.close()
+    try:
+        mcp.stdin.close()
+    except BrokenPipeError:
+        pass
     mcp.wait(timeout=3)
     if retained:
         retained.terminate()
@@ -80,7 +83,10 @@ class GraftCPURetirementTests(unittest.TestCase):
                     "QWEN_GPU_ADMISSION_BARRIER": str(self.root)},
         }}}
         self.environment = {key: value for key, value in os.environ.items() if not key.startswith("QWEN_")}
+        owner = FIXTURE_MODULE.WORKFLOW.process_identity(os.getpid())
+        self.session_generation = f"{owner['pid']}:{owner['start_ticks']}"
         self.environment.update(PYTHON=sys.executable, QWEN_GPU_ADMISSION_BARRIER=str(self.root),
+                                QWEN_GRAFT_SESSION_GENERATION=self.session_generation,
                                 TMPDIR=str(self.root))
         subprocess.run([str(SCRIPTS / "qwen-drain-controller.sh"), "resume"],
                        env=self.environment, check=True, capture_output=True)
@@ -199,7 +205,7 @@ class GraftCPURetirementTests(unittest.TestCase):
 
     def start_server(self, active=False, unknown=False, retained=False):
         if active:
-            self.fixture.control["sleep"] = 4
+            self.fixture.control["sleep"] = self.fixture.control.get("sleep", 4)
             self.fixture.write_control()
             request = self.fixture.request()
             token = FIXTURE_MODULE.WORKFLOW.issue_start_authorization(
@@ -211,6 +217,7 @@ class GraftCPURetirementTests(unittest.TestCase):
         self.log = (self.root / "server.log").open("w")
         environment = {key: value for key, value in os.environ.items() if not key.startswith("QWEN_")}
         environment.update(TEST_ROOT=str(self.root), PYTHON=sys.executable)
+        environment["QWEN_GRAFT_SESSION_GENERATION"] = self.session_generation
         if unknown:
             environment["TEST_UNKNOWN_CHILD"] = "1"
         if retained:
@@ -257,11 +264,59 @@ class GraftCPURetirementTests(unittest.TestCase):
     def test_active_configured_job_is_cancelled_before_server_retirement(self):
         identifier = self.start_server(active=True)
         result = self.retire()
-        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout
+                         + (self.root / "server.log").read_text())
         self.assertIn("\nteardown: held=yes\n", result.stdout)
         state = FIXTURE_MODULE.WORKFLOW.build_status(self.fixture.config, identifier)
         self.assertEqual(state["state"], "cancelled")
         self.assertTrue(Path(state["graph_directory"], "probe.json").exists())
+
+    def test_detached_worker_retains_session_attribution_after_mcp_exit(self):
+        self.fixture.control["sleep"] = 30
+        identifier = self.start_server(active=True)
+        directory = FIXTURE_MODULE.WORKFLOW.job_directory(self.fixture.config, identifier)
+        self.assertEqual(FIXTURE_MODULE.WORKFLOW.read_json(directory / "session.json"),
+                         {"generation": self.session_generation, "attempt": 1})
+        mcp_pid = int((self.root / "server-ready").read_text())
+        os.kill(mcp_pid, signal.SIGKILL)
+        owner = FIXTURE_MODULE.WORKFLOW.read_json(directory / "owner.json")
+        self.wait_for(lambda: RETIREMENT.process(owner["pid"])["parent"] != mcp_pid)
+        result = self.retire()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout
+                         + (self.root / "server.log").read_text())
+        self.assertEqual(FIXTURE_MODULE.WORKFLOW.build_status(self.fixture.config, identifier)["state"],
+                         "cancelled")
+        self.assertIn("\nteardown: held=yes\n", result.stdout)
+
+    def test_manual_job_remains_outside_serving_session_retirement(self):
+        self.fixture.control["sleep"] = 30
+        self.fixture.write_control()
+        manual = self.fixture.start("deep")
+        directory = FIXTURE_MODULE.WORKFLOW.job_directory(self.fixture.config, manual["job_id"])
+        self.assertFalse((directory / "session.json").exists())
+        self.start_server()
+        result = self.retire()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(FIXTURE_MODULE.WORKFLOW.build_status(
+            self.fixture.config, manual["job_id"])["state"], ("queued", "running"))
+
+    def test_different_session_generation_remains_outside_retirement(self):
+        self.fixture.control["sleep"] = 30
+        self.fixture.write_control()
+        request = self.fixture.request("deep")
+        token = FIXTURE_MODULE.WORKFLOW.issue_start_authorization(
+            self.fixture.config, request, self.fixture.authorization_key.read_bytes())
+        other = FIXTURE_MODULE.WORKFLOW.start_build(
+            self.fixture.config, request, token, session_generation="1:1")
+        self.fixture.jobs.append(other["job_id"])
+        directory = FIXTURE_MODULE.WORKFLOW.job_directory(self.fixture.config, other["job_id"])
+        self.assertEqual(FIXTURE_MODULE.WORKFLOW.read_json(directory / "session.json")["generation"],
+                         "1:1")
+        self.start_server()
+        result = self.retire()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(FIXTURE_MODULE.WORKFLOW.build_status(
+            self.fixture.config, other["job_id"])["state"], ("queued", "running"))
 
     def test_completed_unreaped_worker_keeps_cpu_attribution(self):
         identifier = self.start_server(active=True)

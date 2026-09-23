@@ -92,6 +92,8 @@ router_preset_snapshot=''
 cleanup_started=0
 drain_record=$state_directory/session-drain.record
 session_start_time=$(sed 's/^.*) //' "/proc/$$/stat" | awk '{ print $20 }')
+QWEN_GRAFT_SESSION_GENERATION="$$:$session_start_time"
+export QWEN_GRAFT_SESSION_GENERATION
 # The approval broker signs one search grant per human approval and holds no
 # device, so it is a guarded child of this session the way the probe, the
 # monitor, and the kernel-hazard watcher are. qwen-web-launch.sh sets
