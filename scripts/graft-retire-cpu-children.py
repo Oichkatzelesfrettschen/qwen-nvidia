@@ -285,9 +285,11 @@ def retire(server_pid, server_start, config_path, mcp_path, deadline_ms):
                 admitted.append(worker)
                 continue
             arguments = [os.fsdecode(argument) for argument in worker["args"]]
-            if (len(arguments) != 8 or arguments[1] != str(workflow_path)
+            if (len(arguments) != 12 or arguments[1] != str(workflow_path)
                     or arguments[2] != "--config" or arguments[4] != "_worker"
                     or arguments[6] != "--lock-fd" or not arguments[7].isdigit()
+                    or arguments[8] != "--graph-lock-fd" or not arguments[9].isdigit()
+                    or arguments[10] != "--ready-fd" or not arguments[11].isdigit()
                     or not exact_command(worker, [entry["command"], *arguments[1:]])):
                 raise Refusal("unrecognized_mcp_child")
             identifier = arguments[5]
