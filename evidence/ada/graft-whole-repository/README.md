@@ -126,6 +126,23 @@ authorized resume after host headroom returns. Its concept and meaning
 coverage remain incomplete, and the `doscan.c` dependency error remains a
 source-accuracy counterexample.
 
+Attempt 4 resumed the same graph against the same source HEAD at
+2026-09-23T08:13Z under the 32768-token CUDA WebUI. The native UI carried
+the Graft broker marker, and the server reached readiness with the configured
+6 GiB swap-in headroom and unchanged 4 GiB hard memory reserve. The monitor
+stopped the server at 08:13:34Z when `MemAvailable=3501884` KiB fell below
+4194304 KiB; that sample reported 2711552 swap-in bytes, below the
+67108864-byte rate limit. Graft returned `partial` with 51 of 26019 meaning
+nodes ready, 2663 retained file summaries, and 45 synthesis batches. The
+server's recorded peak RSS was 1878580 KiB in this session. The monitor
+records the stop condition, not the process responsible for the host-wide
+memory drop. A later sample found the unrelated Android `ninja` in its own
+checkout using about 5.6 GiB RSS, but that process started after the abort
+and cannot be assigned the earlier drop. Zram and the fast NVMe swapfile were
+both active; swap availability does not satisfy the unchanged `MemAvailable`
+reserve. Another resume awaits stable headroom while the Android build keeps
+running.
+
 Raw status, graph, telemetry, and server logs remain under the ignored
 `.local-artifacts/graft-discobsd/jobs/` and `.local-artifacts/graft-discobsd/state/`
 directories. Both structural jobs mounted source read-only and wrote graphs
