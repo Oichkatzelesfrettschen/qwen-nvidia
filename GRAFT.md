@@ -180,6 +180,13 @@ so graph coverage cannot establish semantic accuracy. These elapsed times
 are functional observations under workstation load, not controlled rates.
 The comparison and its source-level caveats are recorded in
 `evidence/ada/graft-model-comparison/`.
+In the whole-repository session, the selected distill also chose
+`qwen_graft_graft_build_status` with `tool_choice=auto`; native tool execution
+returned the running snapshot job. With the WebUI's broker-projected schema,
+the same model proposed one exact whole-scope structural start without an
+authorization field. A fresh operator-side broker grant and native tool
+execution queued that live job. The API proof does not claim an attended
+browser-click.
 
 The earlier Klear-AgentForge-8B Q6_K probe returned all seven IDs with a
 6144-token reply cap, at 15.23-59.86 seconds per request. The new 2048-token

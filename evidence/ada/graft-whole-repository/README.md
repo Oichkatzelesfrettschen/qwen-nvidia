@@ -44,6 +44,26 @@ the private 8-hour job bound. Its final coverage and semantic validity remain
 unmeasured until completion. The native UI served HTTP 200, `/v1/models` named
 `qwen-nvidia`, and native `/tools` listed the four `qwen_graft_` workflow
 tools. The current endpoint is loopback-only and key-protected.
+With all four native Graft tools exposed and `tool_choice=auto`, the selected
+4B distill emitted exactly one `qwen_graft_graft_build_status` call for the
+snapshot deep job ID. A native `/tools` execution of those arguments returned
+the running job's `discobsd_snapshot` state. The probe selected and executed
+a read-only tool; it did not exercise a WebUI click or issue a new start grant.
+The raw transport schema still names `authorization` as required, and a direct
+model probe over that schema fabricated a token. The WebUI projects the
+start/cancel schemas without that broker-owned field. With the projected
+schema, the selected model emitted one exact whole-scope structural start
+proposal and no authorization field. A fresh broker session signed the
+proposal, and native `/tools` queued job
+`218fb8f36910f25f138c01e99abfd24c` for live `discobsd`. The model never
+received the signed grant. Live HEAD had advanced to
+`02acfdbdf2236141c5bc2c8a795bad4c122a4fd1` before that start; the
+new structural job completed with 26043 pending meaning nodes and zero ready
+summaries. A native file-API query returned `flash_swap_append` with equal
+graph and current source HEAD values and `isError=false`. The snapshot deep
+job remains fixed at `be592ce`. The API proof exercises the
+model, schema projection, broker and native execution, while an attended
+browser-click remains unmeasured.
 
 The server monitor's swap-in headroom was set to 4194304 KiB for this run,
 equal to its unchanged minimum-memory reserve. Earlier comparative 4B and
