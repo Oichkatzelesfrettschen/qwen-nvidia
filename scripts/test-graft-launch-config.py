@@ -265,6 +265,16 @@ class GraftLaunchTest(unittest.TestCase):
         self.assertLessEqual(len(token), 16384)
         self.assertTrue(workflow.verify_authorization(
             loaded, {"action": "start", **normalized}, token))
+        status, _, body = broker.request(
+            "POST", "/grant-graft", " " * (broker_test.broker_module.GRAFT_REQUEST_BODY_BYTE_CAP + 1),
+            headers)
+        self.assertEqual(status, 400, body)
+        self.assertIn("byte cap", json.loads(body)["error"])
+        status, _, body = broker.request(
+            "POST", "/grant", " " * (broker_test.broker_module.REQUEST_BODY_BYTE_CAP + 1),
+            headers)
+        self.assertEqual(status, 400, body)
+        self.assertIn("byte cap", json.loads(body)["error"])
 
     def test_resume_grant_binds_retained_job(self):
         loaded = workflow.load_config(self.config_path)
