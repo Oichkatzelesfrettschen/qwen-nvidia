@@ -104,9 +104,25 @@ absent afterward. Graft ended `partial` with the same 51 ready nodes. The next
 launch verified `n_ctx_slot=32768` in the server log and resumed attempt 3 at
 2026-09-23T05:32Z. `build.log`, `build-attempt-2.log`, and both prior status
 records remain retained. Final coverage and semantic validity remain
-unmeasured until attempt 3 finishes.
+unmeasured after attempt 3 ended partial.
 The server's telemetry and Graft status remain the authorities for another
 abort or completion.
+
+Attempt 3 ended `partial` at 2026-09-23T05:47:16Z with exit status 1.
+The resource monitor measured `MemAvailable=3617212` KiB at 05:47:05Z,
+below the 4194304-KiB hard reserve, and stopped serving. The last
+telemetry sample recorded Graft RSS of 183388 KiB, GPU activity of 93%,
+and 5315231744 bytes of device memory in use; those fields do not account
+for other host processes. The graph still reports 26019 nodes, 51 ready
+and 25968 pending. The retained cache holds 2663 file summaries and 45
+synthesis batches. A subsequent host probe found an unrelated Android
+`soong_build` process holding about 6 GiB RSS while available memory was
+under 4 GiB. The later process sample is a competing-pressure observation,
+not an attribution of the exact memory drop at the monitor breach. The
+same job ID, source snapshot and graph remain eligible for another
+authorized resume after host headroom returns. Its concept and meaning
+coverage remain incomplete, and the `doscan.c` dependency error remains a
+source-accuracy counterexample.
 
 Raw status, graph, telemetry, and server logs remain under the ignored
 `.local-artifacts/graft-discobsd/jobs/` and `.local-artifacts/graft-discobsd/state/`
