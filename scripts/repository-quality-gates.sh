@@ -109,6 +109,7 @@ scripts/test-graft-consumer-env.sh
 node scripts/test-native-graft-grant.mjs
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-graft-deep-evidence.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-record-symbols-contract.py
+PYTHONDONTWRITEBYTECODE=1 "${PYTHON:?Select the intended Python interpreter}" -W error scripts/test-graft-model-arm.py
 scripts/test-admit-record-symbols-cleanup.sh
 scripts/test-write-artifact-manifest.sh
 if [ "$gate_host_role" = appliance ]; then

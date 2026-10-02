@@ -2368,6 +2368,7 @@ scripts/test-coding-agent-launch.sh
 scripts/test-graft-consumer-env.sh
 python3 scripts/test-graft-deep-evidence.py
 python3 scripts/test-record-symbols-contract.py
+"${PYTHON:?Select the intended Python interpreter}" -W error scripts/test-graft-model-arm.py
 scripts/test-write-artifact-manifest.sh
 scripts/test-coding-principal-path.sh       # appliance host role alone
 scripts/test-admit-coding-chain.sh

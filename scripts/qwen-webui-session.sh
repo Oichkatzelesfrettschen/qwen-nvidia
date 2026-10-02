@@ -749,7 +749,8 @@ kernel_watch_ready=0
 attempt=0
 while [ "$attempt" -lt 100 ]; do
     require_broker_running
-    if grep -F 'watch_ready_utc=' "$kernel_hazard_log" >/dev/null 2>&1; then
+    if grep -F "server_pid=$server_pid " "$kernel_hazard_log" >/dev/null 2>&1 && \
+       grep -F 'watch_ready_utc=' "$kernel_hazard_log" >/dev/null 2>&1; then
         kernel_watch_ready=1
         break
     fi
