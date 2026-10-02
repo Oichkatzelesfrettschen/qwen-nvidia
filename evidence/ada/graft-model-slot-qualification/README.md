@@ -105,3 +105,24 @@ outstanding; the production defaults retain their existing values.
 
 `source-accuracy-rubric.md` records the fixed source discriminators and replay
 queries before the fresh summaries are reviewed.
+
+## Supplied source and focal-span reporting
+
+`scripts/audit-graft-wire.py ARM OUTPUT` supplements the existing ID/containment
+grader. The audit reports full, partial, or absent source for requested symbols,
+focal spans exceeding the prompt's approximate eight-line preference, and whole
+definitions whose extractor references remain gradeable. The audit changes
+neither the served prompt nor the existing containment verdict. Whole-definition
+selection violates the prompt's focal-span instruction; eight lines is a
+reporting threshold for the approximate preference rather than a schema limit.
+Two offline calibration tests run with Python warnings treated as errors.
+
+The first healthy incumbent-off pilot supplies complete requested extractor
+spans for 181 symbols, partial spans for three, and target metadata without
+source for 59. Suspect extractor spans remain withheld from body-fidelity
+claims; the last character-clipped line is conservatively partial. For example,
+the USB request's source ends at line 522 while its target list extends through
+line 1211. The same arm returns 110 spans over eight lines and 98 whole gradeable
+definitions. These counts explain why full ready-node coverage and a tool reply
+whose IDs match cannot establish source accuracy or focal-span compliance.
+The fixed-source sample review remains mandatory for each model and geometry.
