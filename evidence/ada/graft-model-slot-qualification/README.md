@@ -164,3 +164,40 @@ off and 101.5/s on, despite the on build taking longer. That ratio includes
 reasoning/output work and prefill; it is not decode throughput. The opposite
 ordering from requests/s demonstrates why aggregate tok/s cannot decide which
 setting completes useful indexing work faster.
+
+The first pair's summed server timings attribute 59.266 seconds to prompt
+processing and 207.844 to decode off, versus 59.683 and 306.526 on. Those sums
+leave less than 0.85 seconds of each measured deep window outside the reported
+prompt/decode timers. The on response messages contain 42020 reasoning
+characters versus zero off; character counts do not supply exact token counts.
+The served model decodes about 122 tokens/s in either setting. The bounded cold
+semantic pass is slow because it generates tens of thousands of tokens across
+45 serial requests, not because the evidence shows substantial JavaScript
+or graph-writing overhead. Model load, artifact verification, and the structural
+preflight are outside the measured deep window. Fresh semantic caches and the
+same structural preflight belong to every paired arm.
+
+## Initial Qwen3.5-4B arms
+
+The first Qwen3.5-4B Q4_K_M pilot finishes in 271.461 seconds with 48 successful
+HTTP requests. All 243 symbols are ready, but the requested `fault.c` and
+`mpu.c` file records remain pending after retries. Requests/s therefore includes
+extra repair work and cannot be compared as useful throughput without the
+completion denominator. Seven record_symbols attempts fail ID/containment
+grading; some replies omit a file ID or invent a replacement ID during repair.
+The sample supports nine summaries and withholds one vague resource-allocation
+claim as unsupported. The focal audit finds 62 spans over eight lines and two
+whole gradeable definitions. Better sampled accuracy does not override pending
+requested IDs or focal-span failures.
+
+The separate three-file contract finishes in 23.196 seconds with seven
+successful HTTP requests, seven ready symbols and three ready file records.
+All three record_symbols replies pass ID/containment grading. Two focal spans
+exceed eight lines; zero whole gradeable definitions are returned. This scope
+has no ten-symbol pilot sample and carries `NA` sample columns in the table.
+The repeated pilot finishes in 271.044 seconds and the contract in 23.147.
+Every pilot node's summary, crux, and summary state matches across 265 nodes,
+including the two pending file records. The contract matches across all ten
+nodes. All 48 pilot and seven contract request/response-message payloads match
+after excluding response IDs and timing metadata. The identical pilot sample
+permits source-review reuse. Granite comparison remains pending.
