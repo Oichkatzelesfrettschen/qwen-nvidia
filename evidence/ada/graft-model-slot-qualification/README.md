@@ -126,3 +126,27 @@ line 1211. The same arm returns 110 spans over eight lines and 98 whole gradeabl
 definitions. These counts explain why full ready-node coverage and a tool reply
 whose IDs match cannot establish source accuracy or focal-span compliance.
 The fixed-source sample review remains mandatory for each model and geometry.
+
+## Initial healthy matched pair
+
+`measured-results.tsv` records completed arms only. The first incumbent pair
+uses one slot, 16384 total context, identical 128/32 submission geometry, the
+fixed source, and the same 45-request denominator. Reasoning-off completes in
+267.931 seconds versus 367.050 on, a 27.0% wall-time reduction. Completion-token
+counts are 25396 off and 37251 on; separate reasoning-token usage is absent from
+every response. The on replies include nonempty `reasoning_content`, establishing
+reasoning output without an exact reasoning-token attribution.
+
+Both graphs have all 243 symbols ready and zero empty summaries. The ID and
+containment grader fails one off request and three on requests; the on failures
+include invented IDs that Graft ignores while accepting requested IDs. The
+supplementary focal-span failures and source contradictions remain separate.
+The fixed sample supports seven off summaries with two contradicted and one
+unsupported, versus eight on with two contradicted. Neither arm qualifies a
+semantic promotion. Repeats and candidate arms remain pending.
+
+Aggregate completion tokens divided by whole-build wall time are about 94.8/s
+off and 101.5/s on, despite the on build taking longer. That ratio includes
+reasoning/output work and prefill; it is not decode throughput. The opposite
+ordering from requests/s demonstrates why aggregate tok/s cannot decide which
+setting completes useful indexing work faster.

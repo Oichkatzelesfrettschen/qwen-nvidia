@@ -1,0 +1,23 @@
+{
+  "arm": "incumbent-on-01",
+  "source_revision": "0c85040e3bda01913d687fca538b3fa49f6af82b",
+  "rubric_commit": "3dd0c59",
+  "review_class": "manual source conformance; not board evidence",
+  "supported_symbols": 8,
+  "contradicted_symbols": 2,
+  "unsupported_symbols": 0,
+  "withheld_symbols": 0,
+  "rows": [
+    {"symbol": "dev/flash.c#dhara_nand_copy", "verdict": "supported", "witness": "flash.c L374-L404 copies via static scratch"},
+    {"symbol": "dev/flash.c#flsize", "verdict": "supported", "witness": "flash.c L549-L562 returns DEV_BSIZE block count"},
+    {"symbol": "dev/uart.c#uartclose", "verdict": "supported", "witness": "uart.c L231-L243 calls ttywflush and ttyclose; tty.c callees drain output and flush queues"},
+    {"symbol": "dev/uart.h#uart_rx_ready", "verdict": "supported", "witness": "uart.h L83-L87 tests FIFO-empty clear"},
+    {"symbol": "dev/usb.c#usb_e15_critical", "verdict": "supported", "witness": "usb.c L386-L392 checks inclusive 800..998 elapsed since SOF"},
+    {"symbol": "dev/usb.c#usbgetc", "verdict": "supported", "witness": "usb.c L1188-L1200 consumes one RX ring character"},
+    {"symbol": "dev/usb.h#usbopen", "verdict": "contradicted", "supported_claims": ["open interface", "initializes tty state in implementation"], "contradicted_claims": ["allocates a tty structure"], "witness": "usb.h L103 declares the interface; usb.c L1030-L1063 uses static usbttys[0]"},
+    {"symbol": "rp2040/exec_hsaout.c#exec_hsaout_text", "verdict": "supported", "witness": "exec_hsaout.c L222-L256 restores packed text through owned shared SwapRAM workspace"},
+    {"symbol": "rp2040/machdep.c#bzero", "verdict": "supported", "witness": "machdep.c L997-L1041 zero-fills supplied memory"},
+    {"symbol": "rp2040/machdep.c#swap_cursor_init", "verdict": "contradicted", "supported_claims": ["initializes cursor", "samples ROSC bits"], "contradicted_claims": ["sampling finds a free sector"], "witness": "machdep.c L203-L227 rejects out-of-range indices, not allocated sectors; occupancy does not enter the sample decision"}
+  ],
+  "promotion": "withheld: factual contradictions, invented wire IDs, and whole-definition focal spans remain"
+}

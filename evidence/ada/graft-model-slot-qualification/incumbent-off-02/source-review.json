@@ -1,0 +1,23 @@
+{
+  "arm": "incumbent-off-02",
+  "source_revision": "0c85040e3bda01913d687fca538b3fa49f6af82b",
+  "rubric_commit": "3dd0c59",
+  "review_class": "manual source conformance; not board evidence",
+  "supported_symbols": 7,
+  "contradicted_symbols": 2,
+  "unsupported_symbols": 1,
+  "withheld_symbols": 0,
+  "rows": [
+    {"symbol": "dev/flash.c#dhara_nand_copy", "verdict": "supported", "witness": "flash.c L374-L404 copies through scratch; flash_program handles XIP transitions"},
+    {"symbol": "dev/flash.c#flsize", "verdict": "supported", "witness": "flash.c L549-L562 returns sector count shifted once; machparam.h defines DEV_BSIZE=1024"},
+    {"symbol": "dev/uart.c#uartclose", "verdict": "contradicted", "supported_claims": ["closes tty", "flushes output via ttyclose after ttywflush drains output"], "contradicted_claims": ["disables the device"], "witness": "uart.c L231-L243 calls ttywflush and ttyclose; tty.c callees flush queues and clear tty state without disabling UART registers"},
+    {"symbol": "dev/uart.h#uart_rx_ready", "verdict": "supported", "witness": "uart.h L83-L87 tests FIFO-empty bit clear"},
+    {"symbol": "dev/usb.c#usb_e15_critical", "verdict": "supported", "witness": "usb.c L386-L392 checks inclusive 800..998 elapsed since SOF"},
+    {"symbol": "dev/usb.c#usbgetc", "verdict": "unsupported", "supported_claims": ["reads one character", "polls RX readiness"], "unsupported_claims": ["drains the buffer"], "witness": "usb.c L1188-L1200 consumes exactly one ring byte; broad draining claim has no witness"},
+    {"symbol": "dev/usb.h#usbopen", "verdict": "contradicted", "supported_claims": ["declares the device open interface"], "contradicted_claims": ["allocates a tty", "configures the endpoint"], "witness": "usb.h L103 is a prototype; usb.c L1030-L1063 selects static usbttys[0], configures tty state, and calls ttyopen"},
+    {"symbol": "rp2040/exec_hsaout.c#exec_hsaout_text", "verdict": "supported", "witness": "exec_hsaout.c L222-L256 expands packed text for swapin; omitted length/CRC checks are not false claims"},
+    {"symbol": "rp2040/machdep.c#bzero", "verdict": "supported", "witness": "machdep.c L997-L1041 clears the supplied memory region; kernel context is usage, not an enforced address restriction"},
+    {"symbol": "rp2040/machdep.c#swap_cursor_init", "verdict": "supported", "witness": "machdep.c L203-L244 selects a flash-swap position with bounded rejection and watchdog scratch publication", "qualification": "position in flash describes the selected allocation region; the summary does not explicitly claim flash metadata persistence"}
+  ],
+  "promotion": "withheld: factual contradictions and whole-definition focal spans remain"
+}
