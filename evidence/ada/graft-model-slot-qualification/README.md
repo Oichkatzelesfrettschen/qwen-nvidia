@@ -1,6 +1,7 @@
 # Graft model and slot qualification
 
-Status: harness calibrated; device comparison awaits kernel-reader authentication.
+Status: harness calibrated; fresh device comparison is running with authenticated
+kernel-reader access. Model and geometry selection remain pending.
 
 The experiment separates hidden reasoning cost, checkpoint behavior, and slot
 geometry. Structural Graft remains the interactive default. Deep arms use fresh
@@ -95,7 +96,12 @@ watcher receipt refusal, `test-gpu-workload-ownership.sh`, and
 `test-qwen-runtime-guards.sh`. Targeted Ruff, ShellCheck at warning severity, and
 `git diff --check` pass. The aggregate repository gate and device comparison
 are separate gates: `repository-quality-gates.sh` completes with exit 0;
-the device comparison awaits kernel-reader authentication. All six latest
+the clone-local CI run also passes. After the owner renewed the sudo ticket,
+both `sudo -n -v` and `sudo -n dmesg --color=never` succeeded and the fresh
+incumbent reasoning-off arm entered its bounded deep build. All six latest
 `test-graft-model-arm.py` cases pass with Python warnings treated as errors.
 Model selection, two-slot admission, and backports remain
 outstanding; the production defaults retain their existing values.
+
+`source-accuracy-rubric.md` records the fixed source discriminators and replay
+queries before the fresh summaries are reviewed.
