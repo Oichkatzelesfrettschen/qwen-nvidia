@@ -143,7 +143,21 @@ include invented IDs that Graft ignores while accepting requested IDs. The
 supplementary focal-span failures and source contradictions remain separate.
 The fixed sample supports seven off summaries with two contradicted and one
 unsupported, versus eight on with two contradicted. Neither arm qualifies a
-semantic promotion. Repeats and candidate arms remain pending.
+semantic promotion. Candidate arms remain pending.
+
+The reasoning-on repeat finishes in 369.660 seconds. All 243 symbol summaries
+and cruxes match exactly. All 45 request JSON objects and response-message
+content, reasoning content, and function payloads match after excluding response
+IDs and timing metadata. The ten-symbol sample bytes also match, so the source
+review applies unchanged. Repeatability establishes reproducible errors as well
+as reproducible supported conclusions; it does not promote the configuration.
+
+The closing off repeat finishes in 274.292 seconds and also reproduces all 243
+symbol summaries/cruxes and all 45 request/response-message payloads exactly.
+The off mean is 271.112 seconds versus the on mean of 368.355, a 26.4% wall-time
+reduction. Every incumbent arm completes 243 symbols and 45 HTTP requests, with
+successful owned teardown. The two replicates per setting establish the measured
+bounded pilot comparison; broader workloads and concurrency remain separate.
 
 Aggregate completion tokens divided by whole-build wall time are about 94.8/s
 off and 101.5/s on, despite the on build taking longer. That ratio includes

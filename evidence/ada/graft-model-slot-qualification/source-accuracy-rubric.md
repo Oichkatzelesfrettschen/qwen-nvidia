@@ -35,6 +35,10 @@ over the function ranges above. Follow the tty callees with
 the block-size macro with
 `git grep -n 'define.*DEV_BSIZE' <source-revision> -- sys`. Follow
 `hsx_load`, `hsx_expand`, `usb_service`, `usb_tx_kick`, and
-`swap_cursor_publish` with `rg -n` and read each complete body. These queries
+`swap_cursor_publish` with `rg -n` and read each complete body. Follow tty
+queue flushing through the device switch: `rp2040/conf.c` lines 188-190 binds
+UART's stop callback to `nullstop`, whose lines 78-82 return zero. `ttyopen`
+in `sys/kern/tty.c` lines 691-712 updates tty/process state without allocating
+a tty or configuring a USB endpoint. These queries
 read the pinned source and write only command output; they execute no board
 operation.
