@@ -302,14 +302,21 @@ The changes strengthen future admission; original raw receipts remain immutable.
 The final admission review adds exact 16384/32768 context pairing, explicit
 speculation isolation across tmux, speculative/backend-sampling argv refusal,
 an absolute Graft executable with resolved npm package and digest attribution,
-and final owned-teardown admission. Fourteen harness tests calibrate those
+and final owned-teardown admission. Sixteen harness tests calibrate those
 boundaries. Each measured arm now publishes its retained device-environment
 receipt: driver/module 615.71.09, CUDA driver/toolkit 13.4, and kernel
 7.2.5-1-cachyos. These receipts come from the original arms rather than a new
 device probe. `retained-runtime-identity-review.json` separately reviews the
 original argv, registered geometry and successful teardown. Historical arms
 predate per-arm Graft executable hashing; package attribution uses the retained
-package/probe provenance, while future arms record the client digest directly.
+package/probe provenance, while future arms record a whole-package runtime
+manifest digest, including imported files and symlink targets, and invoke the
+hashed system Node executable explicitly. Fixed arms
+force single-model serving and reject router argv. Nonce-bound teardown holds
+the lifecycle lock through control and residue proof, so replacement launches
+wait until retirement completes. The runner requires the matching nonce in
+the successful teardown receipt. Fixture mutations change an imported collector
+and a launch nonce; the replacement-start fixture verifies lock exclusion.
 
 ## Packaged backport validation
 

@@ -17,6 +17,32 @@ state_directory=${QWEN_WEBUI_STATE_DIRECTORY:-"${HOME:?}/qwen-webui-state"}
 server_port=${QWEN_SERVER_PORT:-8080}
 status_file=$state_directory/session.status
 
+# Replacement launches wait until teardown finishes all process and artifact
+# checks. The child control call shares this lock through its open description.
+mkdir -p "$state_directory"
+lifecycle_lock=$state_directory/session-lifecycle.lock
+if [ "${QWEN_SESSION_LIFECYCLE_FD:-}" != 7 ] || \
+   [ "$(stat -Lc '%d:%i' /proc/self/fd/7 2>/dev/null || true)" != \
+     "$(stat -Lc '%d:%i' "$lifecycle_lock" 2>/dev/null || true)" ] || \
+   [ ! -e /proc/self/fd/7 ]; then
+    exec 7>>"$lifecycle_lock"
+fi
+flock -x 7
+QWEN_SESSION_LIFECYCLE_FD=7
+export QWEN_SESSION_LIFECYCLE_FD
+expected_nonce=${QWEN_TEARDOWN_EXPECTED_NONCE:-}
+if [ -n "$expected_nonce" ]; then
+    case $expected_nonce in
+        *[!A-Za-z0-9_-]*) printf 'invalid expected launch nonce\n' >&2; exit 2 ;;
+    esac
+    observed_nonce=$(tmux -L qwen-runtime show-environment -t qwen-webui \
+        QWEN_LAUNCH_ATTEMPT_NONCE 2>/dev/null || true)
+    if [ "$observed_nonce" != "QWEN_LAUNCH_ATTEMPT_NONCE=$expected_nonce" ]; then
+        printf 'teardown refuses a different launch nonce\n' >&2
+        exit 3
+    fi
+fi
+
 # The session script rewrites session.status to state=stopped as it exits,
 # which drops the guard PIDs, so read them before asking it to stop.
 guard_identities=''
@@ -344,5 +370,8 @@ printf 'torn down: no server, tmux session, probe, approval broker, image, physi
 if [ "$exclusion_unproven" -ne 0 ]; then
     printf 'orderly exclusion unproven\n' >&2
     exit 4
+fi
+if [ -n "$expected_nonce" ]; then
+    printf 'teardown_receipt nonce=%s state=completed\n' "$expected_nonce"
 fi
 exit 0
