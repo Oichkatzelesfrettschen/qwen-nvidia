@@ -64,6 +64,26 @@ fi
 pid_file=$state_directory/server.pid
 status_file=$state_directory/session.status
 
+# The lifecycle lock excludes replacement launches throughout control and
+# teardown. A nested control call inherits the same locked open description.
+case $action in
+    start | stop)
+        mkdir -p "$state_directory"
+        lifecycle_directory=${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)
+        (umask 077; mkdir -p "$lifecycle_directory")
+        lifecycle_lock=$lifecycle_directory/qwen-runtime-qwen-webui.lifecycle.lock
+        if [ "${QWEN_SESSION_LIFECYCLE_FD:-}" != 7 ] || \
+           [ "$(stat -Lc '%d:%i' /proc/self/fd/7 2>/dev/null || true)" != \
+             "$(stat -Lc '%d:%i' "$lifecycle_lock" 2>/dev/null || true)" ] || \
+           [ ! -e /proc/self/fd/7 ]; then
+            exec 7>>"$lifecycle_lock"
+        fi
+        flock -x 7
+        QWEN_SESSION_LIFECYCLE_FD=7
+        export QWEN_SESSION_LIFECYCLE_FD
+        ;;
+esac
+
 shell_quote() {
     printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
@@ -178,6 +198,9 @@ case $action in
             forwarded_environment="$forwarded_environment QWEN_MMPROJ=''"
         fi
         if [ "${QWEN_ROUTER:-0}" != 1 ]; then
+            if [ "${QWEN_SPEC_TYPE+x}" = x ] && [ -z "$QWEN_SPEC_TYPE" ]; then
+                forwarded_environment="$forwarded_environment QWEN_SPEC_TYPE=''"
+            fi
             for forwarded_name in QWEN_SPEC_TYPE QWEN_SPEC_DRAFT_N_MAX \
                                   QWEN_SPEC_DRAFT_P_MIN \
                                   QWEN_SPEC_BACKEND_SAMPLING; do
@@ -209,10 +232,10 @@ case $action in
         if [ -n "${QWEN_LAUNCH_ATTEMPT_NONCE:-}" ]; then
             tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
                 -e "QWEN_LAUNCH_ATTEMPT_NONCE=$QWEN_LAUNCH_ATTEMPT_NONCE" \
-                "$session_command"
+                "$session_command" 7>&-
         else
             tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
-                "$session_command"
+                "$session_command" 7>&-
         fi
         printf 'started tmux_socket=%s tmux_session=%s profile=%s host=%s port=%s context=%s latency_mode=%s model=%s server=%s\n' \
             "$tmux_socket" "$tmux_session" "$profile" "$bind_host" \
@@ -289,6 +312,14 @@ case $action in
         if [ "$#" -ne 1 ]; then
             printf 'stop does not accept a profile\n' >&2
             exit 2
+        fi
+        if [ -n "${QWEN_TEARDOWN_EXPECTED_NONCE:-}" ]; then
+            observed_nonce=$(tmux -L "$tmux_socket" show-environment -t "$tmux_session" \
+                QWEN_LAUNCH_ATTEMPT_NONCE 2>/dev/null || true)
+            if [ "$observed_nonce" != "QWEN_LAUNCH_ATTEMPT_NONCE=$QWEN_TEARDOWN_EXPECTED_NONCE" ]; then
+                printf 'session stop refuses a different launch nonce\n' >&2
+                exit 3
+            fi
         fi
         recorded_session_pid=
         recorded_session_start=

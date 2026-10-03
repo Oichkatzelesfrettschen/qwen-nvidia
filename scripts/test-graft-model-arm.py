@@ -80,6 +80,7 @@ class GraftArmTests(unittest.TestCase):
         fake_tmux.write_text(
             "#!/bin/sh\nset -eu\n"
             "case \" $* \" in *' has-session '*) exit 1;; esac\n"
+            "if [ -e /proc/self/fd/7 ]; then exit 88; fi\n"
             "for argument do final_argument=$argument; done\n"
             "printf '%s\\n' \"$final_argument\" > \"$FIXTURE_COMMAND\"\n"
         )
@@ -88,11 +89,12 @@ class GraftArmTests(unittest.TestCase):
         expected = {"QWEN_CHAT_TOOLS": "on", "QWEN_CHAT_REASONING": "off",
                     "QWEN_CHAT_REASONING_BUDGET": "512", "QWEN_GRAFT_EXPERIMENT_SLOTS": "2",
                     "QWEN_BATCH_SIZE": "128", "QWEN_UBATCH_SIZE": "32",
-                    "QWEN_MMPROJ": ""}
+                    "QWEN_MMPROJ": "", "QWEN_SPEC_TYPE": ""}
         environment.update(expected)
         command_record = self.output / "command.txt"
         environment.update(PATH=str(fake_bin) + os.pathsep + environment["PATH"],
                            FIXTURE_COMMAND=str(command_record),
+                           TMUX_TMPDIR=str(self.output),
                            QWEN_WEBUI_STATE_DIRECTORY=str(self.output / "state"))
         subprocess.run([str(SCRIPTS / "qwen-webui-control.sh"), "start"],
                        env=environment, capture_output=True, text=True, check=True)
@@ -212,6 +214,166 @@ class GraftArmTests(unittest.TestCase):
         for projector in [["--mmproj", "foreign.gguf"], ["--mmproj=foreign.gguf"]]:
             with self.assertRaises(RuntimeError):
                 ARM.validate_server_argv(argv + projector, options)
+
+    def test_fixed_arms_clear_and_reject_speculation(self):
+        options = SimpleNamespace(model=self.output / "model.gguf", reasoning="off",
+                                  context=16384, slots=1)
+        environment = {"QWEN_SPEC_TYPE": "draft-mtp", "QWEN_SPEC_DRAFT_N_MAX": "4",
+                       "QWEN_SPEC_DRAFT_P_MIN": "0.5", "QWEN_SPEC_BACKEND_SAMPLING": "1",
+                       "QWEN_DRAFT_MODEL": "foreign.gguf", "QWEN_BACKEND_SAMPLING": "1",
+                       "QWEN_ROUTER": "1", "QWEN_ROUTER_PRESETS": "foreign.ini"}
+        ARM.fixed_environment(environment, options, "fixture-nonce")
+        self.assertEqual(environment.pop("QWEN_SPEC_TYPE"), "")
+        self.assertFalse(any(name.startswith(("QWEN_SPEC_", "QWEN_DRAFT_")) for name in environment))
+        self.assertEqual(environment["QWEN_BACKEND_SAMPLING"], "0")
+        self.assertEqual(environment["QWEN_ROUTER"], "0")
+        self.assertNotIn("QWEN_ROUTER_PRESETS", environment)
+        argv = ["server", "--parallel", "1", "--reasoning", "off", "--ctx-size", "16384",
+                "--device", "CUDA0", "--batch-size", "128", "--ubatch-size", "32",
+                "--threads", "6", "--threads-batch", "6", "--jinja"]
+        ARM.validate_server_argv(argv, options)
+        for flags in (["--spec-type", "draft-mtp"], ["--spec-type=draft-mtp"],
+                      ["--spec-draft-n-max", "4"], ["--model-draft=foreign.gguf"],
+                      ["-md", "foreign.gguf"], ["--backend-sampling"],
+                      ["--models-preset", "foreign.ini"]):
+            with self.assertRaises(RuntimeError):
+                ARM.validate_server_argv(argv + flags, options)
+
+    def test_geometry_matches_exact_campaign_pairs(self):
+        for slots, context in ((1, 16384), (2, 32768)):
+            ARM.validate_geometry(slots, context)
+        for slots, context in ((1, 32768), (2, 32769), (2, 32767), (1, 16385), (3, 49152)):
+            with self.assertRaises(ValueError):
+                ARM.validate_geometry(slots, context)
+
+    def test_final_admission_requires_owned_successful_teardown(self):
+        for owned, status, expected in ((True, 0, "completed"), (False, 0, "void"),
+                                        (True, None, "failed"), (True, 1, "failed")):
+            metadata = {"state": "completed", "teardown_status": status}
+            ARM.finalize_completion(metadata, owned)
+            self.assertEqual(metadata["state"], expected)
+        metadata = {"state": "failed", "error": "primary failure"}
+        ARM.finalize_completion(metadata, False)
+        self.assertEqual(metadata, {"state": "failed", "error": "primary failure"})
+
+    def test_graft_client_identity_records_resolved_package_and_detects_change(self):
+        package_root = self.output / "package"
+        (package_root / "dist").mkdir(parents=True)
+        executable = package_root / "dist/cli.js"
+        executable.write_text("fixture client")
+        ARM.write_json(package_root / "package.json", {"name": "@nanonets/graft", "version": "0.18.0"})
+        launcher = self.output / "graft"
+        launcher.symlink_to(executable)
+        identity = ARM.graft_identity(launcher)
+        self.assertEqual(identity["resolved_executable"], str(executable))
+        self.assertEqual(identity["package_name"], "@nanonets/graft")
+        self.assertEqual(identity["package_version"], "0.18.0")
+        imported = package_root / "dist/enrich.js"
+        imported.write_text("collector")
+        closure_identity = ARM.graft_identity(launcher)
+        imported.write_text("modified collector")
+        self.assertNotEqual(ARM.graft_identity(launcher)["runtime_manifest_sha256"],
+                            closure_identity["runtime_manifest_sha256"])
+        link = package_root / "dist/import.js"
+        link.symlink_to(imported.name)
+        self.assertGreater(ARM.graft_identity(launcher)["runtime_entries"], identity["runtime_entries"])
+        link.unlink()
+        link.symlink_to(self.output / "outside.js")
+        (self.output / "outside.js").write_text("foreign runtime")
+        with self.assertRaises(ValueError):
+            ARM.graft_identity(launcher)
+        link.unlink()
+        executable.write_text("modified client")
+        self.assertNotEqual(ARM.graft_identity(launcher), identity)
+        with self.assertRaises(ValueError):
+            ARM.graft_identity(package_root / "package.json")
+        ARM.write_json(package_root / "package.json", {"name": "foreign", "version": "0.18.0"})
+        with self.assertRaises(ValueError):
+            ARM.graft_identity(launcher)
+
+    def test_teardown_receipt_requires_the_expected_nonce(self):
+        metadata = {"state": "completed"}
+        ARM.record_teardown(metadata, 0, "fixture-nonce",
+                            "teardown_receipt nonce=fixture-nonce state=completed\n")
+        self.assertEqual(metadata["teardown_status"], 0)
+        self.assertEqual(metadata["teardown_nonce"], "fixture-nonce")
+        for receipt in ("", "teardown_receipt nonce=foreign-nonce state=completed\n"):
+            metadata = {"state": "completed"}
+            ARM.record_teardown(metadata, 0, "fixture-nonce", receipt)
+            self.assertEqual(metadata["state"], "failed")
+            self.assertEqual(metadata["teardown_status"], 1)
+
+    def test_teardown_refuses_foreign_nonce_and_excludes_replacement_start(self):
+        fixture_scripts = self.output / "scripts"
+        fake_bin = self.output / "bin"
+        state = self.output / "state"
+        for directory in (fixture_scripts, fake_bin, state):
+            directory.mkdir()
+        teardown = fixture_scripts / "qwen-teardown.sh"
+        teardown.write_bytes((SCRIPTS / "qwen-teardown.sh").read_bytes())
+        teardown.chmod(0o700)
+        control = fixture_scripts / "qwen-webui-control.sh"
+        control.write_text("#!/bin/sh\nset -eu\n: > \"$FIXTURE_ENTERED\"\n"
+                           "if [ \"$FIXTURE_BLOCK\" = 1 ]; then\n"
+                           " while [ ! -e \"$FIXTURE_RELEASE\" ]; do sleep 0.01; done\nfi\n")
+        control.chmod(0o700)
+        for executable in (fixture_scripts / "image-teardown-check.sh", fake_bin / "ss"):
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o700)
+        fake_tmux = fake_bin / "tmux"
+        fake_tmux.write_text("#!/bin/sh\nset -eu\ncase \" $* \" in\n"
+                             " *' show-environment '*) printf 'QWEN_LAUNCH_ATTEMPT_NONCE=%s\\n' \"$FIXTURE_NONCE\";;\n"
+                             " *' has-session '*) exit 1;;\n"
+                             " *' new-session '*) [ ! -e /proc/self/fd/7 ]; : > \"$FIXTURE_STARTED\";;\n"
+                             " *) exit 1;;\nesac\n")
+        fake_tmux.chmod(0o700)
+        entered, release, started = [self.output / name for name in ("entered", "release", "started")]
+        status = state / "session.status"
+        status.write_text("state=running server_pid=99999999 server_start_time=1\n")
+        marker = state / "server.pid"
+        marker.write_text("99999999\n")
+        environment = os.environ.copy()
+        environment.update(PATH=str(fake_bin) + os.pathsep + environment["PATH"],
+                           QWEN_WEBUI_STATE_DIRECTORY=str(state),
+                           TMUX_TMPDIR=str(self.output),
+                           QWEN_SESSION_LIFECYCLE_FD="unowned", QWEN_TEARDOWN_EXPECTED_NONCE="fixture-nonce",
+                           FIXTURE_NONCE="foreign-nonce", FIXTURE_BLOCK="0",
+                           FIXTURE_ENTERED=str(entered), FIXTURE_RELEASE=str(release), FIXTURE_STARTED=str(started))
+        refusal = subprocess.run([str(teardown)], env=environment, capture_output=True, text=True, timeout=5)
+        self.assertEqual(refusal.returncode, 3, refusal.stderr)
+        self.assertFalse(entered.exists())
+        self.assertEqual(marker.read_text(), "99999999\n")
+        self.assertEqual(status.read_text(), "state=running server_pid=99999999 server_start_time=1\n")
+        environment.update(FIXTURE_NONCE="fixture-nonce", FIXTURE_BLOCK="1")
+        retirement = subprocess.Popen([str(teardown)], env=environment, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, text=True)
+        replacement = None
+        try:
+            deadline = time.monotonic() + 5
+            while not entered.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(entered.exists())
+            replacement_environment = environment | {
+                "QWEN_WEBUI_STATE_DIRECTORY": str(self.output / "replacement-state")}
+            replacement = subprocess.Popen([str(SCRIPTS / "qwen-webui-control.sh"), "start"],
+                                           env=replacement_environment, stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True)
+            time.sleep(0.2)
+            self.assertIsNone(replacement.poll())
+            self.assertFalse(started.exists())
+            release.touch()
+            stdout, stderr = retirement.communicate(timeout=10)
+            self.assertEqual(retirement.returncode, 0, stderr)
+            self.assertIn("teardown_receipt nonce=fixture-nonce state=completed", stdout)
+            _stdout, stderr = replacement.communicate(timeout=10)
+            self.assertEqual(replacement.returncode, 0, stderr)
+            self.assertTrue(started.exists())
+        finally:
+            release.touch()
+            for child in (retirement, replacement):
+                if child is not None and child.poll() is None:
+                    child.terminate()
+                    child.communicate(timeout=5)
 
     def test_output_requires_the_actual_repository_artifact_root(self):
         self.assertTrue(ARM.output_is_owned(self.output))
