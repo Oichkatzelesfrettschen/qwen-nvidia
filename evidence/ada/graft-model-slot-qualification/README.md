@@ -1,7 +1,8 @@
 # Graft model and slot qualification
 
-Status: bounded device comparison complete; the selection retains the incumbent
-and single-slot serving. Backport integration remains pending.
+Status: bounded device comparison and packaged-executable probes complete;
+the selection retains the incumbent and single-slot serving. Repository
+integration remains gated by review and hosted validation.
 
 The experiment separates hidden reasoning cost, checkpoint behavior, and slot
 geometry. Structural Graft remains the interactive default. Deep arms use fresh
@@ -275,3 +276,49 @@ unmeasured. Granite's failed retirement remains a separate failed receipt.
 The short Granite contracts reproduce every graph field and all seven replies,
 including their two exact-ID failures. Ready-node counts reflect Graft's
 normalization and coexist with those wire failures.
+
+## Review admission and operating state
+
+Each arm retains `gpu.tsv`, the one-second operating-state rows covering clocks,
+power, temperature, utilization, occupancy, throttle reasons and host pressure.
+`retained-admission-review.json` inspects the actual live argv, capture timing
+and full private guard logs. All completed arms verify six serving and batch
+threads, an absent projector, deep status zero, orderly teardown, zero direct
+kernel hazard records and zero monitor aborts. The longest completed Granite
+pilot request is 153.324 seconds, below the legacy proxy's 240-second timeout;
+that bound therefore explains neither its completed captures nor its deadline
+refusal. The interrupted capture and failed retirement remain failed evidence.
+
+The revised runner pins and verifies both six-thread arguments, clears an
+explicit empty projector across tmux, constrains output to the actual checkout
+or common repository artifact root, refuses nonzero build status, inspects
+direct kernel hazards and retains primary and teardown failures separately.
+Proxy request timeouts follow the remaining arm deadline. Ten harness tests
+and four audit tests calibrate those boundaries, including expiry, external
+artifact paths, stale projector values, nonzero exits and source text containing
+the ordinary word `truncated`. Clipping matches the terminal marker exactly.
+The changes strengthen future admission; original raw receipts remain immutable.
+
+## Packaged backport validation
+
+PKGBUILDS PR #47 backports the two upstream proposals onto the pinned source
+while retaining the selected synthesis default of one and the existing `-j`
+forwarding. `backport-package-identity.json` records the archive digest and
+source heads. The dependency-checked build passes 84 source tests; four archive
+smoke tests cover extraction, collector identity/retry, serial default with
+warm cache reuse, and CLI options/budget refusal. Independent inspection
+establishes ELF hardening for all ten native bindings. The documented namcap
+PIE classifier warnings remain separate from shared-module hardening.
+
+The extracted archive runs through the guarded serving chain on the fixed
+three-file contract and 22-file pilot. `backport-measured-results.tsv` reports
+seven and 46 completed requests, respectively, successful teardown and full
+requested-node readiness. The pilot supports eight sample summaries and
+contradicts two, retaining the advisory boundary. Its 46-request sequence
+differs from the pre-backport 45-request sequence, so reply identity across
+package versions is neither claimed nor used for a promotion. Model and slot
+selection precede the backport; the packaged probe verifies bounded execution
+rather than a new semantic-quality default. The cache fixture's second build
+makes zero summary/synthesis calls, while existing whole-tree caches remain
+outside every probe. The owner authorizes temporary hosted validation for
+PKGBUILDS; Actions returns to disabled after the validation window.

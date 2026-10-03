@@ -50,6 +50,22 @@ class WireAuditTests(unittest.TestCase):
     def test_non_symbol_request_is_separate(self):
         self.assertIsNone(AUDIT.audit_request({"messages": []}, {}, Path("unused")))
 
+    def test_source_word_truncated_does_not_mark_clipping(self):
+        request = {
+            "tool_choice": {"type": "function", "function": {"name": "record_symbols"}},
+            "messages": [{"content": "FILE: a.c\n1\tint f(void) {\n"
+                          "2\t/* truncated is a source word */\n3\treturn 0; }\n\nTARGETS (1):\n"
+                          "- id=a.c#f | function | lines L1-L3"}],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = Path(temporary) / "graph.json"
+            graph.write_text(json.dumps({"nodes": [{"id": "a.c#f", "path": "a.c",
+                "kind": "function", "span": "L1-L3", "signature": "int f(void)"}]}))
+            result = AUDIT.audit_request(request, {}, graph)
+        self.assertFalse(result["source_clipped"])
+        self.assertEqual(result["complete_prefix_end"], 3)
+        self.assertEqual(result["source_coverage"]["full"], ["a.c#f"])
+
     def test_interrupted_capture_stays_incomplete(self):
         request = {
             "tool_choice": {"type": "function", "function": {"name": "record_symbols"}},

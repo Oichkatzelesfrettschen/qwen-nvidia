@@ -30,9 +30,10 @@ def audit_request(request, response, graph):
     relative_path = re.search(r"^FILE: (.+)$", user, re.MULTILINE).group(1)
     code = user.split("\nTARGETS", 1)[0]
     numbered = re.findall(r"^(\d+)\t(.*)$", code, re.MULTILINE)
-    source_end = max((int(line) for line, text in numbered
-                      if "truncated" not in text), default=0)
-    clipped = any("truncated" in text for _, text in numbered)
+    markers = {"... (truncated)", "\u2026 (truncated)"}
+    clipped = bool(numbered and numbered[-1][1].strip() in markers)
+    source_lines = numbered[:-1] if clipped else numbered
+    source_end = max((int(line) for line, _text in source_lines), default=0)
     # Character clipping can cut the final numbered line in the middle.
     complete_prefix_end = source_end - int(clipped)
     references = {row["id"]: row for row in CONTRACT.load_targets(graph, relative_path)}

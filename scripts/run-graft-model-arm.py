@@ -86,6 +86,63 @@ def run_command(command, output, environment, deadline):
             raise
 
 
+def output_is_owned(output, repository=SCRIPTS.parent):
+    common = Path(subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "--git-common-dir"], text=True,
+    ).strip())
+    common = (repository / common).resolve() if not common.is_absolute() else common.resolve()
+    roots = {repository.resolve() / ".local-artifacts", common.parent / ".local-artifacts"}
+    resolved = output.resolve()
+    return any(resolved != root and resolved.is_relative_to(root.resolve()) for root in roots)
+
+
+def fixed_environment(environment, options, nonce):
+    environment.update(
+        QWEN_MODEL_PATH=str(options.model.resolve()), QWEN_CHAT_TOOLS="on",
+        QWEN_CHAT_REASONING=options.reasoning, QWEN_CHAT_REASONING_BUDGET="512",
+        QWEN_CONTEXT_SIZE=str(options.context), QWEN_REQUIRE_API_KEY="1",
+        QWEN_GRAFT_EXPERIMENT_SLOTS=str(options.slots), QWEN_BIND_HOST="127.0.0.1",
+        QWEN_LAUNCH_ATTEMPT_NONCE=nonce, QWEN_MMPROJ="",
+        QWEN_BATCH_SIZE="128", QWEN_UBATCH_SIZE="32", QWEN_SERVING_THREADS="6",
+    )
+
+
+def validate_server_argv(argv, options):
+    for flag, expected in (("--parallel", str(options.slots)), ("--reasoning", options.reasoning),
+                           ("--ctx-size", str(options.context)), ("--device", "CUDA0"),
+                           ("--batch-size", "128"), ("--ubatch-size", "32"),
+                           ("--threads", "6"), ("--threads-batch", "6")):
+        if flag not in argv or argv[argv.index(flag) + 1] != expected:
+            raise RuntimeError(f"live server argument mismatch: {flag}")
+    if "--jinja" not in argv:
+        raise RuntimeError("live server omitted --jinja")
+    if any(argument == "--mmproj" or argument.startswith("--mmproj=") for argument in argv):
+        raise RuntimeError("text-only arm loaded a projector")
+
+
+def completion_state(deep_status, session_owned):
+    if deep_status != 0:
+        return "failed"
+    return "completed" if session_owned else "void"
+
+
+def classify_guards(metadata, output):
+    telemetry = output / "telemetry.log"
+    session = output / "session.status"
+    kernel = output / "kernel-hazards.log"
+    if ((telemetry.exists() and "abort_utc=" in telemetry.read_text())
+            or (session.exists() and re.search(r"(?:kernel_hazard|monitor)_status=[1-9]", session.read_text()))
+            or (kernel.exists() and re.search(r"^hazard_utc=", kernel.read_text(), re.MULTILINE))):
+        metadata["state"] = "void"
+
+
+def record_teardown(metadata, status):
+    metadata["teardown_status"] = status
+    if status != 0:
+        metadata.update(state="failed", teardown_error="owned teardown failed")
+        metadata.setdefault("error", metadata["teardown_error"])
+
+
 def summarize_usage(output, records):
     """Keep omitted usage distinct from a measured zero."""
     totals = {name: 0 for name in ("prompt_tokens", "completion_tokens", "reasoning_tokens")}
@@ -119,12 +176,13 @@ def owns_session(nonce):
 
 
 class Capture:
-    def __init__(self, output, upstream, key):
+    def __init__(self, output, upstream, key, deadline=None):
         self.output = output
         self.upstream = upstream
         self.key = key
         self.lock = threading.Lock()
         self.records = []
+        self.deadline = deadline if deadline is not None else time.monotonic() + 240
 
     def handler(self):
         capture = self
@@ -153,7 +211,11 @@ class Capture:
                      "Authorization": "Bearer " + capture.key},
                 )
                 try:
-                    with urllib.request.urlopen(request, timeout=240) as response:
+                    remaining = capture.deadline - time.monotonic()
+                    record["upstream_timeout_seconds"] = remaining
+                    if remaining <= 0:
+                        raise TimeoutError("arm deadline reached")
+                    with urllib.request.urlopen(request, timeout=remaining) as response:
                         status, body = response.status, response.read()
                 except urllib.error.HTTPError as error:
                     status, body = error.code, error.read()
@@ -234,7 +296,7 @@ def main():
         parser.error("each slot requires at least 16384 context and a positive deadline")
     if not options.model.is_file() or not options.source.is_dir():
         parser.error("source directory and verified model file must exist")
-    if ".local-artifacts" not in options.output.resolve().parts:
+    if not output_is_owned(options.output):
         parser.error("raw output belongs under the owning repository .local-artifacts")
     environment = os.environ.copy()
     if not environment.get("PYTHON"):
@@ -252,14 +314,7 @@ def main():
         parser.error("fixed benchmark source requires a clean detached worktree")
     state = Path(environment.get("QWEN_WEBUI_STATE_DIRECTORY", str(Path.home() / "qwen-webui-state")))
     nonce = uuid.uuid4().hex
-    environment.update(
-        QWEN_MODEL_PATH=str(options.model.resolve()), QWEN_CHAT_TOOLS="on",
-        QWEN_CHAT_REASONING=options.reasoning, QWEN_CHAT_REASONING_BUDGET="512",
-        QWEN_CONTEXT_SIZE=str(options.context), QWEN_REQUIRE_API_KEY="1",
-        QWEN_GRAFT_EXPERIMENT_SLOTS=str(options.slots), QWEN_BIND_HOST="127.0.0.1",
-        QWEN_LAUNCH_ATTEMPT_NONCE=nonce, QWEN_MMPROJ="",
-        QWEN_BATCH_SIZE="128", QWEN_UBATCH_SIZE="32",
-    )
+    fixed_environment(environment, options, nonce)
     metadata = vars(options).copy()
     metadata = {key: str(value) if isinstance(value, Path) else value for key, value in metadata.items()}
     metadata.update(source_commit=source_commit, nonce=nonce, state="running")
@@ -309,18 +364,14 @@ def main():
                                  ([str(SCRIPTS / "device-environment-identity.sh")], "device-environment.tsv")):
             if run_command(command, options.output / receipt, environment, 30) != 0:
                 raise RuntimeError(f"identity probe failed: {receipt}")
-        for flag, expected in (("--parallel", str(options.slots)), ("--reasoning", options.reasoning),
-                               ("--ctx-size", str(options.context)), ("--device", "CUDA0"),
-                               ("--batch-size", "128"), ("--ubatch-size", "32")):
-            if flag not in argv or argv[argv.index(flag) + 1] != expected:
-                raise RuntimeError(f"live server argument mismatch: {flag}")
-        if "--jinja" not in argv:
-            raise RuntimeError("live server omitted --jinja")
+        validate_server_argv(argv, options)
         sampler = subprocess.Popen([str(SCRIPTS / "sample-nvidia-clocks.sh"),
                                     str(options.output / "gpu.tsv"), "1"], env=environment)
         key = (state / "api.key").read_text().strip()
         port = environment.get("QWEN_SERVER_PORT", "8080")
-        capture = Capture(options.output, "http://127.0.0.1:" + port, key)
+        capture = Capture(options.output, "http://127.0.0.1:" + port, key,
+                          deadline=time.monotonic() + options.deadline)
+        metadata["proxy_timeout_policy"] = "remaining_arm_deadline"
         proxy = ThreadingHTTPServer(("127.0.0.1", 0), capture.handler())
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         executor.submit(proxy.serve_forever)
@@ -335,7 +386,7 @@ def main():
         executor.shutdown(wait=True)
         executor = None
         write_json(options.output / "requests.json", capture.records)
-        completed_requests = sum(record["status"] == 200 for record in capture.records)
+        completed_requests = sum(record.get("status") == 200 for record in capture.records)
         metadata.update(deep_status=status, elapsed_seconds=elapsed,
                         total_requests=len(capture.records), completed_requests=completed_requests,
                         failed_requests=len(capture.records) - completed_requests,
@@ -348,7 +399,9 @@ def main():
         if run_command([environment["PYTHON"], str(SCRIPTS / "graft-deep-evidence.py"),
                         str(options.output / "graph")], options.output / "graph-evidence.tsv", environment, 30) != 0:
             raise RuntimeError("graph evidence probe failed")
-        metadata["state"] = "completed" if owns_session(nonce) else "void"
+        metadata["state"] = completion_state(status, owns_session(nonce))
+        if status != 0:
+            metadata["error"] = f"deep build failed with status {status}"
     except (Exception, KeyboardInterrupt) as error:
         metadata.update(state="failed", error=f"{type(error).__name__}: {error}")
         raise
@@ -369,20 +422,14 @@ def main():
                 source = state / name
                 if source.exists():
                     (options.output / name).write_bytes(source.read_bytes())
-            metadata["teardown_status"] = run_command([str(SCRIPTS / "qwen-teardown.sh")],
-                                                      options.output / "teardown.log", environment, 60)
-            if metadata["teardown_status"] != 0:
-                metadata.update(state="failed", error="owned teardown failed")
+            teardown_status = run_command([str(SCRIPTS / "qwen-teardown.sh")],
+                                          options.output / "teardown.log", environment, 60)
+            record_teardown(metadata, teardown_status)
         for name in ("server.log", "telemetry.log", "session.status", "kernel-hazards.log"):
             source = state / name
             if source.exists() and metadata.get("teardown_status") is not None:
                 (options.output / name).write_bytes(source.read_bytes())
-        telemetry = options.output / "telemetry.log"
-        if telemetry.exists() and "abort_utc=" in telemetry.read_text():
-            metadata["state"] = "void"
-        session_receipt = options.output / "session.status"
-        if session_receipt.exists() and re.search(r"(?:kernel_hazard|monitor)_status=[1-9]", session_receipt.read_text()):
-            metadata["state"] = "void"
+        classify_guards(metadata, options.output)
         write_json(options.output / "arm.json", metadata)
     if metadata["state"] != "completed":
         raise SystemExit(1)

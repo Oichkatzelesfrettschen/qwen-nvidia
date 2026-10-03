@@ -174,6 +174,9 @@ case $action in
                 forwarded_environment="$forwarded_environment $forwarded_name=$(shell_quote "$forwarded_value")"
             fi
         done
+        if [ "${QWEN_MMPROJ+x}" = x ] && [ -z "$QWEN_MMPROJ" ]; then
+            forwarded_environment="$forwarded_environment QWEN_MMPROJ=''"
+        fi
         if [ "${QWEN_ROUTER:-0}" != 1 ]; then
             for forwarded_name in QWEN_SPEC_TYPE QWEN_SPEC_DRAFT_N_MAX \
                                   QWEN_SPEC_DRAFT_P_MIN \

@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import urllib.error
 import urllib.request
+import time
+from types import SimpleNamespace
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -85,7 +87,8 @@ class GraftArmTests(unittest.TestCase):
         environment = os.environ.copy()
         expected = {"QWEN_CHAT_TOOLS": "on", "QWEN_CHAT_REASONING": "off",
                     "QWEN_CHAT_REASONING_BUDGET": "512", "QWEN_GRAFT_EXPERIMENT_SLOTS": "2",
-                    "QWEN_BATCH_SIZE": "128", "QWEN_UBATCH_SIZE": "32"}
+                    "QWEN_BATCH_SIZE": "128", "QWEN_UBATCH_SIZE": "32",
+                    "QWEN_MMPROJ": ""}
         environment.update(expected)
         command_record = self.output / "command.txt"
         environment.update(PATH=str(fake_bin) + os.pathsep + environment["PATH"],
@@ -110,7 +113,8 @@ class GraftArmTests(unittest.TestCase):
                 self.wfile.write(payload)
 
         upstream = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
-        capture = ARM.Capture(self.output, f"http://127.0.0.1:{upstream.server_port}", "fixture-credential")
+        capture = ARM.Capture(self.output, f"http://127.0.0.1:{upstream.server_port}",
+                              "fixture-credential", deadline=time.monotonic() + 600)
         proxy = ThreadingHTTPServer(("127.0.0.1", 0), capture.handler())
         upstream_thread = threading.Thread(target=upstream.serve_forever)
         proxy_thread = threading.Thread(target=proxy.serve_forever)
@@ -132,11 +136,19 @@ class GraftArmTests(unittest.TestCase):
             for record in capture.records:
                 self.assertEqual(record["status"], 200)
                 self.assertLess(record["started"], record["ended"])
+                self.assertGreater(record["upstream_timeout_seconds"], 240)
+                self.assertLessEqual(record["upstream_timeout_seconds"], 600)
             with self.assertRaises(urllib.error.HTTPError) as refusal:
                 urllib.request.urlopen(urllib.request.Request(url, b"{}"), timeout=5)
             self.assertEqual(refusal.exception.code, 401)
             refusal.exception.close()
             self.assertEqual(len(capture.records), 2)
+            capture.deadline = time.monotonic() - 1
+            with self.assertRaises(urllib.error.HTTPError) as timeout:
+                send("expired")
+            self.assertEqual(timeout.exception.code, 502)
+            timeout.exception.close()
+            self.assertEqual(capture.records[-1]["status"], 502)
             for artifact in self.output.iterdir():
                 self.assertNotIn("fixture-credential", artifact.read_text())
         finally:
@@ -180,6 +192,53 @@ class GraftArmTests(unittest.TestCase):
         self.assertTrue(marker.exists())
         child_pid = int(marker.read_text())
         self.assertFalse(Path(f"/proc/{child_pid}").exists())
+
+    def test_fixed_threads_and_projector_are_overridden_and_verified(self):
+        options = SimpleNamespace(model=self.output / "model.gguf", reasoning="off",
+                                  context=16384, slots=1)
+        environment = {"QWEN_SERVING_THREADS": "2", "QWEN_MMPROJ": "foreign.gguf"}
+        ARM.fixed_environment(environment, options, "fixture-nonce")
+        self.assertEqual(environment["QWEN_SERVING_THREADS"], "6")
+        self.assertEqual(environment["QWEN_MMPROJ"], "")
+        argv = ["server", "--parallel", "1", "--reasoning", "off", "--ctx-size", "16384",
+                "--device", "CUDA0", "--batch-size", "128", "--ubatch-size", "32",
+                "--threads", "6", "--threads-batch", "6", "--jinja"]
+        ARM.validate_server_argv(argv, options)
+        for flag in ["--threads", "--threads-batch"]:
+            invalid = list(argv)
+            invalid[invalid.index(flag) + 1] = "2"
+            with self.assertRaises(RuntimeError):
+                ARM.validate_server_argv(invalid, options)
+        for projector in [["--mmproj", "foreign.gguf"], ["--mmproj=foreign.gguf"]]:
+            with self.assertRaises(RuntimeError):
+                ARM.validate_server_argv(argv + projector, options)
+
+    def test_output_requires_the_actual_repository_artifact_root(self):
+        self.assertTrue(ARM.output_is_owned(self.output))
+        self.assertFalse(ARM.output_is_owned(Path("/tmp/.local-artifacts/foreign")))
+        with tempfile.TemporaryDirectory() as temporary:
+            alias = self.output / "external"
+            alias.symlink_to(temporary, target_is_directory=True)
+            self.assertFalse(ARM.output_is_owned(alias / "run"))
+
+    def test_failed_build_and_secondary_teardown_keep_distinct_provenance(self):
+        self.assertEqual(ARM.completion_state(0, True), "completed")
+        self.assertEqual(ARM.completion_state(0, False), "void")
+        self.assertEqual(ARM.completion_state(1, True), "failed")
+        metadata = {"state": "failed", "error": "TimeoutExpired: primary deadline"}
+        ARM.record_teardown(metadata, 1)
+        self.assertEqual(metadata["error"], "TimeoutExpired: primary deadline")
+        self.assertEqual(metadata["teardown_error"], "owned teardown failed")
+        self.assertEqual(metadata["state"], "failed")
+
+    def test_direct_kernel_hazard_refuses_completion_before_monitor_transition(self):
+        metadata = {"state": "completed"}
+        (self.output / "kernel-hazards.log").write_text("watch_ready_utc=fixture\n")
+        ARM.classify_guards(metadata, self.output)
+        self.assertEqual(metadata["state"], "completed")
+        (self.output / "kernel-hazards.log").write_text("hazard_utc=fixture category=fixture\n")
+        ARM.classify_guards(metadata, self.output)
+        self.assertEqual(metadata["state"], "void")
 
 
 if __name__ == "__main__":
