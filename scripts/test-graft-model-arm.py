@@ -216,10 +216,13 @@ class GraftArmTests(unittest.TestCase):
     def test_output_requires_the_actual_repository_artifact_root(self):
         self.assertTrue(ARM.output_is_owned(self.output))
         self.assertFalse(ARM.output_is_owned(Path("/tmp/.local-artifacts/foreign")))
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
             alias = self.output / "external"
             alias.symlink_to(temporary, target_is_directory=True)
             self.assertFalse(ARM.output_is_owned(alias / "run"))
+        internal = self.output / "internal"
+        internal.symlink_to(self.output / "owned", target_is_directory=True)
+        self.assertTrue(ARM.output_is_owned(internal / "run"))
 
     def test_failed_build_and_secondary_teardown_keep_distinct_provenance(self):
         self.assertEqual(ARM.completion_state(0, True), "completed")
