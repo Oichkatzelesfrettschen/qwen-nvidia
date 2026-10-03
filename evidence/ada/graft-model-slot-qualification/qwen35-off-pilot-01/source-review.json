@@ -1,0 +1,23 @@
+{
+  "arm": "qwen35-off-pilot-01",
+  "source_revision": "0c85040e3bda01913d687fca538b3fa49f6af82b",
+  "rubric_commit": "3dd0c59",
+  "review_class": "manual source conformance; not board evidence",
+  "supported_symbols": 9,
+  "contradicted_symbols": 0,
+  "unsupported_symbols": 1,
+  "withheld_symbols": 0,
+  "rows": [
+    {"symbol": "dev/flash.c#dhara_nand_copy", "verdict": "supported", "witness": "flash.c L374-L404 copies via scratch, with source read through XIP before programming"},
+    {"symbol": "dev/flash.c#flsize", "verdict": "supported", "witness": "flash.c L549-L562 returns partition block count and calls fl_setup when uninitialized", "qualification": "device denotes the partition-bearing dev_t; the summary omits the precise block size"},
+    {"symbol": "dev/uart.c#uartclose", "verdict": "supported", "witness": "uart.c L231-L243 calls ttywflush and ttyclose"},
+    {"symbol": "dev/uart.h#uart_rx_ready", "verdict": "supported", "witness": "uart.h L83-L87 tests UART_FR FIFO-empty clear"},
+    {"symbol": "dev/usb.c#usb_e15_critical", "verdict": "supported", "witness": "usb.c L386-L392 checks the E15 critical elapsed-time window; the summary's timer wording is interpreted as the computed delta, not an absolute uptime interval"},
+    {"symbol": "dev/usb.c#usbgetc", "verdict": "supported", "witness": "usb.c L1188-L1200 reads one ring character"},
+    {"symbol": "dev/usb.h#usbopen", "verdict": "unsupported", "supported_claims": ["open interface", "initializes tty state in implementation"], "unsupported_claims": ["allocating resources"], "witness": "usb.h L103 is a prototype; usb.c L1030-L1063 selects a static tty and ttyopen updates process/tty state", "qualification": "the vague resource claim lacks a concrete allocation witness; it does not explicitly assert tty or endpoint allocation"},
+    {"symbol": "rp2040/exec_hsaout.c#exec_hsaout_text", "verdict": "supported", "witness": "exec_hsaout.c L222-L256 validates headers and hsx_load checks expanded text CRC"},
+    {"symbol": "rp2040/machdep.c#bzero", "verdict": "supported", "witness": "machdep.c L997-L1041 clears supplied memory"},
+    {"symbol": "rp2040/machdep.c#swap_cursor_init", "verdict": "supported", "witness": "machdep.c L203-L227 uses bounded ROSC sampling for cold-boot cursor selection", "qualification": "avoid predictable allocation patterns describes design intent rather than a measured random-quality guarantee"}
+  ],
+  "promotion": "withheld: two requested file records pending and focal-span failures remain"
+}

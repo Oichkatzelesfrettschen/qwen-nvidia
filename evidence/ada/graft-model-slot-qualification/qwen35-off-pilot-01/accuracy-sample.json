@@ -1,0 +1,72 @@
+[
+  {
+    "id": "sys/arch/rp2040/dev/flash.c#dhara_nand_copy",
+    "span": "L374-L404",
+    "summary_state": "ready",
+    "summary": "Copies flash pages by reading from the XIP window and writing to a scratch buffer before programming.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/flash.c#flsize",
+    "span": "L549-L562",
+    "summary_state": "ready",
+    "summary": "Returns the size of a flash device in blocks, initializing the map if necessary.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/uart.c#uartclose",
+    "span": "L231-L243",
+    "summary_state": "ready",
+    "summary": "Closes a UART device, flushing and closing the tty port.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/uart.h#uart_rx_ready",
+    "span": "L83-L87",
+    "summary_state": "ready",
+    "summary": "Checks if the UART receive FIFO is non-empty by reading the FR register.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/usb.c#usb_e15_critical",
+    "span": "L386-L392",
+    "summary_state": "ready",
+    "summary": "Checks if the current microsecond timer value falls within the critical window for E15 guard bulk IN transfers.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/usb.c#usbgetc",
+    "span": "L1188-L1200",
+    "summary_state": "ready",
+    "summary": "Reads a character from the USB device.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/usb.h#usbopen",
+    "span": "L103-L103",
+    "summary_state": "ready",
+    "summary": "Opens a USB device file, allocating resources and initializing the device.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/rp2040/exec_hsaout.c#exec_hsaout_text",
+    "span": "L222-L256",
+    "summary_state": "ready",
+    "summary": "Expands the text stream of a packed executable into a destination buffer for swapin, validating the header and CRC.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/rp2040/machdep.c#bzero",
+    "span": "L997-L1041",
+    "summary_state": "ready",
+    "summary": "Zeroes a block of memory.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/rp2040/machdep.c#swap_cursor_init",
+    "span": "L203-L227",
+    "summary_state": "ready",
+    "summary": "Initializes the swap cursor position using random sampling from the ROSC to avoid predictable allocation patterns.",
+    "semantic_verdict": "requires_source_review"
+  }
+]

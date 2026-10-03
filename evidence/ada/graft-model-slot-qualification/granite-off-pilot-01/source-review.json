@@ -1,0 +1,24 @@
+{
+  "arm": "granite-off-pilot-01",
+  "source_revision": "0c85040e3bda01913d687fca538b3fa49f6af82b",
+  "rubric_commit": "3dd0c59",
+  "review_class": "partial source conformance from failed arm; not board or throughput evidence",
+  "supported_symbols": 5,
+  "contradicted_symbols": 0,
+  "unsupported_symbols": 1,
+  "withheld_symbols": 4,
+  "missing_summary_symbols": 4,
+  "rows": [
+    {"symbol": "dev/flash.c#dhara_nand_copy", "verdict": "unsupported", "supported_claims": ["copies flash through scratch", "checks scratch ownership"], "unsupported_claims": ["physical program page wording conflates the copied Dhara unit with NOR program chunks"], "witness": "flash.c L374-L404 and flash.h distinguish the complete 1024-byte Dhara copy from its 256-byte program chunks", "qualification": "the copy purpose is supported; the imprecise page terminology is withheld rather than converted into an explicit numeric contradiction"},
+    {"symbol": "dev/flash.c#flsize", "verdict": "supported", "witness": "flash.c L549-L562 reads partition block count from du->part; raw capacity can populate that table during setup"},
+    {"symbol": "dev/uart.c#uartclose", "verdict": "supported", "witness": "uart.c L231-L243 and tty.c callees flush queues and close tty state"},
+    {"symbol": "dev/uart.h#uart_rx_ready", "verdict": "supported", "witness": "uart.h L83-L87 tests receive FIFO empty bit clear"},
+    {"symbol": "dev/usb.c#usb_e15_critical", "verdict": "withheld", "coverage": "failed: missing summary"},
+    {"symbol": "dev/usb.c#usbgetc", "verdict": "withheld", "coverage": "failed: missing summary"},
+    {"symbol": "dev/usb.h#usbopen", "verdict": "supported", "witness": "usb.h L103 declares the device-open interface; the purpose statement invents no allocation details"},
+    {"symbol": "rp2040/exec_hsaout.c#exec_hsaout_text", "verdict": "supported", "witness": "exec_hsaout.c L222-L256 restores packed text for swapin into the supplied user-image buffer and checks CRC through hsx_load"},
+    {"symbol": "rp2040/machdep.c#bzero", "verdict": "withheld", "coverage": "failed: missing summary"},
+    {"symbol": "rp2040/machdep.c#swap_cursor_init", "verdict": "withheld", "coverage": "failed: missing summary"}
+  ],
+  "promotion": "refused: deadline, exact contract, source coverage, and orderly retirement failure"
+}

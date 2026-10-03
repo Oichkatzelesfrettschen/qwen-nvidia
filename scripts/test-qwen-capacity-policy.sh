@@ -1257,4 +1257,42 @@ case $quarantine_geometry in
         ;;
 esac
 
+experiment_key=$temporary_directory/experiment.key
+printf 'fixture-credential\n' > "$experiment_key"
+experiment_registry=$temporary_directory/experiment-models.tsv
+awk -F '\t' 'BEGIN { OFS="\t" } { $6=32768; $7=32768; print }' \
+    "$quarantine_registry" > "$experiment_registry"
+QWEN_GRAFT_EXPERIMENT_SLOTS=2 QWEN_CHAT_TOOLS=on QWEN_REQUIRE_API_KEY=1 \
+QWEN_MODEL_REGISTRY=$experiment_registry QWEN_MODEL_ROOT=$temporary_directory \
+QWEN_CHAT_REASONING=off QWEN_POLICY_TEST_OUTPUT=$output_path \
+    "$policy" "$fake_server" "$quarantine_model" 32768 8080 "$script_directory/../webui" "$experiment_key"
+experiment_arguments=$(sed -n 's/^argument=//p' "$output_path" | tr '\n' ' ')
+case $experiment_arguments in
+    *'--parallel 2 '*'--jinja --reasoning off '*'--ctx-size 32768 '*) ;;
+    *) printf 'Graft experiment argv mismatch: %s\n' "$experiment_arguments" >&2; exit 1 ;;
+esac
+for refused_surface in context auth tools host slots; do
+    experiment_context=32768
+    experiment_auth=1
+    experiment_tools=on
+    experiment_host=127.0.0.1
+    experiment_slots=2
+    case $refused_surface in
+        context) experiment_context=16384 ;;
+        auth) experiment_auth=0 ;;
+        tools) experiment_tools=off ;;
+        host) experiment_host=0.0.0.0 ;;
+        slots) experiment_slots=3 ;;
+    esac
+    if QWEN_GRAFT_EXPERIMENT_SLOTS=$experiment_slots QWEN_CHAT_TOOLS=$experiment_tools \
+       QWEN_MODEL_REGISTRY=$experiment_registry QWEN_MODEL_ROOT=$temporary_directory \
+       QWEN_REQUIRE_API_KEY=$experiment_auth QWEN_BIND_HOST=$experiment_host \
+       QWEN_POLICY_TEST_OUTPUT=$output_path \
+       "$policy" "$fake_server" "$quarantine_model" "$experiment_context" 8080 "$script_directory/../webui" "$experiment_key" \
+       >"$temporary_directory/experiment-refusal.log" 2>&1; then
+        printf 'Graft experiment accepted refused surface: %s\n' "$refused_surface" >&2
+        exit 1
+    fi
+done
+
 printf 'qwen_capacity_policy=accepted\n'

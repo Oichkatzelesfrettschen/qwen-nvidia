@@ -1,0 +1,72 @@
+[
+  {
+    "id": "sys/arch/rp2040/dev/flash.c#dhara_nand_copy",
+    "span": "L374-L404",
+    "summary_state": "ready",
+    "summary": "Copies a page by reading from the source and programming to the destination, handling XIP disable.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/flash.c#flsize",
+    "span": "L549-L562",
+    "summary_state": "ready",
+    "summary": "Returns the size of a flash partition in DEV_BSIZE blocks.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/uart.c#uartclose",
+    "span": "L231-L243",
+    "summary_state": "ready",
+    "summary": "Closes a UART device by flushing output, closing the tty, and disabling the device.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/uart.h#uart_rx_ready",
+    "span": "L83-L87",
+    "summary_state": "ready",
+    "summary": "Checks whether the UART receive FIFO is non-empty (ready to read).",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/usb.c#usb_e15_critical",
+    "span": "L386-L392",
+    "summary_state": "ready",
+    "summary": "Checks if the E15 guard window (800\u2013998 \u00b5s) is active by comparing TIMERAWL to the last SOF.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/usb.c#usbgetc",
+    "span": "L1188-L1200",
+    "summary_state": "ready",
+    "summary": "Reads a character from the USB console by polling the RX ring and draining the buffer.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/dev/usb.h#usbopen",
+    "span": "L103-L103",
+    "summary_state": "ready",
+    "summary": "Opens a USB device, allocating a tty and configuring the endpoint.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/rp2040/exec_hsaout.c#exec_hsaout_text",
+    "span": "L222-L256",
+    "summary_state": "ready",
+    "summary": "Expands the packed text stream of an executable into a destination buffer for use by the swapper.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/rp2040/machdep.c#bzero",
+    "span": "L997-L1041",
+    "summary_state": "ready",
+    "summary": "Zero-fills a memory region in the kernel address space.",
+    "semantic_verdict": "requires_source_review"
+  },
+  {
+    "id": "sys/arch/rp2040/rp2040/machdep.c#swap_cursor_init",
+    "span": "L203-L227",
+    "summary_state": "ready",
+    "summary": "Initializes the swap cursor position in flash, handling cold boot rejection and bounded random sampling.",
+    "semantic_verdict": "requires_source_review"
+  }
+]

@@ -40,6 +40,7 @@ language's extractor.
 """
 
 import json
+from pathlib import Path
 import re
 import sys
 
@@ -66,7 +67,7 @@ def load_targets(graph_path, rel):
     The file node itself spans the whole file and describes no symbol, so it
     carries no target row and takes no part in the over-breadth test.
     """
-    graph = json.load(open(graph_path, encoding="utf-8"))
+    graph = json.loads(Path(graph_path).read_text(encoding="utf-8"))
     nodes = []
     for node in graph.get("nodes", []):
         if node.get("path") != rel or node.get("kind") == "file":
@@ -114,7 +115,7 @@ def write_targets(rows, out_path):
 
 def read_targets(path):
     rows = []
-    for line in open(path, encoding="utf-8").read().split("\n"):
+    for line in Path(path).read_text(encoding="utf-8").split("\n"):
         if not line.strip():
             continue
         field = line.split("\t")
@@ -134,7 +135,7 @@ def read_targets(path):
 def build_request(source_path, rel, rows, cap):
     """Mirror dist/ai/crux.js: one numbered file clipped at MAX_CODE_CHARS, then
     the target list by id with kind, line range and signature."""
-    src = open(source_path, encoding="utf-8", errors="replace").read()
+    src = Path(source_path).read_text(encoding="utf-8", errors="replace")
     if len(src) > MAX_CODE_CHARS:
         src = src[:MAX_CODE_CHARS] + "\n... (truncated)"
     numbered = "\n".join(f"{i + 1}\t{line}" for i, line in enumerate(src.split("\n")))
@@ -254,7 +255,7 @@ def check(answer_path, rows, model, rel, wall, status):
         return line(called, "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", outcome)
 
     try:
-        choice = json.load(open(answer_path, encoding="utf-8"))["choices"][0]
+        choice = json.loads(Path(answer_path).read_text(encoding="utf-8"))["choices"][0]
         message = choice["message"]
     except Exception:
         return refused("-", f"http_{status}")
@@ -339,7 +340,7 @@ def main(argv):
     elif command == "request":
         source_path, rel, targets_path, out_path, cap = argv[2:7]
         rows = read_targets(targets_path)
-        json.dump(build_request(source_path, rel, rows, cap), open(out_path, "w"))
+        Path(out_path).write_text(json.dumps(build_request(source_path, rel, rows, cap)), encoding="utf-8")
     elif command == "check":
         answer, targets_path, model, rel, wall, status = argv[2:8]
         print(check(answer, read_targets(targets_path), model, rel, wall, status))

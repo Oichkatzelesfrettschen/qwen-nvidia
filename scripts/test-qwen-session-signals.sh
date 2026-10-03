@@ -306,7 +306,12 @@ done
 MONITOR
 cat >"$fixture_scripts/watch-qwen-kernel-hazards.sh" <<'HAZARD'
 #!/bin/sh
-printf 'watch_ready_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$2"
+if [ -n "${QWEN_TEST_HAZARD_GATE:-}" ]; then
+    : > "$QWEN_TEST_HAZARD_GATE.entered"
+    while [ ! -f "$QWEN_TEST_HAZARD_GATE" ]; do sleep 0.01; done
+fi
+printf 'watch_start_utc=%s server_pid=%s guard_affinity=1\nwatch_ready_utc=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$2"
 trap 'exit 0' HUP INT TERM
 while :; do
     sleep 1
@@ -493,6 +498,31 @@ read_status_field() {
     sed -n '1p' "$1/session.status" | tr ' ' '\n' |
         sed -n "s/^$2=//p"
 }
+
+stale_guard_state=$temporary_directory/state-stale-kernel-guard
+mkdir -p "$stale_guard_state"
+printf 'watch_start_utc=fixture server_pid=1 guard_affinity=1\nwatch_ready_utc=fixture\n' \
+    >"$stale_guard_state/kernel-hazards.log"
+QWEN_TEST_HAZARD_GATE=$temporary_directory/kernel-guard-release
+export QWEN_TEST_HAZARD_GATE
+start_session "$stale_guard_state" 0
+wait_until test -f "$QWEN_TEST_HAZARD_GATE.entered"
+sleep 0.2
+if grep -q 'state=running ' "$stale_guard_state/session.status" 2>/dev/null; then
+    printf 'session admitted a stale kernel guard receipt\n' >&2
+    exit 1
+fi
+: > "$QWEN_TEST_HAZARD_GATE"
+wait_until grep -q 'state=running ' "$stale_guard_state/session.status"
+kill -TERM "$session_pid"
+wait "$session_pid" || stale_guard_status=$?
+[ "${stale_guard_status:-0}" -eq 143 ] || {
+    printf 'stale guard fixture terminated with status %s\n' "${stale_guard_status:-0}" >&2
+    exit 1
+}
+session_pid=''
+server_pid=''
+unset QWEN_TEST_HAZARD_GATE
 
 starting_state_directory=$temporary_directory/state-broker-starting
 start_session "$starting_state_directory" 1 5

@@ -1177,6 +1177,27 @@ case $serving_threads in
         ;;
 esac
 
+# Graft concurrency changes prefill composition, which can change greedy replies.
+# The authenticated loopback experiment bounds that geometry independently of
+# the single-slot interactive policy. Context denotes the total allocation.
+graft_experiment_slots=${QWEN_GRAFT_EXPERIMENT_SLOTS:-1}
+case $graft_experiment_slots in
+    1) ;;
+    2)
+        if [ "$router_enabled" != 0 ] || [ "$bind_host" != 127.0.0.1 ] || \
+           [ "$chat_tools" != on ] || [ "${QWEN_REQUIRE_API_KEY:-0}" != 1 ] || \
+           [ -z "$api_key_file" ] || [ "$context_size" -lt 32768 ]; then
+            printf 'Graft two-slot experiment requires authenticated loopback standalone tools and at least 32768 total context\n' >&2
+            exit 2
+        fi
+        ;;
+    *)
+        printf 'QWEN_GRAFT_EXPERIMENT_SLOTS must be 1 or 2: %s\n' \
+            "$graft_experiment_slots" >&2
+        exit 2
+        ;;
+esac
+
 set -- "$@" \
     --log-verbosity 4 \
     --device "$serving_device" \
@@ -1184,7 +1205,7 @@ set -- "$@" \
     --n-gpu-layers all \
     --override-tensor ".*=$serving_device" \
     --fit off \
-    --parallel 1 \
+    --parallel "$graft_experiment_slots" \
     --threads "$serving_threads" \
     --threads-batch "$serving_threads" \
     --ctx-checkpoints 0 \
