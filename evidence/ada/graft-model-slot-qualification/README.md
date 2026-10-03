@@ -313,8 +313,9 @@ package/probe provenance, while future arms record a whole-package runtime
 manifest digest, including imported files and symlink targets, and invoke the
 hashed system Node executable explicitly. Fixed arms
 force single-model serving and reject router argv. Nonce-bound teardown holds
-the lifecycle lock through control and residue proof, so replacement launches
-wait until retirement completes. The runner requires the matching nonce in
+the tmux socket/session lifecycle lock through control and residue proof, so
+replacement launches wait across different state-directory paths until
+retirement completes. The runner requires the matching nonce in
 the successful teardown receipt. Fixture mutations change an imported collector
 and a launch nonce; the replacement-start fixture verifies lock exclusion.
 

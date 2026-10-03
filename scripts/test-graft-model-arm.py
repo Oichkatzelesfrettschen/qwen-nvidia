@@ -93,6 +93,7 @@ class GraftArmTests(unittest.TestCase):
         command_record = self.output / "command.txt"
         environment.update(PATH=str(fake_bin) + os.pathsep + environment["PATH"],
                            FIXTURE_COMMAND=str(command_record),
+                           TMUX_TMPDIR=str(self.output),
                            QWEN_WEBUI_STATE_DIRECTORY=str(self.output / "state"))
         subprocess.run([str(SCRIPTS / "qwen-webui-control.sh"), "start"],
                        env=environment, capture_output=True, text=True, check=True)
@@ -333,6 +334,7 @@ class GraftArmTests(unittest.TestCase):
         environment = os.environ.copy()
         environment.update(PATH=str(fake_bin) + os.pathsep + environment["PATH"],
                            QWEN_WEBUI_STATE_DIRECTORY=str(state),
+                           TMUX_TMPDIR=str(self.output),
                            QWEN_SESSION_LIFECYCLE_FD="unowned", QWEN_TEARDOWN_EXPECTED_NONCE="fixture-nonce",
                            FIXTURE_NONCE="foreign-nonce", FIXTURE_BLOCK="0",
                            FIXTURE_ENTERED=str(entered), FIXTURE_RELEASE=str(release), FIXTURE_STARTED=str(started))
@@ -350,8 +352,11 @@ class GraftArmTests(unittest.TestCase):
             while not entered.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             self.assertTrue(entered.exists())
+            replacement_environment = environment | {
+                "QWEN_WEBUI_STATE_DIRECTORY": str(self.output / "replacement-state")}
             replacement = subprocess.Popen([str(SCRIPTS / "qwen-webui-control.sh"), "start"],
-                                           env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                           env=replacement_environment, stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True)
             time.sleep(0.2)
             self.assertIsNone(replacement.poll())
             self.assertFalse(started.exists())

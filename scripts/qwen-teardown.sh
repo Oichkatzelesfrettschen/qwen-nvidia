@@ -20,7 +20,9 @@ status_file=$state_directory/session.status
 # Replacement launches wait until teardown finishes all process and artifact
 # checks. The child control call shares this lock through its open description.
 mkdir -p "$state_directory"
-lifecycle_lock=$state_directory/session-lifecycle.lock
+lifecycle_directory=${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)
+(umask 077; mkdir -p "$lifecycle_directory")
+lifecycle_lock=$lifecycle_directory/qwen-runtime-qwen-webui.lifecycle.lock
 if [ "${QWEN_SESSION_LIFECYCLE_FD:-}" != 7 ] || \
    [ "$(stat -Lc '%d:%i' /proc/self/fd/7 2>/dev/null || true)" != \
      "$(stat -Lc '%d:%i' "$lifecycle_lock" 2>/dev/null || true)" ] || \
