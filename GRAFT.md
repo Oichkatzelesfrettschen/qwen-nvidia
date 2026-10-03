@@ -8,9 +8,9 @@ model to return structured records, including the named `record_symbols`
 function. Graft supplies repository context; an agent still decides and applies
 code changes through its separately authorized editing tools.
 
-The [local package recipe](https://github.com/Oichkatzelesfrettschen/PKGBUILDS/tree/4076a6cccf7ee7d190607e218ca7d2d167d233db/local/graft)
+The [local package recipe](https://github.com/Oichkatzelesfrettschen/PKGBUILDS/tree/766c0ae3e60e59f9852eb6a9d1b0c574a2c8431b/local/graft)
 lives in the PKGBUILDS repository at `local/graft`; the installed patched package
-is `graft 0.18.0-3`.
+is `graft 0.18.0-4`.
 It pins published 0.18.0 at `de8456e892bad5aeee11403e47fb2227773eb27e`.
 Upstream main advertised 0.19.0 during research, while npm's published release
 remained 0.18.0. The recipe repairs blank-summary retries, echoed target IDs,
@@ -18,6 +18,11 @@ and C pointer-declarator spans. The release 3 patch forwards `-j` to the
 concept worker pool as well as symbol enrichment, so a one-worker deep build
 has one model request in flight from either pass. Prototypes remain distinct
 nodes; same-name prototype/definition resolution remains an upstream limitation.
+Release 4 backports upstream #521/#522's stable synthesis batches, ordered
+merging, failure gating, and model/budget cache controls. The local synthesis
+default stays at one worker after the fixed pilot rejects geometry-dependent
+factual replies. The [deployment receipt](evidence/ada/graft-model-slot-qualification/backport-deployment.json)
+records the installed payload's identity against the guarded probe archive.
 
 ## Entry points and boundaries
 
