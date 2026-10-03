@@ -97,6 +97,9 @@ def output_is_owned(output, repository=SCRIPTS.parent):
 
 
 def fixed_environment(environment, options, nonce):
+    for name in list(environment):
+        if name.startswith(("QWEN_SPEC_", "QWEN_DRAFT_")):
+            environment.pop(name)
     environment.update(
         QWEN_MODEL_PATH=str(options.model.resolve()), QWEN_CHAT_TOOLS="on",
         QWEN_CHAT_REASONING=options.reasoning, QWEN_CHAT_REASONING_BUDGET="512",
@@ -104,6 +107,7 @@ def fixed_environment(environment, options, nonce):
         QWEN_GRAFT_EXPERIMENT_SLOTS=str(options.slots), QWEN_BIND_HOST="127.0.0.1",
         QWEN_LAUNCH_ATTEMPT_NONCE=nonce, QWEN_MMPROJ="",
         QWEN_BATCH_SIZE="128", QWEN_UBATCH_SIZE="32", QWEN_SERVING_THREADS="6",
+        QWEN_BACKEND_SAMPLING="0", QWEN_SPEC_TYPE="",
     )
 
 
@@ -118,6 +122,39 @@ def validate_server_argv(argv, options):
         raise RuntimeError("live server omitted --jinja")
     if any(argument == "--mmproj" or argument.startswith("--mmproj=") for argument in argv):
         raise RuntimeError("text-only arm loaded a projector")
+    if any(argument.startswith(("--spec-", "--draft", "--model-draft"))
+           or argument.split("=", 1)[0] in ("-md", "--backend-sampling") for argument in argv):
+        raise RuntimeError("fixed arm loaded speculative decoding or backend sampling")
+
+
+def validate_geometry(slots, context):
+    if slots not in (1, 2) or context != 16384 * slots:
+        raise ValueError("fixed geometry requires 16384 context per slot: 16384 or 32768 total")
+
+
+def graft_identity(executable):
+    resolved = executable.resolve(strict=True)
+    if resolved.name != "cli.js" or resolved.parent.name != "dist":
+        raise ValueError("Graft executable must resolve to the npm package dist/cli.js")
+    package_root = resolved.parent.parent
+    package_metadata = package_root / "package.json"
+    package = json.loads(package_metadata.read_text())
+    if package.get("name") != "@nanonets/graft" or not package.get("version"):
+        raise ValueError("Graft package metadata identity mismatch")
+    return {"executable": str(executable.absolute()), "resolved_executable": str(resolved),
+            "executable_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+            "package_root": str(package_root), "package_name": package["name"],
+            "package_version": package["version"],
+            "package_metadata_sha256": hashlib.sha256(package_metadata.read_bytes()).hexdigest()}
+
+
+def finalize_completion(metadata, session_owned):
+    if metadata.get("state") != "completed":
+        return
+    if not session_owned:
+        metadata.update(state="void", completion_error="final session ownership lost")
+    elif metadata.get("teardown_status") != 0:
+        metadata.update(state="failed", completion_error="successful owned teardown receipt required")
 
 
 def completion_state(deep_status, session_owned):
@@ -291,9 +328,14 @@ def main():
     parser.add_argument("--context", type=int, default=16384)
     parser.add_argument("--deadline", type=int, default=1200)
     parser.add_argument("--scope", choices=list(SCOPE_DENOMINATORS), default="pilot")
+    parser.add_argument("--graft-executable", type=Path, default=Path("/usr/bin/graft"))
     options = parser.parse_args()
-    if options.context < 16384 * options.slots or options.deadline < 1:
-        parser.error("each slot requires at least 16384 context and a positive deadline")
+    try:
+        validate_geometry(options.slots, options.context)
+    except ValueError as error:
+        parser.error(str(error))
+    if options.deadline < 1:
+        parser.error("arm deadline must be positive")
     if not options.model.is_file() or not options.source.is_dir():
         parser.error("source directory and verified model file must exist")
     if not output_is_owned(options.output):
@@ -322,7 +364,11 @@ def main():
     sampler = proxy = executor = None
     capture = None
     try:
-        if run_command(["graft", "--dir", str(options.output / "graph"), "build", str(options.source)],
+        client = graft_identity(options.graft_executable)
+        metadata["graft_identity"] = client
+        write_json(options.output / "graft-identity.json", client)
+        executable = client["resolved_executable"]
+        if run_command([executable, "--dir", str(options.output / "graph"), "build", str(options.source)],
                        options.output / "structural.log", environment, 60) != 0:
             raise RuntimeError("bounded structural build failed")
         graph = options.output / "graph" / ".graph" / "wiring.json"
@@ -378,7 +424,9 @@ def main():
         environment.update(GRAFT_PROVIDER="openai", GRAFT_MODEL="qwen-nvidia", GRAFT_API_KEY=key,
                            GRAFT_BASE_URL=f"http://127.0.0.1:{proxy.server_port}/v1", GRAFT_NO_IGNORE="1")
         started = time.monotonic()
-        status = run_command(["graft", "--dir", str(options.output / "graph"), "build", "--deep",
+        if graft_identity(options.graft_executable) != client:
+            raise RuntimeError("Graft client identity changed after structural admission")
+        status = run_command([executable, "--dir", str(options.output / "graph"), "build", "--deep",
                               "--allow-partial", "-j", str(options.slots), str(options.source)],
                              options.output / "deep.log", environment, options.deadline)
         elapsed = time.monotonic() - started
@@ -430,6 +478,7 @@ def main():
             if source.exists() and metadata.get("teardown_status") is not None:
                 (options.output / name).write_bytes(source.read_bytes())
         classify_guards(metadata, options.output)
+        finalize_completion(metadata, session_owned)
         write_json(options.output / "arm.json", metadata)
     if metadata["state"] != "completed":
         raise SystemExit(1)

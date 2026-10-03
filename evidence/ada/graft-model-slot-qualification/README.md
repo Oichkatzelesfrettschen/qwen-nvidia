@@ -299,6 +299,18 @@ artifact paths, stale projector values, nonzero exits and source text containing
 the ordinary word `truncated`. Clipping matches the terminal marker exactly.
 The changes strengthen future admission; original raw receipts remain immutable.
 
+The final admission review adds exact 16384/32768 context pairing, explicit
+speculation isolation across tmux, speculative/backend-sampling argv refusal,
+an absolute Graft executable with resolved npm package and digest attribution,
+and final owned-teardown admission. Fourteen harness tests calibrate those
+boundaries. Each measured arm now publishes its retained device-environment
+receipt: driver/module 615.71.09, CUDA driver/toolkit 13.4, and kernel
+7.2.5-1-cachyos. These receipts come from the original arms rather than a new
+device probe. `retained-runtime-identity-review.json` separately reviews the
+original argv, registered geometry and successful teardown. Historical arms
+predate per-arm Graft executable hashing; package attribution uses the retained
+package/probe provenance, while future arms record the client digest directly.
+
 ## Packaged backport validation
 
 PKGBUILDS PR #47 backports the two upstream proposals onto the pinned source

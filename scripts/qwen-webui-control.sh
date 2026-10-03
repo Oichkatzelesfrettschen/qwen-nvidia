@@ -178,6 +178,9 @@ case $action in
             forwarded_environment="$forwarded_environment QWEN_MMPROJ=''"
         fi
         if [ "${QWEN_ROUTER:-0}" != 1 ]; then
+            if [ "${QWEN_SPEC_TYPE+x}" = x ] && [ -z "$QWEN_SPEC_TYPE" ]; then
+                forwarded_environment="$forwarded_environment QWEN_SPEC_TYPE=''"
+            fi
             for forwarded_name in QWEN_SPEC_TYPE QWEN_SPEC_DRAFT_N_MAX \
                                   QWEN_SPEC_DRAFT_P_MIN \
                                   QWEN_SPEC_BACKEND_SAMPLING; do

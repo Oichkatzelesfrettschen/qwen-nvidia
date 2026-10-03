@@ -88,7 +88,7 @@ class GraftArmTests(unittest.TestCase):
         expected = {"QWEN_CHAT_TOOLS": "on", "QWEN_CHAT_REASONING": "off",
                     "QWEN_CHAT_REASONING_BUDGET": "512", "QWEN_GRAFT_EXPERIMENT_SLOTS": "2",
                     "QWEN_BATCH_SIZE": "128", "QWEN_UBATCH_SIZE": "32",
-                    "QWEN_MMPROJ": ""}
+                    "QWEN_MMPROJ": "", "QWEN_SPEC_TYPE": ""}
         environment.update(expected)
         command_record = self.output / "command.txt"
         environment.update(PATH=str(fake_bin) + os.pathsep + environment["PATH"],
@@ -212,6 +212,63 @@ class GraftArmTests(unittest.TestCase):
         for projector in [["--mmproj", "foreign.gguf"], ["--mmproj=foreign.gguf"]]:
             with self.assertRaises(RuntimeError):
                 ARM.validate_server_argv(argv + projector, options)
+
+    def test_fixed_arms_clear_and_reject_speculation(self):
+        options = SimpleNamespace(model=self.output / "model.gguf", reasoning="off",
+                                  context=16384, slots=1)
+        environment = {"QWEN_SPEC_TYPE": "draft-mtp", "QWEN_SPEC_DRAFT_N_MAX": "4",
+                       "QWEN_SPEC_DRAFT_P_MIN": "0.5", "QWEN_SPEC_BACKEND_SAMPLING": "1",
+                       "QWEN_DRAFT_MODEL": "foreign.gguf", "QWEN_BACKEND_SAMPLING": "1"}
+        ARM.fixed_environment(environment, options, "fixture-nonce")
+        self.assertEqual(environment.pop("QWEN_SPEC_TYPE"), "")
+        self.assertFalse(any(name.startswith(("QWEN_SPEC_", "QWEN_DRAFT_")) for name in environment))
+        self.assertEqual(environment["QWEN_BACKEND_SAMPLING"], "0")
+        argv = ["server", "--parallel", "1", "--reasoning", "off", "--ctx-size", "16384",
+                "--device", "CUDA0", "--batch-size", "128", "--ubatch-size", "32",
+                "--threads", "6", "--threads-batch", "6", "--jinja"]
+        ARM.validate_server_argv(argv, options)
+        for flags in (["--spec-type", "draft-mtp"], ["--spec-type=draft-mtp"],
+                      ["--spec-draft-n-max", "4"], ["--model-draft=foreign.gguf"],
+                      ["-md", "foreign.gguf"], ["--backend-sampling"]):
+            with self.assertRaises(RuntimeError):
+                ARM.validate_server_argv(argv + flags, options)
+
+    def test_geometry_matches_exact_campaign_pairs(self):
+        for slots, context in ((1, 16384), (2, 32768)):
+            ARM.validate_geometry(slots, context)
+        for slots, context in ((1, 32768), (2, 32769), (2, 32767), (1, 16385), (3, 49152)):
+            with self.assertRaises(ValueError):
+                ARM.validate_geometry(slots, context)
+
+    def test_final_admission_requires_owned_successful_teardown(self):
+        for owned, status, expected in ((True, 0, "completed"), (False, 0, "void"),
+                                        (True, None, "failed"), (True, 1, "failed")):
+            metadata = {"state": "completed", "teardown_status": status}
+            ARM.finalize_completion(metadata, owned)
+            self.assertEqual(metadata["state"], expected)
+        metadata = {"state": "failed", "error": "primary failure"}
+        ARM.finalize_completion(metadata, False)
+        self.assertEqual(metadata, {"state": "failed", "error": "primary failure"})
+
+    def test_graft_client_identity_records_resolved_package_and_detects_change(self):
+        package_root = self.output / "package"
+        (package_root / "dist").mkdir(parents=True)
+        executable = package_root / "dist/cli.js"
+        executable.write_text("fixture client")
+        ARM.write_json(package_root / "package.json", {"name": "@nanonets/graft", "version": "0.18.0"})
+        launcher = self.output / "graft"
+        launcher.symlink_to(executable)
+        identity = ARM.graft_identity(launcher)
+        self.assertEqual(identity["resolved_executable"], str(executable))
+        self.assertEqual(identity["package_name"], "@nanonets/graft")
+        self.assertEqual(identity["package_version"], "0.18.0")
+        executable.write_text("modified client")
+        self.assertNotEqual(ARM.graft_identity(launcher), identity)
+        with self.assertRaises(ValueError):
+            ARM.graft_identity(package_root / "package.json")
+        ARM.write_json(package_root / "package.json", {"name": "foreign", "version": "0.18.0"})
+        with self.assertRaises(ValueError):
+            ARM.graft_identity(launcher)
 
     def test_output_requires_the_actual_repository_artifact_root(self):
         self.assertTrue(ARM.output_is_owned(self.output))
