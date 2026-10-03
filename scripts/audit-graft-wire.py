@@ -95,7 +95,10 @@ def main():
             response = {}
         result = audit_request(request, response, graph)
         if result is not None:
-            rows.append({"request_id": record["request_id"], "status": record["status"], **result})
+            rows.append({"request_id": record["request_id"],
+                         "status": record.get("status", "capture_incomplete"),
+                         "capture_complete": "status" in record and "ended" in record,
+                         **result})
     options.output.write_text(json.dumps(rows, indent=2) + "\n")
 
 

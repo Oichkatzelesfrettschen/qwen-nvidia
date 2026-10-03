@@ -1,12 +1,13 @@
 # Graft model and slot qualification
 
-Status: harness calibrated; fresh device comparison is running with authenticated
-kernel-reader access. Model and geometry selection remain pending.
+Status: bounded device comparison complete; the selection retains the incumbent
+and single-slot serving. Backport integration remains pending.
 
 The experiment separates hidden reasoning cost, checkpoint behavior, and slot
 geometry. Structural Graft remains the interactive default. Deep arms use fresh
 bounded graphs; the existing whole-tree cache remains outside the experiment.
-PRs trailhq/Graft#521 and #522 remain deferred until model and geometry selection.
+`selection.md` records the decision that admits backport work on
+trailhq/Graft#521 and #522 with a local synthesis-concurrency default of one.
 
 ## Fixed inputs
 
@@ -115,7 +116,8 @@ definitions whose extractor references remain gradeable. The audit changes
 neither the served prompt nor the existing containment verdict. Whole-definition
 selection violates the prompt's focal-span instruction; eight lines is a
 reporting threshold for the approximate preference rather than a schema limit.
-Two offline calibration tests run with Python warnings treated as errors.
+Three offline calibration tests run with Python warnings treated as errors,
+including an interrupted capture whose status remains explicitly incomplete.
 
 The first healthy incumbent-off pilot supplies complete requested extractor
 spans for 181 symbols, partial spans for three, and target metadata without
@@ -200,4 +202,76 @@ Every pilot node's summary, crux, and summary state matches across 265 nodes,
 including the two pending file records. The contract matches across all ten
 nodes. All 48 pilot and seven contract request/response-message payloads match
 after excluding response IDs and timing metadata. The identical pilot sample
-permits source-review reuse. Granite comparison remains pending.
+permits source-review reuse. Granite's full-pilot tuple fails qualification as
+recorded below.
+
+Representative arms retain sanitized live server argv, loaded-closure hashes,
+session status, and owned teardown receipts. `kernel-guard-readiness.log` is
+explicitly a readiness-only publication view. Full kernel events remain in the
+owning local artifact area because the monitor also captures unrelated device
+identifiers. The readiness view establishes reader admission rather than the
+absence of hazards; arm health classification reads the retained full guard and
+telemetry logs. Publication filtering changes neither runtime guards nor raw
+measurement records.
+
+## Granite refusal and diagnostic rescope
+
+Granite 4.0 Micro BF16 exceeds the registered 1200-second full-pilot deadline
+with 111 symbols ready and 132 pending. Forty-three HTTP captures finish with
+status 200; request 43 remains incomplete when cancellation closes the arm.
+USB, `machdep.c`, and `swapram.c` attempts reach the context/output limit after
+long plain-prose responses without parsed tool calls. The USB repeats generate
+7801 tokens each and report `finish_reason=length`. The failed arm supplies
+partial contract and source-coverage evidence, not a comparable requests/s rate.
+
+The retirement helper drains admission, then escalates when the server exceeds
+the 10-second TERM bound. Forced retirement returns status 1 and invalidates the
+arm. The later observations establish absence of the four recorded session,
+server, monitor, and kernel-reader PIDs and the port-8080 listener; the GPU
+process query contains four desktop applications. The full drain/retirement
+receipts remain retained. Current absence does not retroactively establish
+orderly retirement. The full-pilot repeat remains unrun after that refusal.
+
+Two independent short-contract arms discriminate the refusal from general tool
+support. Both complete in about 43.4 seconds with orderly teardown. Each passes
+`flash_swap.c` ID/containment grading but invents IDs instead of the requested
+IDs for `sig_machdep.c` and `kern_mman.c`. The comparison therefore refuses
+Granite promotion on exact contract/completeness evidence as well as the full
+pilot's deadline and retirement failure. The failed pilot's four missing
+fixed-sample summaries fail source coverage; their factual verdict is withheld.
+
+The two-slot experiment measures the retained incumbent and the strongest
+sampled candidate, Qwen3.5-4B, diagnostically even though their one-slot contract
+residuals block promotion. Each gets two fresh 32768-total-context pilot arms
+with `graft -j 2`. Every promotion gate remains in force. The diagnostic rescope
+does not replace a failed model result with a successful fixture or weaken a
+runtime guard. `selection.md` records the resulting single-slot decision.
+
+## Two-slot results
+
+Both incumbent arms complete all 243 symbols and 22 file records with 45 HTTP
+responses. The mean deep window is 210.502 seconds, 22.4% shorter than the
+one-slot off mean, with about 0.214 completed requests/s. The first source sample
+supports nine summaries and contradicts one; the second supports eight and
+contradicts two. The second `swap_cursor_init` summary invents a free-sector
+search. Across 265 nodes, 166 summaries and 254 cruxes match; 30 request-matched
+reply messages match. Faster execution therefore refuses semantic promotion.
+
+Both Qwen3.5 arms complete all 243 symbols while leaving the `fault.c` and
+`mpu.c` file records pending. The windows are 253.090 and 256.056 seconds,
+about 0.189 completed requests/s. The samples support seven summaries each;
+the first contradicts one and leaves two unsupported, while the second
+contradicts two and leaves one unsupported. `usbgetc` changes from vague ring
+draining to explicitly false transmit-ring draining. Across 265 nodes, 204
+summaries and 240 cruxes match; 38 of 48 request-matched replies match.
+The whole-definition counts rise from two in the one-slot Qwen3.5 pilots to
+37 in each two-slot pilot. Geometry affects reply content and focal selection.
+
+All four completed two-slot arms report successful owned teardown. Their full
+private telemetry and session receipts carry the healthy execution classification;
+the published readiness-only views establish kernel-reader admission. The
+experiment leaves guard thresholds unchanged and records desktop latency as
+unmeasured. Granite's failed retirement remains a separate failed receipt.
+The short Granite contracts reproduce every graph field and all seven replies,
+including their two exact-ID failures. Ready-node counts reflect Graft's
+normalization and coexist with those wire failures.

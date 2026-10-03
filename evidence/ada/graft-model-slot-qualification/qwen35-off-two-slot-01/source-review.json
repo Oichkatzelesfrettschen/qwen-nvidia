@@ -1,0 +1,83 @@
+{
+  "arm": "qwen35-off-two-slot-01",
+  "source_revision": "0c85040e3bda01913d687fca538b3fa49f6af82b",
+  "rubric_commit": "3dd0c59",
+  "review_class": "manual source conformance; not board evidence",
+  "supported_symbols": 7,
+  "contradicted_symbols": 1,
+  "unsupported_symbols": 2,
+  "withheld_symbols": 0,
+  "rows": [
+    {
+      "symbol": "dev/flash.c#dhara_nand_copy",
+      "summary": "Copies a flash page by reading from source and programming to destination.",
+      "verdict": "supported",
+      "witness": "flash.c L374-L404 copies through scratch; flash_program handles XIP transitions"
+    },
+    {
+      "symbol": "dev/flash.c#flsize",
+      "summary": "Returns the size of a flash drive partition in DEV_BSIZE blocks.",
+      "verdict": "supported",
+      "witness": "flash.c L549-L562 returns sector count shifted once; machparam.h defines DEV_BSIZE=1024"
+    },
+    {
+      "symbol": "dev/uart.c#uartclose",
+      "summary": "Closes a UART device by flushing output and closing the tty structure.",
+      "verdict": "supported",
+      "witness": "uart.c L231-L243 calls ttywflush and ttyclose; tty.c drains output and clears queues/state; conf.c binds UART d_stop to nullstop"
+    },
+    {
+      "symbol": "dev/uart.h#uart_rx_ready",
+      "summary": "Checks if the UART receive FIFO is not empty by reading the FR register.",
+      "verdict": "supported",
+      "witness": "uart.h L83-L87 tests FIFO-empty bit clear"
+    },
+    {
+      "symbol": "dev/usb.c#usb_e15_critical",
+      "summary": "Checks if the current microsecond timer value falls within the critical window for E15 guard bulk IN transfers.",
+      "verdict": "supported",
+      "witness": "usb.c L386-L392 checks inclusive 800..998 elapsed since SOF",
+      "qualification": "The timer-window wording denotes the SOF phase delta; the implementation subtracts usb_sof_us before testing 800..998."
+    },
+    {
+      "symbol": "dev/usb.c#usbgetc",
+      "summary": "Reads a character from the USB device, draining the ring as needed.",
+      "verdict": "unsupported",
+      "witness": "usb.c L1188-L1200 consumes exactly one ring byte; broad draining claim has no witness",
+      "unsupported_claims": [
+        "drains the ring as needed beyond consuming one byte"
+      ]
+    },
+    {
+      "symbol": "dev/usb.h#usbopen",
+      "summary": "Opens a USB device file and allocates a tty structure for it.",
+      "verdict": "contradicted",
+      "witness": "usb.h L103 is a prototype; usb.c L1030-L1063 selects static usbttys[0], configures tty state, and calls ttyopen",
+      "contradicted_claims": [
+        "allocates a tty structure"
+      ]
+    },
+    {
+      "symbol": "rp2040/exec_hsaout.c#exec_hsaout_text",
+      "summary": "Expands the text stream of a packed executable into a destination buffer for swapin operations.",
+      "verdict": "supported",
+      "witness": "exec_hsaout.c L222-L256 expands packed text for swapin; omitted length/CRC checks are not false claims"
+    },
+    {
+      "symbol": "rp2040/machdep.c#bzero",
+      "summary": "Zero-fills a block of memory.",
+      "verdict": "supported",
+      "witness": "machdep.c L997-L1041 clears the supplied memory region; kernel context is usage, not an enforced address restriction"
+    },
+    {
+      "symbol": "rp2040/machdep.c#swap_cursor_init",
+      "summary": "Initializes the swap cursor position using a random sample from the ROSC to avoid collisions.",
+      "verdict": "unsupported",
+      "witness": "machdep.c L203-L244 selects a flash-swap position with bounded rejection and watchdog scratch publication",
+      "unsupported_claims": [
+        "randomization avoids collisions"
+      ]
+    }
+  ],
+  "promotion": "refused: fixed-source contradictions; diagnostic geometry only"
+}

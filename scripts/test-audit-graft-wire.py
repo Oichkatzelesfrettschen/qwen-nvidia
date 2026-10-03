@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 
 
 SPECIFICATION = importlib.util.spec_from_file_location(
@@ -47,6 +49,28 @@ class WireAuditTests(unittest.TestCase):
 
     def test_non_symbol_request_is_separate(self):
         self.assertIsNone(AUDIT.audit_request({"messages": []}, {}, Path("unused")))
+
+    def test_interrupted_capture_stays_incomplete(self):
+        request = {
+            "tool_choice": {"type": "function", "function": {"name": "record_symbols"}},
+            "messages": [{"content": "FILE: a.c\n\n1\tint f(void);\n\nTARGETS (1):\n"
+                          "- id=a.c#f | function | lines L1-L1"}],
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            arm = Path(temporary_directory)
+            (arm / "graph/.graph").mkdir(parents=True)
+            (arm / "graph/.graph/wiring.json").write_text(json.dumps({"nodes": [{
+                "id": "a.c#f", "path": "a.c", "kind": "function", "span": "L1-L1",
+                "signature": "int f(void);"}]}))
+            (arm / "requests.json").write_text(json.dumps([{"request_id": 0, "started": 1.0}]))
+            (arm / "wire-0000.request.json").write_text(json.dumps(request))
+            output = arm / "audit.json"
+            subprocess.run([sys.executable, str(Path(__file__).with_name("audit-graft-wire.py")),
+                            str(arm), str(output)], check=True, capture_output=True)
+            result = json.loads(output.read_text())[0]
+        self.assertEqual(result["status"], "capture_incomplete")
+        self.assertFalse(result["capture_complete"])
+        self.assertEqual(result["tool_call_count"], 0)
 
 
 if __name__ == "__main__":
