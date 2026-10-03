@@ -232,10 +232,10 @@ case $action in
         if [ -n "${QWEN_LAUNCH_ATTEMPT_NONCE:-}" ]; then
             tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
                 -e "QWEN_LAUNCH_ATTEMPT_NONCE=$QWEN_LAUNCH_ATTEMPT_NONCE" \
-                "$session_command"
+                "$session_command" 7>&-
         else
             tmux -L "$tmux_socket" new-session -d -s "$tmux_session" \
-                "$session_command"
+                "$session_command" 7>&-
         fi
         printf 'started tmux_socket=%s tmux_session=%s profile=%s host=%s port=%s context=%s latency_mode=%s model=%s server=%s\n' \
             "$tmux_socket" "$tmux_session" "$profile" "$bind_host" \

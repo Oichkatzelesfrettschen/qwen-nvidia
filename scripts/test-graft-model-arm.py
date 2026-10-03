@@ -80,6 +80,7 @@ class GraftArmTests(unittest.TestCase):
         fake_tmux.write_text(
             "#!/bin/sh\nset -eu\n"
             "case \" $* \" in *' has-session '*) exit 1;; esac\n"
+            "if [ -e /proc/self/fd/7 ]; then exit 88; fi\n"
             "for argument do final_argument=$argument; done\n"
             "printf '%s\\n' \"$final_argument\" > \"$FIXTURE_COMMAND\"\n"
         )
@@ -323,7 +324,7 @@ class GraftArmTests(unittest.TestCase):
         fake_tmux.write_text("#!/bin/sh\nset -eu\ncase \" $* \" in\n"
                              " *' show-environment '*) printf 'QWEN_LAUNCH_ATTEMPT_NONCE=%s\\n' \"$FIXTURE_NONCE\";;\n"
                              " *' has-session '*) exit 1;;\n"
-                             " *' new-session '*) : > \"$FIXTURE_STARTED\";;\n"
+                             " *' new-session '*) [ ! -e /proc/self/fd/7 ]; : > \"$FIXTURE_STARTED\";;\n"
                              " *) exit 1;;\nesac\n")
         fake_tmux.chmod(0o700)
         entered, release, started = [self.output / name for name in ("entered", "release", "started")]
