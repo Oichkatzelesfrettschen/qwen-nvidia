@@ -194,20 +194,30 @@ cleanup() {
         server_start_time=""
     fi
     cleanup_residue=0
+    # A child can disappear after either successful or empty identity reads.
+    child_disappeared_during_identity_read() {
+        [ ! -e "/proc/$3/stat" ] && ! kill -0 "$3" 2>/dev/null &&
+            { [ -z "$1" ] || [ "$1" = "$2" ]; }
+    }
     stop_owned_child() {
         child_pid=$1
         child_name=$2
         child_start_time=$3
         [ -n "$child_pid" ] || return 0
+        live_child_start=''
         if [ -r "/proc/$child_pid/stat" ]; then
             live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" | awk '{ print $20 }')
-            if [ -z "$child_start_time" ] || [ "$live_child_start" != "$child_start_time" ]; then
-                cleanup_residue=1
-                printf 'cleanup_identity_mismatch component=%s pid=%s recorded_start=%s live_start=%s\n' \
-                    "$child_name" "$child_pid" "${child_start_time:-unrecorded}" "$live_child_start" >>"$drain_record"
-                return 0
-            fi
-        else
+        fi
+        if child_disappeared_during_identity_read \
+            "$live_child_start" "$child_start_time" "$child_pid"; then
+            wait "$child_pid" 2>/dev/null || true
+            return 0
+        fi
+        if [ ! -r "/proc/$child_pid/stat" ] || [ -z "$child_start_time" ] ||
+           [ "$live_child_start" != "$child_start_time" ]; then
+            cleanup_residue=1
+            printf 'cleanup_identity_mismatch component=%s pid=%s recorded_start=%s live_start=%s\n' \
+                "$child_name" "$child_pid" "${child_start_time:-unrecorded}" "${live_child_start:-unreadable}" >>"$drain_record"
             return 0
         fi
         kill -TERM "$child_pid" 2>/dev/null || true
@@ -218,6 +228,11 @@ cleanup() {
         done
         if process_running "$child_pid"; then
             live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" 2>/dev/null | awk '{ print $20 }')
+            if child_disappeared_during_identity_read \
+                "$live_child_start" "$child_start_time" "$child_pid"; then
+                wait "$child_pid" 2>/dev/null || true
+                return 0
+            fi
             if [ "$live_child_start" != "$child_start_time" ]; then
                 cleanup_residue=1
                 printf 'cleanup_identity_mismatch component=%s pid=%s recorded_start=%s live_start=%s\n' \
