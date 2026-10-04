@@ -788,6 +788,97 @@ kill -TERM "$identity_monitor_pid" 2>/dev/null || true
 cp "$temporary_directory/qwen-webui-session.identity-control.sh" \
     "$fixture_scripts/qwen-webui-session.sh"
 
+# A child can exit after its proc entry passes the readability check but
+# before its start time is read. The session must record the child as exited
+# after verifying that the recorded pid has disappeared.
+cp "$fixture_scripts/qwen-webui-session.sh" \
+    "$temporary_directory/qwen-webui-session.proc-exit-control.sh"
+python3 - "$fixture_scripts/qwen-webui-session.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+identity_read = "live_child_start=$(sed 's/^.*) //' \"/proc/$child_pid/stat\" | awk '{ print $20 }')"
+if source.count(identity_read) != 1:
+    raise SystemExit("initial child identity read was not unique")
+replacement = """if [ "$child_name" = kernel_hazard_watchdog ]; then
+    kill -TERM "$child_pid" 2>/dev/null || true
+    wait "$child_pid" 2>/dev/null || true
+    live_child_start=''
+else
+    live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" | awk '{ print $20 }')
+fi"""
+source = source.replace(identity_read, replacement)
+path.write_text(source)
+PYTHON
+process_exit_state_directory=$temporary_directory/state-session-child-exit-race
+start_ready_session "$process_exit_state_directory" 0
+process_exit_watchdog_pid=$(read_status_field "$process_exit_state_directory" \
+    kernel_hazard_watchdog_pid)
+kill -TERM "$session_pid"
+set +e
+wait "$session_pid"
+process_exit_status=$?
+set -e
+session_pid=''
+server_pid=''
+if [ "$process_exit_status" -ne 143 ] || \
+   grep -q "^cleanup_identity_mismatch component=kernel_hazard_watchdog pid=$process_exit_watchdog_pid " \
+       "$process_exit_state_directory/session-drain.record"; then
+    printf 'session rejected a child that exited during identity inspection\n' >&2
+    cat "$process_exit_state_directory/session-drain.record" >&2
+    exit 1
+fi
+cp "$temporary_directory/qwen-webui-session.proc-exit-control.sh" \
+    "$fixture_scripts/qwen-webui-session.sh"
+
+# A child can also exit between the bounded wait and its second identity read.
+# Cleanup must accept that exit without weakening the live-pid mismatch check.
+cp "$fixture_scripts/qwen-webui-session.sh" \
+    "$temporary_directory/qwen-webui-session.post-term-exit-control.sh"
+python3 - "$fixture_scripts/qwen-webui-session.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+identity_read = "live_child_start=$(sed 's/^.*) //' \"/proc/$child_pid/stat\" 2>/dev/null | awk '{ print $20 }')"
+if source.count(identity_read) != 1:
+    raise SystemExit("post-TERM child identity read was not unique")
+replacement = """kill -KILL \"$child_pid\" 2>/dev/null || true
+wait \"$child_pid\" 2>/dev/null || true
+live_child_start=''"""
+source = source.replace(identity_read, replacement)
+source = source.replace('[ "$child_waited_ms" -lt 10000 ]',
+                        '[ "$child_waited_ms" -lt 50 ]')
+path.write_text(source)
+PYTHON
+post_term_exit_state_directory=$temporary_directory/state-session-post-term-child-exit-race
+post_term_exit_marker=$temporary_directory/monitor-post-term-exit.term
+QWEN_TEST_MONITOR_TERM_MARKER=$post_term_exit_marker
+export QWEN_TEST_MONITOR_TERM_MARKER
+start_ready_session "$post_term_exit_state_directory" 0
+post_term_exit_monitor_pid=$(read_status_field "$post_term_exit_state_directory" monitor_pid)
+kill -TERM "$session_pid"
+set +e
+wait "$session_pid"
+post_term_exit_status=$?
+set -e
+session_pid=''
+server_pid=''
+unset QWEN_TEST_MONITOR_TERM_MARKER
+if [ "$post_term_exit_status" -ne 143 ] || \
+   kill -0 "$post_term_exit_monitor_pid" 2>/dev/null || \
+   grep -q "^cleanup_identity_mismatch component=monitor pid=$post_term_exit_monitor_pid " \
+       "$post_term_exit_state_directory/session-drain.record"; then
+    printf 'session rejected a child that exited during post-TERM identity inspection\n' >&2
+    cat "$post_term_exit_state_directory/session-drain.record" >&2
+    exit 1
+fi
+cp "$temporary_directory/qwen-webui-session.post-term-exit-control.sh" \
+    "$fixture_scripts/qwen-webui-session.sh"
+
 # The monitor acknowledges TERM but remains alive. A disposable session copy
 # shortens the wait bound and makes the second identity read represent a PID
 # reused after TERM. The session must withhold KILL and reject orderly cleanup.
