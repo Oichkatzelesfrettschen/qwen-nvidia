@@ -194,10 +194,10 @@ cleanup() {
         server_start_time=""
     fi
     cleanup_residue=0
-    # A child can disappear after procfs opens and before its start time is read.
+    # A child can disappear after either successful or empty identity reads.
     child_disappeared_during_identity_read() {
-        [ -z "$1" ] && [ ! -e "/proc/$2/stat" ] &&
-            ! kill -0 "$2" 2>/dev/null
+        [ ! -e "/proc/$3/stat" ] && ! kill -0 "$3" 2>/dev/null &&
+            { [ -z "$1" ] || [ "$1" = "$2" ]; }
     }
     stop_owned_child() {
         child_pid=$1
@@ -208,7 +208,8 @@ cleanup() {
         if [ -r "/proc/$child_pid/stat" ]; then
             live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" | awk '{ print $20 }')
         fi
-        if child_disappeared_during_identity_read "$live_child_start" "$child_pid"; then
+        if child_disappeared_during_identity_read \
+            "$live_child_start" "$child_start_time" "$child_pid"; then
             wait "$child_pid" 2>/dev/null || true
             return 0
         fi
@@ -227,7 +228,8 @@ cleanup() {
         done
         if process_running "$child_pid"; then
             live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" 2>/dev/null | awk '{ print $20 }')
-            if child_disappeared_during_identity_read "$live_child_start" "$child_pid"; then
+            if child_disappeared_during_identity_read \
+                "$live_child_start" "$child_start_time" "$child_pid"; then
                 wait "$child_pid" 2>/dev/null || true
                 return 0
             fi

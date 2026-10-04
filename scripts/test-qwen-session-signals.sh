@@ -833,6 +833,49 @@ fi
 cp "$temporary_directory/qwen-webui-session.proc-exit-control.sh" \
     "$fixture_scripts/qwen-webui-session.sh"
 
+# A child can exit after the identity read returns its recorded start time but
+# before cleanup checks procfs again. The exit remains orderly only when both
+# procfs and signal liveness confirm that the pid has disappeared.
+cp "$fixture_scripts/qwen-webui-session.sh" \
+    "$temporary_directory/qwen-webui-session.post-read-control.sh"
+python3 - "$fixture_scripts/qwen-webui-session.sh" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+identity_read = "live_child_start=$(sed 's/^.*) //' \"/proc/$child_pid/stat\" | awk '{ print $20 }')"
+if source.count(identity_read) != 1:
+    raise SystemExit("initial child identity read was not unique")
+replacement = """live_child_start=$(sed 's/^.*) //' "/proc/$child_pid/stat" | awk '{ print $20 }')
+if [ "$child_name" = kernel_hazard_watchdog ]; then
+    kill -TERM "$child_pid" 2>/dev/null || true
+    wait "$child_pid" 2>/dev/null || true
+fi"""
+source = source.replace(identity_read, replacement)
+path.write_text(source)
+PYTHON
+post_read_state_directory=$temporary_directory/state-session-post-read-child-exit-race
+start_ready_session "$post_read_state_directory" 0
+post_read_watchdog_pid=$(read_status_field "$post_read_state_directory" \
+    kernel_hazard_watchdog_pid)
+kill -TERM "$session_pid"
+set +e
+wait "$session_pid"
+post_read_status=$?
+set -e
+session_pid=''
+server_pid=''
+if [ "$post_read_status" -ne 143 ] || \
+   grep -q "^cleanup_identity_mismatch component=kernel_hazard_watchdog pid=$post_read_watchdog_pid " \
+       "$post_read_state_directory/session-drain.record"; then
+    printf 'session rejected a child that exited after identity inspection\n' >&2
+    cat "$post_read_state_directory/session-drain.record" >&2
+    exit 1
+fi
+cp "$temporary_directory/qwen-webui-session.post-read-control.sh" \
+    "$fixture_scripts/qwen-webui-session.sh"
+
 # A child can also exit between the bounded wait and its second identity read.
 # Cleanup must accept that exit without weakening the live-pid mismatch check.
 cp "$fixture_scripts/qwen-webui-session.sh" \
